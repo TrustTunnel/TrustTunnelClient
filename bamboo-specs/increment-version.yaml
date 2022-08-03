@@ -31,7 +31,7 @@ Increment version:
         interpreter: SHELL
         scripts:
           - |-
-            set -x
+            set -x -e
             
             git config user.name "Bamboo"
             git config user.email "Bamboo"
@@ -44,7 +44,7 @@ Increment version:
             git remote set-url origin ${bamboo_planRepository_repositoryUrl}
             git pull
             git reset
-            git add common/include/vpn/version.h
+            git add conandata.yml
             git add CHANGELOG.md
             git commit -m "skipci: Automatic version increment by Bamboo"
             git push
