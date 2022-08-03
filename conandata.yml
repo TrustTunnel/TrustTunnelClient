@@ -14,5 +14,3 @@ requirements:
 commit_hash:
   "0.90.5":
     hash: "8349aca40ecd6df1e8b66c508e8f6e78f3769fb6"
-  "..1":
-    hash: "7ca78dc051e2b513f8566cfe4c86ade87c222c84"
