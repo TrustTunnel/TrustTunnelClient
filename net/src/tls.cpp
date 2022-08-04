@@ -88,40 +88,53 @@ STACK_OF(X509) * tls_get_chain(X509_STORE_CTX *ctx) {
     return chain;
 }
 
-TlsCert tls_serialize_cert(X509 *cert) {
-    TlsCert out{};
+static bool tls_serialize_cert(X509 *cert, TlsCert *out_cert) {
     int size = i2d_X509(cert, nullptr);
     if (size > 0) {
-        out.size = size;
-        out.data = new uint8_t[size];
-        auto *o = (unsigned char *) out.data;
+        out_cert->size = size;
+        out_cert->data = new uint8_t[size];
+        auto *o = (unsigned char *) out_cert->data;
         i2d_X509(cert, &o);
+        return true;
     }
-    return out;
+    return false;
+}
+
+TlsCert *tls_serialize_cert(X509 *cert) {
+    ag::DeclPtr<TlsCert, &tls_free_serialized_cert> out{new TlsCert{}};
+    if (tls_serialize_cert(cert, out.get())) {
+        return out.release();
+    }
+    return nullptr;
 }
 
 void tls_free_serialized_cert(TlsCert *cert) {
     if (cert) {
         delete[] cert->data;
+        delete cert;
     }
 }
 
-TlsChain tls_serialize_cert_chain(STACK_OF(X509) * chain) {
-    TlsChain out{};
-    out.size = sk_X509_num(chain);
-    out.data = new TlsCert[out.size];
+TlsChain *tls_serialize_cert_chain(STACK_OF(X509) * chain) {
+    ag::DeclPtr<TlsChain, &tls_free_serialized_chain> out{new TlsChain{}};
 
-    for (size_t i = 0; i < out.size; ++i) {
+    out->size = sk_X509_num(chain);
+    out->data = new TlsCert[out->size];
+
+    for (size_t i = 0; i < out->size; ++i) {
         X509 *x = sk_X509_value(chain, i);
-        out.data[i] = tls_serialize_cert(x);
+        if (!tls_serialize_cert(x, &out->data[out->size++])) {
+            return nullptr;
+        }
     }
 
-    return out;
+    return out.release();
 }
 
 void tls_free_serialized_chain(TlsChain *chain) {
     if (chain) {
         delete[] chain->data;
+        delete chain;
     }
 }
 

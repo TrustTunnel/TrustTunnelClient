@@ -51,11 +51,11 @@ WIN_EXPORT X509 *tls_get_cert(X509_STORE_CTX *ctx);
 WIN_EXPORT STACK_OF(X509) * tls_get_chain(X509_STORE_CTX *ctx);
 
 /**
- * Serialize certificate
- * @param cert certificate to serialize
- * @return buffer with the serialized certificate (empty if failed)
+ * Serialize certificate.
+ * @param cert Certificate to serialize.
+ * @return Serialized certificate, or NULL on failure, free with `tls_free_serialized_cert()`.
  */
-WIN_EXPORT TlsCert tls_serialize_cert(X509 *cert);
+WIN_EXPORT TlsCert *tls_serialize_cert(X509 *cert);
 
 /**
  * Free memory of serialized cert
@@ -65,9 +65,9 @@ WIN_EXPORT void tls_free_serialized_cert(TlsCert *cert);
 
 /**
  * Serialize certificate chain
- * @return pointer to serialized chain (should be free'd via `tls_free_serialized_chain`)
+ * @return Serialized chain, or NULL on failure, free with `tls_free_serialized_chain()`.
  */
-WIN_EXPORT TlsChain tls_serialize_cert_chain(STACK_OF(X509) * chain);
+WIN_EXPORT TlsChain *tls_serialize_cert_chain(STACK_OF(X509) * chain);
 
 /**
  * Free memory of serialized chain
