@@ -80,8 +80,10 @@ static void process_new_connection(UdpConnDescriptor *connection) {
 
     for (auto &packet : packets) {
         log_conn(connection, trace, "Sending queued packet");
-        err_t r = netif_input(packet.release(), netif);
-        if (ERR_OK != r) {
+        pbuf *buf = packet.release();
+        const err_t r = netif_input(buf, netif);
+        if (r != ERR_OK) {
+            pbuf_free(buf);
             log_conn(connection, err, "netif_input failed: {} ({})", lwip_strerr(r), r);
             udp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id);
             break;

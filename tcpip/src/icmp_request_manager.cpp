@@ -123,7 +123,12 @@ void icmp_rm_process_reply(TcpipCtx *ctx, const IcmpEchoReply *reply) {
     request->reply_type = reply->type;
     request->reply_code = reply->code;
 
-    netif_input(request->buffer, ctx->netif);
+    pbuf *buf = std::exchange(request->buffer, nullptr);
+    const err_t r = netif_input(buf, ctx->netif);
+    if (r != ERR_OK) {
+        pbuf_free(buf);
+        log_manager(ctx, dbg, "netif_input failed: {} ({})", lwip_strerr(r), r);
+    }
 }
 
 } // namespace ag
