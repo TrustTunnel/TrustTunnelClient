@@ -229,7 +229,7 @@ void udp_cm_close_descriptor(TcpipCtx *ctx, uint64_t id) {
 
 void udp_cm_enqueue_incoming_packet(UdpConnDescriptor *connection, struct pbuf *buffer, u16_t header_len) {
     // Restore IP header
-    pbuf_header(buffer, header_len);
+    pbuf_header_force(buffer, header_len);
 
     if (connection->pending_packets_bytes + buffer->tot_len <= UDP_SND_QUEUE_LIMIT) {
         connection->pending_packets_bytes += buffer->tot_len;
