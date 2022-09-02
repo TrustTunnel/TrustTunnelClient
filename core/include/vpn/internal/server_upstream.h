@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
+#include "common/defs.h"
 #include "vpn/internal/icmp_manager.h"
 #include "vpn/internal/utils.h"
 #include "vpn/vpn.h"
@@ -104,10 +106,10 @@ public:
      * Open session with server. Result will be raised asynchronously with
      * `SERVER_EVENT_SESSION_OPENED` in case of success, or with `SERVER_EVENT_ERROR` in case of
      * error.
-     * @param timeout_ms timeout of operation (if 0, the value from upstream settings will be used)
+     * @param timeout timeout of operation (if `nullopt`, the value from upstream settings will be used)
      * @return true if operation started successfully, false otherwise
      */
-    virtual bool open_session(uint32_t timeout_ms = 0) = 0;
+    virtual bool open_session(std::optional<Millis> timeout = std::nullopt) = 0;
 
     /**
      * Close session with server

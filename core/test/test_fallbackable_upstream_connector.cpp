@@ -27,7 +27,7 @@ public:
 
     void deinit() override {
     }
-    bool open_session(uint32_t) override {
+    bool open_session(std::optional<Millis>) override {
         this->called_methods.open_session = true;
         return this->return_values.open_session;
     }
@@ -106,13 +106,13 @@ protected:
     }
 
     void run_event_loop_once() {
-        vpn_event_loop_exit(m_loop.get(), 0);
+        vpn_event_loop_exit(m_loop.get(), Millis{0});
         vpn_event_loop_run(m_loop.get());
     }
 };
 
 TEST_F(FallbackableUpstreamConnectorTest, MainSucceedsBeforeFallbackStart) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_main_upstream->called_methods.open_session);
 
@@ -130,7 +130,7 @@ TEST_F(FallbackableUpstreamConnectorTest, MainSucceedsBeforeFallbackStart) {
 }
 
 TEST_F(FallbackableUpstreamConnectorTest, MainSucceedsFasterThanFallback) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_main_upstream->called_methods.open_session);
 
@@ -151,7 +151,7 @@ TEST_F(FallbackableUpstreamConnectorTest, MainSucceedsFasterThanFallback) {
 }
 
 TEST_F(FallbackableUpstreamConnectorTest, FallbackSucceedsFasterThanMain) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_main_upstream->called_methods.open_session);
 
@@ -172,7 +172,7 @@ TEST_F(FallbackableUpstreamConnectorTest, FallbackSucceedsFasterThanMain) {
 }
 
 TEST_F(FallbackableUpstreamConnectorTest, MainFailsFallbackSucceeds) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_main_upstream->called_methods.open_session);
 
@@ -196,7 +196,7 @@ TEST_F(FallbackableUpstreamConnectorTest, MainFailsFallbackSucceeds) {
 TEST_F(FallbackableUpstreamConnectorTest, NoDelayAfterImmediateMainFail) {
     m_main_upstream->return_values.open_session = false;
 
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
 
     this->run_event_loop_once();
@@ -207,7 +207,7 @@ TEST_F(FallbackableUpstreamConnectorTest, BothFailImmediately) {
     m_main_upstream->return_values.open_session = false;
     m_fallback_upstream->return_values.open_session = false;
 
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
 
     this->run_event_loop_once();
@@ -216,7 +216,7 @@ TEST_F(FallbackableUpstreamConnectorTest, BothFailImmediately) {
 }
 
 TEST_F(FallbackableUpstreamConnectorTest, BothFail) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_main_upstream->called_methods.open_session);
 

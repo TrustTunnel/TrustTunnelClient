@@ -1,10 +1,11 @@
-#include "ip_hooks.h"
+#include "vpn/platform.h"
 
 #include <lwip/ip.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcp.h>
 #include <lwip/udp.h>
 
+#include "ip_hooks.h"
 #include "net/utils.h"
 #include "tcpip_common.h"
 

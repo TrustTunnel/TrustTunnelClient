@@ -53,7 +53,7 @@ public:
 
     void deinit() override {
     }
-    bool open_session(uint32_t) override {
+    bool open_session(std::optional<Millis>) override {
         return true;
     }
     void close_session() override {
@@ -201,7 +201,7 @@ public:
         src = sockaddr_from_str("1.1.1.1:1000");
         dst = sockaddr_from_str("127.0.0.1:443");
 
-        vpn.parameters.handler = (vpn_client::Handler){&vpn_handler, this};
+        vpn.parameters.handler = {&vpn_handler, this};
 
         vpn.endpoint_upstream = std::make_unique<TestUpstream>();
         ASSERT_TRUE(vpn.endpoint_upstream->init(&vpn, {&redirect_upstream_handler, this}));
@@ -212,7 +212,7 @@ public:
 
         vpn.client_listener = std::make_unique<TestListener>();
         ASSERT_EQ(ClientListener::InitResult::SUCCESS,
-                vpn.client_listener->init(&vpn, (ClientHandler){&listener_handler, this}));
+                vpn.client_listener->init(&vpn, {&listener_handler, this}));
         client_listener = (TestListener *) vpn.client_listener.get();
 
         ASSERT_TRUE(tun.init(&vpn));
@@ -229,7 +229,7 @@ public:
     }
 
     void run_event_loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_exit(this->ev_loop.get(), 0);
+        vpn_event_loop_exit(this->ev_loop.get(), Millis{0});
         vpn_event_loop_run(this->ev_loop.get());
     }
 };

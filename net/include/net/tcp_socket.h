@@ -8,6 +8,7 @@
 #include <event2/dns.h>
 #include <openssl/ssl.h>
 
+#include "common/defs.h"
 #include "common/logger.h"
 #include "net/socket_manager.h"
 #include "net/utils.h"
@@ -51,7 +52,7 @@ typedef struct {
 typedef struct {
     VpnEventLoop *ev_loop;         // event loop
     TcpSocketHandler handler;      // socket events handler
-    uint32_t timeout_ms;           // operations timeout in milliseconds
+    Millis timeout;                // operations timeout
     SocketManager *socket_manager; // socket manager
     size_t read_threshold; // reaching this read buffer size causes stop reads from network (if 0, takes no effect)
 #ifdef _WIN32
@@ -153,9 +154,9 @@ evutil_socket_t tcp_socket_get_fd(const TcpSocket *socket);
 /**
  * Set timeout value for operations
  * @param socket socket
- * @param ms timeout in milliseconds
+ * @param x timeout
  */
-void tcp_socket_set_timeout(TcpSocket *socket, uint32_t ms);
+void tcp_socket_set_timeout(TcpSocket *socket, Millis x);
 
 /**
  * Make socket to support both ipv4 and ipv6 connections

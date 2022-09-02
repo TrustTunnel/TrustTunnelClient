@@ -106,9 +106,9 @@ struct Ping {
     uint32_t rounds_total;
     uint32_t round_timeout_ms;
 
-    ag::AutoTaskId prepare_task_id;
-    ag::AutoTaskId connect_task_id;
-    ag::AutoTaskId report_task_id;
+    event_loop::AutoTaskId prepare_task_id;
+    event_loop::AutoTaskId connect_task_id;
+    event_loop::AutoTaskId report_task_id;
 
     bool have_round_winner;
 };
@@ -155,7 +155,7 @@ static void on_event(evutil_socket_t fd, short, void *arg) {
     if (self->syn_sent.empty() && self->pending.empty()) {
         log_ping(self, dbg, "Completed round {} of {}", self->rounds_started, self->rounds_total);
         evtimer_del(self->timer.get());
-        self->prepare_task_id = ag::submit(self->loop,
+        self->prepare_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self,
                         .action =
@@ -182,7 +182,7 @@ static void on_timer(evutil_socket_t, short, void *arg) {
     }
 
     self->connect_task_id.reset();
-    self->prepare_task_id = ag::submit(self->loop,
+    self->prepare_task_id = event_loop::submit(self->loop,
             {
                     .arg = self,
                     .action =
@@ -241,7 +241,7 @@ error:
 next:
     if (!self->pending.empty()) {
         // Schedule next connect. Don't connect all in one go to avoid stalling the loop.
-        self->connect_task_id = ag::schedule(self->loop,
+        self->connect_task_id = event_loop::schedule(self->loop,
                 {
                         .arg = self,
                         .action =
@@ -249,7 +249,7 @@ next:
                                     do_connect(arg);
                                 },
                 },
-                1 /*ms to force libevent ot poll/select between connect callss*/);
+                Millis{1} /*ms to force libevent ot poll/select between connect callss*/);
     }
 }
 
@@ -289,7 +289,7 @@ static void do_report(void *arg) {
     return;
 
 schedule_next:
-    self->report_task_id = ag::submit(self->loop,
+    self->report_task_id = event_loop::submit(self->loop,
             {
                     .arg = self,
                     .action =
@@ -314,7 +314,7 @@ static void do_prepare(void *arg) {
     if (self->rounds_total == self->rounds_started) {
         log_ping(self, dbg, "Pinging done, reporting results", self->rounds_started, self->rounds_total);
         self->timer.reset();
-        self->report_task_id = ag::submit(self->loop,
+        self->report_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self,
                         .action =
@@ -386,7 +386,7 @@ static void do_prepare(void *arg) {
         if (self->rounds_started != self->rounds_total) {
             self->pending.splice(self->pending.end(), self->errors);
         }
-        self->prepare_task_id = ag::submit(self->loop,
+        self->prepare_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self,
                         .action =
@@ -396,7 +396,7 @@ static void do_prepare(void *arg) {
                 });
     } else {
         // Start first connect
-        self->connect_task_id = ag::submit(self->loop,
+        self->connect_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self,
                         .action =
@@ -490,7 +490,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     }
 
     if (self->pending.empty()) {
-        self->report_task_id = ag::submit(self->loop,
+        self->report_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self.get(),
                         .action =
@@ -499,7 +499,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
                                 },
                 });
     } else {
-        self->prepare_task_id = ag::submit(self->loop,
+        self->prepare_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self.get(),
                         .action =

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.1)
 project(core C CXX)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
@@ -47,10 +47,6 @@ if(NOT TARGET vpnlibs_net)
     add_subdirectory(${VPN_LIB_DIR}/net ${CMAKE_BINARY_DIR}/net)
 endif(NOT TARGET vpnlibs_net)
 
-if(NOT TARGET fflibs_static)
-    add_subdirectory(${THIRD_PARTY_DIR}/fflibs ${CMAKE_BINARY_DIR}/third-party/fflibs_static)
-endif(NOT TARGET fflibs_static)
-
 add_library(vpnlibs_core STATIC EXCLUDE_FROM_ALL ${SOURCE_FILES})
 set_target_properties(vpnlibs_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if (NOT MSVC)
@@ -67,7 +63,7 @@ target_include_directories(vpnlibs_core PUBLIC include)
 target_link_libraries(vpnlibs_core vpnlibs_common vpnlibs_net)
 target_link_libraries(vpnlibs_core CONAN_PKG::klib CONAN_PKG::magic_enum CONAN_PKG::libevent)
 target_link_libraries(vpnlibs_core CONAN_PKG::dns-libs)
-target_link_libraries(vpnlibs_core fflibs_static CONAN_PKG::quiche)
+target_link_libraries(vpnlibs_core CONAN_PKG::quiche)
 if (WIN32)
     target_link_libraries(vpnlibs_core BCrypt) # Quiche requirement
 endif()
@@ -129,8 +125,6 @@ link_libraries(module_vpncore_mocked)
 add_unit_test(test_domain_filter "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE FALSE)
 add_unit_test(test_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE FALSE)
 add_unit_test(test_domain_lookuper "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE FALSE)
-# for some tls messages dumps
-set_source_files_properties(${TEST_DIR}/test_domain_lookuper.cpp PROPERTY COMPILE_FLAGS "${CMAKE_C_FLAGS} -Wno-narrowing")
 
 add_unit_test(test_tunnel "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_memory_buffer "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)

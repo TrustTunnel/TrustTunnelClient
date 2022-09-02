@@ -44,7 +44,7 @@ struct Tunnel {
     bool endpoint_upstream_connected = false;
     std::unique_ptr<VpnDnsResolver> dns_resolver;
     std::unordered_map<VpnDnsResolveId, DnsResolveWaiter> dns_resolve_waiters;
-    ag::AutoTaskId repeat_exclusions_resolve_task;
+    event_loop::AutoTaskId repeat_exclusions_resolve_task;
     std::unique_ptr<ServerUpstream> fake_upstream;
     DnsSniffer dns_sniffer;
 

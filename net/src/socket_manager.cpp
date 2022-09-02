@@ -173,7 +173,7 @@ bool socket_manager_complete_write(SocketManager *manager, struct bufferevent *b
 
     if (!manager->deferred_writes.timer_id.has_value()) {
         int id = manager->timer_subscribe(
-                bufferevent_get_base(bev), timeval_to_ms(LINGER_TV), deferred_write_timer_tick, manager);
+                bufferevent_get_base(bev), uint32_t(timeval_to_ms(LINGER_TV)), deferred_write_timer_tick, manager);
         if (id < 0) {
             return false;
         }

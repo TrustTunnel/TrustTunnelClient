@@ -24,7 +24,7 @@ public:
     }
     void deinit() override {
     }
-    bool open_session(uint32_t) override {
+    bool open_session(std::optional<Millis>) override {
         this->called_methods.open_session = true;
         return this->return_values.open_session;
     }
@@ -94,13 +94,13 @@ protected:
     }
 
     void run_event_loop_once() {
-        vpn_event_loop_exit(m_loop.get(), 0);
+        vpn_event_loop_exit(m_loop.get(), Millis{0});
         vpn_event_loop_run(m_loop.get());
     }
 };
 
 TEST_F(SingleUpstreamConnectorTest, Successful) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_upstream->called_methods.open_session);
 
@@ -117,12 +117,12 @@ TEST_F(SingleUpstreamConnectorTest, Successful) {
 TEST_F(SingleUpstreamConnectorTest, OpenSessionStartFail) {
     m_upstream->return_values.open_session = false;
 
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_NE(err.code, VPN_EC_NOERROR);
 }
 
 TEST_F(SingleUpstreamConnectorTest, OpenSessionFailed) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_upstream->called_methods.open_session);
 
@@ -137,7 +137,7 @@ TEST_F(SingleUpstreamConnectorTest, OpenSessionFailed) {
 TEST_F(SingleUpstreamConnectorTest, HelthCheckStartFail) {
     m_upstream->return_values.do_health_check = {-1, "test"};
 
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_upstream->called_methods.open_session);
 
@@ -151,7 +151,7 @@ TEST_F(SingleUpstreamConnectorTest, HelthCheckStartFail) {
 }
 
 TEST_F(SingleUpstreamConnectorTest, HealthCheckFailed) {
-    VpnError err = m_connector->connect(0);
+    VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
     ASSERT_TRUE(m_upstream->called_methods.open_session);
 

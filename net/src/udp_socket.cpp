@@ -37,7 +37,7 @@ void socket_manager_timer_unsubscribe(SocketManager *manager, int id);
 static struct timeval get_next_timeout_ts(const UdpSocket *sock) {
     struct timeval now;
     event_base_gettimeofday_cached(vpn_event_loop_get_base(sock->parameters.ev_loop), &now);
-    struct timeval timeout_tv = ms_to_timeval(sock->parameters.timeout_ms);
+    struct timeval timeout_tv = ms_to_timeval(uint32_t(sock->parameters.timeout.count()));
 
     struct timeval next_timeout_ts;
     evutil_timeradd(&now, &timeout_tv, &next_timeout_ts);
@@ -133,7 +133,7 @@ UdpSocket *udp_socket_create(const UdpSocketParameters *parameters) {
         }
 
         sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
-                sock->parameters.timeout_ms, timer_callback, sock);
+                uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
         if (sock->subscribe_id < 0) {
             log_sock(sock, err, "Failed to subscribe for timer events");
             goto fail;

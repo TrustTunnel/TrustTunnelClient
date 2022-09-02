@@ -10,6 +10,7 @@
 
 #include <event2/dns.h>
 
+#include "common/defs.h"
 #include "common/logger.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
@@ -33,11 +34,10 @@ enum ClientConnectionState {
 };
 
 struct RecoveryInfo {
-    std::chrono::milliseconds start_ts{0};         // session recovery start timestamp
-    std::chrono::milliseconds attempt_start_ts{0}; // last recovery attempt start timestamp
-    uint32_t attempt_interval_ms =
-            ag::VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS; // last interval between recovery attempts
-    uint32_t to_next_ms = 0;                              // left to next attempt
+    std::chrono::time_point<std::chrono::steady_clock> start_ts;             // session recovery start timestamp
+    std::chrono::time_point<std::chrono::steady_clock> attempt_start_ts;     // last recovery attempt start timestamp
+    Millis attempt_interval{ag::VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS}; // last interval between recovery attempts
+    Millis to_next{};                                                        // left to next attempt
 };
 
 struct SelectedEndpointInfo {
@@ -79,7 +79,7 @@ struct Vpn {
     void stop_pinging();
     void disconnect();
     bool run_event_loop();
-    void submit(std::function<void()> &&func, uint32_t ms = 0);
+    void submit(std::function<void()> &&func, std::optional<Millis> defer = std::nullopt);
     /**
      * Get endpoint to connect to
      * @return the selected one if some, the first active from the location list otherwise
@@ -134,7 +134,7 @@ struct Vpn {
 
     mutable std::mutex stop_guard;
 
-    ag::AutoTaskId update_exclusions_task; // Guarded by stop_guard
+    event_loop::AutoTaskId update_exclusions_task; // Guarded by stop_guard
 
     ag::Logger log{vpn_manager::LOG_NAME};
     int id;

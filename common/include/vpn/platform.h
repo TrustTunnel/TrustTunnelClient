@@ -20,7 +20,6 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/tcp.h>
 #include <netinet/in.h>
 #include <pwd.h>
 #include <sys/socket.h>
@@ -72,6 +71,14 @@ static inline pid_t gettid(void) {
 #endif //__MACH__
 
 #ifdef _WIN32
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#ifndef _UNICODE
+#define _UNICODE
+#endif
 
 #define AG_ERR_IS_EAGAIN(err) (WSAEWOULDBLOCK == (err))
 #define AG_ENETUNREACH WSAENETUNREACH
@@ -167,3 +174,13 @@ static inline uint32_t gettid() {
 #ifndef DEFAULT_CONNECTION_MEMORY_BUFFER_SIZE
 #define DEFAULT_CONNECTION_MEMORY_BUFFER_SIZE (4 * 1024 * 1024)
 #endif // DEFAULT_CONNECTION_MEMORY_BUFFER_SIZE
+
+namespace ag::sys {
+
+/** Get the code of the last error happened */
+int last_error();
+
+/** Get the error description */
+const char *strerror(int code);
+
+} // namespace ag::sys

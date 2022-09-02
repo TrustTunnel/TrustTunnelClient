@@ -28,7 +28,7 @@ public:
 private:
     struct Connection {
         std::unique_ptr<SocketContext> sock_ctx;
-        ag::AutoTaskId close_task_id;
+        event_loop::AutoTaskId close_task_id;
     };
 
     struct TcpConnection : public Connection {
@@ -38,7 +38,7 @@ private:
     struct UdpConnection : public Connection {
         UdpSocketPtr socket;
         bool read_enabled = false;
-        ag::AutoTaskId open_task_id;
+        event_loop::AutoTaskId open_task_id;
     };
 
     struct IcmpRequestInfo;
@@ -51,7 +51,7 @@ private:
 
     bool init(VpnClient *vpn, SeverHandler handler) override;
     void deinit() override;
-    bool open_session(uint32_t timeout_ms) override;
+    bool open_session(std::optional<Millis> timeout) override;
     void close_session() override;
     uint64_t open_connection(const TunnelAddressPair *addr, int proto, std::string_view app_name) override;
     void close_connection(uint64_t id, bool graceful, bool async) override;

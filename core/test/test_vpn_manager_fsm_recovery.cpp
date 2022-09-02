@@ -23,7 +23,7 @@ struct TestUpstream : public ServerUpstream {
     }
     void deinit() override {
     }
-    bool open_session(uint32_t) override {
+    bool open_session(std::optional<Millis>) override {
         return true;
     }
     void close_session() override {
@@ -53,7 +53,7 @@ struct TestUpstream : public ServerUpstream {
     }
 };
 
-static constexpr int TIMEOUT_MS = 10000;
+static constexpr Secs TIMEOUT{ 10 };
 
 struct ConnectingVpnManagerTest : MockedTest {
     Vpn *vpn = nullptr;
@@ -69,7 +69,7 @@ struct ConnectingVpnManagerTest : MockedTest {
         vpn = vpn_open(&settings);
         ASSERT_TRUE(vpn);
 
-        vpn_event_loop_exit(vpn->ev_loop.get(), 0);
+        vpn_event_loop_exit(vpn->ev_loop.get(), Millis{0});
         vpn_event_loop_finalize_exit(vpn->ev_loop.get());
 
         VpnConnectParameters parameters = {
@@ -110,15 +110,14 @@ struct ConnectingVpnManagerTest : MockedTest {
         case VPN_EVENT_STATE_CHANGED: {
             auto *event = (VpnStateChangedEvent *) data;
             self->session_state = event->state;
-            vpn_event_loop_exit(self->vpn->ev_loop.get(), 0);
+            vpn_event_loop_exit(self->vpn->ev_loop.get(), Millis{0});
             break;
         }
         }
     }
 
     bool await_state_change(VpnSessionState expected,
-            std::chrono::nanoseconds timeout = std::chrono::nanoseconds{
-                    0}) { // NOLINT(readability-make-member-function-const)
+            std::optional<Millis> timeout = std::nullopt) { // NOLINT(readability-make-member-function-const)
         using namespace std::chrono;
         TaskId timeout_task_id = vpn_event_loop_schedule(vpn->ev_loop.get(),
                 {
@@ -127,17 +126,17 @@ struct ConnectingVpnManagerTest : MockedTest {
                                 [](void *arg, TaskId) {
                                     auto *self = (ConnectingVpnManagerTest *) arg;
                                     self->timed_out = true;
-                                    vpn_event_loop_exit(self->vpn->ev_loop.get(), 0);
+                                    vpn_event_loop_exit(self->vpn->ev_loop.get(), Millis{0});
                                 },
                 },
-                timeout.count() == 0 ? TIMEOUT_MS : duration_cast<milliseconds>(timeout).count());
+                timeout.value_or(TIMEOUT));
         vpn_event_loop_run(vpn->ev_loop.get());
         vpn_event_loop_cancel(vpn->ev_loop.get(), timeout_task_id);
         return !std::exchange(timed_out, false) && std::exchange(session_state, std::nullopt) == expected;
     }
 
     void loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_exit(vpn->ev_loop.get(), 0);
+        vpn_event_loop_exit(vpn->ev_loop.get(), Millis{0});
         vpn_event_loop_run(vpn->ev_loop.get());
     }
 

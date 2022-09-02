@@ -55,7 +55,7 @@ public:
     }
 
     void run_event_loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_exit(this->ev_loop.get(), 0);
+        vpn_event_loop_exit(this->ev_loop.get(), Millis{0});
         vpn_event_loop_run(this->ev_loop.get());
     }
 

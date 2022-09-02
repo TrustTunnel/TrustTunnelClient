@@ -533,13 +533,15 @@ int http2_session_send_headers(HttpSession *session, int32_t stream_id, const Ht
     log_sid(session, stream_id, trace, "eof={}", (int) eof);
 
     std::vector<NameValue> nva = http_headers_to_nv_list(headers);
-    nghttp2_nv ng_nva[nva.size()];
-    for (size_t i = 0; i < nva.size(); ++i) {
-        memset(&ng_nva[i], 0, sizeof(ng_nva[i]));
-        ng_nva[i].name = nva[i].name.data();
-        ng_nva[i].namelen = nva[i].name.size();
-        ng_nva[i].value = nva[i].value.data();
-        ng_nva[i].valuelen = nva[i].value.size();
+    std::vector<nghttp2_nv> ng_nva;
+    ng_nva.reserve(nva.size());
+    for (const auto &[name, value] : nva) {
+        ng_nva.push_back(nghttp2_nv{
+                .name = (uint8_t *)name.data(),
+                .value = (uint8_t *)value.data(),
+                .namelen = name.size(),
+                .valuelen = value.size(),
+        });
     }
 
     Http2Session *h2_session = session->h2;
@@ -562,9 +564,9 @@ int http2_session_send_headers(HttpSession *session, int32_t stream_id, const Ht
         }
 
         nghttp2_session_set_next_stream_id(ngsession, stream_id);
-        nghttp2_submit_headers(ngsession, flags, -1, nullptr, ng_nva, nva.size(), nullptr);
+        nghttp2_submit_headers(ngsession, flags, -1, nullptr, ng_nva.data(), ng_nva.size(), nullptr);
     } else {
-        nghttp2_submit_headers(ngsession, flags, stream_id, nullptr, ng_nva, nva.size(), nullptr);
+        nghttp2_submit_headers(ngsession, flags, stream_id, nullptr, ng_nva.data(), ng_nva.size(), nullptr);
     }
     int r = nghttp2_session_send(ngsession);
     if (r != 0) {

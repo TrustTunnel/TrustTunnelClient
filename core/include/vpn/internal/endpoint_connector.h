@@ -1,8 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <variant>
 
+#include "common/defs.h"
 #include "vpn/event_loop.h"
 #include "vpn/internal/server_upstream.h"
 
@@ -54,10 +56,10 @@ public:
 
     /**
      * Initiate the connection
-     * @param timeout_ms the procedure timeout
+     * @param timeout the procedure timeout
      * @return some error if failed to start
      */
-    virtual VpnError connect(uint32_t timeout_ms) = 0;
+    virtual VpnError connect(std::optional<Millis> timeout) = 0;
 
     /**
      * Interrupt the connection procedure

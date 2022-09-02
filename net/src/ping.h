@@ -2,29 +2,27 @@
 
 #include <string_view>
 
-#include <FF/array.h>
-
 #include "vpn/event_loop.h"
 
 namespace ag {
 
-typedef struct Ping Ping;
+struct Ping;
 
-typedef enum {
+enum PingStatus {
     PING_OK,           // pinged successfully
     PING_FINISHED,     // all addresses were pinged
     PING_SOCKET_ERROR, // failed to establish connection
     PING_TIMEDOUT,     // connection timed out
-} PingStatus;
+};
 
-typedef struct {
+struct PingResult {
     Ping *ping;                  // ping pointer (don't delete from callback unless PING_FINISHED is reported)
     PingStatus status;           // ping status
     const struct sockaddr *addr; // pinged address
     int ms;                      // RTT value
-} PingResult;
+};
 
-typedef struct {
+struct PingInfo {
     VpnEventLoop *loop;                             ///< Event loop
     std::basic_string_view<sockaddr_storage> addrs; ///< List of addresses to ping
 
@@ -40,12 +38,12 @@ typedef struct {
     bool query_all_interfaces;
 
     uint32_t nrounds; ///< Number of pinging rounds. If 0, `DEFAULT_PING_ROUNDS` will be assigned.
-} PingInfo;
+};
 
-typedef struct {
+struct PingHandler {
     void (*func)(void *arg, const PingResult *result);
     void *arg;
-} PingHandler;
+};
 
 /**
  * Ping the given addresses.

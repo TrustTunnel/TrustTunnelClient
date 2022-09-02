@@ -1,14 +1,13 @@
-#include "net/tcp_socket.h"
-
-#include <sys/types.h>
+// Must precede openssl includes to avoid conflicts on Windows
+#include "vpn/platform.h"
 
 #include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <cstring>
+#include <sys/types.h>
+#include <vector>
 
-#include <FF/number.h>
-#include <FFOS/error.h>
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/bufferevent_ssl.h>
@@ -19,6 +18,7 @@
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "net/socket_manager.h"
+#include "net/tcp_socket.h"
 #include "vpn/utils.h"
 
 extern "C" {
@@ -31,7 +31,7 @@ void evutil_getaddrinfo_cancel_async_(struct evdns_getaddrinfo_request *data);
 
 namespace ag {
 
-static ag::Logger g_logger{"TCP_SOCKET"};
+static Logger g_logger{"TCP_SOCKET"};
 
 #define log_sock(s_, lvl_, fmt_, ...) lvl_##log(g_logger, "[{}] " fmt_, (s_)->log_id, ##__VA_ARGS__)
 
@@ -210,7 +210,8 @@ void tcp_socket_set_read_enabled(TcpSocket *socket, bool flag) {
         const struct evbuffer *buffer = bufferevent_get_input(bev);
         if (socket->complete_read_task_id < 0 && evbuffer_get_length(buffer) > 0) {
             socket->complete_read_task_id = vpn_event_loop_submit(
-                    socket->parameters.ev_loop, (VpnEventLoopTask){socket, complete_read, nullptr});
+                    socket->parameters.ev_loop, {socket, complete_read, nullptr}
+            );
             if (0 > socket->complete_read_task_id) {
                 log_sock(socket, err, "Failed to schedule manual read complete event");
                 socket->complete_read_task_id = -1;
@@ -226,7 +227,7 @@ VpnError tcp_socket_write(TcpSocket *socket, const uint8_t *data, size_t length)
 
     VpnError error = {bufferevent_write(bev, data, length), ""};
     if (error.code == 0) {
-        tcp_socket_set_timeout(socket, socket->parameters.timeout_ms);
+        tcp_socket_set_timeout(socket, socket->parameters.timeout);
     } else {
         error = make_vpn_error_from_fd(bufferevent_getfd(bev));
     }
@@ -247,7 +248,7 @@ static void on_read(struct bufferevent *bev, void *ctx) {
         socket->complete_read_task_id = -1;
     }
 
-    tcp_socket_set_timeout(socket, socket->parameters.timeout_ms);
+    tcp_socket_set_timeout(socket, socket->parameters.timeout);
 
     bool readable = bufferevent_get_enabled(bev) & EV_READ;
     if (!readable) {
@@ -261,8 +262,8 @@ static void on_read(struct bufferevent *bev, void *ctx) {
     size_t available_to_read = evbuffer_get_length(buffer);
     int chunks_to_peek = evbuffer_peek(buffer, available_to_read, nullptr, nullptr, 0);
 
-    struct evbuffer_iovec chunks[chunks_to_peek];
-    size_t chunks_peeked = evbuffer_peek(buffer, available_to_read, nullptr, chunks, chunks_to_peek);
+    std::vector<evbuffer_iovec> chunks(chunks_to_peek);
+    size_t chunks_peeked = evbuffer_peek(buffer, available_to_read, nullptr, chunks.data(), chunks.size());
 
     size_t bytes_read = 0u;
     for (size_t i = 0; i < chunks_peeked && readable; ++i) {
@@ -332,7 +333,7 @@ static void on_event(struct bufferevent *bev, short what, void *ctx) {
         TcpSocketReadEvent e = {nullptr, 0, 0};
         callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READ, &e);
     } else if (what & BEV_EVENT_TIMEOUT) {
-        struct timeval timeout_tv = ms_to_timeval(socket->parameters.timeout_ms);
+        struct timeval timeout_tv = ms_to_timeval(uint32_t(socket->parameters.timeout.count()));
         struct timeval expected_timeout_ts;
         evutil_timeradd(&socket->timeouts_set_ts, &timeout_tv, &expected_timeout_ts);
         struct timeval now;
@@ -342,7 +343,7 @@ static void on_event(struct bufferevent *bev, short what, void *ctx) {
             log_sock(socket, dbg, "Ignoring timeout event raised just after refreshed time outs");
         } else {
             log_sock(socket, dbg, "Timeout event");
-            VpnError e = {ag::utils::AG_ETIMEDOUT, evutil_socket_error_to_string(ag::utils::AG_ETIMEDOUT)};
+            VpnError e = {utils::AG_ETIMEDOUT, evutil_socket_error_to_string(utils::AG_ETIMEDOUT)};
             callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_ERROR, &e);
         }
     } else if (what & BEV_EVENT_ERROR) {
@@ -366,7 +367,7 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
 
     VpnError e = {};
     if (socket->flags & SF_CONNECT_CALLED) {
-        e = (VpnError){-1, "Unexpected synchronous connect event"};
+        e = {-1, "Unexpected synchronous connect event"};
         // it seems like libevent should always raise callbacks asynchronously
         // with `BEV_OPT_DEFER_CALLBACKS` flag set
         assert(0);
@@ -387,16 +388,16 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
             if (status != ERROR_SUCCESS) {
                 // not fatal
                 log_sock(socket, dbg, "Failed to get row from TCP table: status={} ({}) system error={} ({})",
-                        fferr_strp(status), (int) status, fferr_strp(fferr_last()), (int) fferr_last());
+                        sys::strerror(status), status, sys::strerror(sys::last_error()), sys::last_error());
             }
         }
 #endif // _WIN32
     } else if (what & BEV_EVENT_TIMEOUT) {
-        e = (VpnError){ag::utils::AG_ETIMEDOUT, evutil_socket_error_to_string(ag::utils::AG_ETIMEDOUT)};
+        e = {utils::AG_ETIMEDOUT, evutil_socket_error_to_string(utils::AG_ETIMEDOUT)};
     } else {
         e = get_error(socket);
         if (e.code == UNKNOWN_ERROR.code && 0 == strcmp(e.text, UNKNOWN_ERROR.text)) {
-            e = (VpnError){ag::utils::AG_ECONNREFUSED, evutil_socket_error_to_string(ag::utils::AG_ECONNREFUSED)};
+            e = {utils::AG_ECONNREFUSED, evutil_socket_error_to_string(utils::AG_ECONNREFUSED)};
         }
     }
 
@@ -430,14 +431,14 @@ static void on_host_resolved(int err, struct evutil_addrinfo *resolved, void *ar
         e.text = evutil_gai_strerror(err);
         log_sock(socket, dbg, "Failed to resolve host: {} ({})", e.text, e.code);
     } else {
-        if (g_logger.is_enabled(ag::LogLevel::LOG_LEVEL_DEBUG)) {
+        if (g_logger.is_enabled(LogLevel::LOG_LEVEL_DEBUG)) {
             char dst[SOCKADDR_STR_BUF_SIZE];
             sockaddr_to_str(resolved->ai_addr, dst, sizeof(dst));
             log_sock(socket, dbg, "Resolved successfully: {}", dst);
         }
         socket->bev = create_bufferevent(socket, resolved->ai_addr, socket->ssl);
         if (socket->bev == nullptr) {
-            e = (VpnError){-1, "Failed to create buffer event after resolve"};
+            e = {-1, "Failed to create buffer event after resolve"};
         } else {
             socket->ssl = nullptr;
             bool is_sync_connect = !!(socket->flags & SF_CONNECT_CALLED);
@@ -489,7 +490,7 @@ static void on_resolve_timeout(evutil_socket_t, short, void *arg) {
         socket->dns_request = nullptr;
 
         TcpSocketHandler *callbacks = &socket->parameters.handler;
-        VpnError e = {ag::utils::AG_ETIMEDOUT, evutil_socket_error_to_string(ag::utils::AG_ETIMEDOUT)};
+        VpnError e = {utils::AG_ETIMEDOUT, evutil_socket_error_to_string(utils::AG_ETIMEDOUT)};
         callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_ERROR, &e);
     }
 }
@@ -500,7 +501,7 @@ static struct bufferevent *wrap_fd(TcpSocket *socket, evutil_socket_t fd) {
     int options = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE;
     struct event_base *base = vpn_event_loop_get_base(socket->parameters.ev_loop);
     bev = bufferevent_socket_new(base, fd, options);
-    struct timeval tv = ms_to_timeval(socket->parameters.timeout_ms);
+    timeval tv = ms_to_timeval(uint32_t(socket->parameters.timeout.count()));
 
     if (bev == nullptr) {
         log_sock(socket, err, "Failed to create bufferevent");
@@ -573,7 +574,7 @@ static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sock
         goto fail;
     }
 
-    tv = ms_to_timeval(sock->parameters.timeout_ms);
+    tv = ms_to_timeval(uint32_t(sock->parameters.timeout.count()));
     if (bufferevent_set_timeouts(bev, &tv, &tv) != 0) {
         log_sock(sock, err, "Failed to set bufferevent timeouts");
         goto fail;
@@ -657,7 +658,7 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
             goto fail;
         }
 
-        const struct timeval tv = ms_to_timeval(socket->parameters.timeout_ms);
+        const timeval tv = ms_to_timeval(uint32_t(socket->parameters.timeout.count()));
         event_add(socket->resolve_timeout_event, &tv);
 
         log_sock(socket, dbg, "Resolving...");
@@ -676,12 +677,12 @@ fail:
         socket->dns_request = nullptr;
     }
     if (error.code == 0) {
-        error = (VpnError){-1, "Internal error"};
+        error = {-1, "Internal error"};
     }
 
 exit:
     socket->flags &= ~SF_CONNECT_CALLED;
-    socket->pending_connect_error = (VpnError){};
+    socket->pending_connect_error = {};
     return error;
 }
 
@@ -694,7 +695,7 @@ VpnError tcp_socket_acquire_fd(TcpSocket *socket, evutil_socket_t fd) {
 
     socket->bev = wrap_fd(socket, fd);
     if (socket->bev == nullptr) {
-        return (VpnError){-1, "Failed to wrap fd in bufferevent"};
+        return {-1, "Failed to wrap fd in bufferevent"};
     }
 
     set_nodelay(fd);
@@ -703,16 +704,16 @@ VpnError tcp_socket_acquire_fd(TcpSocket *socket, evutil_socket_t fd) {
     bufferevent_setcb(socket->bev, on_read, (bufferevent_data_cb) on_write_flush, on_event, socket);
     evbuffer_add_cb(bufferevent_get_output(socket->bev), &on_sent_event, socket);
 
-    return (VpnError){};
+    return {};
 }
 
 evutil_socket_t tcp_socket_get_fd(const TcpSocket *socket) {
     return bufferevent_getfd(socket->bev);
 }
 
-void tcp_socket_set_timeout(TcpSocket *socket, uint32_t ms) {
-    socket->parameters.timeout_ms = ms;
-    const struct timeval tv = ms_to_timeval(ms);
+void tcp_socket_set_timeout(TcpSocket *socket, Millis x) {
+    socket->parameters.timeout = x;
+    const timeval tv = ms_to_timeval(uint32_t(x.count()));
     int r = bufferevent_set_timeouts(socket->bev, &tv, &tv);
     event_base_gettimeofday_cached(bufferevent_get_base(socket->bev), &socket->timeouts_set_ts);
     (void) r;
@@ -725,6 +726,8 @@ int make_fd_dual_stack(evutil_socket_t fd) {
 }
 
 #ifdef __linux__
+
+#include <linux/tcp.h>
 
 static inline int get_tcp_info(evutil_socket_t fd, struct tcp_info *ti) {
     socklen_t tisize = sizeof(*ti);
@@ -1050,13 +1053,14 @@ static ULONG get_tcp_row_for_socket(const TcpSocket *socket, void **connect_row)
 }
 
 static ULONG turn_on_estats(const TcpSocket *socket) {
+    int family = get_family(socket);
+
     void *connect_row = nullptr;
     ULONG status = get_tcp_row_for_socket(socket, &connect_row);
     if (status != ERROR_SUCCESS) {
         goto done;
     }
 
-    int family = get_family(socket);
     status = turn_on_estats_(connect_row, family, TcpConnectionEstatsData);
     if (status != ERROR_SUCCESS) {
         goto done;
@@ -1075,24 +1079,25 @@ done:
 TcpFlowCtrlInfo tcp_socket_flow_control_info(const TcpSocket *socket) {
     // @todo: consider using
     // https://docs.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getpertcpconnectionestats
-    return (TcpFlowCtrlInfo){tcp_socket_available_to_write(socket), DEFAULT_SEND_WINDOW_SIZE};
+    return {tcp_socket_available_to_write(socket), DEFAULT_SEND_WINDOW_SIZE};
 }
 
 VpnConnectionStats tcp_socket_get_stats(const TcpSocket *socket) {
     VpnConnectionStats stats = {};
+    int family = get_family(socket);
+
     void *connect_row = nullptr;
     ULONG status = get_tcp_row_for_socket(socket, &connect_row);
     if (status != ERROR_SUCCESS) {
         log_sock(socket, dbg, "Failed to get row from TCP table: status={} ({}) system error={} ({})",
-                fferr_strp(status), (int) status, fferr_strp(fferr_last()), (int) fferr_last());
+                sys::strerror(status), status, sys::strerror(sys::last_error()), sys::last_error());
         goto done;
     }
 
-    int family = get_family(socket);
     status = get_stats(connect_row, family, &stats);
     if (status != ERROR_SUCCESS) {
-        log_sock(socket, dbg, "Failed to get stats: status={} ({}) system error={} ({})", fferr_strp(status),
-                (int) status, fferr_strp(fferr_last()), (int) fferr_last());
+        log_sock(socket, dbg, "Failed to get stats: status={} ({}) system error={} ({})", sys::strerror(status), status,
+                sys::strerror(sys::last_error()), sys::last_error());
         goto done;
     }
 

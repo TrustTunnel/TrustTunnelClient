@@ -1,4 +1,4 @@
-#include "tcpip_common.h"
+#include "vpn/platform.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -6,10 +6,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
+#include <csignal>
+#include <cstdlib>
+#include <cstring>
+#include <span>
+#include <vector>
 
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -24,6 +25,7 @@
 #include "libevent_lwip.h"
 #include "tcp_conn_manager.h"
 #include "tcpip/tcpip.h"
+#include "tcpip_common.h"
 #include "tcpip_util.h"
 #include "udp_conn_manager.h"
 #include "vpn/utils.h"
@@ -40,27 +42,30 @@ static const TimerTickNotifyFn TIMER_TICK_NOTIFIERS[] = {
 };
 
 static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len);
-static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, evbuffer_iovec *iov, int iov_cnt);
+static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks);
 static void open_pcap_file(TcpipCtx *ctx, const char *pcap_filename);
 static void process_input_packet(TcpipCtx *ctx, VpnPacket *packet);
 #ifdef __MACH__
-static err_t tun_output_to_utun_fd(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num, int family);
+static err_t tun_output_to_utun_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks, int family);
 #endif /* __MACH__ */
 #ifndef _WIN32
-static err_t tun_output_to_fd(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num);
+static err_t tun_output_to_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks);
 #endif
-static err_t tun_output_to_callback(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num, int family);
+static err_t tun_output_to_callback(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks, int family);
 
 static err_t tun_output(const struct netif *netif, const struct pbuf *packet_buffer, int family) {
     auto *ctx = (TcpipCtx *) netif->state;
 
     size_t chain_length = pbuf_clen(packet_buffer);
-    evbuffer_iovec chunks[chain_length];
+    std::vector<evbuffer_iovec> chunks;
+    chunks.reserve(chain_length);
 
     size_t idx = 0;
     for (const struct pbuf *iter = packet_buffer; (idx < chain_length) && (iter != nullptr); idx++, iter = iter->next) {
-        chunks[idx].iov_base = iter->payload;
-        chunks[idx].iov_len = iter->len;
+        chunks.push_back({
+                .iov_base = iter->payload,
+                .iov_len = iter->len,
+        });
     }
 
     tracelog(ctx->logger, "TUN output: {} bytes", (int) packet_buffer->tot_len);
@@ -68,25 +73,25 @@ static err_t tun_output(const struct netif *netif, const struct pbuf *packet_buf
     err_t err;
     if (ctx->parameters.tun_fd != -1) {
 #ifdef __MACH__
-        err = tun_output_to_utun_fd(ctx, chunks, chain_length, family);
+        err = tun_output_to_utun_fd(ctx, chunks, family);
 #elif !defined _WIN32
-        err = tun_output_to_fd(ctx, chunks, chain_length);
+        err = tun_output_to_fd(ctx, chunks);
 #else
         err = ERR_ARG;
 #endif
     } else {
-        err = tun_output_to_callback(ctx, chunks, chain_length, family);
+        err = tun_output_to_callback(ctx, chunks, family);
     }
 
     if (err == ERR_OK && ctx->pcap_fd != -1) {
-        dump_packet_iovec_to_pcap(ctx, chunks, chain_length);
+        dump_packet_iovec_to_pcap(ctx, chunks);
     }
 
     return err;
 }
 
-static err_t tun_output_to_callback(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num, int family) {
-    TcpipTunOutputEvent info = {family, {chunks_num, chunks}};
+static err_t tun_output_to_callback(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks, int family) {
+    TcpipTunOutputEvent info = {family, {chunks.size(), chunks.data()}};
 
     TcpipHandler *callbacks = &ctx->parameters.handler;
     callbacks->handler(callbacks->arg, TCPIP_EVENT_TUN_OUTPUT, &info);
@@ -95,11 +100,11 @@ static err_t tun_output_to_callback(TcpipCtx *ctx, const evbuffer_iovec *chunks,
 }
 
 #ifndef _WIN32
-static err_t tun_output_to_fd(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num) {
+static err_t tun_output_to_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks) {
     err_t err = ERR_OK;
 
     /* Write packet to TUN */
-    ssize_t written = writev(ctx->parameters.tun_fd, chunks, chunks_num);
+    ssize_t written = writev(ctx->parameters.tun_fd, chunks.data(), chunks.size());
     if (-1 == written) {
         if (errno == EWOULDBLOCK) {
             err = ERR_MEM;
@@ -117,14 +122,15 @@ struct UtunHdr {
     int family;
 };
 
-static err_t tun_output_to_utun_fd(TcpipCtx *ctx, const evbuffer_iovec *chunks, size_t chunks_num, int family) {
-    evbuffer_iovec new_chunks[chunks_num + 1];
+static err_t tun_output_to_utun_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks, int family) {
+    std::vector<evbuffer_iovec> new_chunks;
+    new_chunks.reserve(chunks.size() + 1);
     struct UtunHdr hdr = {.family = (int) htonl(family)};
-    new_chunks[0] = (evbuffer_iovec){.iov_base = &hdr, .iov_len = sizeof(hdr)};
-    for (size_t i = 0; i < chunks_num; i++) {
-        new_chunks[i + 1] = chunks[i];
+    new_chunks.push_back({.iov_base = &hdr, .iov_len = sizeof(hdr)});
+    for (const evbuffer_iovec &chunk : chunks) {
+        new_chunks.push_back(chunk);
     }
-    return tun_output_to_fd(ctx, new_chunks, chunks_num + 1);
+    return tun_output_to_fd(ctx, new_chunks);
 }
 #endif /* __MACH__ */
 
@@ -228,7 +234,7 @@ static void process_input_packet(TcpipCtx *ctx, VpnPacket *packet) {
             PBUF_REF,
             &buf_custom->p,
             (void *) buf_custom->data,
-            buf_custom->size);
+            u16_t(buf_custom->size));
     if (buffer == nullptr) {
         delete buf_custom;
         return;
@@ -386,7 +392,7 @@ static void clean_up_connections_callback(void *arg, TaskId) {
 }
 
 void tcpip_close_connections(TcpipCtx *ctx) {
-    vpn_event_loop_submit(ctx->parameters.event_loop, (VpnEventLoopTask){ctx, clean_up_connections_callback, nullptr});
+    vpn_event_loop_submit(ctx->parameters.event_loop, {ctx, clean_up_connections_callback, nullptr});
 }
 
 static void release_lwip_resources(TcpipCtx *ctx) {
@@ -430,10 +436,10 @@ static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len) 
     }
 }
 
-static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, evbuffer_iovec *iov, int iov_cnt) {
+static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks) {
     struct timeval tv;
     event_base_gettimeofday_cached(vpn_event_loop_get_base(ctx->parameters.event_loop), &tv);
-    if (pcap_write_packet_iovec(ctx->pcap_fd, &tv, iov, iov_cnt) < 0) {
+    if (pcap_write_packet_iovec(ctx->pcap_fd, &tv, chunks.data(), chunks.size()) < 0) {
         dbglog(ctx->logger, "pcap: failed to write packet to file");
         close(ctx->pcap_fd);
         ctx->pcap_fd = -1;

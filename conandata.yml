@@ -10,7 +10,7 @@ requirements:
   - "quiche/0.10.0@AdguardTeam/NativeLibsCommon"
   - "nghttp2/1.44.0@AdguardTeam/NativeLibsCommon"
   - "dns-libs/777@AdguardTeam/NativeLibsCommon"
-  - "native_libs_common/2.0.10@AdguardTeam/NativeLibsCommon"
+  - "native_libs_common/2.0.18@AdguardTeam/NativeLibsCommon"
 commit_hash:
   "0.90.6":
     hash: "58a57f19ee4e194de266429c00c45f677e2c0d0a"

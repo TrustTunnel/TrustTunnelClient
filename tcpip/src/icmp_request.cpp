@@ -1,5 +1,6 @@
-#include "icmp_request.h"
+#include "vpn/platform.h"
 
+#include "icmp_request.h"
 #include "tcpip_common.h"
 #include "vpn/utils.h"
 

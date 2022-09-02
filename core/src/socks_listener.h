@@ -26,7 +26,7 @@ public:
 
 private:
     Socks5Listener *m_socks5_listener = nullptr;
-    std::set<ag::AutoTaskId> m_deferred_tasks;
+    std::set<event_loop::AutoTaskId> m_deferred_tasks;
     VpnSocksListenerConfig m_config = {};
 
     ag::Logger m_log{"SOCKS_LISTENER"};

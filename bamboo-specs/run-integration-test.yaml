@@ -14,7 +14,7 @@ Run integration test:
   key: JOB1
   description: Runs C++ tests
   docker:
-    image: adguard/core-libs:latest
+    image: adguard/core-libs:1.6
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}

@@ -66,8 +66,8 @@ private:
 
     struct HealthCheckInfo {
         std::optional<uint64_t> stream_id;
-        ag::AutoTaskId retry_task_id;
-        ag::AutoTaskId timeout_task_id;
+        event_loop::AutoTaskId retry_task_id;
+        event_loop::AutoTaskId timeout_task_id;
         VpnError error = {};
     };
 
@@ -80,11 +80,11 @@ private:
     std::unordered_map<uint64_t, uint64_t> m_tcp_conn_by_stream_id;
     std::unordered_map<uint64_t, RetriableTcpConnectRequest> m_retriable_tcp_requests;
     std::unordered_map<uint64_t, bool> m_closing_connections; // value is graceful flag
-    ag::AutoTaskId m_complete_read_task_id;
-    ag::AutoTaskId m_notify_sent_task_id;
-    ag::AutoTaskId m_close_connections_task_id;
-    ag::AutoTaskId m_post_receive_task_id;
-    ag::AutoTaskId m_flush_error_task_id;
+    event_loop::AutoTaskId m_complete_read_task_id;
+    event_loop::AutoTaskId m_notify_sent_task_id;
+    event_loop::AutoTaskId m_close_connections_task_id;
+    event_loop::AutoTaskId m_post_receive_task_id;
+    event_loop::AutoTaskId m_flush_error_task_id;
     HttpUdpMultiplexer m_udp_mux;
     HttpIcmpMultiplexer m_icmp_mux;
     DeclPtr<event, &event_free> m_quic_timer;
@@ -105,11 +105,11 @@ private:
      * idle timeout won't be reset errouneusly when receiving a stale packet after waking from sleep.
      */
     std::optional<int64_t> m_idle_timeout_at_ns;
-    ag::AutoTaskId m_close_on_idle_task_id;
+    event_loop::AutoTaskId m_close_on_idle_task_id;
 
     bool init(VpnClient *vpn, SeverHandler handler) override;
     void deinit() override;
-    bool open_session(uint32_t timeout_ms) override;
+    bool open_session(std::optional<Millis> timeout) override;
     void close_session() override;
     uint64_t open_connection(const TunnelAddressPair *addr, int proto, std::string_view app_name) override;
     void close_connection(uint64_t id, bool graceful, bool async) override;

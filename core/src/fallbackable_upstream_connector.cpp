@@ -13,7 +13,7 @@ namespace ag {
 static std::atomic<int> next_connector_id = 0;
 
 FallbackableUpstreamConnector::FallbackableUpstreamConnector(const EndpointConnectorParameters &parameters,
-        std::unique_ptr<ServerUpstream> main, std::unique_ptr<ServerUpstream> fallback, Milliseconds fallback_delay)
+        std::unique_ptr<ServerUpstream> main, std::unique_ptr<ServerUpstream> fallback, Millis fallback_delay)
         : EndpointConnector(parameters)
         , m_main({
                   std::make_unique<SingleUpstreamConnector>(
@@ -27,15 +27,15 @@ FallbackableUpstreamConnector::FallbackableUpstreamConnector(const EndpointConne
         , m_id(next_connector_id.fetch_add(1, std::memory_order_relaxed)) {
 }
 
-VpnError FallbackableUpstreamConnector::connect(uint32_t timeout_ms) {
-    m_connect_timeout = Milliseconds(timeout_ms);
+VpnError FallbackableUpstreamConnector::connect(std::optional<Millis> timeout) {
+    m_connect_timeout = timeout;
     m_main.start_ts = steady_clock::now();
 
-    if (VpnError error = m_main.connector->connect(timeout_ms); error.code != VPN_EC_NOERROR) {
+    if (VpnError error = m_main.connector->connect(timeout); error.code != VPN_EC_NOERROR) {
         log_connector(this, dbg, "Failed to start connect to main upstream, trying fallback immediately");
         this->handle_connect_result(m_main.connector.get(), error);
     } else {
-        m_fallback.delay_task = ag::schedule(this->PARAMETERS.ev_loop,
+        m_fallback.delay_task = event_loop::schedule(this->PARAMETERS.ev_loop,
                 {
                         this,
                         [](void *arg, TaskId) {
@@ -44,7 +44,7 @@ VpnError FallbackableUpstreamConnector::connect(uint32_t timeout_ms) {
                             self->start_fallback_connection();
                         },
                 },
-                m_fallback.delay.count());
+                m_fallback.delay);
     }
     return {};
 }
@@ -125,7 +125,7 @@ void FallbackableUpstreamConnector::handle_connect_result(
         m_fallback = {};
     } else if (!m_fallback.tried) {
         log_connector(this, dbg, "Main protocol failed, trying fallback immediately");
-        m_fallback.delay_task = ag::submit(this->PARAMETERS.ev_loop,
+        m_fallback.delay_task = event_loop::submit(this->PARAMETERS.ev_loop,
                 {
                         this,
                         [](void *arg, TaskId) {
@@ -163,8 +163,12 @@ void FallbackableUpstreamConnector::start_fallback_connection() {
     assert(!m_fallback.has_result);
     m_fallback.tried = true;
 
-    Milliseconds timeout = m_connect_timeout - duration_cast<Milliseconds>(steady_clock::now() - m_main.start_ts);
-    VpnError error = m_fallback.connector->connect(std::max(timeout, m_connect_timeout / 10).count());
+    std::optional<Millis> timeout;
+    if (m_connect_timeout.has_value()) {
+        timeout = std::make_optional<Millis>(m_connect_timeout.value() - duration_cast<Millis>(steady_clock::now() - m_main.start_ts));
+        timeout = std::max(timeout.value(), m_connect_timeout.value() / 10);
+    }
+    VpnError error = m_fallback.connector->connect(timeout);
     if (error.code != VPN_EC_NOERROR) {
         this->handle_connect_result(m_fallback.connector.get(), error);
     }
@@ -173,14 +177,14 @@ void FallbackableUpstreamConnector::start_fallback_connection() {
 void FallbackableUpstreamConnector::main_connector_handler(void *arg, EndpointConnectorResult result) {
     auto *self = (FallbackableUpstreamConnector *) arg;
     assert(!self->m_main.result_task.has_value());
-    self->m_main.result_task = ag::submit(
+    self->m_main.result_task = event_loop::submit(
             self->PARAMETERS.ev_loop, self->make_deferred_handle_task(self->m_main.connector.get(), std::move(result)));
 }
 
 void FallbackableUpstreamConnector::fallback_connector_handler(void *arg, EndpointConnectorResult result) {
     auto *self = (FallbackableUpstreamConnector *) arg;
     assert(!self->m_fallback.result_task.has_value());
-    self->m_fallback.result_task = ag::submit(self->PARAMETERS.ev_loop,
+    self->m_fallback.result_task = event_loop::submit(self->PARAMETERS.ev_loop,
             self->make_deferred_handle_task(self->m_fallback.connector.get(), std::move(result)));
 }
 

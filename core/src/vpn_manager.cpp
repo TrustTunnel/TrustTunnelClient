@@ -11,7 +11,7 @@
 #include "vpn_manager.h"
 
 #undef gettid
-#include "upstream/upstream_utils.h"
+#include "dns/upstream/upstream_utils.h"
 
 /** This dummy variable is preventing the linker from excluding modules from dll */
 int g_exp_init_adguard_vpncore [[maybe_unused]] = 0;
@@ -163,7 +163,7 @@ bool Vpn::run_event_loop() {
     return true;
 }
 
-void Vpn::submit(std::function<void()> &&func, uint32_t ms) {
+void Vpn::submit(std::function<void()> &&func, std::optional<Millis> defer) {
     VpnEventLoopTask task = {
             new std::function(std::move(func)),
             [](void *arg, TaskId task_id) {
@@ -175,10 +175,10 @@ void Vpn::submit(std::function<void()> &&func, uint32_t ms) {
             },
     };
 
-    if (ms == 0) {
+    if (!defer.has_value()) {
         vpn_event_loop_submit(this->ev_loop.get(), task);
     } else {
-        vpn_event_loop_schedule(this->ev_loop.get(), task, ms);
+        vpn_event_loop_schedule(this->ev_loop.get(), task, defer.value());
     }
 }
 
@@ -387,7 +387,7 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
         return error;
     }
 
-    ag::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
         StartListeningArgs args{.listener = std::move(listener), .config = config};
         vpn->fsm.perform_transition(vpn_fsm::CE_START_LISTENING, &args);
     });
@@ -507,7 +507,7 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
             .exclusions = {exclusions.data, exclusions.size},
     };
 
-    vpn->update_exclusions_task = ag::submit(vpn->ev_loop.get(),
+    vpn->update_exclusions_task = event_loop::submit(vpn->ev_loop.get(),
             {
                     .arg = ctx,
                     .action =
@@ -629,11 +629,11 @@ VpnExclusionValidationStatus vpn_validate_exclusion(const char *text) {
 }
 
 VpnDnsUpstreamValidationStatus vpn_validate_dns_upstream(const char *address) {
-    ag::UpstreamOptions opts = {
+    dns::UpstreamOptions opts = {
             .address = address,
             .bootstrap = {"1.1.1.1"},
     };
-    std::optional err = ag::test_upstream(opts, true, nullptr, true);
+    std::optional err = dns::test_upstream(opts, true, nullptr, true);
     if (err.has_value()) {
         ag::Logger log{__func__};
         dbglog(log, "{}", *err);
@@ -764,7 +764,7 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 sockaddr_storage vpn_get_socks_listener_address(Vpn *vpn) {
     sockaddr_storage ret{};
     std::scoped_lock l(vpn->stop_guard);
-    ag::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
         ret = vpn->client.socks_listener_address;
     });
     return ret;

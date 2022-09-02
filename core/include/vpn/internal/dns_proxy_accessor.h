@@ -14,8 +14,10 @@
 #include "vpn/internal/utils.h"
 
 namespace ag {
+
+namespace dns {
 class DnsProxy;
-void delete_dnsproxy(DnsProxy *p);
+} // namespace dns
 
 class DnsProxyAccessor {
 public:
@@ -31,7 +33,7 @@ public:
     };
 
     explicit DnsProxyAccessor(Parameters p);
-    ~DnsProxyAccessor() = default;
+    ~DnsProxyAccessor();
 
     DnsProxyAccessor(const DnsProxyAccessor &) = delete;
     DnsProxyAccessor &operator=(const DnsProxyAccessor &) = delete;
@@ -55,7 +57,7 @@ public:
     [[nodiscard]] const sockaddr_storage &get_listen_address(int proto) const;
 
 private:
-    DeclPtr<ag::DnsProxy, &ag::delete_dnsproxy> m_dns_proxy;
+    std::unique_ptr<dns::DnsProxy> m_dns_proxy;
     Parameters m_parameters = {};
     sockaddr_storage m_dns_proxy_udp_listen_address = {};
     sockaddr_storage m_dns_proxy_tcp_listen_address = {};

@@ -189,7 +189,7 @@ static void close_client_side_connection(Tunnel *self, VpnConnection *conn, int 
             break;
         }
 
-        conn->complete_connect_request_task = ag::submit(self->vpn->parameters.ev_loop,
+        conn->complete_connect_request_task = event_loop::submit(self->vpn->parameters.ev_loop,
                 {
                         new CompleteConnectRequestCtx{self, conn->client_id, err_code},
                         complete_connect_request_task,
@@ -983,14 +983,16 @@ void Tunnel::on_exclusions_updated() {
     }
 
     using namespace std::chrono;
-    this->repeat_exclusions_resolve_task = ag::schedule(this->vpn->parameters.ev_loop,
-            {this,
+    this->repeat_exclusions_resolve_task = event_loop::schedule(this->vpn->parameters.ev_loop,
+            {
+                    this,
                     [](void *arg, TaskId) {
                         auto *self = (Tunnel *) arg;
                         self->repeat_exclusions_resolve_task.release();
                         self->on_exclusions_updated();
-                    }},
-            duration_cast<milliseconds>(EXCLUSIONS_RESOLVE_PERIOD).count());
+                    },
+            },
+            EXCLUSIONS_RESOLVE_PERIOD);
 }
 
 static VpnAddress tunnel_to_vpn_address(const TunnelAddress *tunnel) {

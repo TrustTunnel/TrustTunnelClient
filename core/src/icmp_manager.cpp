@@ -98,7 +98,7 @@ IcmpManagerMessageStatus IcmpManager::register_request(const IcmpEchoRequest &re
 
     if (m_timer == nullptr) {
         m_timer.reset(event_new(vpn_event_loop_get_base(m_parameters.ev_loop), -1, EV_PERSIST, timer_callback, this));
-        const timeval tv = ms_to_timeval(m_parameters.request_timeout.value().count() / 10);
+        const timeval tv = ms_to_timeval(uint32_t(m_parameters.request_timeout.value().count() / 10));
         event_add(m_timer.get(), &tv);
     }
 

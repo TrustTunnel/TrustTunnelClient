@@ -89,7 +89,7 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
 } // namespace vpn_client
 
 static void release_deferred_task(VpnClient *self, TaskId task) {
-    if (auto n = self->deferred_tasks.extract(ag::make_auto_id(task)); !n.empty()) {
+    if (auto n = self->deferred_tasks.extract(event_loop::make_auto_id(task)); !n.empty()) {
         n.value().release();
     }
 }
@@ -104,7 +104,7 @@ static void endpoint_connector_handler(void *arg, EndpointConnectorResult result
         self->endpoint_upstream = std::move(std::get<std::unique_ptr<ServerUpstream>>(result));
     }
 
-    self->deferred_tasks.emplace(ag::submit(
+    self->deferred_tasks.emplace(event_loop::submit(
             self->parameters.ev_loop, {self, [](void *arg, TaskId task_id) {
                                            auto *self = (VpnClient *) arg;
                                            release_deferred_task(self, task_id);
@@ -257,7 +257,7 @@ VpnError VpnClient::init(const VpnSettings *settings) {
     }
 
     this->bypass_upstream = std::make_unique<DirectUpstream>(next_upstream_id());
-    if (!this->bypass_upstream->init(this, (SeverHandler){&direct_upstream_handler, this})) {
+    if (!this->bypass_upstream->init(this, {&direct_upstream_handler, this})) {
         error = {VPN_EC_INVALID_SETTINGS, "Failed to initialize an upstream for bypassed connections"};
         goto fail;
     }
@@ -272,10 +272,10 @@ exit:
     return error;
 }
 
-static VpnError client_connect(VpnClient *vpn, uint32_t timeout_ms) {
+static VpnError client_connect(VpnClient *vpn, std::optional<Millis> timeout) {
     log_client(vpn, dbg, "...");
 
-    vpn->fsm.perform_transition(vpn_client::E_RUN_CONNECT, &timeout_ms);
+    vpn->fsm.perform_transition(vpn_client::E_RUN_CONNECT, &timeout);
 
     if (!vpn->pending_error.has_value()) {
         log_client(vpn, dbg, "Started");
@@ -287,8 +287,9 @@ static VpnError client_connect(VpnClient *vpn, uint32_t timeout_ms) {
 }
 
 static void submit_health_check(VpnClient *vpn, milliseconds postpone) {
-    vpn->deferred_tasks.emplace(ag::schedule(vpn->parameters.ev_loop,
-            {vpn,
+    vpn->deferred_tasks.emplace(event_loop::schedule(vpn->parameters.ev_loop,
+            {
+                    vpn,
                     [](void *arg, TaskId task_id) {
                         auto *vpn = (VpnClient *) arg;
                         release_deferred_task(vpn, task_id);
@@ -296,8 +297,9 @@ static void submit_health_check(VpnClient *vpn, milliseconds postpone) {
                         if (error.code != VPN_EC_NOERROR) {
                             vpn->fsm.perform_transition(vpn_client::E_HEALTH_CHECK_READY, &error);
                         }
-                    }},
-            postpone.count()));
+                    },
+            },
+            postpone));
 }
 
 static std::unique_ptr<ServerUpstream> make_upstream(const VpnUpstreamProtocolConfig &protocol) {
@@ -320,7 +322,7 @@ static std::unique_ptr<ServerUpstream> make_upstream(const VpnUpstreamProtocolCo
     return upstream;
 }
 
-VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, uint32_t timeout_ms) {
+VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, std::optional<Millis> timeout) {
     log_client(this, dbg, "...");
 
     VpnError error = {};
@@ -350,7 +352,7 @@ VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, uint32_
                 std::make_unique<SingleUpstreamConnector>(connector_parameters, std::move(main_upstream));
     }
 
-    error = client_connect(this, timeout_ms);
+    error = client_connect(this, timeout);
     if (error.code != VPN_EC_NOERROR) {
         goto fail;
     }
@@ -387,7 +389,7 @@ VpnError VpnClient::listen(
         this->listener_config.timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS;
     }
 
-    switch (this->client_listener->init(this, (ClientHandler){&listener_handler, this})) {
+    switch (this->client_listener->init(this, {&listener_handler, this})) {
     case ClientListener::InitResult::SUCCESS:
         break;
     case ClientListener::InitResult::ADDR_IN_USE:
@@ -653,8 +655,8 @@ static void vpn_client::run_connect(void *ctx, void *data) {
     auto *vpn = (VpnClient *) ctx;
     log_client(vpn, trace, "...");
 
-    uint32_t timeout_ms = (data == nullptr) ? 0 : *(uint32_t *) data;
-    if (VpnError e = vpn->endpoint_connector->connect(timeout_ms); e.code != VPN_EC_NOERROR) {
+    auto timeout = (data == nullptr) ? std::nullopt : *(std::optional<Millis> *) data;
+    if (VpnError e = vpn->endpoint_connector->connect(timeout); e.code != VPN_EC_NOERROR) {
         vpn->pending_error = e;
     }
 
@@ -737,7 +739,7 @@ static void vpn_client::submit_disconnect(void *ctx, void *data) {
         vpn->pending_error = *error;
     }
 
-    vpn->deferred_tasks.emplace(ag::submit(vpn->parameters.ev_loop, {vpn, [](void *arg, TaskId task_id) {
+    vpn->deferred_tasks.emplace(event_loop::submit(vpn->parameters.ev_loop, {vpn, [](void *arg, TaskId task_id) {
                                                                          auto *vpn = (VpnClient *) arg;
                                                                          release_deferred_task(vpn, task_id);
                                                                          vpn->fsm.perform_transition(

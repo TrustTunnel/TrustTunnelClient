@@ -36,7 +36,7 @@ public:
 
     void SetUp() override {
         vpn.parameters = {this->ev_loop.get()};
-        vpn.parameters.handler = (vpn_client::Handler){&vpn_handler, this};
+        vpn.parameters.handler = {&vpn_handler, this};
         vpn.parameters.network_manager = this->network_manager.get();
 
         VpnSettings settings = {};
@@ -72,7 +72,7 @@ public:
     }
 
     void run_event_loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_exit(ev_loop.get(), 0);
+        vpn_event_loop_exit(ev_loop.get(), Millis{0});
         vpn_event_loop_run(ev_loop.get());
     }
 };
@@ -90,7 +90,7 @@ bool DirectUpstream::init(VpnClient *vpn, SeverHandler handler) {
 }
 void DirectUpstream::deinit() {
 }
-bool DirectUpstream::open_session(uint32_t) {
+bool DirectUpstream::open_session(std::optional<Millis>) {
     return true;
 }
 void DirectUpstream::close_session() {
@@ -147,7 +147,7 @@ bool UpstreamMultiplexer::init(VpnClient *vpn, SeverHandler handler) {
 }
 void UpstreamMultiplexer::deinit() {
 }
-bool UpstreamMultiplexer::open_session(uint32_t) {
+bool UpstreamMultiplexer::open_session(std::optional<Millis>) {
     return true;
 }
 void UpstreamMultiplexer::close_session() {
@@ -184,7 +184,7 @@ std::optional<int> UpstreamMultiplexer::select_existing_upstream(std::optional<i
 int UpstreamMultiplexer::select_upstream_for_connection() {
     return 0;
 }
-bool UpstreamMultiplexer::open_new_upstream(int, uint32_t) {
+bool UpstreamMultiplexer::open_new_upstream(int, std::optional<Millis>) {
     return true;
 }
 bool UpstreamMultiplexer::open_connection(int, uint64_t, const TunnelAddressPair *, int, std::string_view) {

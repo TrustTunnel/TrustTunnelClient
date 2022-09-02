@@ -52,13 +52,13 @@ private:
     std::unordered_map<int, std::unique_ptr<UpstreamInfo>> m_closed_upstreams; // Upstreams waiting to be deleted
     std::optional<int> m_health_check_upstream_id; // id of an upstream which performs health check
     MakeUpstream m_make_upstream;
-    std::vector<ag::AutoTaskId> m_failed_icmp_pings;
+    std::vector<event_loop::AutoTaskId> m_failed_icmp_pings;
 
     ag::Logger m_log{"UPSTREAM_MUX"};
 
     bool init(VpnClient *vpn, SeverHandler handler) override;
     void deinit() override;
-    bool open_session(uint32_t timeout_ms) override;
+    bool open_session(std::optional<Millis> timeout) override;
     void close_session() override;
     uint64_t open_connection(const TunnelAddressPair *addr, int proto, std::string_view app_name) override;
     void close_connection(uint64_t id, bool graceful, bool async) override;
@@ -76,12 +76,12 @@ private:
     [[nodiscard]] std::optional<int> select_existing_upstream(
             std::optional<int> ignored_upstream, bool allow_underflow) const;
     int select_upstream_for_connection();
-    bool open_new_upstream(int id, uint32_t timeout_ms);
+    bool open_new_upstream(int id, std::optional<Millis> timeout);
     bool open_connection(
             int upstream_id, uint64_t conn_id, const TunnelAddressPair *addr, int proto, std::string_view app_name);
     void proceed_pending_connection(int upstream_id, uint64_t conn_id, const PendingConnection *conn);
     [[nodiscard]] size_t connections_num_by_upstream(int upstream_id) const;
-    void mark_closed_upstream(int upstream_id, ag::AutoTaskId task_id);
+    void mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id);
     void finalize_closed_upstream(int upstream_id, bool async);
 };
 

@@ -145,7 +145,7 @@ TcpFlowCtrlInfo tcpip_flow_ctrl_info(const TcpipCtx *ctx, uint64_t id) {
         return udp_cm_flow_ctrl_info(udp_conn);
     }
 
-    return (TcpFlowCtrlInfo){};
+    return {};
 }
 
 void tcpip_process_icmp_echo_reply(TcpipCtx *ctx, const IcmpEchoReply *reply) {

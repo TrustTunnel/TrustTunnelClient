@@ -25,7 +25,7 @@ VpnConnection *VpnConnection::make(uint64_t client_id, TunnelAddressPair addr, i
 
 SockAddrTag VpnConnection::make_tag() const {
     const sockaddr_storage *dst = std::get_if<sockaddr_storage>(&this->addr.dst);
-    return {(dst != nullptr) ? *dst : (sockaddr_storage){}, this->app_name};
+    return {(dst != nullptr) ? *dst : sockaddr_storage{}, this->app_name};
 }
 
 bool UdpVpnConnection::check_dns_queries_completed(PacketDirection dir) {

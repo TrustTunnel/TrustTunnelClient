@@ -36,7 +36,7 @@ struct UpstreamInfo {
     UpstreamState state = US_OPENING_SESSION;
     std::unique_ptr<MultiplexableUpstream> upstream;
     std::unique_ptr<UpstreamCtx> ctx;
-    ag::AutoTaskId deferred_task_id;
+    event_loop::AutoTaskId deferred_task_id;
 };
 
 UpstreamMultiplexer::UpstreamMultiplexer(
@@ -62,11 +62,11 @@ bool UpstreamMultiplexer::init(VpnClient *vpn, SeverHandler handler) {
 void UpstreamMultiplexer::deinit() {
 }
 
-bool UpstreamMultiplexer::open_session(uint32_t timeout_ms) {
+bool UpstreamMultiplexer::open_session(std::optional<Millis> timeout) {
     assert(m_upstreams_pool.empty());
 
     int upstream_id = select_upstream_for_connection();
-    if (!open_new_upstream(upstream_id, timeout_ms)) {
+    if (!open_new_upstream(upstream_id, timeout)) {
         log_mux(this, err, "Failed to open session");
         return false;
     }
@@ -91,7 +91,7 @@ uint64_t UpstreamMultiplexer::open_connection(const TunnelAddressPair *addr, int
         if (!open_connection(upstream_id, conn_id, addr, proto, app_name)) {
             conn_id = NON_ID;
         }
-    } else if (open_new_upstream(upstream_id, 0)) {
+    } else if (open_new_upstream(upstream_id, std::nullopt)) {
         log_conn(this, conn_id, dbg, "Opening new upstream (id={})", upstream_id);
         m_pending_connections.emplace(conn_id, PendingConnection{{upstream_id}, *addr, proto, std::string(app_name)});
     } else if (std::optional<int> reserve_id = select_existing_upstream(upstream_id, true); reserve_id.has_value()) {
@@ -228,7 +228,7 @@ void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &event) {
     it->second->upstream->on_icmp_request(event);
 }
 
-void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, ag::AutoTaskId task_id) {
+void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id) {
     auto it = m_upstreams_pool.find(upstream_id);
     if (it == m_upstreams_pool.end()) {
         log_mux(this, err, "Inexistent upstream: id={}", upstream_id);
@@ -266,7 +266,7 @@ void UpstreamMultiplexer::finalize_closed_upstream(int upstream_id, bool async) 
         }
 
         UpstreamCtx *ctx = it->second->ctx.get();
-        it->second->deferred_task_id = ag::submit(vpn->parameters.ev_loop,
+        it->second->deferred_task_id = event_loop::submit(vpn->parameters.ev_loop,
                 {
                         ctx,
                         [](void *arg, TaskId) {
@@ -361,7 +361,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
             mux->handler.func(mux->handler.arg, SERVER_EVENT_ERROR, data);
         } else {
             mux->mark_closed_upstream(ctx->id,
-                    ag::submit(mux->vpn->parameters.ev_loop,
+                    event_loop::submit(mux->vpn->parameters.ev_loop,
                             {
                                     ctx,
                                     [](void *arg, TaskId) {
@@ -441,13 +441,13 @@ int UpstreamMultiplexer::select_upstream_for_connection() {
     return m_next_upstream_id++;
 }
 
-bool UpstreamMultiplexer::open_new_upstream(int id, uint32_t timeout_ms) {
+bool UpstreamMultiplexer::open_new_upstream(int id, std::optional<Millis> timeout) {
     assert(m_upstreams_pool.count(id) == 0);
 
     std::unique_ptr<UpstreamCtx> ctx = std::make_unique<UpstreamCtx>(UpstreamCtx{this, id});
     std::unique_ptr<UpstreamInfo> info = std::make_unique<UpstreamInfo>(
             m_make_upstream, this->PROTOCOL_CONFIG.value(), id, this->vpn, &child_upstream_handler, std::move(ctx));
-    if (!info->upstream->open_session(timeout_ms)) {
+    if (!info->upstream->open_session(timeout)) {
         log_mux(this, err, "Failed to open session");
         return false;
     }

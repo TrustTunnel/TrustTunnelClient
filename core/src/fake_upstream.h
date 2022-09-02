@@ -19,12 +19,12 @@ public:
 private:
     std::unordered_set<uint64_t> m_opening_connections;
     std::unordered_set<uint64_t> m_closing_connections;
-    ag::AutoTaskId m_async_task;
+    event_loop::AutoTaskId m_async_task;
     bool m_session_open = false;
 
     bool init(VpnClient *vpn, SeverHandler handler) override;
     void deinit() override;
-    bool open_session(uint32_t timeout_ms = 0) override;
+    bool open_session(std::optional<Millis> timeout) override;
     void close_session() override;
     uint64_t open_connection(const TunnelAddressPair *addr, int proto, std::string_view app_name) override;
     void close_connection(uint64_t id, bool graceful, bool async) override;

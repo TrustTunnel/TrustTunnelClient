@@ -3,7 +3,7 @@ project(net C CXX)
 
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -41,10 +41,6 @@ if(NOT TARGET vpnlibs_common)
     add_subdirectory(${VPN_LIB_DIR}/common ${CMAKE_BINARY_DIR}/common)
 endif(NOT TARGET vpnlibs_common)
 
-if(NOT TARGET fflibs_static)
-    add_subdirectory(${THIRD_PARTY_DIR}/fflibs ${CMAKE_BINARY_DIR}/third-party/fflibs_static)
-endif(NOT TARGET fflibs_static)
-
 add_library(vpnlibs_net STATIC EXCLUDE_FROM_ALL ${SOURCE_FILES})
 set_target_properties(vpnlibs_net PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if (NOT MSVC)
@@ -58,8 +54,7 @@ target_include_directories(vpnlibs_net PUBLIC include)
 target_link_libraries(vpnlibs_net vpnlibs_common)
 target_link_libraries(vpnlibs_net CONAN_PKG::zlib CONAN_PKG::brotli CONAN_PKG::http_parser)
 target_link_libraries(vpnlibs_net CONAN_PKG::ldns CONAN_PKG::nghttp2 CONAN_PKG::klib CONAN_PKG::openssl)
-target_link_libraries(vpnlibs_net CONAN_PKG::libevent)
-target_link_libraries(vpnlibs_net fflibs_static CONAN_PKG::quiche)
+target_link_libraries(vpnlibs_net CONAN_PKG::libevent CONAN_PKG::quiche)
 if (WIN32)
     target_link_libraries(vpnlibs_net BCrypt) # Quiche requirement
 endif()

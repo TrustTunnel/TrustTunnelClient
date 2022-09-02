@@ -52,7 +52,7 @@ static inline void lwip_timer_start(struct event *event, int msec) {
     if (event != nullptr) {
         timeval tv{
                 .tv_sec = msec / 1000,
-                tv.tv_usec = (msec % 1000) / 1000,
+                .tv_usec = (msec % 1000) / 1000,
         };
         event_add(event, &tv);
     }

@@ -14,7 +14,7 @@ VpnClient::~VpnClient() = default;
 VpnError VpnClient::init(const VpnSettings *) {
     return {};
 }
-VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, uint32_t) {
+VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, std::optional<Millis>) {
     this->upstream_config = std::move(config);
     test_mock::g_client.notify_called(test_mock::CMID_CONNECT);
     return test_mock::g_client.error;

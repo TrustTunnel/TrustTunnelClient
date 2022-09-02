@@ -71,7 +71,7 @@ struct VpnConnection {
     std::bitset<width_of<VpnConnectionFlags>()> flags;
     int uid = 0;
     std::string app_name;
-    ag::AutoTaskId complete_connect_request_task;
+    event_loop::AutoTaskId complete_connect_request_task;
     size_t incoming_bytes = 0;
     size_t outgoing_bytes = 0;
 

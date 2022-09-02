@@ -9,10 +9,8 @@ namespace ag {
 
 class FallbackableUpstreamConnector : public EndpointConnector {
 public:
-    using Milliseconds = std::chrono::milliseconds;
-
     FallbackableUpstreamConnector(const EndpointConnectorParameters &parameters, std::unique_ptr<ServerUpstream> main,
-            std::unique_ptr<ServerUpstream> fallback, Milliseconds fallback_delay);
+            std::unique_ptr<ServerUpstream> fallback, Millis fallback_delay);
     ~FallbackableUpstreamConnector() override = default;
 
     FallbackableUpstreamConnector(const FallbackableUpstreamConnector &) = delete;
@@ -25,25 +23,25 @@ private:
         std::unique_ptr<EndpointConnector> connector;
         bool has_result = false;
         std::chrono::time_point<std::chrono::steady_clock> start_ts;
-        ag::AutoTaskId result_task;
+        event_loop::AutoTaskId result_task;
     };
 
     struct FallbackInfo {
         std::unique_ptr<EndpointConnector> connector;
-        Milliseconds delay;
+        Millis delay{};
         bool tried = false;
         bool has_result = false;
-        ag::AutoTaskId delay_task;
-        ag::AutoTaskId result_task;
+        event_loop::AutoTaskId delay_task;
+        event_loop::AutoTaskId result_task;
     };
 
     MainInfo m_main;
     FallbackInfo m_fallback;
-    Milliseconds m_connect_timeout{0};
+    std::optional<Millis> m_connect_timeout;
     int m_id;
     ag::Logger m_log{"FBUCONNECTOR"};
 
-    VpnError connect(uint32_t timeout_ms) override;
+    VpnError connect(std::optional<Millis> timeout) override;
     void disconnect() override;
     void handle_sleep() override;
     void handle_wake() override;

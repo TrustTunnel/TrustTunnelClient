@@ -113,17 +113,14 @@ dns_utils::DecodeResult dns_utils::decode_packet(U8View packet) {
 }
 
 dns_utils::EncodeResult dns_utils::encode_request(const dns_utils::Request &request) {
-    char name[request.name.length() + 2];
-    memcpy(name, request.name.data(), request.name.length());
-    name[request.name.length()] = '\0';
-    if (!ldns_dname_str_absolute(name)) {
-        name[request.name.length()] = '.';
-        name[request.name.length() + 1] = '\0';
+    std::string name{request.name};
+    if (!ldns_dname_str_absolute(name.c_str())) {
+        name.push_back('.');
     }
 
-    LdnsPktPtr pkt{ldns_pkt_query_new(ldns_dname_new_frm_str(name),
+    LdnsPktPtr pkt{ldns_pkt_query_new(ldns_dname_new_frm_str(name.c_str()),
             (request.type == RT_A) ? LDNS_RR_TYPE_A : LDNS_RR_TYPE_AAAA, LDNS_RR_CLASS_IN, LDNS_RD)};
-    ldns_pkt_set_id(pkt.get(), g_next_request_id.fetch_add(1, std::memory_order::memory_order_relaxed));
+    ldns_pkt_set_id(pkt.get(), g_next_request_id.fetch_add(1, std::memory_order::relaxed));
 
     uint8_t *buffer; // NOLINT(cppcoreguidelines-init-variables)
     size_t pkt_size; // NOLINT(cppcoreguidelines-init-variables)

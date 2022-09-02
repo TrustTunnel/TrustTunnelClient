@@ -16,7 +16,7 @@ public:
     }
     void deinit() override {
     }
-    bool open_session(uint32_t) override {
+    bool open_session(std::optional<Millis>) override {
         return true;
     }
     void close_session() override {
@@ -380,7 +380,7 @@ TEST_F(ConnectedVpnManagerTest, RecoveryNextEndpoint) {
     do {
         ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
 
-        recovery_reset = vpn->recovery.start_ts == milliseconds{0};
+        recovery_reset = vpn->recovery.start_ts == time_point<steady_clock>{};
 
         ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
 
@@ -407,7 +407,7 @@ TEST_F(ConnectedVpnManagerTest, LocationUnavailable) {
     ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
 
     for (size_t i = 1; i < endpoints.size(); ++i) {
-        ASSERT_EQ(vpn->recovery.start_ts, milliseconds{0});
+        ASSERT_EQ(vpn->recovery.start_ts, time_point<steady_clock>{});
         ASSERT_NO_FATAL_FAILURE(
                 ping_location(LocationsPingerResult{vpn->upstream_config.location.id, 10, &endpoints[i]},
                         VpnLocation{vpn->upstream_config.location.id,
@@ -459,7 +459,7 @@ TEST_F(ConnectedVpnManagerTest, NetworkLossClearInactiveList) {
     ASSERT_EQ(vpn->inactive_endpoints.size(), 1);
 
     for (size_t i = 1; i < endpoints.size() - 1; ++i) {
-        ASSERT_EQ(vpn->recovery.start_ts, milliseconds{0});
+        ASSERT_EQ(vpn->recovery.start_ts, time_point<steady_clock>{});
         ASSERT_NO_FATAL_FAILURE(
                 ping_location(LocationsPingerResult{vpn->upstream_config.location.id, 10, &endpoints[i]},
                         VpnLocation{vpn->upstream_config.location.id,

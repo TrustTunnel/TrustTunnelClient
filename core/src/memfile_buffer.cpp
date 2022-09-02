@@ -1,9 +1,10 @@
-#include "memfile_buffer.h"
-
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 
+#include "memfile_buffer.h"
 #include "memory_buffer.h"
+#include "vpn/platform.h"
 
 namespace ag {
 
@@ -16,10 +17,11 @@ MemfileBuffer::MemfileBuffer(std::string path, size_t mem_threshold, size_t max_
 }
 
 MemfileBuffer::~MemfileBuffer() {
-    fffile_close(std::exchange(m_fd, FF_BADFD));
+    file::close(std::exchange(m_fd, file::INVALID_HANDLE));
 
     if (!m_path.empty()) {
-        fffile_rm(m_path.c_str());
+        std::error_code err;
+        std::filesystem::remove(m_path, err);
     }
 }
 
@@ -28,7 +30,7 @@ std::optional<std::string> MemfileBuffer::init() {
 }
 
 size_t MemfileBuffer::size() const {
-    ssize_t fsize = (m_fd != FF_BADFD) ? fffile_size(m_fd) : 0;
+    ssize_t fsize = (m_fd != file::INVALID_HANDLE) ? file::get_size(m_fd) : 0;
     assert(fsize >= (ssize_t) m_read_offset);
 
     size_t stored_in_file = std::max(fsize, (ssize_t) 0) - m_read_offset;
@@ -61,7 +63,7 @@ size_t MemfileBuffer::get_free_mem_space() const {
 }
 
 std::optional<std::string> MemfileBuffer::transfer_file2mem() {
-    if (m_fd == FF_BADFD) {
+    if (m_fd == file::INVALID_HANDLE) {
         return std::nullopt;
     }
 
@@ -70,12 +72,12 @@ std::optional<std::string> MemfileBuffer::transfer_file2mem() {
         return std::nullopt;
     }
 
-    ssize_t fsize = fffile_size(m_fd);
+    ssize_t fsize = file::get_size(m_fd);
     if (fsize == 0) {
         return std::nullopt;
     }
     if (fsize < 0) {
-        return str_format("Failed to get file size: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+        return str_format("Failed to get file size: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
 
     assert(fsize >= (ssize_t) m_read_offset);
@@ -85,9 +87,9 @@ std::optional<std::string> MemfileBuffer::transfer_file2mem() {
         return std::nullopt;
     }
 
-    int r = fffile_seek(m_fd, m_read_offset, SEEK_SET);
+    ssize_t r = file::set_position(m_fd, m_read_offset);
     if (r < 0) {
-        return str_format("Failed to set file offset: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+        return str_format("Failed to set file offset: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
 
     std::vector<uint8_t> buf;
@@ -97,14 +99,15 @@ std::optional<std::string> MemfileBuffer::transfer_file2mem() {
     uint8_t *buf_end = buf_pos + buf.size();
 
     while (buf_pos != buf_end) {
-        ssize_t ret = fffile_read(m_fd, buf_pos, buf_end - buf_pos);
+        ssize_t ret = file::read(m_fd, (char *) buf_pos, buf_end - buf_pos);
         if (ret > 0) {
             buf_pos += ret;
             m_read_offset += ret;
         } else if (ret == 0) {
             return str_format("Unexpected EOF while reading file content");
         } else {
-            return str_format("Failed to read file content: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+            return str_format(
+                    "Failed to read file content: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         }
     }
 
@@ -151,40 +154,34 @@ U8View MemfileBuffer::transfer_mem2mem(U8View data) {
     return data;
 }
 
-static std::optional<std::string> transfer_file2file(fffd dst, fffd src, size_t size) {
+static std::optional<std::string> transfer_file2file(file::Handle dst, file::Handle src, size_t size) {
     if (size == 0) {
         return std::nullopt;
     }
 
-    auto *buf = (uint8_t *) malloc(size);
-    uint8_t *buf_pos = buf;
-    uint8_t *buf_end = buf + size;
+    std::vector<uint8_t> buf(size);
+    size_t buf_pos = 0;
 
-    while (buf_pos != buf_end) {
-        int r = fffile_read(src, buf_pos, buf_end - buf_pos);
+    while (buf_pos < buf.size()) {
+        ssize_t r = file::read(src, (char *) buf.data(), buf.size() - buf_pos);
         if (r > 0) {
             buf_pos += r;
         } else if (r == 0) {
-            free(buf);
             return str_format("Unexpected EOF while reading file content");
         } else {
-            free(buf);
-            return str_format("%s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+            return str_format("%s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         }
     }
 
-    buf_pos = buf;
-    while (buf_pos != buf_end) {
-        int r = fffile_write(dst, buf_pos, buf_end - buf_pos);
+    buf_pos = 0;
+    while (buf_pos < buf.size()) {
+        int r = file::write(dst, buf.data(), buf.size() - buf_pos);
         if (r > 0) {
             buf_pos += r;
         } else {
-            free(buf);
-            return str_format("%s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+            return str_format("%s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         }
     }
-
-    free(buf);
 
     return std::nullopt;
 }
@@ -200,47 +197,61 @@ bool MemfileBuffer::need_to_strip_file(size_t fsize, size_t data_size) const {
 }
 
 std::optional<std::string> MemfileBuffer::strip_file() {
-    ssize_t fsize = fffile_size(m_fd);
+    ssize_t fsize = file::get_size(m_fd);
     if (fsize < 0) {
-        return str_format("Failed to get file size: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+        return str_format("Failed to get file size: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
 
     assert(fsize >= (ssize_t) m_read_offset);
 
+    file::close(std::exchange(m_fd, file::INVALID_HANDLE));
     std::string tmp_fpath = str_format("%s.tmp", m_path.c_str());
-    int r = fffile_rename(m_path.c_str(), tmp_fpath.c_str());
-    if (r != 0) {
-        return str_format("Failed to rename file: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+
+    std::error_code fs_err;
+    std::filesystem::rename(m_path, tmp_fpath, fs_err);
+    if (fs_err) {
+        return str_format("Failed to rename file: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
 
     std::optional<std::string> err;
-    fffd tmp_fd = fffile_open(m_path.c_str(), FFO_CREATE | FFO_APPEND | FFO_RDWR);
-    if (tmp_fd == FF_BADFD) {
-        err = str_format("Failed to open temp file: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+    file::Handle tmp_fd = file::INVALID_HANDLE;
+    m_fd = file::open(m_path, file::CREAT | file::APPEND | file::RDWR);
+    if (m_fd == file::INVALID_HANDLE) {
+        err = str_format("Failed to open file: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         goto exit;
     }
 
-    r = fffile_seek(m_fd, m_read_offset, SEEK_SET);
-    if (r < 0) {
-        err = str_format("Failed to set file offset: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+    tmp_fd = file::open(tmp_fpath, file::RDONLY);
+    if (tmp_fd == file::INVALID_HANDLE) {
+        err = str_format("Failed to open temp file: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         goto exit;
     }
 
-    err = transfer_file2file(tmp_fd, m_fd, fsize - m_read_offset);
+    if (0 > file::set_position(tmp_fd, m_read_offset)) {
+        err = str_format("Failed to set file offset: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
+        goto exit;
+    }
+
+    err = transfer_file2file(m_fd, tmp_fd, fsize - m_read_offset);
     if (err.has_value()) {
         err = str_format("Failed to transfer file content: %s", err->c_str());
         goto exit;
     }
 
-    std::swap(m_fd, tmp_fd);
     m_read_offset = 0;
 
 exit:
-    fffile_close(tmp_fd);
+    file::close(tmp_fd);
     if (err.has_value()) {
-        fffile_rename(tmp_fpath.c_str(), m_path.c_str());
+        file::close(std::exchange(m_fd, file::INVALID_HANDLE));
+        std::filesystem::remove(m_path, fs_err);
+        fs_err.clear();
+        std::filesystem::rename(tmp_fpath, m_path, fs_err);
+        if (!fs_err) {
+            m_fd = file::open(m_path, file::APPEND | file::RDWR);
+        }
     }
-    fffile_rm(tmp_fpath.c_str());
+    std::filesystem::remove(tmp_fpath, fs_err);
 
     return err;
 }
@@ -250,29 +261,28 @@ std::optional<std::string> MemfileBuffer::write_in_file(U8View data) {
         return std::nullopt;
     }
 
-    int64_t fsize = 0;
-    if (m_fd == FF_BADFD) {
-        m_fd = fffile_open(m_path.c_str(), FFO_CREATE | FFO_APPEND | FFO_RDWR);
-        if (m_fd == FF_BADFD) {
-            return str_format("Failed to open file: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
-        }
-    } else {
-        fsize = fffile_size(m_fd);
-        if (fsize < 0) {
-            return str_format("Failed to get file size: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+    if (m_fd == file::INVALID_HANDLE) {
+        m_fd = file::open(m_path, file::CREAT | file::APPEND | file::RDWR);
+        if (m_fd == file::INVALID_HANDLE) {
+            return str_format("Failed to open file: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
         }
     }
 
-    if (need_to_strip_file(fsize, data.size())) {
+    int64_t fsize = file::get_size(m_fd);
+    if (fsize < 0) {
+        return str_format("Failed to get file size: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
+    }
+
+    if (need_to_strip_file(size_t(fsize), data.size())) {
         if (std::optional<std::string> err = strip_file(); err.has_value()) {
             return str_format("Failed to strip file: %s", err->c_str());
         }
     }
 
     size_t to_write = 0;
-    fsize = fffile_size(m_fd);
+    fsize = file::get_size(m_fd);
     if (fsize < 0) {
-        return str_format("Failed to get file size: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+        return str_format("Failed to get file size: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
     if ((size_t) fsize >= m_max_file_size) {
         return "File reached its capacity";
@@ -281,8 +291,8 @@ std::optional<std::string> MemfileBuffer::write_in_file(U8View data) {
     to_write = std::min(data.size(), (size_t) (m_max_file_size - fsize));
 
     data = {data.data(), to_write};
-    if (!data.empty() && 0 >= fffile_write(m_fd, data.data(), data.size())) {
-        return str_format("Failed to write data: %s (%d)", fferr_strp(fferr_last()), (int) fferr_last());
+    if (!data.empty() && 0 >= file::write(m_fd, data.data(), data.size())) {
+        return str_format("Failed to write data: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
 
     return std::nullopt;

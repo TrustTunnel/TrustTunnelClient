@@ -1,7 +1,6 @@
 #pragma once
 
-#include <FFOS/file.h>
-
+#include "common/file.h"
 #include "vpn/internal/data_buffer.h"
 
 namespace ag {
@@ -26,7 +25,7 @@ private:
     std::unique_ptr<DataBuffer> m_mem_buffer; // memory buffer
     size_t m_threshold = 0;                   // memory buffer theshold
     size_t m_max_file_size = SIZE_MAX;        // maximum file size
-    fffd m_fd = FF_BADFD;                     // file descriptor
+    file::Handle m_fd = file::INVALID_HANDLE; // file descriptor
     size_t m_read_offset = 0;                 // file read offset
     std::string m_path;                       // full file path
 

@@ -27,7 +27,7 @@ public:
     TestUpstream(TestUpstream &&) noexcept = delete;
     TestUpstream &operator=(TestUpstream &&) noexcept = delete;
 
-    bool open_session(uint32_t timeout_ms) override;
+    bool open_session(std::optional<Millis>) override;
     void close_session() override;
     bool open_connection(
             uint64_t conn_id, const TunnelAddressPair *addr, int proto, std::string_view app_name) override;
@@ -189,7 +189,7 @@ public:
     }
 
     void run_event_loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_exit(this->ev_loop.get(), 0);
+        vpn_event_loop_exit(this->ev_loop.get(), Millis{0});
         vpn_event_loop_run(this->ev_loop.get());
     }
 };
@@ -198,7 +198,7 @@ std::unordered_map<int, TestUpstreamInfo> UpstreamMuxTest::g_upstreams;
 std::optional<int> UpstreamMuxTest::g_health_checking_upstream_id;
 bool UpstreamMuxTest::g_open_session_result;
 
-bool TestUpstream::open_session(uint32_t) {
+bool TestUpstream::open_session(std::optional<Millis>) {
     UpstreamMuxTest::g_upstreams[m_id] = {handler};
     return UpstreamMuxTest::g_open_session_result;
 }

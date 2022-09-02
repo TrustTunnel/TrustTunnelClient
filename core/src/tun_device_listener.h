@@ -34,8 +34,8 @@ private:
         // that peeked chunks would be the same as pushed ones
         // buffer for data raised with `TCPIP_EVENT_READ`, but wasn't actaully sent to server
         std::queue<std::vector<uint8_t>> unread_data;
-        ag::AutoTaskId complete_read_task_id;
-        ag::AutoTaskId close_task_id;
+        event_loop::AutoTaskId complete_read_task_id;
+        event_loop::AutoTaskId close_task_id;
     };
 
     TcpipCtx *m_tcpip = nullptr;

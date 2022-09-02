@@ -1,15 +1,16 @@
-#include "icmp_request_manager.h"
+#include <cstdlib>
 
-#include <stdlib.h>
+#include "vpn/platform.h"
 
 #include "common/logger.h"
+#include "icmp_request_manager.h"
 #include "tcpip_common.h"
 #include "tcpip_util.h"
 #include "vpn/utils.h"
 
 #define log_manager(ctx_, lvl_, fmt_, ...) lvl_##log((ctx_)->icmp.log, fmt_, ##__VA_ARGS__)
 #define log_req(ctx_, r_, lvl_, fmt_, ...)                                                                             \
-    lvl_##log((ctx_)->icmp.log, "[{}/{}] " fmt_, (int) (r_)->key.id, (int) (r_)->key.seqno, ##__VA_ARGS__)
+    lvl_##log((ctx_)->icmp.log, "[{}/{}] " fmt_, (r_)->key.id, (r_)->key.seqno, ##__VA_ARGS__)
 
 namespace ag {
 
@@ -52,11 +53,11 @@ IcmpRequestDescriptor *icmp_rm_create_descriptor(TcpipCtx *ctx, const ip_addr_t 
         return NULL;
     }
 
-    IcmpRequestDescriptor *request = icmp_request_create(src, dst, id, seqno, ttl, buffer);
+    IcmpRequestDescriptor *request = icmp_request_create(src, dst, id, seqno, u8_t(ttl), buffer);
     if (request != NULL && ctx->icmp.log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
         char dst_ip_str[INET6_ADDRSTRLEN];
         ipaddr_ntoa_r_pretty(dst, dst_ip_str, sizeof(dst_ip_str));
-        log_req(ctx, request, trace, "Destination={} ttl={}", dst_ip_str, (int) ttl);
+        log_req(ctx, request, trace, "Destination={} ttl={}", dst_ip_str, ttl);
     }
 
     if (!register_new_request(ctx, request)) {

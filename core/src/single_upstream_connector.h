@@ -20,7 +20,7 @@ private:
     static void delete_impl(Impl *);
     DeclPtr<Impl, &delete_impl> m_impl;
 
-    VpnError connect(uint32_t timeout_ms) override;
+    VpnError connect(std::optional<Millis> timeout) override;
     void disconnect() override;
     void handle_sleep() override;
     void handle_wake() override;

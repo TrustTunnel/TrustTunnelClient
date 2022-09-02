@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 project(common)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 find_package(Threads REQUIRED)
 
@@ -22,6 +22,7 @@ set(SOURCE_FILES
         ${COMMON_SRC_DIR}/fsm.cpp
         ${COMMON_SRC_DIR}/fsm_validation.cpp
         ${COMMON_SRC_DIR}/event_loop.cpp
+        ${COMMON_SRC_DIR}/platform.cpp
 )
 
 add_library(vpnlibs_common STATIC EXCLUDE_FROM_ALL ${SOURCE_FILES})

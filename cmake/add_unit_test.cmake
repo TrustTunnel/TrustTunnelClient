@@ -27,7 +27,7 @@ function(add_unit_test TEST_NAME TEST_DIR EXTRA_INCLUDES IS_GTEST EXPAND_GTEST)
         target_link_libraries(${TEST_NAME} PRIVATE CONAN_PKG::gtest)
     endif()
 
-    if (${EXPAND_GTEST})
+    if (${EXPAND_GTEST} AND NOT ${CMAKE_CROSSCOMPILING})
         gtest_discover_tests(${TEST_NAME})
     else()
         add_test(${TEST_NAME} ${TEST_NAME})

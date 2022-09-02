@@ -8,10 +8,10 @@
 namespace ag {
 
 static constexpr Socks5ConnectResult TUNNEL_TO_SOCKS_CONNECT_RESULT[] = {
-        [CCR_PASS] = S5LCR_SUCCESS,
-        [CCR_DROP] = S5LCR_TIMEOUT,
-        [CCR_REJECT] = S5LCR_REJECT,
-        [CCR_UNREACH] = S5LCR_UNREACHABLE,
+        /** CCR_PASS */ S5LCR_SUCCESS,
+        /** CCR_DROP */ S5LCR_TIMEOUT,
+        /** CCR_REJECT */ S5LCR_REJECT,
+        /** CCR_UNREACH */ S5LCR_UNREACHABLE,
 };
 
 static TunnelAddress socks_to_client_address(const Socks5ConnectionAddress *addr) {
@@ -31,8 +31,9 @@ static ClientListener::InitResult convert_socks5_listener_start_result(Socks5Lis
     case SOCKS5L_START_ADDR_IN_USE:
         return ClientListener::InitResult::ADDR_IN_USE;
     case SOCKS5L_START_FAILURE:
-        return ClientListener::InitResult::FAILURE;
+        break;
     }
+    return ClientListener::InitResult::FAILURE;
 }
 
 void SocksListener::socks_handler(void *arg, Socks5ListenerEvent what, void *data) {
@@ -124,7 +125,7 @@ ClientListener::InitResult SocksListener::init(VpnClient *vpn, ClientHandler han
     Socks5ListenerConfig socks5_config = {
             .ev_loop = vpn->parameters.ev_loop,
             .listen_address = m_config.listen_address,
-            .timeout_ms = vpn->listener_config.timeout_ms,
+            .timeout = Millis{vpn->listener_config.timeout_ms},
             .socket_manager = vpn->parameters.network_manager->socket,
             .read_threshold = 0,
             .username = safe_to_string_view(m_config.username),
@@ -177,12 +178,12 @@ void SocksListener::close_connection(uint64_t id, bool graceful, bool async) {
             bool graceful;
         };
 
-        m_deferred_tasks.emplace(ag::submit(vpn->parameters.ev_loop,
+        m_deferred_tasks.emplace(event_loop::submit(vpn->parameters.ev_loop,
                 {
                         new CloseCtx{this, id, graceful},
                         [](void *arg, TaskId task_id) {
                             auto *ctx = (CloseCtx *) arg;
-                            ctx->listener->m_deferred_tasks.erase(ag::make_auto_id(task_id));
+                            ctx->listener->m_deferred_tasks.erase(event_loop::make_auto_id(task_id));
                             socks5_listener_close_connection(ctx->listener->m_socks5_listener, ctx->id, ctx->graceful);
                         },
                         [](void *arg) {

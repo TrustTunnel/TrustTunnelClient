@@ -1,14 +1,17 @@
-#include "udp_raw.h"
+#include "vpn/platform.h"
 
 #include <lwip/init.h>
 #include <lwip/pbuf.h>
 #include <lwip/timeouts.h>
 #include <lwip/udp.h>
 
+#include <vector>
+
 #include "common/logger.h"
 #include "tcpip/tcpip.h"
 #include "tcpip_common.h"
 #include "udp_conn_manager.h"
+#include "udp_raw.h"
 
 namespace ag {
 
@@ -23,18 +26,19 @@ static void udp_raw_recv(
     auto *tcpip_ctx = (TcpipCtx *) arg;
 
     size_t chain_length = pbuf_clen(buffer);
-    evbuffer_iovec iov[chain_length];
+    std::vector<evbuffer_iovec> iov;
+    iov.reserve(chain_length);
 
-    size_t iov_idx = 0;
-    for (const struct pbuf *iter = buffer; (iov_idx < chain_length) && (iter != nullptr);
-            iov_idx++, iter = iter->next) {
-        iov[iov_idx].iov_base = iter->payload;
-        iov[iov_idx].iov_len = iter->len;
+    for (const struct pbuf *iter = buffer; (iov.size() < chain_length) && (iter != nullptr); iter = iter->next) {
+        iov.push_back({
+                .iov_base = iter->payload,
+                .iov_len = iter->len,
+        });
     }
 
     const ip_addr_t *dst_addr = ip_current_dest_addr();
     u16_t dst_port = pcb->local_port;
-    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, chain_length, iov);
+    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, iov.size(), iov.data());
 
     pbuf_free(buffer);
 }
@@ -42,13 +46,13 @@ static void udp_raw_recv(
 err_t udp_raw_send(
         UdpConnDescriptor *descriptor, ip_addr_t *from_ip, uint16_t from_port, const uint8_t *data, size_t length) {
     TcpipConnection *common = &descriptor->common;
-    struct pbuf *buffer = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
+    struct pbuf *buffer = pbuf_alloc(PBUF_TRANSPORT, u16_t(length), PBUF_RAM);
     if (nullptr == buffer) {
         log_conn(descriptor, err, "Failed to allocate buffer");
         return ERR_MEM;
     }
 
-    err_t result = pbuf_take(buffer, data, length);
+    err_t result = pbuf_take(buffer, data, u16_t(length));
     if (ERR_OK != result) {
         log_conn(descriptor, err, "Failed to fill buffer: {} ({})", lwip_strerr(result), result);
         return result;

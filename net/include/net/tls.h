@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdbool>
 #include <string>
 #include <string_view>
 

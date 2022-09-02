@@ -5,7 +5,7 @@
 
 #include <event2/util.h>
 
-#include "dnsstamp/dns_stamp.h"
+#include "dns/dnsstamp/dns_stamp.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
@@ -214,7 +214,7 @@ struct sockaddr_storage sockaddr_from_str(const char *str) {
     int addr_len = sizeof(addr);
 
     if (str != NULL && 0 != evutil_parse_sockaddr_port(str, (struct sockaddr *) &addr, &addr_len)) {
-        addr = (struct sockaddr_storage){};
+        std::memset(&addr, 0, sizeof(addr));
     }
 
     return addr;
@@ -224,7 +224,7 @@ struct sockaddr_storage local_sockaddr_from_fd(evutil_socket_t fd) {
     struct sockaddr_storage addr = {};
     socklen_t addrlen = sizeof(addr);
     if (getsockname(fd, (struct sockaddr *) &addr, &addrlen) != 0) {
-        addr = (struct sockaddr_storage){};
+        std::memset(&addr, 0, sizeof(addr));
     }
     return addr;
 }
@@ -233,7 +233,7 @@ struct sockaddr_storage remote_sockaddr_from_fd(evutil_socket_t fd) {
     struct sockaddr_storage addr = {};
     socklen_t addrlen = sizeof(addr);
     if (getpeername(fd, (struct sockaddr *) &addr, &addrlen) != 0) {
-        addr = (struct sockaddr_storage){};
+        std::memset(&addr, 0, sizeof(addr));
     }
     return addr;
 }
@@ -283,25 +283,23 @@ std::string str_format(const char *fmt, ...) {
 }
 
 std::string encode_to_hex(U8View data) {
-    const static char table[] = "0123456789abcdef";
-    const uint8_t *end = data.data() + data.length();
-    size_t out_len = data.length() * 2;
-    char out[out_len];
-    const uint8_t *in_pos = data.data();
-    char *out_pos = out;
-    while (in_pos < end) {
-        *out_pos++ = table[(*in_pos >> 4) & 0xf];
-        *out_pos++ = table[*in_pos & 0xf];
-        in_pos++;
+    static constexpr char TABLE[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(data.length() * 2);
+    for (uint8_t c : data) {
+        out.push_back(TABLE[(c >> 4) // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+                & 0xf]);             // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+        out.push_back(TABLE[c        // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+                & 0xf]);             // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     }
-    return std::string(out, out_len);
+    return out;
 }
 
 char *safe_strdup(const char *s) {
     return (s != nullptr) ? strdup(s) : nullptr;
 }
 
-VpnError make_vpn_error_from_fd(evutil_socket_t fd) {
+VpnError make_vpn_error_from_fd([[maybe_unused]] evutil_socket_t fd) {
     return make_vpn_from_socket_error(evutil_socket_geterror(fd));
 }
 
@@ -370,11 +368,12 @@ static VpnBuffer marshal_buffer(U8View v) {
 }
 
 VpnDnsStamp *vpn_dns_stamp_from_str(const char *stamp_str, const char **error) {
-    auto [stamp, stamp_err] = ag::ServerStamp::from_string(stamp_str);
-    if (stamp_err) {
-        *error = marshal_str(*stamp_err);
+    auto res = dns::ServerStamp::from_string(stamp_str);
+    if (res.has_error()) {
+        *error = marshal_str(res.error()->str());
         return nullptr;
     }
+    const dns::ServerStamp &stamp = res.value();
     auto *c_result = (VpnDnsStamp *) std::calloc(1, sizeof(VpnDnsStamp));
     c_result->proto = (VpnDnsStampProtocol) stamp.proto;
     c_result->path = marshal_str(stamp.path);
@@ -409,9 +408,9 @@ void vpn_dns_stamp_free(VpnDnsStamp *stamp) {
     std::free(stamp);
 }
 
-static ag::ServerStamp marshal_stamp(const VpnDnsStamp *c_stamp) {
-    ag::ServerStamp stamp{};
-    stamp.proto = (ag::StampProtoType) c_stamp->proto;
+static dns::ServerStamp marshal_stamp(const VpnDnsStamp *c_stamp) {
+    dns::ServerStamp stamp{};
+    stamp.proto = (dns::StampProtoType) c_stamp->proto;
     if (c_stamp->path) {
         stamp.path = c_stamp->path;
     }
@@ -423,31 +422,37 @@ static ag::ServerStamp marshal_stamp(const VpnDnsStamp *c_stamp) {
     }
     stamp.server_pk.assign(c_stamp->server_public_key.data,
             c_stamp->server_public_key.data + c_stamp->server_public_key.size);
+    stamp.hashes.reserve(c_stamp->hashes.size);
     for (size_t i = 0; i < c_stamp->hashes.size; ++i) {
         const VpnBuffer &hash = c_stamp->hashes.data[i];
         stamp.hashes.emplace_back(hash.data, hash.data + hash.size);
     }
-    stamp.props = (ag::ServerInformalProperties) c_stamp->properties;
+    stamp.props = (dns::ServerInformalProperties) c_stamp->properties;
     return stamp;
 }
 
 const char *vpn_dns_stamp_to_str(VpnDnsStamp *c_stamp) {
-    ag::ServerStamp stamp = marshal_stamp(c_stamp);
+    dns::ServerStamp stamp = marshal_stamp(c_stamp);
     return marshal_str(stamp.str());
 }
 
 const char *vpn_dns_stamp_pretty_url(VpnDnsStamp *c_stamp) {
-    ag::ServerStamp stamp = marshal_stamp(c_stamp);
+    dns::ServerStamp stamp = marshal_stamp(c_stamp);
     return marshal_str(stamp.pretty_url(false));
 }
 
 const char *vpn_dns_stamp_prettier_url(VpnDnsStamp *c_stamp) {
-    ag::ServerStamp stamp = marshal_stamp(c_stamp);
+    dns::ServerStamp stamp = marshal_stamp(c_stamp);
     return marshal_str(stamp.pretty_url(true));
 }
 
 void vpn_string_free(const char *s) {
     std::free((void *) s);
+}
+
+uint32_t ntoh_24(uint32_t x) {
+    const auto *b = (uint8_t *)&x;
+    return (b[0] << 16) | (b[1] << 8) | b[2]; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 }
 
 } // namespace ag

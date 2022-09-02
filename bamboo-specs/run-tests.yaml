@@ -85,20 +85,19 @@ Run tests on Windows:
         scripts:
           - |-
             call vcvars32
-            
+
             if exist build\ rmdir /s /q build || exit /b 1
             mkdir build || exit /b 1
             cd build || exit /b 1
-            
+
             cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
-                -DCMAKE_C_COMPILER="C:/Program Files (x86)/LLVM/bin/clang-cl.exe" ^
-                -DCMAKE_CXX_COMPILER="C:/Program Files (x86)/LLVM/bin/clang-cl.exe" ^
                 -DCMAKE_C_FLAGS_DEBUG=/MT ^
                 -DCMAKE_CXX_FLAGS_DEBUG=/MT ^
-                -G "Ninja" ^
+                -G "Visual Studio 16 2019" -A Win32 ^
                 ..
-            
-            ninja tests || exit /b 1
+
+            cmake --build . --target tests || exit /b 1
+            ctest -D ExperimentalTest --no-compress-output || exit /b 1
     - script:
         description: Run tests
         interpreter: BINSH_OR_CMDEXE
@@ -145,7 +144,9 @@ Run tests on macOS:
             # Build tests
             mkdir -p build
             cd build
-            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+            # @todo: bring back optimized build when Apple fix its compiler
+            # `Debug` because AppleClang crashes when sees our code
+            cmake -DCMAKE_BUILD_TYPE=Debug -GNinja \
                 -DTARGET_OS=macos \
                 -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_CXX_COMPILER=clang++ \
@@ -154,6 +155,9 @@ Run tests on macOS:
                 -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
                 ..
 
+            # Needed to avoid a sanitizer error (likely to be false positive)
+            # inside gtest
+            export ASAN_OPTIONS=detect_container_overflow=0
             ninja tests
     - script:
         description: Run tests
@@ -162,6 +166,9 @@ Run tests on macOS:
           - |-
             # Run tests
             cd build || exit 1
+            # Needed to avoid a bunch of false positive sanitizer errors
+            # in our tests
+            export ASAN_OPTIONS=detect_container_overflow=0
             ctest -D ExperimentalTest --no-compress-output
   final-tasks:
     - any-task:
@@ -180,7 +187,7 @@ Run tests on macOS:
             # Conan remove locks
             conan remove --locks
   requirements:
-    - system.builder.xcode.macOS 10.14
+    - macOS 11.0 or later
   artifact-subscriptions: [ ]
 
 repositories:

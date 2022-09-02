@@ -51,8 +51,9 @@ int http_session_input(HttpSession *session, const uint8_t *data, size_t length)
         return http2_session_input(session, data, length);
     case HTTP_VER_3_0:
         assert(0);
-        return -1;
+        break;
     }
+    return -1;
 }
 
 int http_session_close(HttpSession *session) {
@@ -84,8 +85,9 @@ int http_session_send_headers(HttpSession *session, int32_t stream_id, const Htt
         return http2_session_send_headers(session, stream_id, headers, eof);
     case HTTP_VER_3_0:
         assert(0);
-        return -1;
+        break;
     }
+    return -1;
 }
 
 int http_session_send_data(HttpSession *session, int32_t stream_id, const uint8_t *data, size_t len, bool eof) {
@@ -96,8 +98,9 @@ int http_session_send_data(HttpSession *session, int32_t stream_id, const uint8_
         return http2_session_send_data(session, stream_id, data, len, eof);
     case HTTP_VER_3_0:
         assert(0);
-        return -1;
+        break;
     }
+    return -1;
 }
 
 } // namespace ag

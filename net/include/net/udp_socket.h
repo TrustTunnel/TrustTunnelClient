@@ -1,7 +1,8 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
+#include "common/defs.h"
 #include "net/socket_manager.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
@@ -32,7 +33,7 @@ typedef struct {
 typedef struct {
     VpnEventLoop *ev_loop; // event loop for operation
     UdpSocketCallbacks handler;
-    uint32_t timeout_ms;           // operation time out value
+    Millis timeout;                // operation time out value
     struct sockaddr_storage peer;  // destination peer (must be set)
     SocketManager *socket_manager; // socket manager
 } UdpSocketParameters;

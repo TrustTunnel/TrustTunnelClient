@@ -1,4 +1,4 @@
-#include "udp_conn_manager.h"
+#include "vpn/platform.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -24,6 +24,7 @@
 #include "common/logger.h"
 #include "tcpip_common.h"
 #include "tcpip_util.h"
+#include "udp_conn_manager.h"
 #include "udp_raw.h"
 
 namespace ag {
@@ -136,13 +137,13 @@ void udp_cm_complete_connect_request(TcpipCtx *ctx, UdpConnDescriptor *connectio
     } CompleteConnectionEntry;
 
     static const CompleteConnectionEntry COMPLETE_CONNECTION_HANDLERS[] = {
-            [TCPIP_ACT_REJECT] = {process_rejected_connection, "rejecting"},
-            [TCPIP_ACT_BYPASS] = {process_forwarded_connection, "forwarding"},
-            [TCPIP_ACT_DROP] = {process_rejected_connection, "rejecting"},
-            [TCPIP_ACT_REJECT_UNREACHABLE] = {process_rejected_connection, "rejecting"},
+            /** TCPIP_ACT_REJECT */ {process_rejected_connection, "rejecting"},
+            /** TCPIP_ACT_BYPASS */ {process_forwarded_connection, "forwarding"},
+            /** TCPIP_ACT_DROP */ {process_rejected_connection, "rejecting"},
+            /** TCPIP_ACT_REJECT_UNREACHABLE */ {process_rejected_connection, "rejecting"},
     };
 
-    if ((size_t) action >= sizeof(COMPLETE_CONNECTION_HANDLERS) / sizeof(COMPLETE_CONNECTION_HANDLERS[0])) {
+    if ((size_t) action >= std::size(COMPLETE_CONNECTION_HANDLERS)) {
         log_conn(connection, err, "unknown action ({})... rejecting connection", action);
         process_rejected_connection(connection);
         return;
@@ -252,7 +253,7 @@ UdpConnDescriptor *udp_cm_create_descriptor(TcpipCtx *ctx, struct pbuf *buffer, 
     TcpipHandler *callbacks = &ctx->parameters.handler;
     callbacks->handler(callbacks->arg, TCPIP_EVENT_GENERATE_CONN_ID, &common->id);
 
-    common->addr = (AddressPair){*src_addr, src_port, *dst_addr, dst_port};
+    common->addr = {*src_addr, src_port, *dst_addr, dst_port};
     common->parent_ctx = ctx;
 
     tcpip_refresh_connection_timeout(ctx, common);
@@ -307,10 +308,10 @@ void udp_cm_timer_tick(TcpipCtx *ctx) {
 }
 
 TcpFlowCtrlInfo udp_cm_flow_ctrl_info(const UdpConnDescriptor *connection) {
-    return (TcpFlowCtrlInfo){
+    return {
             // MTU — (Max IP Header Size) — (UDP Header Size)
-            connection->common.parent_ctx->parameters.mtu_size - 60 - 8,
-            DEFAULT_SEND_WINDOW_SIZE,
+            .send_buffer_size = connection->common.parent_ctx->parameters.mtu_size - 60 - 8,
+            .send_window_size = DEFAULT_SEND_WINDOW_SIZE,
     };
 }
 

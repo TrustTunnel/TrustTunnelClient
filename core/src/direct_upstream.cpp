@@ -60,7 +60,7 @@ bool DirectUpstream::init(VpnClient *vpn, SeverHandler handler) {
 void DirectUpstream::deinit() {
 }
 
-bool DirectUpstream::open_session(uint32_t) {
+bool DirectUpstream::open_session(std::optional<Millis>) {
     this->handler.func(this->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
     return true;
 }
@@ -189,7 +189,7 @@ uint64_t DirectUpstream::open_tcp_connection(const TunnelAddressPair *addr) {
     TcpSocketParameters params = {
             .ev_loop = this->vpn->parameters.ev_loop,
             .handler = {tcp_socket_handler, ctx.get()},
-            .timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS,
+            .timeout = Millis{VPN_DEFAULT_TCP_TIMEOUT_MS},
             .socket_manager = this->vpn->parameters.network_manager->socket,
     };
 
@@ -204,9 +204,19 @@ uint64_t DirectUpstream::open_tcp_connection(const TunnelAddressPair *addr) {
 
     TcpSocketConnectParameters param = {};
     if (const sockaddr_storage *dst = std::get_if<sockaddr_storage>(&addr->dst); dst != nullptr) {
-        param = {TCP_SOCKET_CB_ADDR, .by_addr = {(sockaddr *) dst}};
+        param = {
+                .connect_by = TCP_SOCKET_CB_ADDR,
+                .by_addr = { .addr = (sockaddr *) dst },
+        };
     } else if (const NamePort *dst = std::get_if<NamePort>(&addr->dst); dst != nullptr) {
-        param = {TCP_SOCKET_CB_HOSTNAME, .by_name = {this->vpn->parameters.dns_base, dst->name.c_str(), dst->port}};
+        param = {
+                .connect_by = TCP_SOCKET_CB_HOSTNAME,
+                .by_name = {
+                        .dns_base = this->vpn->parameters.dns_base,
+                        .host = dst->name.c_str(),
+                        .port = dst->port,
+                },
+        };
     } else {
         log_upstream(this, err, "Empty destination address");
         assert(0);
@@ -229,7 +239,7 @@ uint64_t DirectUpstream::open_udp_connection(const TunnelAddressPair *addr) {
     std::unique_ptr<SocketContext> ctx = std::make_unique<SocketContext>(SocketContext{this, id});
 
     UdpSocketParameters params = {this->vpn->parameters.ev_loop, {udp_socket_handler, ctx.get()},
-            VPN_DEFAULT_UDP_TIMEOUT_MS, *std::get_if<sockaddr_storage>(&addr->dst),
+            Millis{VPN_DEFAULT_UDP_TIMEOUT_MS}, *std::get_if<sockaddr_storage>(&addr->dst),
             this->vpn->parameters.network_manager->socket};
     UdpSocketPtr socket{udp_socket_create(&params)};
     if (socket == nullptr) {
@@ -240,7 +250,7 @@ uint64_t DirectUpstream::open_udp_connection(const TunnelAddressPair *addr) {
     UdpConnection *conn = &m_udp_connections[id];
     conn->sock_ctx = std::move(ctx);
     conn->socket = std::move(socket);
-    conn->open_task_id = ag::submit(vpn->parameters.ev_loop,
+    conn->open_task_id = event_loop::submit(vpn->parameters.ev_loop,
             {
                     new SocketContext{this, id},
                     [](void *arg, TaskId) {
@@ -322,7 +332,7 @@ void DirectUpstream::close_connection(uint64_t id, bool graceful, bool async) {
         return;
     }
 
-    conn->close_task_id = ag::submit(vpn->parameters.ev_loop,
+    conn->close_task_id = event_loop::submit(vpn->parameters.ev_loop,
             {
                     new CloseCtx{this, id, graceful},
                     [](void *arg, TaskId) {
@@ -409,7 +419,7 @@ void DirectUpstream::on_icmp_request(IcmpEchoRequestEvent &event) {
     TcpSocketParameters params = {
             .ev_loop = this->vpn->parameters.ev_loop,
             .handler = {icmp_socket_handler, ctx.get()},
-            .timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS,
+            .timeout = Millis{VPN_DEFAULT_TCP_TIMEOUT_MS},
             .socket_manager = this->vpn->parameters.network_manager->socket,
     };
 
@@ -421,7 +431,10 @@ void DirectUpstream::on_icmp_request(IcmpEchoRequestEvent &event) {
 
     sockaddr_storage peer = event.request.peer;
     sockaddr_set_port((sockaddr *) &peer, ICMP_PING_EMULATION_PORT);
-    TcpSocketConnectParameters param = {TCP_SOCKET_CB_ADDR, .by_addr = {(sockaddr *) &peer}};
+    TcpSocketConnectParameters param = {
+            .connect_by = TCP_SOCKET_CB_ADDR,
+            .by_addr = { .addr = (sockaddr *) &peer },
+    };
     if (0 != tcp_socket_connect(sock.get(), &param).code) {
         event.result = -1;
         return;
@@ -505,7 +518,7 @@ void DirectUpstream::icmp_socket_handler(void *arg, TcpSocketEvent what, void *d
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED:
         reply = ctx->make_reply_template();
-        reply->type = (ctx->peer.ss_family == AF_INET) ? ICMP_MT_ECHO_REPLY : ICMPV6_MT_ECHO_REPLY;
+        reply->type = (ctx->peer.ss_family == AF_INET) ? uint8_t(ICMP_MT_ECHO_REPLY) : uint8_t(ICMPV6_MT_ECHO_REPLY);
         break;
     case TCP_SOCKET_EVENT_ERROR:
         reply = ctx->make_reply_template();

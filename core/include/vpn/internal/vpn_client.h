@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "common/defs.h"
 #include "common/logger.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
@@ -84,7 +85,7 @@ public:
 
     VpnError init(const VpnSettings *settings);
 
-    VpnError connect(vpn_client::EndpointConnectionConfig config, uint32_t timeout_ms = 0);
+    VpnError connect(vpn_client::EndpointConnectionConfig config, std::optional<Millis> timeout = std::nullopt);
 
     VpnError listen(std::unique_ptr<ClientListener> listener, const VpnListenerConfig *config, bool ipv6_available);
 
@@ -142,7 +143,7 @@ public:
     IdGenerator upstream_conn_id_generator{};           // connection id generator for server-side connections
     std::unique_ptr<DnsProxyAccessor> dns_proxy;        // DNS proxy wrapper
     DomainFilter domain_filter;                         // decides if connection should be bypassed over VPN
-    std::set<ag::AutoTaskId> deferred_tasks;
+    std::set<event_loop::AutoTaskId> deferred_tasks;
     std::unique_ptr<EndpointConnector> endpoint_connector; // connects to endpoint using given upstream(s)
     std::optional<std::string> tmp_files_base_path;        // directory where some temporary files will be stored
     size_t conn_memory_buffer_threshold =

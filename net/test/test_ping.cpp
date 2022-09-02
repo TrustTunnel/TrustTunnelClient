@@ -42,7 +42,7 @@ public:
 
     void run_event_loop() { // NOLINT(readability-make-member-function-const)
         // just not to hang
-        vpn_event_loop_exit(loop.get(), 2 * DEFAULT_PING_TIMEOUT_MS);
+        vpn_event_loop_exit(loop.get(), Millis(2 * DEFAULT_PING_TIMEOUT_MS));
         vpn_event_loop_run(loop.get());
     }
 
@@ -279,14 +279,14 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
                         auto *test_ctx = (TestCtx *) ctx;
 
                         if (!test_ctx->cancelled) {
-                            ag::submit(test_ctx->loop,
+                            event_loop::submit(test_ctx->loop,
                                     {
                                             .arg = test_ctx,
                                             .action =
                                                     [](void *arg, TaskId) {
                                                         auto *ctx = (TestCtx *) arg;
                                                         ctx->ping.reset();
-                                                        vpn_event_loop_exit(ctx->loop, 1000);
+                                                        vpn_event_loop_exit(ctx->loop, Secs(1));
                                                     },
                                     })
                                     .release();
@@ -326,14 +326,14 @@ TEST_F(PingTest, DestroyInProgressPing) {
     TestCtx test_ctx = generate_test_ctx();
     PingInfo info = {test_ctx.loop, {addresses.data(), addresses.size()}, 0, false, 1};
 
-    ag::submit(test_ctx.loop,
+    event_loop::submit(test_ctx.loop,
             {
                     .arg = &test_ctx,
                     .action =
                             [](void *arg, TaskId) {
                                 auto *ctx = (TestCtx *) arg;
                                 ctx->ping.reset();
-                                vpn_event_loop_exit(ctx->loop, 1000);
+                                vpn_event_loop_exit(ctx->loop, Secs(1));
                             },
             })
             .release();

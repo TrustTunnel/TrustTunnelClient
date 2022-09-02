@@ -147,8 +147,8 @@ private:
         std::string app_name;
         size_t sent_bytes_since_flush = 0; // number of bytes sent since last socket write buffer flush
         std::chrono::time_point<std::chrono::steady_clock> timeout;
-        ag::AutoTaskId open_task_id;
-        ag::AutoTaskId close_task_id;
+        event_loop::AutoTaskId open_task_id;
+        event_loop::AutoTaskId close_task_id;
     };
 
     struct RecvConnection {

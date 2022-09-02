@@ -1,8 +1,5 @@
-#include <algorithm>
+#include <filesystem>
 #include <numeric>
-
-#include <FFOS/dir.h>
-#include <FFOS/file.h>
 
 #include "common/base64.h"
 #include "common/net_utils.h"
@@ -41,27 +38,20 @@ static bool is_conn_buffer_file(const char *fname) {
 }
 
 void clean_up_buffer_files(const char *dir) {
-    char path[strlen(dir) + 256];
-    strcpy(path, dir);
-    ffdirentry dent = {};
-    ffdir d = ffdir_open(path, sizeof(path), &dent);
-    if (!d) {
+    if (!std::filesystem::exists(dir)) {
         return;
     }
 
-    while (0 == ffdir_read(d, &dent)) {
-        std::string fn = safe_path_name(ffdir_entryname(&dent));
-        if (fn == "." || fn == "..") {
-            continue;
-        }
-
-        ffdir_einfo *entry_info = ffdir_entryinfo(&dent);
-        if (entry_info != nullptr && !fffile_isdir(fffile_infoattr(entry_info)) && is_conn_buffer_file(fn.c_str())) {
-            fffile_rm(str_format("%s/%s", dir, fn.c_str()).c_str());
+    std::vector<std::filesystem::path> to_remove;
+    for (const auto &i : std::filesystem::directory_iterator{ dir }) {
+        if (!i.is_directory() && is_conn_buffer_file(i.path().filename().string().c_str())) {
+            to_remove.push_back(i);
         }
     }
 
-    ffdir_close(d);
+    for (auto &i : to_remove) {
+        std::filesystem::remove(i);
+    }
 }
 
 VpnUpstreamConfig vpn_upstream_config_clone(const VpnUpstreamConfig *src) {
@@ -155,11 +145,7 @@ static void put_user_agent(HttpHeaders *headers, std::string_view app_name) {
 }
 
 static void set_auth_info(HttpHeaders *headers, std::string_view creds) {
-    size_t buf_size = creds.length() + 10;
-    char buffer[buf_size];
-
-    int r = snprintf(buffer, sizeof(buffer), "Basic %.*s", (int) creds.length(), creds.data());
-    headers->put_field("proxy-authorization", std::string{buffer, size_t(r)});
+    headers->put_field("proxy-authorization", AG_FMT("Basic {}", creds));
 }
 
 HttpHeaders make_http_connect_request(

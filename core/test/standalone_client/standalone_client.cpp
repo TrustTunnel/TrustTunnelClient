@@ -27,6 +27,7 @@
 
 #include "common/cidr_range.h"
 #include "common/file.h"
+#include "common/logger.h"
 #include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/tls.h"
@@ -268,11 +269,16 @@ static void sighandler(int /*sig*/) {
     }
 }
 
+// Needed because using `__func__` (which is used in `tracelog()`) inside variadic
+// template function causes a compiler error inside fmtlib's headers
+static void fsystem_expanded(const std::string &cmd) {
+    tracelog(g_logger, "{} {}", (geteuid() == 0) ? '#' : '$', cmd);
+    system(cmd.c_str());
+}
+
 template <typename... Ts>
 static void fsystem(std::string_view fmt, Ts&&... args) {
-    std::string cmd = fmt::vformat(fmt, fmt::make_format_args(args...)) + std::string(REDIRECT_OUTPUT);
-    tracelog(g_logger, "{} {}", geteuid() == 0 ? "#" : "$", cmd);
-    system(cmd.c_str());
+    fsystem_expanded(fmt::vformat(fmt, fmt::make_format_args(args...)) + std::string(REDIRECT_OUTPUT));
 }
 
 static void setup_if(const TunInfo &info) {

@@ -1,4 +1,4 @@
-#include "tcp_conn_manager.h"
+#include "vpn/platform.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -6,10 +6,9 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
@@ -22,6 +21,7 @@
 #include <lwip/timeouts.h>
 
 #include "common/logger.h"
+#include "tcp_conn_manager.h"
 #include "tcp_raw.h"
 #include "tcpip/tcpip.h"
 #include "tcpip_common.h"
@@ -205,13 +205,13 @@ void tcp_cm_complete_connect_request(TcpipCtx *, TcpConnDescriptor *connection, 
     } CompleteConnectionEntry;
 
     static const CompleteConnectionEntry COMPLETE_CONNECTION_HANDLERS[] = {
-            [TCPIP_ACT_REJECT] = {process_rejected_connection, "rejecting"},
-            [TCPIP_ACT_BYPASS] = {process_forwarded_connection, "forwarding"},
-            [TCPIP_ACT_DROP] = {process_dropped_connection, "dropping"},
-            [TCPIP_ACT_REJECT_UNREACHABLE] = {process_unreachable_connection, "rejecting unreachable"},
+            /** TCPIP_ACT_REJECT */ {process_rejected_connection, "rejecting"},
+            /** TCPIP_ACT_BYPASS */ {process_forwarded_connection, "forwarding"},
+            /** TCPIP_ACT_DROP */ {process_dropped_connection, "dropping"},
+            /** TCPIP_ACT_REJECT_UNREACHABLE */ {process_unreachable_connection, "rejecting unreachable"},
     };
 
-    if ((size_t) action >= sizeof(COMPLETE_CONNECTION_HANDLERS) / sizeof(COMPLETE_CONNECTION_HANDLERS[0])) {
+    if ((size_t) action >= std::size(COMPLETE_CONNECTION_HANDLERS)) {
         log_conn(connection, err, "Unknown action ({})... rejecting connection", action);
         process_rejected_connection(connection);
         return;
@@ -322,7 +322,7 @@ TcpConnDescriptor *tcp_cm_create_descriptor(TcpipCtx *ctx, struct pbuf *buffer, 
     TcpipHandler *callbacks = &ctx->parameters.handler;
     callbacks->handler(callbacks->arg, TCPIP_EVENT_GENERATE_CONN_ID, &common->id);
 
-    common->addr = (AddressPair){*src_addr, src_port, *dst_addr, dst_port};
+    common->addr = {*src_addr, src_port, *dst_addr, dst_port};
     common->parent_ctx = ctx;
 
     connection->buffer = buffer;
@@ -405,9 +405,9 @@ bool tcp_cm_accept(TcpConnDescriptor *connection, struct tcp_pcb *newpcb) {
 TcpFlowCtrlInfo tcp_cm_flow_ctrl_info(const TcpConnDescriptor *connection) {
     TcpFlowCtrlInfo r = {};
     if (connection->pcb != nullptr) {
-        r = (TcpFlowCtrlInfo){
-                (tcp_sndqueuelen(connection->pcb) < TCP_SND_QUEUELEN) ? tcp_raw_get_out_buf_space(connection->pcb) : 0,
-                (size_t) SND_WND_SCALE(connection->pcb, connection->pcb->snd_wnd),
+        r = {
+                .send_buffer_size = (tcp_sndqueuelen(connection->pcb) < TCP_SND_QUEUELEN) ? tcp_raw_get_out_buf_space(connection->pcb) : 0,
+                .send_window_size = size_t(SND_WND_SCALE(connection->pcb, connection->pcb->snd_wnd)),
         };
     }
     return r;

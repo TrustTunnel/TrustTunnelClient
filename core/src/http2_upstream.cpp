@@ -117,7 +117,7 @@ void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
 int Http2Upstream::read_out_pending_data(uint64_t id, TcpConnection *conn) {
     DataBuffer *pending = conn->unread_data.get();
 
-    while (conn->flags.test(TCF_READ_ENABLED) && pending->size() > 0) {
+    while (conn->flags.test(TcpConnection::TCF_READ_ENABLED) && pending->size() > 0) {
         BufferPeekResult res = pending->peek();
         if (res.err.has_value()) {
             log_conn(this, id, err, "Failed to read buffered data: {}", *res.err);
@@ -176,7 +176,7 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
         }
 
         http_event->result = 0;
-        if (conn->flags.test(TCF_READ_ENABLED)) {
+        if (conn->flags.test(TcpConnection::TCF_READ_ENABLED)) {
             assert(pending == nullptr || pending->size() == 0);
             http_event->result = upstream->handle_read(found.first, http_event->data, http_event->length);
         }
@@ -243,7 +243,7 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
             }
 
             TcpConnection *conn = found.second;
-            conn->flags.set(TCF_STREAM_CLOSED);
+            conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
 
             std::optional<ServerError> err_event = conn->pending_error;
             if (!err_event.has_value() && http_event->error_code != NGHTTP2_NO_ERROR) {
@@ -338,8 +338,7 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED: {
         tcp_socket_set_read_enabled(upstream->m_socket.get(), true);
-        tcp_socket_set_timeout(
-                upstream->m_socket.get(), duration_cast<milliseconds>(upstream->vpn->upstream_config.timeout).count());
+        tcp_socket_set_timeout(upstream->m_socket.get(), upstream->vpn->upstream_config.timeout);
         log_upstream(upstream, dbg, "Established TCP connection to endpoint successfully");
         log_upstream(upstream, dbg, "Initiating HTTP2 session with endpoint...");
         if (upstream->establish_http_session()) {
@@ -420,13 +419,13 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     }
 }
 
-bool Http2Upstream::open_session(uint32_t timeout_ms) {
+bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
 
     TcpSocketParameters sock_params = {
             this->vpn->parameters.ev_loop,
             {net_handler, this},
-            (timeout_ms == 0) ? (uint32_t) duration_cast<milliseconds>(config->timeout).count() : timeout_ms,
+            timeout.value_or(config->timeout),
             this->vpn->parameters.network_manager->socket,
             0,
 #ifdef _WIN32
@@ -565,7 +564,7 @@ void Http2Upstream::close_tcp_connection(uint64_t id, bool graceful) {
     auto i = m_tcp_connections.find(id);
     if (m_session != nullptr && i != m_tcp_connections.end()) {
         TcpConnection *conn = &i->second;
-        if (!conn->flags.test(TCF_STREAM_CLOSED)) {
+        if (!conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
             int err = graceful ? NGHTTP2_NO_ERROR : NGHTTP2_CANCEL;
             http_session_reset_stream(m_session.get(), (int32_t) i->second.stream_id, err);
             return; // will be cleaned up in the stream processed event
@@ -596,7 +595,7 @@ void Http2Upstream::close_connection(uint64_t id, bool graceful, bool async) {
     }
 
     TcpConnection *conn = &it->second;
-    conn->close_task_id = ag::submit(this->vpn->parameters.ev_loop,
+    conn->close_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
             {
                     new close_ctx_t{this, id, graceful},
                     [](void *arg, TaskId task_id) {
@@ -622,7 +621,7 @@ ssize_t Http2Upstream::send(uint64_t id, const uint8_t *data, size_t length) {
 
     if (auto i = m_tcp_connections.find(id); i != m_tcp_connections.end()) {
         TcpConnection *conn = &i->second;
-        if (!conn->flags.test(TCF_STREAM_CLOSED)) {
+        if (!conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
             r = http_session_send_data(m_session.get(), (int32_t) conn->stream_id, data, length, false);
             if (r == 0) {
                 r = (ssize_t) length;
@@ -725,7 +724,7 @@ void Http2Upstream::complete_read(void *arg, TaskId) {
     int r = upstream->read_out_pending_data(ctx->id, conn);
     if (r < 0) {
         upstream->close_tcp_connection(ctx->id, false);
-    } else if (conn->unread_data->size() == 0 && conn->flags.test(TCF_STREAM_CLOSED)) {
+    } else if (conn->unread_data->size() == 0 && conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
         upstream->handler.func(upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &ctx->id);
         upstream->clean_tcp_connection_data(ctx->id);
     }
@@ -741,23 +740,23 @@ int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
 void Http2Upstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
     if (auto i = m_tcp_connections.find(id); i != m_tcp_connections.end()) {
         TcpConnection *conn = &i->second;
-        if (conn->flags.test(TCF_READ_ENABLED) != (info.send_buffer_size > 0)) {
+        if (conn->flags.test(TcpConnection::TCF_READ_ENABLED) != (info.send_buffer_size > 0)) {
             log_conn(this, id, trace, "Read {}", info.send_buffer_size > 0 ? "on" : "off");
-            conn->flags.set(TCF_READ_ENABLED, info.send_buffer_size > 0);
+            conn->flags.set(TcpConnection::TCF_READ_ENABLED, info.send_buffer_size > 0);
         }
 
-        if (!conn->flags.test(TCF_STREAM_CLOSED)) {
+        if (!conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
             int r = http_session_set_recv_window(m_session.get(), (int32_t) conn->stream_id, info.send_window_size);
             if (r != 0) {
                 log_conn(this, id, err, "Failed to set window: {} ({})", nghttp2_strerror(r), r);
             }
         }
 
-        if (conn->flags.test(TCF_READ_ENABLED) && !conn->complete_read_task_id.has_value()
+        if (conn->flags.test(TcpConnection::TCF_READ_ENABLED) && !conn->complete_read_task_id.has_value()
                 && conn->unread_data != nullptr && conn->unread_data->size() > 0) {
             // we have some unread data on the connection - complete it
             conn->complete_read_task_id =
-                    ag::submit(vpn->parameters.ev_loop, {new CompleteCtx{this, id}, complete_read, [](void *arg) {
+                    event_loop::submit(vpn->parameters.ev_loop, {new CompleteCtx{this, id}, complete_read, [](void *arg) {
                                                              delete (CompleteCtx *) arg;
                                                          }});
         }

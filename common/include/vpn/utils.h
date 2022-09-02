@@ -1,17 +1,17 @@
 #pragma once
 
 #include <climits>
-#include <cstdbool>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <time.h>
 #include <type_traits>
 
 #include <event2/util.h>
 
+#include "common/defs.h"
 #include "vpn/platform.h"
 
 namespace ag {
@@ -278,9 +278,6 @@ VpnError make_vpn_from_socket_error(int code);
  */
 int64_t get_time_monotonic_nanos();
 
-template <auto FUNC>
-using Ftor = std::integral_constant<decltype(FUNC), FUNC>;
-
 template <typename T, auto FUNC>
 using DeclPtr = std::unique_ptr<T, Ftor<FUNC>>;
 
@@ -323,6 +320,9 @@ static inline std::string_view safe_to_string_view(const char *c_str) {
 
 /** Return whether the two strings are equal ignoring case. */
 bool case_equals(std::string_view a, std::string_view b);
+
+/** Convert the unsigned 24-bit wide integer from network byte order to host byte order */
+uint32_t ntoh_24(uint32_t x);
 
 extern "C" {
 

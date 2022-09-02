@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <forward_list>
 #include <numeric>
 
 #define log_conn(lstnr_, id_, lvl_, fmt_, ...)                                                                         \
@@ -25,11 +26,11 @@ struct CloseAsyncCtx {
     bool graceful;
 };
 
-static constexpr TcpipAction CONNECT_RESULT_TO_TCPIP_ACTION[] = {
-        [CCR_PASS] = TCPIP_ACT_BYPASS,
-        [CCR_DROP] = TCPIP_ACT_DROP,
-        [CCR_REJECT] = TCPIP_ACT_REJECT,
-        [CCR_UNREACH] = TCPIP_ACT_REJECT_UNREACHABLE,
+static constexpr TcpipAction CONNECT_RESULT_TO_TCPIP_ACTION[magic_enum::enum_count<TcpipAction>()] = {
+        /** CCR_PASS */ TCPIP_ACT_BYPASS,
+        /** CCR_DROP */ TCPIP_ACT_DROP,
+        /** CCR_REJECT */ TCPIP_ACT_REJECT,
+        /** CCR_UNREACH */ TCPIP_ACT_REJECT_UNREACHABLE,
 };
 
 static VpnTunListenerConfig clone_config(const VpnTunListenerConfig *config) {
@@ -150,15 +151,11 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
         }
 
         std::queue<std::vector<uint8_t>> &pending = conn->unread_data;
-
-        size_t iov_idx = 0;
-        evbuffer_iovec iov[tcp_event->iovlen];
-        memcpy(iov, tcp_event->iov, sizeof(*tcp_event->iov) * tcp_event->iovlen);
-
+        std::forward_list<evbuffer_iovec> iov = {tcp_event->iov, tcp_event->iov + tcp_event->iovlen};
         if ((conn->flags & CF_READ_ENABLED) && pending.empty()) {
             ClientRead event = {tcp_event->id, nullptr, 0, 0};
-            for (iov_idx = 0; iov_idx < tcp_event->iovlen; ++iov_idx) {
-                evbuffer_iovec *v = &iov[iov_idx];
+            while (!iov.empty()) {
+                evbuffer_iovec *v = &iov.front();
                 do {
                     event.data = (uint8_t *) v->iov_base;
                     event.length = v->iov_len;
@@ -175,13 +172,14 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
                         goto loop_exit;
                     }
                 } while (v->iov_len > 0);
+                iov.pop_front();
             }
         }
 
     loop_exit:
-        if (tcp_event->result >= 0 && iov_idx < tcp_event->iovlen) {
+        if (tcp_event->result >= 0 && !iov.empty()) {
             // not completely sent
-            std::for_each(&iov[iov_idx], iov + tcp_event->iovlen - iov_idx, [&pending](const evbuffer_iovec &vec) {
+            std::for_each(iov.begin(), iov.end(), [&pending](const evbuffer_iovec &vec) {
                 pending.emplace((uint8_t *) vec.iov_base, (uint8_t *) vec.iov_base + vec.iov_len);
             });
         }
@@ -205,7 +203,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
         listener->handler.func(listener->handler.arg, CLIENT_EVENT_DATA_SENT, &event);
 
         if ((conn->flags & CF_CLOSING) && conn->scheduled_to_send == 0) {
-            conn->close_task_id = ag::submit(listener->vpn->parameters.ev_loop,
+            conn->close_task_id = event_loop::submit(listener->vpn->parameters.ev_loop,
                     {new CloseAsyncCtx{listener, tcp_event->id, true},
                             [](void *arg, TaskId) {
                                 auto *ctx = (CloseAsyncCtx *) arg;
@@ -281,7 +279,7 @@ void TunListener::close_connection(uint64_t id, bool graceful, bool async) {
         if (!async) {
             tcpip_close_connection(m_tcpip, id, graceful);
         } else {
-            conn->close_task_id = ag::submit(this->vpn->parameters.ev_loop,
+            conn->close_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
                     {new CloseAsyncCtx{this, id, true},
                             [](void *arg, TaskId) {
                                 auto *ctx = (CloseAsyncCtx *) arg;
@@ -347,7 +345,7 @@ void TunListener::turn_read(uint64_t id, bool on) {
     if (on && !conn->complete_read_task_id.has_value() && !conn->unread_data.empty()) {
         // we have some unread data on the connection - complete it
         conn->complete_read_task_id =
-                ag::submit(this->vpn->parameters.ev_loop, {new CompleteCtx{this, id}, complete_read, [](void *arg) {
+                event_loop::submit(this->vpn->parameters.ev_loop, {new CompleteCtx{this, id}, complete_read, [](void *arg) {
                                                                delete (CompleteCtx *) arg;
                                                            }});
     }

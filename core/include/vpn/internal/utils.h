@@ -1,8 +1,6 @@
 #pragma once
 
-#include <codecvt>
 #include <cstring>
-#include <locale>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -139,14 +137,6 @@ std::string make_buffer_file_path(const char *base_path, uint64_t id);
  */
 void clean_up_buffer_files(const char *base_path);
 
-static inline std::string safe_path_name(const char *str) {
-    return str;
-}
-
-static inline std::string safe_path_name(const wchar_t *str) {
-    return std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(str);
-}
-
 ag::VpnUpstreamConfig vpn_upstream_config_clone(const ag::VpnUpstreamConfig *src);
 
 void vpn_upstream_config_destroy(ag::VpnUpstreamConfig *config);
@@ -196,7 +186,7 @@ namespace std {
 template <>
 struct hash<sockaddr_storage> {
     size_t operator()(const sockaddr_storage &k) const {
-        return ag::sockaddr_hash((sockaddr *) &k);
+        return size_t(ag::sockaddr_hash((sockaddr *) &k));
     }
 };
 
@@ -205,9 +195,9 @@ struct hash<ag::TunnelAddress> {
     size_t operator()(const ag::TunnelAddress &addr) const {
         size_t hash = 0;
         if (const sockaddr_storage *a = std::get_if<sockaddr_storage>(&addr); a != nullptr) {
-            hash = ag::sockaddr_hash((sockaddr *) a);
+            hash = size_t(ag::sockaddr_hash((sockaddr *) a));
         } else if (const ag::NamePort *np = std::get_if<ag::NamePort>(&addr); np != nullptr) {
-            hash = ag::hash_pair_combine(ag::str_hash32(np->name.c_str(), np->name.length()), np->port);
+            hash = size_t(ag::hash_pair_combine(ag::str_hash32(np->name.c_str(), np->name.length()), np->port));
         }
         return hash;
     }
@@ -216,14 +206,14 @@ struct hash<ag::TunnelAddress> {
 template <>
 struct hash<ag::TunnelAddressPair> {
     size_t operator()(const ag::TunnelAddressPair &addr) const {
-        return ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &addr.src), hash<ag::TunnelAddress>{}(addr.dst));
+        return size_t(ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &addr.src), hash<ag::TunnelAddress>{}(addr.dst)));
     }
 };
 
 template <>
 struct hash<ag::SockAddrTag> {
     size_t operator()(const ag::SockAddrTag &k) const {
-        return ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &k.addr), std::hash<std::string>()(k.appname));
+        return size_t(ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &k.addr), std::hash<std::string>()(k.appname)));
     }
 };
 

@@ -22,7 +22,7 @@ struct AnswerAddress {
     /// Raw IP address bytes
     std::vector<uint8_t> ip;
     /// Record TTL
-    std::chrono::seconds ttl;
+    std::chrono::seconds ttl{};
 };
 
 struct InapplicablePacket {

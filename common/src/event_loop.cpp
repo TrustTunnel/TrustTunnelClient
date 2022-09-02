@@ -171,13 +171,13 @@ int vpn_event_loop_run(VpnEventLoop *loop) {
 }
 
 void vpn_event_loop_stop(VpnEventLoop *loop) {
-    vpn_event_loop_exit(loop, 0);
+    vpn_event_loop_exit(loop, Millis{0});
     vpn_event_loop_finalize_exit(loop);
 }
 
-void vpn_event_loop_exit(VpnEventLoop *loop, uint32_t ms) {
+void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout) {
     log_loop(loop, dbg, "...");
-    timeval tv = ms_to_timeval(ms);
+    timeval tv = ms_to_timeval(uint32_t(timeout.count()));
     event_base_loopexit(loop->ev_base.get(), &tv);
     log_loop(loop, dbg, "Done");
 }
@@ -247,7 +247,7 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
     return task_id;
 }
 
-TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, uint32_t defer_ms) {
+TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis defer) {
     TaskId task_id = g_next_task_id++;
 
     loop->guard.lock();
@@ -268,7 +268,7 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, uint32
             DeferredTaskInfo{{task_id, task}, std::make_unique<DeferredTaskCtx>(DeferredTaskCtx{loop, task_id})});
 
     info.timer_event.reset(event_new(loop->ev_base.get(), -1, 0, &run_deferred_task, info.ctx.get()));
-    const struct timeval tv = ms_to_timeval(defer_ms);
+    const struct timeval tv = ms_to_timeval(uint32_t(defer.count()));
     event_add(info.timer_event.get(), &tv);
 
     log_task(loop, task_id, trace, "Scheduled");
@@ -369,6 +369,8 @@ bool vpn_event_loop_is_active(const VpnEventLoop *loop) {
             && !event_base_got_break(loop->ev_base.get());
 }
 
+namespace event_loop {
+
 AutoTaskId make_auto_id(TaskId id) {
     return AutoTaskId{id};
 }
@@ -377,8 +379,8 @@ AutoTaskId submit(VpnEventLoop *loop, VpnEventLoopTask task) {
     return {loop, vpn_event_loop_submit(loop, task)};
 }
 
-AutoTaskId schedule(VpnEventLoop *loop, VpnEventLoopTask task, uint32_t defer_ms) {
-    return {loop, vpn_event_loop_schedule(loop, task, defer_ms)};
+AutoTaskId schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis defer) {
+    return {loop, vpn_event_loop_schedule(loop, task, defer)};
 }
 
 AutoTaskId::AutoTaskId(VpnEventLoop *loop, TaskId id)
@@ -423,6 +425,8 @@ bool AutoTaskId::has_value() const {
 bool AutoTaskId::operator<(const AutoTaskId &other) const {
     return m_id < other.m_id;
 }
+
+} // namespace event_loop
 
 static event_base *make_event_base() {
     DeclPtr<event_base, &event_base_free> base{event_base_new()};

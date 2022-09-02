@@ -1,8 +1,10 @@
 include(default)
 [settings]
-build_type=RelWithDebInfo
+# @todo: bring back optimized build when Apple fix its compiler
+# `Debug` because AppleClang crashes when sees our code
+build_type=Debug
 compiler=apple-clang
-compiler.version=12.0
+compiler.version=13.1
 compiler.libcxx=libc++
 [env]
 CONAN_CMAKE_TOOLCHAIN_FILE={{ os.path.join(profile_dir, "apple.toolchain.cmake") }}

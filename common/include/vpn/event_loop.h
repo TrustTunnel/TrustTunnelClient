@@ -1,12 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
-#include <stdbool.h>
-#include <stdint.h>
 #include <type_traits>
 #include <utility>
 
 #include <event2/event.h>
+
+#include "common/defs.h"
 
 namespace ag {
 
@@ -57,9 +58,9 @@ void vpn_event_loop_stop(VpnEventLoop *loop);
  * Exit an event loop after the next iteration.
  * Non-blocking, `vpn_event_loop_finalize_exit` must be called next.
  * @param loop the event loop
- * @param ms the amount of time after which the loop should exit
+ * @param timeout the amount of time after which the loop should exit
  */
-void vpn_event_loop_exit(VpnEventLoop *loop, uint32_t ms);
+void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout);
 
 /**
  * Finalize an exitted event loop.
@@ -81,10 +82,10 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task);
  * Schedule a task to be executed after some time on an event loop
  * @param loop the event loop
  * @param task the task to be executed
- * @param defer_ms the amount of time after which the task is fired
+ * @param defer the amount of time after which the task is fired
  * @return the assigned identifier to the task
  */
-TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, uint32_t defer_ms);
+TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis defer);
 
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized.
@@ -113,6 +114,8 @@ struct event_base *vpn_event_loop_get_base(const VpnEventLoop *loop);
  * Check if event loop is running
  */
 bool vpn_event_loop_is_active(const VpnEventLoop *loop);
+
+namespace event_loop {
 
 class [[nodiscard]] AutoTaskId {
 public:
@@ -166,7 +169,7 @@ AutoTaskId submit(VpnEventLoop *loop, VpnEventLoopTask task);
 /**
  * Just like `vpn_event_loop_schedule` but more convenient for C++
  */
-AutoTaskId schedule(VpnEventLoop *loop, VpnEventLoopTask task, uint32_t defer_ms);
+AutoTaskId schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis defer);
 
 /**
  * Just like `vpn_event_loop_dispatch_sync` but more convenient for C++
@@ -180,5 +183,7 @@ bool dispatch_sync(VpnEventLoop *loop, Func &&func) {
             },
             std::addressof(func));
 }
+
+} // namespace event_loop
 
 } // namespace ag

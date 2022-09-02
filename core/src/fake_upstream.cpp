@@ -24,7 +24,7 @@ bool FakeUpstream::init(VpnClient *vpn, SeverHandler handler) {
 void FakeUpstream::deinit() {
 }
 
-bool FakeUpstream::open_session(uint32_t) {
+bool FakeUpstream::open_session(std::optional<Millis>) {
     assert(0);
     return false;
 }
@@ -52,7 +52,7 @@ uint64_t FakeUpstream::open_connection(const TunnelAddressPair *, int, std::stri
     uint64_t id = this->vpn->upstream_conn_id_generator.get();
     m_opening_connections.insert(id);
     if (!m_async_task.has_value()) {
-        m_async_task = ag::submit(this->vpn->parameters.ev_loop, {this, on_async_task});
+        m_async_task = event_loop::submit(this->vpn->parameters.ev_loop, {this, on_async_task});
     }
 
     return id;
@@ -65,7 +65,7 @@ void FakeUpstream::close_connection(uint64_t id, bool, bool async) {
     } else if (m_session_open) {
         m_closing_connections.insert(id);
         if (!m_async_task.has_value()) {
-            m_async_task = ag::submit(this->vpn->parameters.ev_loop, {this, on_async_task});
+            m_async_task = event_loop::submit(this->vpn->parameters.ev_loop, {this, on_async_task});
         }
     }
 }

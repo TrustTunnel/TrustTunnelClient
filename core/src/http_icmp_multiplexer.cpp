@@ -57,7 +57,7 @@ bool HttpIcmpMultiplexer::send_request(const IcmpEchoRequest &request) {
     ServerUpstream *upstream = m_params.parent;
 
     switch (m_state) {
-    case MS_IDLE:
+    case MS_IDLE: {
         assert(!m_stream_id.has_value());
         static const TunnelAddress ICMP_HOST(NamePort{"_icmp", 0});
         m_stream_id = m_params.send_connect_request_callback(upstream, &ICMP_HOST, "_icmp");
@@ -67,6 +67,7 @@ bool HttpIcmpMultiplexer::send_request(const IcmpEchoRequest &request) {
         m_stream_id = m_stream_id.value();
         m_state = MS_ESTABLISHED;
         [[fallthrough]];
+    }
     case MS_ESTABLISHED:
         return this->send_request_established(request);
     }

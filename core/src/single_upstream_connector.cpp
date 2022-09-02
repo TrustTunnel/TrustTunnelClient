@@ -38,7 +38,7 @@ struct SingleUpstreamConnector::Impl {
     std::unique_ptr<ServerUpstream> upstream;
     SingleUpstreamConnector &parent;
     std::optional<VpnError> pending_error;
-    ag::AutoTaskId deferred_task;
+    event_loop::AutoTaskId deferred_task;
     int id = g_next_connector_id.fetch_add(1, std::memory_order_relaxed);
     ag::Logger log{"SUCONNECTOR"};
 
@@ -109,9 +109,9 @@ struct SingleUpstreamConnector::Impl {
         auto *self = (Impl *) arg;
         log_connector(self, trace, "...");
 
-        uint32_t timeout_ms = (data == nullptr) ? 0 : *(uint32_t *) data;
+        auto timeout = (data == nullptr) ? std::nullopt : *(std::optional<Millis> *) data;
         self->upstream->handler = {upstream_handler, self};
-        if (!self->upstream->open_session(timeout_ms)) {
+        if (!self->upstream->open_session(timeout)) {
             self->pending_error = {VPN_EC_ERROR, "Failed to open session with endpoint"};
         }
 
@@ -122,7 +122,7 @@ struct SingleUpstreamConnector::Impl {
         auto *self = (Impl *) arg;
         log_connector(self, trace, "...");
 
-        self->deferred_task = ag::submit(self->parent.PARAMETERS.ev_loop,
+        self->deferred_task = event_loop::submit(self->parent.PARAMETERS.ev_loop,
                 {self, [](void *arg, TaskId) {
                      auto *self = (Impl *) arg;
                      self->deferred_task.release();
@@ -159,7 +159,7 @@ struct SingleUpstreamConnector::Impl {
             self->pending_error = *error;
         }
 
-        self->deferred_task = ag::submit(self->parent.PARAMETERS.ev_loop, {self, [](void *arg, TaskId) {
+        self->deferred_task = event_loop::submit(self->parent.PARAMETERS.ev_loop, {self, [](void *arg, TaskId) {
                                                                                auto *self = (Impl *) arg;
                                                                                self->deferred_task.release();
                                                                                self->fsm.perform_transition(
@@ -221,7 +221,7 @@ SingleUpstreamConnector::SingleUpstreamConnector(
         , m_impl(new Impl(*this, std::move(upstream))) {
 }
 
-VpnError SingleUpstreamConnector::connect(uint32_t timeout_ms) {
+VpnError SingleUpstreamConnector::connect(std::optional<Millis> timeout) {
     log_connector(m_impl, trace, "...");
     if (State s = (State) m_impl->fsm.get_state(); s != S_DISCONNECTED) {
         log_connector(m_impl, dbg, "Invalid state: {}", magic_enum::enum_name(s));
@@ -232,7 +232,7 @@ VpnError SingleUpstreamConnector::connect(uint32_t timeout_ms) {
         return {VPN_EC_ERROR, "Failed to initialize upstream"};
     }
 
-    m_impl->fsm.perform_transition(E_RUN_CONNECT, &timeout_ms);
+    m_impl->fsm.perform_transition(E_RUN_CONNECT, &timeout);
     if (m_impl->pending_error.has_value()) {
         VpnError e = std::exchange(m_impl->pending_error, std::nullopt).value();
         this->disconnect();

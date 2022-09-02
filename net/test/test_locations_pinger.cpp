@@ -45,7 +45,7 @@ public:
 
     void run_event_loop() { // NOLINT(readability-make-member-function-const)
         // just not to hang
-        vpn_event_loop_exit(loop.get(), 2 * DEFAULT_PING_TIMEOUT_MS);
+        vpn_event_loop_exit(loop.get(), Millis(2 * DEFAULT_PING_TIMEOUT_MS));
         vpn_event_loop_run(loop.get());
     }
 
@@ -97,7 +97,7 @@ TEST_F(LocationsPingerTest, Single) {
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
-                        vpn_event_loop_exit(ctx->loop, 0);
+                        vpn_event_loop_exit(ctx->loop, Millis{0});
                     },
                     &test_ctx,
             },
@@ -134,7 +134,7 @@ TEST_F(LocationsPingerTest, WholeLocationFailed) {
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
-                        vpn_event_loop_exit(ctx->loop, 0);
+                        vpn_event_loop_exit(ctx->loop, Millis{0});
                     },
                     &test_ctx,
             },
@@ -179,7 +179,7 @@ TEST_F(LocationsPingerTest, Multiple) {
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
-                            vpn_event_loop_exit(ctx->loop, 0);
+                            vpn_event_loop_exit(ctx->loop, Millis{0});
                         }
                     },
                     &test_ctx,
@@ -232,7 +232,7 @@ TEST_F(LocationsPingerTest, DISABLED_Timeout) {
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
-                            vpn_event_loop_exit(ctx->loop, 0);
+                            vpn_event_loop_exit(ctx->loop, Millis{0});
                         }
                     },
                     &test_ctx,
@@ -276,7 +276,7 @@ TEST_F(LocationsPingerTest, StopFromCallback) {
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         locations_pinger_stop(ctx->pinger.get());
-                        vpn_event_loop_exit(ctx->loop, 1000);
+                        vpn_event_loop_exit(ctx->loop, Secs(1));
                     },
                     &test_ctx,
             },
@@ -316,7 +316,7 @@ TEST_F(LocationsPingerTest, StopNotFromCallback) {
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         locations_pinger_stop(ctx->pinger.get());
-                        vpn_event_loop_exit(ctx->loop, 1000);
+                        vpn_event_loop_exit(ctx->loop, Secs(1));
                     },
                     &test_ctx,
             },
@@ -331,7 +331,7 @@ TEST_F(LocationsPingerTest, StopNotFromCallback) {
                             },
             });
 
-    vpn_event_loop_exit(test_ctx.loop, 1000);
+    vpn_event_loop_exit(test_ctx.loop, Secs(1));
 
     run_event_loop();
 

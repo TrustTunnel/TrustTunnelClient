@@ -90,11 +90,11 @@ TEST_F(EventLoopTest, Submit) {
 }
 
 TEST_F(EventLoopTest, Schedule) {
-    const std::chrono::milliseconds POSTPONE{1000};
+    const Millis POSTPONE{1000};
     TestData tasks[5];
 
     for (auto &task : tasks) {
-        task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(task), POSTPONE.count());
+        task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(task), POSTPONE);
     }
 
     run_event_loop();
@@ -130,9 +130,9 @@ TEST_F(EventLoopTest, CancelSubmitted) {
 }
 
 TEST_F(EventLoopTest, CancelScheduled) {
-    const std::chrono::milliseconds POSTPONE{1000};
+    const Millis POSTPONE{1000};
     TestData postponed_task = {};
-    postponed_task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(postponed_task), POSTPONE.count());
+    postponed_task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(postponed_task), POSTPONE);
 
     struct CancellingTaskCtx {
         VpnEventLoop *loop;
@@ -157,14 +157,14 @@ TEST_F(EventLoopTest, CancelScheduled) {
 }
 
 TEST_F(EventLoopTest, CancelByStop) {
-    const std::chrono::milliseconds POSTPONE{1000};
+    const Millis POSTPONE{1000};
     TestData tasks[6];
 
     for (size_t i = 0; i < std::size(tasks); ++i) {
         if (i % 2 == 0) {
             tasks[i].id = vpn_event_loop_submit(m_ev_loop.get(), make_task(tasks[i]));
         } else {
-            tasks[i].id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(tasks[i]), POSTPONE.count());
+            tasks[i].id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(tasks[i]), POSTPONE);
         }
     }
 

@@ -1,6 +1,5 @@
 #include <net/socks5_listener.h>
 
-#include <FF/array.h>
 #include <event2/listener.h>
 #include <event2/util.h>
 #include <khash.h>
@@ -79,10 +78,10 @@ typedef enum {
 } Socks5ReplyStatus;
 
 static const Socks5ReplyStatus CONNECT_RESULT_TO_STATUS[] = {
-        [ag::S5LCR_SUCCESS] = S5RS_SUCCEEDED,
-        [ag::S5LCR_REJECT] = S5RS_CONNECTION_REFUSED,
-        [ag::S5LCR_TIMEOUT] = S5RS_TTL_EXPIRED,
-        [ag::S5LCR_UNREACHABLE] = S5RS_HOST_UNREACHABLE,
+        /** S5LCR_SUCCESS */ S5RS_SUCCEEDED,
+        /** S5LCR_REJECT */ S5RS_CONNECTION_REFUSED,
+        /** S5LCR_TIMEOUT */ S5RS_TTL_EXPIRED,
+        /** S5LCR_UNREACHABLE */ S5RS_HOST_UNREACHABLE,
 };
 
 #pragma pack(push, 1)
@@ -213,7 +212,7 @@ typedef struct Connection {
 
 typedef struct {
     Socks5Listener *listener;
-    uint32_t id;
+    uint64_t id;
 } CompleteCtx;
 
 extern "C" int evutil_sockaddr_is_loopback_(const struct sockaddr *sa);
@@ -352,7 +351,7 @@ void socks5_listener_stop(Socks5Listener *listener) {
         }
 
         UdpRelay *relay = kh_value(listener->udp_relays, i);
-        terminate_udp_association(listener, relay->tcp_conn, (VpnError){});
+        terminate_udp_association(listener, relay->tcp_conn, {});
         kh_del(udp_relays_by_id, listener->udp_relays, i);
     }
 
@@ -400,6 +399,8 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     const Socks5ConnectionAddress *dst = &conn->addr.dst;
     Socks5AddressType atyp = socks_atyp_by_addr(dst);
 
+    constexpr size_t REPLY_BUFFER_SIZE = 32;
+    uint8_t reply_data[REPLY_BUFFER_SIZE];
     size_t reply_size = sizeof(Socks5Reply);
     switch (atyp) {
     case S5AT_IPV4:
@@ -417,8 +418,6 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     }
     reply_size += 2;
 
-    uint8_t reply_data[reply_size];
-
     Socks5Reply *reply = (Socks5Reply *) reply_data;
     reply->ver = SOCKS5_VER;
     reply->rep = CONNECT_RESULT_TO_STATUS[result];
@@ -432,7 +431,7 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
         offset = 4;
         break;
     case S5AT_DOMAINNAME:
-        reply->bnd_addr[0] = dst->domain.name.size();
+        reply->bnd_addr[0] = uint8_t(dst->domain.name.size());
         memcpy(&reply->bnd_addr[1], dst->domain.name.data(), dst->domain.name.size());
         offset = dst->domain.name.size() + 1;
         break;
@@ -489,9 +488,9 @@ static void complete_udp_connection(Socks5Listener *listener, Connection *conn, 
         auto *ctx = (CompleteCtx *) malloc(sizeof(CompleteCtx));
         ctx->listener = listener;
         ctx->id = conn->id;
-        vpn_event_loop_submit(listener->config.ev_loop, (VpnEventLoopTask){ctx, send_pending_udp_data, free});
+        vpn_event_loop_submit(listener->config.ev_loop, {ctx, send_pending_udp_data, free});
     } else {
-        Socks5ConnectionClosedEvent event = {conn->id, (VpnError){}};
+        Socks5ConnectionClosedEvent event = {conn->id, {}};
         listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
         destroy_connection(listener, conn);
     }
@@ -632,7 +631,7 @@ TcpFlowCtrlInfo socks5_listener_flow_ctrl_info(const Socks5Listener *listener, u
         if (conn->proto == IPPROTO_TCP) {
             r = tcp_socket_flow_control_info(conn->socket);
         } else {
-            r = (TcpFlowCtrlInfo){UDP_MAX_DATAGRAM_SIZE, DEFAULT_SEND_WINDOW_SIZE};
+            r = {UDP_MAX_DATAGRAM_SIZE, DEFAULT_SEND_WINDOW_SIZE};
         }
     } else {
         log_conn(listener, id, 0, dbg, "Connection was already closed or didn't exist");
@@ -649,7 +648,7 @@ void socks5_listener_close_connection(Socks5Listener *listener, uint64_t id, boo
             tcp_socket_set_rst(conn->socket);
         }
 
-        Socks5ConnectionClosedEvent event = {conn->id, (VpnError){}};
+        Socks5ConnectionClosedEvent event = {conn->id, {}};
         listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
         destroy_connection(listener, conn);
     } else {
@@ -904,7 +903,7 @@ fail:
 static bool complete_udp_association(Socks5Listener *listener, Connection *conn) {
     struct event *udp_event = create_udp_event(listener, conn);
     struct sockaddr_storage bound_addr =
-            (udp_event != nullptr) ? local_sockaddr_from_fd(event_get_fd(udp_event)) : (struct sockaddr_storage){};
+            (udp_event != nullptr) ? local_sockaddr_from_fd(event_get_fd(udp_event)) : sockaddr_storage{};
 
     Socks5AddressType atyp = socks_atyp_by_addr(&conn->addr.dst);
     if (bound_addr.ss_family == AF_INET) {
@@ -913,6 +912,8 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
         atyp = S5AT_IPV6;
     }
 
+    constexpr size_t REPLY_BUFFER_SIZE = 32;
+    uint8_t reply_data[REPLY_BUFFER_SIZE];
     size_t reply_size = sizeof(Socks5Reply);
     switch (atyp) {
     case S5AT_IPV4:
@@ -926,8 +927,6 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
         break;
     }
     reply_size += 2;
-
-    uint8_t reply_data[reply_size];
 
     Socks5Reply *reply = (Socks5Reply *) reply_data;
     reply->ver = SOCKS5_VER;
@@ -973,7 +972,7 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
                 safe_to_string_view(error.text), error.code);
         terminate_udp_association(listener, conn, error);
     } else if (udp_event != nullptr) {
-        tcp_socket_set_timeout(conn->socket, UINT32_MAX);
+        tcp_socket_set_timeout(conn->socket, Millis::max());
         tcp_socket_set_read_enabled(conn->socket, true);
         log_conn(listener, conn->id, 0, dbg, "UDP association started on port {}...",
                 sockaddr_get_port((struct sockaddr *) &bound_addr));
@@ -1042,8 +1041,6 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
             destroy_connection(listener, udp_conn);
             return -1;
         }
-
-        key = (AddressPair){};
 
         kh_value(relay->connections_by_addr, i) = udp_conn;
 
@@ -1198,7 +1195,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         if (is_udp_association_tcp_connection(listener, conn)) {
             VpnError error = {};
             if (sock_event->length != 0) {
-                error = (VpnError){-1, "Got some data on TCP socket of UDP assocation session"};
+                error = {-1, "Got some data on TCP socket of UDP assocation session"};
             }
             terminate_udp_association(listener, conn, error);
             break;
@@ -1411,7 +1408,8 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
 
             addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
             size_t reply_size = sizeof(Socks5Reply) + addr_len + 2;
-            uint8_t reply_data[reply_size];
+            constexpr size_t REPLY_BUFFER_SIZE = 32;
+            uint8_t reply_data[REPLY_BUFFER_SIZE];
             Socks5Reply *reply = (Socks5Reply *) reply_data;
             reply->ver = SOCKS5_VER;
             reply->rep = reply_status;
@@ -1422,7 +1420,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             int port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
             memcpy(reply->bnd_addr + addr_len, &port, 2);
 
-            VpnError error = tcp_socket_write(conn->socket, (uint8_t *) reply_data, sizeof(reply_data));
+            VpnError error = tcp_socket_write(conn->socket, (uint8_t *) reply_data, reply_size);
             if (error.code != 0) {
                 log_conn(listener, conn->id, conn->proto, err, "Failed to send socks response: {} ({})",
                         safe_to_string_view(error.text), error.code);
@@ -1514,7 +1512,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
                 break;
             }
             case S5CONNS_FAILED:
-                terminate_udp_association(listener, conn, (VpnError){-1, ""});
+                terminate_udp_association(listener, conn, {-1, ""});
                 break;
             default:
                 // do nothing
@@ -1548,7 +1546,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
 close:
     assert(!is_udp_association_tcp_connection(listener, conn));
     if (conn->state >= S5CONNS_WAITING_CONNECT_RESULT) {
-        Socks5ConnectionClosedEvent event = {conn->id, (VpnError){}};
+        Socks5ConnectionClosedEvent event = {conn->id, {}};
         listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
     }
     destroy_connection(listener, conn);
@@ -1574,7 +1572,7 @@ static void on_accept(
     TcpSocketParameters sock_params = {
             .ev_loop = socks_listener->config.ev_loop,
             .handler = {sock_handler, arg},
-            .timeout_ms = socks_listener->config.timeout_ms,
+            .timeout = socks_listener->config.timeout,
             .socket_manager = socks_listener->config.socket_manager,
             .read_threshold = socks_listener->config.read_threshold,
     };

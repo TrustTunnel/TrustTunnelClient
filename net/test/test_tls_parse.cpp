@@ -358,7 +358,7 @@ static void test_tls_reader() {
     assert(t.tls_hostname == "duckduckgo.com");
 
     // Client Hello with no TLS hostname
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SSL_CLI_HELLO_NOTLSHOST, sizeof(SSL_CLI_HELLO_NOTLSHOST));
 
     r = tls_parse(&t);
@@ -369,30 +369,30 @@ static void test_tls_reader() {
     assert(t.tls_hostname.empty());
 
     // Client Hello with bad data
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SSL_CLI_HELLO_BAD, sizeof(SSL_CLI_HELLO_BAD));
 
     r = tls_parse(&t);
     assert(r == TLS_RERR);
 
     // subject.CN from server certificate
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SERV_HELLO, sizeof(SERV_HELLO));
     r = tls_parse(&t);
     assert(r == TLS_RSERV_HELLO);
 
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SERV_CERT, sizeof(SERV_CERT));
     r = tls_parse(&t);
     assert(r == TLS_RCERT);
     assert(t.x509_subject_common_name == "ya.ru");
 
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, KEY_EXCH, sizeof(KEY_EXCH));
     r = tls_parse(&t);
     assert(r == TLS_RDONE);
 
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SERV_HELLO_DONE, sizeof(SERV_HELLO_DONE));
     r = tls_parse(&t);
     assert(r == TLS_RDONE);
@@ -401,7 +401,7 @@ static void test_tls_reader() {
     assert(r == TLS_RDONE);
 
     // Client Hello with TLSv1.3
-    t = (TlsReader){};
+    t = {};
     tls_input(&t, SSL_CLI_HELLO_TLSV13, sizeof(SSL_CLI_HELLO_TLSV13));
     for (;;) {
         r = tls_parse(&t);

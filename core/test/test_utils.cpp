@@ -1,11 +1,13 @@
+#include <filesystem>
 #include <string>
 #include <vector>
 
-#include <FFOS/dir.h>
-#include <FFOS/file.h>
 #include <gtest/gtest.h>
 
+#include "common/file.h"
+#include "common/utils.h"
 #include "vpn/internal/utils.h"
+#include "vpn/utils.h"
 
 using namespace ag;
 
@@ -51,62 +53,46 @@ static const std::pair<TunnelAddress, TunnelAddress> NOT_EQUAL_ADDRS_SAMPLES[] =
 };
 INSTANTIATE_TEST_SUITE_P(TunnelAddressTest, NotEqual, testing::ValuesIn(NOT_EQUAL_ADDRS_SAMPLES));
 
-TEST(CleanUpFiles, NonExistingDirectory) {
-    ASSERT_FALSE(fffile_exists("./hopefully_nonexisting_dir"));
+
+class CleanUpFiles : public ::testing::Test {
+protected:
+    static constexpr const char *DIR = "./hopefully_nonexisting_dir";
+
+    void SetUp() override {
+        ASSERT_FALSE(std::filesystem::exists(DIR));
+    }
+
+    void TearDown() override {
+        ASSERT_NO_THROW(std::filesystem::remove_all(DIR));
+    }
+};
+
+TEST_F(CleanUpFiles, NonExistingDirectory) {
     // just check it does not crash
-    clean_up_buffer_files("./hopefully_nonexisting_dir");
+    clean_up_buffer_files(DIR);
 }
 
 static void create_buffer_file(const std::string &dir, const std::string &name) {
-    fffd fd = fffile_open((dir + "/" + name).c_str(), FFO_CREATE);
-    ASSERT_NE(fd, FF_BADFD) << fferr_strp(fferr_last());
-    fffile_close(fd);
+    file::Handle fd = file::open(AG_FMT("{}/{}", dir, name), file::CREAT);
+    ASSERT_NE(fd, file::INVALID_HANDLE) << sys::strerror(sys::last_error());
+    file::close(fd);
 }
 
-static void rmdir_r(const char *dir) {
-    char path[FF_MAXPATH];
-    strcpy(path, dir);
-    ffdirentry dent = {};
-    ffdir d = ffdir_open(path, sizeof(path), &dent);
-
-    while (0 == ffdir_read(d, &dent)) {
-        std::string en = safe_path_name(ffdir_entryname(&dent));
-        if (en == "." || en == "..") {
-            continue;
-        }
-
-        std::string fn = std::string(dir) + "/" + en;
-        if (fffile_isdir(fffile_infoattr(ffdir_entryinfo(&dent)))) {
-            rmdir_r(fn.c_str());
-        } else {
-            fffile_rm(fn.c_str());
-        }
-    }
-
-    ffdir_close(d);
-    ffdir_rm(dir);
-}
-
-TEST(CleanUpFiles, Test) {
-    const std::string dir = "./hopefully_nonexisting_dir";
-    ASSERT_FALSE(fffile_exists(dir.c_str()));
-    ASSERT_EQ(0, ffdir_make(dir.c_str())) << fferr_strp(fferr_last());
+TEST_F(CleanUpFiles, Test) {
+    ASSERT_NO_THROW(std::filesystem::create_directory(DIR));
 
     std::vector<std::string> file_names;
     for (uint64_t i = 0; i < 10; ++i) {
         file_names.emplace_back(str_format(CONN_BUFFER_FILE_NAME_FMT, i, i + 1));
     }
 
-    // using EXPECT_* just to let it get to the end and remove temporary test files
     for (const std::string &fn : file_names) {
-        EXPECT_NO_FATAL_FAILURE(create_buffer_file(dir, fn));
+        ASSERT_NO_FATAL_FAILURE(create_buffer_file(DIR, fn));
     }
 
-    clean_up_buffer_files(dir.c_str());
+    clean_up_buffer_files(DIR);
 
     for (const std::string &fn : file_names) {
-        EXPECT_FALSE(fffile_exists((dir + "/" + fn).c_str()));
+        ASSERT_FALSE(std::filesystem::exists(std::filesystem::path(DIR) / fn));
     }
-
-    rmdir_r(dir.c_str());
 }

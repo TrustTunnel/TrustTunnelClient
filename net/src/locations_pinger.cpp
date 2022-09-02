@@ -57,7 +57,7 @@ struct LocationsPinger {
     VpnEventLoop *loop;
     ag::Logger logger{"LOCATIONS_PINGER"};
     bool query_all_interfaces;
-    ag::AutoTaskId task_id;
+    event_loop::AutoTaskId task_id;
     uint32_t timeout_ms;
     uint32_t rounds;
 };
@@ -208,7 +208,7 @@ static void start_location_ping(LocationsPinger *pinger) {
     pinger->pending_locations.pop_front();
 
     if (!pinger->pending_locations.empty()) {
-        pinger->task_id = ag::schedule(pinger->loop,
+        pinger->task_id = event_loop::schedule(pinger->loop,
                 {
                         .arg = pinger,
                         .action =
@@ -216,7 +216,7 @@ static void start_location_ping(LocationsPinger *pinger) {
                                     start_location_ping((LocationsPinger *) arg);
                                 },
                 },
-                1 /*ms (force libevent to poll/select*/);
+                Millis{1} /*ms (force libevent to poll/select*/);
     }
 }
 
@@ -239,7 +239,7 @@ LocationsPinger *locations_pinger_start(
     }
 
     if (!pinger->pending_locations.empty()) {
-        pinger->task_id = ag::schedule(pinger->loop,
+        pinger->task_id = event_loop::schedule(pinger->loop,
                 {
                         .arg = pinger,
                         .action =
@@ -247,9 +247,9 @@ LocationsPinger *locations_pinger_start(
                                     start_location_ping((LocationsPinger *) arg);
                                 },
                 },
-                1 /*ms (force libevent to poll/select*/);
+                Millis{1} /*ms (force libevent to poll/select*/);
     } else {
-        pinger->task_id = ag::submit(pinger->loop,
+        pinger->task_id = event_loop::submit(pinger->loop,
                 {
                         .arg = pinger,
                         .action =

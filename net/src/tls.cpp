@@ -1,4 +1,5 @@
 #include "net/tls.h"
+#include "vpn/utils.h"
 
 #ifndef _WIN32
 #include <netinet/in.h>
@@ -15,7 +16,6 @@
 #include <cassert>
 #include <cstring>
 
-#include <FF/number.h>
 #include <openssl/x509v3.h>
 
 namespace ag {
@@ -281,12 +281,14 @@ static int datalen24(const uint8_t *d, const uint8_t *end) {
         return -1;
     }
 
-    int n = ffint_ntoh24(d);
+    uint32_t x = 0;
+    std::memcpy(&x, d, 3);
+    uint32_t n = ntoh_24(x);
     if (d + 3 + n > end) {
         return -1;
     }
 
-    return n;
+    return int(n);
 }
 
 /**
@@ -324,7 +326,10 @@ static int hshake_parse(TlsReader *reader, U8View data) {
     }
 
     const auto *h = (Hshake *) data.data();
-    uint32_t n = ffint_ntoh24(h->len);
+    uint32_t x = 0;
+    static_assert(sizeof(std::declval<decltype(h)>()->len) == 3);
+    std::memcpy(&x, (void *)h->len, 3);
+    uint32_t n = ntoh_24(x);
     if (n > data.size() - 1) {
         return 0;
     }

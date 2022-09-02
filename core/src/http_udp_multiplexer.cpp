@@ -42,7 +42,7 @@ static std::vector<uint8_t> compose_udp_packet(
     writer.put_u16(sockaddr_get_port(dst));
 
     app_name = app_name.substr(0, UINT8_MAX);
-    writer.put_u8(app_name.size());
+    writer.put_u8(uint8_t(app_name.size()));
     writer.put_data({(uint8_t *) app_name.data(), app_name.size()});
 
     writer.put_data({data, length});
@@ -89,7 +89,7 @@ void HttpUdpMultiplexer::reset() {
     m_state = MS_IDLE;
     m_stream_id = 0;
     m_addr_to_id.clear();
-    m_recv_connection = (RecvConnection){};
+    m_recv_connection = {};
     m_timer_event.reset();
 }
 
@@ -140,7 +140,7 @@ bool HttpUdpMultiplexer::open_connection(uint64_t conn_id, const TunnelAddressPa
     case MS_ESTABLISHED:
         Connection *conn = &m_connections[conn_id];
         conn->timeout = steady_clock::now() + milliseconds(VPN_DEFAULT_UDP_TIMEOUT_MS);
-        conn->open_task_id = ag::submit(upstream->vpn->parameters.ev_loop,
+        conn->open_task_id = event_loop::submit(upstream->vpn->parameters.ev_loop,
                 {new CompleteCtx{this, conn_id}, complete_udp_connection, [](void *arg) {
                      delete (CompleteCtx *) arg;
                  }});
@@ -174,7 +174,7 @@ void HttpUdpMultiplexer::close_connection(uint64_t id, bool async) {
     };
 
     Connection *conn = &i->second;
-    conn->close_task_id = ag::submit(upstream->vpn->parameters.ev_loop,
+    conn->close_task_id = event_loop::submit(upstream->vpn->parameters.ev_loop,
             {
                     new CloseCtx{this, id},
                     [](void *arg, TaskId) {
@@ -332,7 +332,7 @@ int HttpUdpMultiplexer::process_read_event(U8View data) {
             if (rconn->bytes_left == 0) {
                 ServerReadEvent serv_event = {rconn->id, rconn->buffer.data(), rconn->buffer.size(), 0};
                 upstream->handler.func(upstream->handler.arg, SERVER_EVENT_READ, &serv_event);
-                *rconn = (RecvConnection){};
+                *rconn = {};
             }
 
             break;
@@ -345,7 +345,7 @@ int HttpUdpMultiplexer::process_read_event(U8View data) {
             rconn->bytes_left -= to_drop;
 
             if (rconn->bytes_left == 0) {
-                *rconn = (RecvConnection){};
+                *rconn = {};
             }
             break;
         }

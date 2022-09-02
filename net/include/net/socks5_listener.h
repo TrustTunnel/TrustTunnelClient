@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 
+#include "common/defs.h"
 #include "common/logger.h"
 #include "net/socket_manager.h"
 #include "net/tcp_socket.h"
@@ -102,7 +103,7 @@ typedef struct {
      */
     struct sockaddr_storage listen_address;
     /** IO operations timeout */
-    uint32_t timeout_ms;
+    Millis timeout;
     /** Socket manager */
     SocketManager *socket_manager;
     /** Reaching this read buffer size causes stop reads from network (if 0, takes no effect) */

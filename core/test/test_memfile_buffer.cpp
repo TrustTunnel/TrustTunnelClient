@@ -1,6 +1,9 @@
+#include <filesystem>
 #include <gtest/gtest.h>
 
+#include "common/file.h"
 #include "memfile_buffer.h"
+#include "vpn/utils.h"
 
 using namespace ag;
 
@@ -21,26 +24,26 @@ protected:
         err = buffer->push({(uint8_t *) TEST_DATA_1.data(), TEST_DATA_1.size()});
         ASSERT_FALSE(err.has_value()) << err.value();
         ASSERT_EQ(buffer->size(), TEST_DATA_1.size());
-        ASSERT_FALSE(fffile_exists(FILE_PATH.c_str()));
+        ASSERT_FALSE(std::filesystem::exists(FILE_PATH));
 
         err = buffer->push({(uint8_t *) TEST_DATA_2.data(), TEST_DATA_2.size()});
         ASSERT_FALSE(err.has_value()) << err.value();
         ASSERT_EQ(buffer->size(), TEST_DATA_1.size() + TEST_DATA_2.size());
-        ASSERT_TRUE(fffile_exists(FILE_PATH.c_str()));
+        ASSERT_TRUE(std::filesystem::exists(FILE_PATH));
     }
 
     void TearDown() override {
         buffer.reset();
-        ASSERT_FALSE(fffile_exists(FILE_PATH.c_str()));
+        ASSERT_FALSE(std::filesystem::exists(FILE_PATH));
     }
 
-    void check_file_content(fffd fd, const std::string &expected) {
-        ssize_t sz = fffile_size(fd);
-        ASSERT_GE(sz, 0) << fferr_strp(fferr_last());
+    void check_file_content(file::Handle fd, const std::string &expected) {
+        ssize_t sz = file::get_size(fd);
+        ASSERT_GE(sz, 0) << sys::strerror(sys::last_error());
 
         std::string content;
         content.resize(sz);
-        ASSERT_EQ(fffile_read(fd, content.data(), content.size()), sz) << fferr_strp(fferr_last());
+        ASSERT_EQ(file::read(fd, content.data(), content.size()), sz) << sys::strerror(sys::last_error());
         ASSERT_EQ(content, expected);
     }
 };
@@ -101,33 +104,28 @@ TEST_F(MemfileBufferTest, Drain2) {
     ASSERT_TRUE(expected_data.empty()) << expected_data;
 }
 
-#ifndef _WIN32
 TEST_F(MemfileBufferTest, FileContent) {
-#else
-// @todo: figure out why file access denied
-TEST_F(MemfileBufferTest, DISABLED_FileContent) {
-#endif
-    fffd fd = fffile_open(FILE_PATH.c_str(), O_RDONLY);
-    ASSERT_NE(fd, FF_BADFD) << fferr_strp(fferr_last());
+    file::Handle fd = file::open(FILE_PATH, file::RDONLY);
+    ASSERT_NE(fd, file::INVALID_HANDLE) << sys::strerror(sys::last_error());
 
     // using EXPECT_* just to let it get to the end and close the descriptor
 
-    EXPECT_EQ(fffile_size(fd), TEST_DATA_2.size()) << fferr_strp(fferr_last());
+    EXPECT_EQ(file::get_size(fd), TEST_DATA_2.size()) << sys::strerror(sys::last_error());
     EXPECT_NO_FATAL_FAILURE(check_file_content(fd, TEST_DATA_2));
 
+    file::close(fd);
     buffer->drain(TEST_DATA_1.size());
     std::optional<std::string> err = buffer->push({(uint8_t *) TEST_DATA_2.data(), TEST_DATA_2.size()});
     EXPECT_FALSE(err.has_value()) << err.value();
 
     // re-open as the old file should've been removed
-    fffile_close(fd);
-    fd = fffile_open(FILE_PATH.c_str(), 0);
-    EXPECT_NE(fd, FF_BADFD) << fferr_strp(fferr_last());
+    fd = file::open(FILE_PATH, 0);
+    EXPECT_NE(fd, file::INVALID_HANDLE) << sys::strerror(sys::last_error());
 
     // at the moment 2 `TEST_DATA_2` are in buffer, as the memory cap is `TEST_DATA_1.size()`
     // file size should be:
-    EXPECT_EQ(fffile_size(fd), 2 * TEST_DATA_2.size() - TEST_DATA_1.size()) << fferr_strp(fferr_last());
+    EXPECT_EQ(file::get_size(fd), 2 * TEST_DATA_2.size() - TEST_DATA_1.size()) << sys::strerror(sys::last_error());
     EXPECT_NO_FATAL_FAILURE(check_file_content(fd, TEST_DATA_2.substr(TEST_DATA_1.size()) + TEST_DATA_2));
 
-    fffile_close(fd);
+    file::close(fd);
 }

@@ -1,13 +1,15 @@
-#include "tcp_raw.h"
+#include "vpn/platform.h"
 
 #ifndef _WIN32
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <errno.h>
-#include <stdbool.h>
-#include <string.h>
+#include <cstring>
+#include <limits>
+#include <vector>
 
 #include <lwip/init.h>
 #include <lwip/pbuf.h>
@@ -17,6 +19,7 @@
 #include "common/logger.h"
 #include "tcp_conn_manager.h"
 #include "tcp_connection.h"
+#include "tcp_raw.h"
 #include "tcpip_common.h"
 
 namespace ag {
@@ -110,16 +113,17 @@ static err_t process_data(TcpConnDescriptor *conn, const struct pbuf *buffer) {
     log_conn(conn, trace, "send {} bytes", buffer->len);
 
     size_t chain_length = pbuf_clen(buffer);
-    evbuffer_iovec iov[chain_length];
+    std::vector<evbuffer_iovec> iov;
+    iov.reserve(chain_length);
 
-    size_t iov_idx = 0;
-    for (const struct pbuf *iter = buffer; (iov_idx < chain_length) && (iter != nullptr);
-            iov_idx++, iter = iter->next) {
-        iov[iov_idx].iov_base = iter->payload;
-        iov[iov_idx].iov_len = iter->len;
+    for (const struct pbuf *iter = buffer; (iov.size() < chain_length) && (iter != nullptr); iter = iter->next) {
+        iov.push_back({
+                .iov_base = iter->payload,
+                .iov_len = iter->len,
+        });
     }
 
-    int recv_result = tcp_cm_receive(conn, chain_length, iov);
+    int recv_result = tcp_cm_receive(conn, iov.size(), iov.data());
     if (0 > recv_result) {
         return ERR_BUF;
     }
@@ -270,7 +274,7 @@ err_t tcp_raw_send(struct tcp_pcb *pcb, const uint8_t *data, size_t size) {
     }
 
     int flags = TCP_WRITE_FLAG_COPY;
-    return tcp_write(pcb, data, size, flags);
+    return tcp_write(pcb, data, u16_t(size), flags);
 }
 
 size_t tcp_raw_get_out_buf_space(const struct tcp_pcb *pcb) {
@@ -298,7 +302,11 @@ void tcp_raw_close(struct tcp_pcb *pcb, bool graceful) {
 }
 
 void tcp_raw_slide_window(struct tcp_pcb *pcb, size_t sent) {
-    tcp_recved(pcb, sent);
+    while (sent > 0) {
+        u16_t to_slide = std::min(u16_t(sent), std::numeric_limits<u16_t>::max());
+        tcp_recved(pcb, to_slide);
+        sent -= to_slide;
+    }
 }
 
 } // namespace ag

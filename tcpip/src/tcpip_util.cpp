@@ -63,7 +63,7 @@ void sockaddr_to_ip_addr(
         return;
     }
 fail:
-    *out_addr = (ip_addr_t) IPADDR_ANY_TYPE_INIT;
+    *out_addr = IPADDR_ANY_TYPE_INIT;
 }
 
 void ipaddr_ntoa_r_pretty(const ip_addr_t *addr, char *buf, int buflen) {
@@ -126,17 +126,20 @@ static inline int writev_file(int fd, const evbuffer_iovec *iov, int iov_cnt) {
 int pcap_write_packet_iovec(int fd, struct timeval *tv, const evbuffer_iovec *iov, int iov_cnt) {
     struct pcap_sf_pkthdr rec = {.ts = {.tv_sec = (int32_t) tv->tv_sec, .tv_usec = (int32_t) tv->tv_usec}, .caplen = 0};
 
-    evbuffer_iovec iovec_pcap[iov_cnt + 1];
-    iovec_pcap[0].iov_base = (void *) &rec;
-    iovec_pcap[0].iov_len = sizeof(rec);
+    std::vector<evbuffer_iovec> iovec_pcap;
+    iovec_pcap.reserve(iov_cnt + 1);
+    iovec_pcap.push_back({
+            .iov_base = (void *) &rec,
+            .iov_len = sizeof(rec),
+    });
 
     for (int i = 0; i < iov_cnt; i++) {
-        iovec_pcap[i + 1] = iov[i];
+        iovec_pcap.push_back(iov[i]);
         rec.caplen += iov[i].iov_len;
     }
     rec.len = rec.caplen;
 
-    return writev_file(fd, iovec_pcap, iov_cnt + 1);
+    return writev_file(fd, iovec_pcap.data(), iovec_pcap.size());
 }
 
 size_t get_approx_headers_size(size_t bytes_transfered, uint8_t proto_id, uint16_t mtu_size) {

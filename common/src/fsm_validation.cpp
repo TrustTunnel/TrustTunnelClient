@@ -9,7 +9,7 @@ namespace std {
 template <>
 struct hash<ag::FsmTransitionEntry> {
     size_t operator()(const ag::FsmTransitionEntry &e) const {
-        return ag::hash_pair_combine(std::hash<ag::FsmState>{}(e.src_state), std::hash<ag::FsmEvent>{}(e.event));
+        return size_t(ag::hash_pair_combine(std::hash<ag::FsmState>{}(e.src_state), std::hash<ag::FsmEvent>{}(e.event)));
     }
 };
 } // namespace std

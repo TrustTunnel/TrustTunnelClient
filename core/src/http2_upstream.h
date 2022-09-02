@@ -38,9 +38,9 @@ private:
         uint32_t stream_id = 0;
         std::bitset<width_of<Flag>()> flags;
         std::unique_ptr<DataBuffer> unread_data;
-        ag::AutoTaskId complete_read_task_id;
+        event_loop::AutoTaskId complete_read_task_id;
         std::optional<ServerError> pending_error; // to store bad HTTP response status until stream processed event
-        ag::AutoTaskId close_task_id;
+        event_loop::AutoTaskId close_task_id;
     };
 
     struct HealthCheckInfo {
@@ -65,7 +65,7 @@ private:
 
     ag::Logger m_log{"H2_UPSTREAM"};
 
-    bool open_session(uint32_t timeout_ms) override;
+    bool open_session(std::optional<Millis> timeout) override;
     void close_session() override;
     void close_connection(uint64_t id, bool graceful, bool async) override;
     ssize_t send(uint64_t id, const uint8_t *data, size_t length) override;

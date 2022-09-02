@@ -107,7 +107,7 @@ private:
         };
 
         std::unordered_map<uint64_t, Connection> connections;
-        ag::AutoTaskId timeout_task;
+        event_loop::AutoTaskId timeout_task;
     };
 
     struct ResolveState {
@@ -120,7 +120,7 @@ private:
         uint64_t connection_id = NON_ID;
         bool is_open = false;
         std::unordered_map<uint16_t, Query> queries;
-        ag::AutoTaskId timeout_task;
+        event_loop::AutoTaskId timeout_task;
     };
 
     using State = std::variant<std::monostate, BootstrapState, ResolveState>;
@@ -132,10 +132,10 @@ private:
     std::array<Queue, magic_enum::enum_count<VpnDnsResolverQueue>()> queues;
     State state;
     std::vector<uint64_t> accepting_connections;
-    ag::AutoTaskId deferred_accept_task;
+    event_loop::AutoTaskId deferred_accept_task;
     std::vector<uint64_t> closing_connections;
-    ag::AutoTaskId deferred_close_task;
-    ag::AutoTaskId deferred_resolve_task;
+    event_loop::AutoTaskId deferred_close_task;
+    event_loop::AutoTaskId deferred_resolve_task;
     uint16_t next_connection_port = 1;
     bool stopping = false;
     ag::Logger log{"VPN_DNS_RESOLVER"};

@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 
 #include "common/utils.h"
 #include "net/http_header.h"
@@ -110,7 +111,7 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
     }
 
     free((char *) endpoint->name);
-    *endpoint = (VpnEndpoint){};
+    std::memset(endpoint, 0, sizeof(*endpoint));
 }
 
 bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
@@ -141,7 +142,7 @@ void vpn_location_destroy(VpnLocation *location) {
     }
     free(location->endpoints.data);
 
-    *location = (VpnLocation){};
+    std::memset(location, 0, sizeof(*location));
 }
 
 } // namespace ag

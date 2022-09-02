@@ -1,11 +1,10 @@
 #include "vpn/internal/dns_proxy_accessor.h"
 
-// including it after the VPN client's headers leads to conflicts
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define NOCRYPT
 #undef gettid
-#include "proxy/dnsproxy.h"
+#include "dns/proxy/dnsproxy.h"
 
 #include "common/logger.h"
 
@@ -19,8 +18,8 @@ static constexpr std::string_view BOOTSTRAP_ADDRESSES[] = {
         "94.140.14.140:53",
 };
 
-static DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Parameters &parameters, milliseconds timeout) {
-    DnsProxySettings settings = DnsProxySettings::get_default();
+static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Parameters &parameters, milliseconds timeout) {
+    dns::DnsProxySettings settings = dns::DnsProxySettings::get_default();
     settings.upstreams = {{
             .address = parameters.resolver_address,
             .bootstrap = {std::begin(BOOTSTRAP_ADDRESSES), std::end(BOOTSTRAP_ADDRESSES)},
@@ -44,7 +43,7 @@ static DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Paramete
     };
 
     settings.outbound_proxy = {{
-            .protocol = OutboundProxyProtocol::SOCKS5_UDP,
+            .protocol = dns::OutboundProxyProtocol::SOCKS5_UDP,
             .address = sockaddr_ip_to_str((sockaddr *) &parameters.socks_listener_address),
             .port = sockaddr_get_port((sockaddr *) &parameters.socks_listener_address),
             .auth_info = std::nullopt,
@@ -57,21 +56,19 @@ static DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Paramete
     return settings;
 }
 
-void delete_dnsproxy(DnsProxy *p) {
-    delete p;
-}
-
 DnsProxyAccessor::DnsProxyAccessor(Parameters p)
-        : m_dns_proxy(new DnsProxy())
+        : m_dns_proxy(std::make_unique<dns::DnsProxy>())
         , m_parameters(std::move(p)) {
 }
+
+DnsProxyAccessor::~DnsProxyAccessor() = default;
 
 bool DnsProxyAccessor::start(std::chrono::milliseconds timeout) {
     auto [ok, msg] = m_dns_proxy->init(make_dns_proxy_settings(m_parameters, timeout),
             {
                     .on_request_processed = nullptr,
                     .on_certificate_verification =
-                            [this](CertificateVerificationEvent e) -> std::optional<std::string> {
+                            [this](dns::CertificateVerificationEvent e) -> std::optional<std::string> {
                         const unsigned char *d = e.certificate.data();
                         DeclPtr<X509_STORE_CTX, &X509_STORE_CTX_free> store{X509_STORE_CTX_new()};
                         DeclPtr<X509, &X509_free> cert{

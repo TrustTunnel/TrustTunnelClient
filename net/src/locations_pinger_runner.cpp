@@ -38,7 +38,7 @@ static void runner_handler(void *arg, const LocationsPingerResult *result) {
     if (result) {
         runner->handler.func(runner->handler.arg, result);
     } else {
-        vpn_event_loop_exit(runner->ev_loop.get(), 0);
+        vpn_event_loop_exit(runner->ev_loop.get(), Millis{0});
     }
 }
 
