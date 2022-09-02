@@ -1,10 +1,10 @@
 #include <algorithm>
 #include <cassert>
-#include <filesystem>
 
 #include "memfile_buffer.h"
 #include "memory_buffer.h"
 #include "vpn/platform.h"
+#include "vpn/utils.h"
 
 namespace ag {
 
@@ -21,7 +21,7 @@ MemfileBuffer::~MemfileBuffer() {
 
     if (!m_path.empty()) {
         std::error_code err;
-        std::filesystem::remove(m_path, err);
+        fs::remove(m_path, err);
     }
 }
 
@@ -208,7 +208,7 @@ std::optional<std::string> MemfileBuffer::strip_file() {
     std::string tmp_fpath = str_format("%s.tmp", m_path.c_str());
 
     std::error_code fs_err;
-    std::filesystem::rename(m_path, tmp_fpath, fs_err);
+    fs::rename(m_path, tmp_fpath, fs_err);
     if (fs_err) {
         return str_format("Failed to rename file: %s (%d)", sys::strerror(sys::last_error()), sys::last_error());
     }
@@ -244,14 +244,14 @@ exit:
     file::close(tmp_fd);
     if (err.has_value()) {
         file::close(std::exchange(m_fd, file::INVALID_HANDLE));
-        std::filesystem::remove(m_path, fs_err);
+        fs::remove(m_path, fs_err);
         fs_err.clear();
-        std::filesystem::rename(tmp_fpath, m_path, fs_err);
+        fs::rename(tmp_fpath, m_path, fs_err);
         if (!fs_err) {
             m_fd = file::open(m_path, file::APPEND | file::RDWR);
         }
     }
-    std::filesystem::remove(tmp_fpath, fs_err);
+    fs::remove(tmp_fpath, fs_err);
 
     return err;
 }

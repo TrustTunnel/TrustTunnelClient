@@ -211,15 +211,13 @@ struct SingleUpstreamConnector::Impl {
     // clang-format on
 };
 
-void SingleUpstreamConnector::delete_impl(Impl *obj) {
-    delete obj;
-}
-
 SingleUpstreamConnector::SingleUpstreamConnector(
         const EndpointConnectorParameters &parameters, std::unique_ptr<ServerUpstream> upstream)
         : EndpointConnector(parameters)
         , m_impl(new Impl(*this, std::move(upstream))) {
 }
+
+SingleUpstreamConnector::~SingleUpstreamConnector() = default;
 
 VpnError SingleUpstreamConnector::connect(std::optional<Millis> timeout) {
     log_connector(m_impl, trace, "...");

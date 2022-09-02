@@ -1,4 +1,3 @@
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -59,11 +58,11 @@ protected:
     static constexpr const char *DIR = "./hopefully_nonexisting_dir";
 
     void SetUp() override {
-        ASSERT_FALSE(std::filesystem::exists(DIR));
+        ASSERT_FALSE(fs::exists(DIR));
     }
 
     void TearDown() override {
-        ASSERT_NO_THROW(std::filesystem::remove_all(DIR));
+        ASSERT_NO_THROW(fs::remove_all(DIR));
     }
 };
 
@@ -79,7 +78,7 @@ static void create_buffer_file(const std::string &dir, const std::string &name) 
 }
 
 TEST_F(CleanUpFiles, Test) {
-    ASSERT_NO_THROW(std::filesystem::create_directory(DIR));
+    ASSERT_NO_THROW(fs::create_directory(DIR));
 
     std::vector<std::string> file_names;
     for (uint64_t i = 0; i < 10; ++i) {
@@ -93,6 +92,6 @@ TEST_F(CleanUpFiles, Test) {
     clean_up_buffer_files(DIR);
 
     for (const std::string &fn : file_names) {
-        ASSERT_FALSE(std::filesystem::exists(std::filesystem::path(DIR) / fn));
+        ASSERT_FALSE(fs::exists(fs::path(DIR) / fn));
     }
 }

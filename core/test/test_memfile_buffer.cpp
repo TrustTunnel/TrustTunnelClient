@@ -1,4 +1,3 @@
-#include <filesystem>
 #include <gtest/gtest.h>
 
 #include "common/file.h"
@@ -24,17 +23,17 @@ protected:
         err = buffer->push({(uint8_t *) TEST_DATA_1.data(), TEST_DATA_1.size()});
         ASSERT_FALSE(err.has_value()) << err.value();
         ASSERT_EQ(buffer->size(), TEST_DATA_1.size());
-        ASSERT_FALSE(std::filesystem::exists(FILE_PATH));
+        ASSERT_FALSE(fs::exists(FILE_PATH));
 
         err = buffer->push({(uint8_t *) TEST_DATA_2.data(), TEST_DATA_2.size()});
         ASSERT_FALSE(err.has_value()) << err.value();
         ASSERT_EQ(buffer->size(), TEST_DATA_1.size() + TEST_DATA_2.size());
-        ASSERT_TRUE(std::filesystem::exists(FILE_PATH));
+        ASSERT_TRUE(fs::exists(FILE_PATH));
     }
 
     void TearDown() override {
         buffer.reset();
-        ASSERT_FALSE(std::filesystem::exists(FILE_PATH));
+        ASSERT_FALSE(fs::exists(FILE_PATH));
     }
 
     void check_file_content(file::Handle fd, const std::string &expected) {

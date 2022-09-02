@@ -25,10 +25,6 @@ struct IcmpManager::RequestInfo {
     std::vector<RequestAttempt> tries;
 };
 
-void IcmpManager::request_info_delete(RequestInfo *i) {
-    delete i;
-}
-
 static constexpr seconds DEFAULT_PING_REQUEST_TIMEOUT = seconds(3);
 
 static std::atomic_int g_next_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -60,6 +56,8 @@ bool IcmpEchoRequestKey::operator<(const IcmpEchoRequestKey &other) const {
 IcmpManager::IcmpManager()
         : m_id(g_next_id.fetch_add(1, std::memory_order_relaxed)) {
 }
+
+IcmpManager::~IcmpManager() = default;
 
 bool IcmpManager::init(Parameters p, IcmpManagerHandler h) {
     m_parameters = p;

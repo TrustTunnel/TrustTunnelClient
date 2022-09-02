@@ -1,4 +1,4 @@
-from conans import ConanFile, CMake
+from conans import ConanFile, CMake, tools
 
 
 class VpnLibsConan(ConanFile):
@@ -21,6 +21,10 @@ class VpnLibsConan(ConanFile):
     def requirements(self):
         for req in self.conan_data["requirements"]:
             self.requires(req)
+
+        if tools.is_apple_os(self.settings.os):
+            for req in self.conan_data["requirements_apple"]:
+                self.requires(req)
 
     def build_requirements(self):
         self.build_requires("gtest/1.12.1")

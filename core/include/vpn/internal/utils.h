@@ -16,6 +16,17 @@
 #include "vpn/utils.h"
 #include "vpn/vpn.h"
 
+#ifdef __APPLE__
+#define USE_NONSTD_FS
+#endif
+#ifdef USE_NONSTD_FS
+#include <ghc/filesystem.hpp>
+namespace fs = ghc::filesystem;
+#else
+#include <filesystem>
+namespace fs = std::filesystem;
+#endif
+
 #define CONN_BUFFER_FILE_NAME_FMT "cbuf-%" PRIu64 "-%" PRIu64 ".dat"
 
 namespace ag {

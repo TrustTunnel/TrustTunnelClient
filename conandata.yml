@@ -11,6 +11,8 @@ requirements:
   - "nghttp2/1.44.0@AdguardTeam/NativeLibsCommon"
   - "dns-libs/777@AdguardTeam/NativeLibsCommon"
   - "native_libs_common/2.0.18@AdguardTeam/NativeLibsCommon"
+requirements_apple:
+  - "ghc-filesystem/1.5.12"
 commit_hash:
   "0.90.6":
     hash: "58a57f19ee4e194de266429c00c45f677e2c0d0a"

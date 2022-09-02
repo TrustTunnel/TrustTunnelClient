@@ -1,4 +1,3 @@
-#include <filesystem>
 #include <numeric>
 
 #include "common/base64.h"
@@ -38,19 +37,19 @@ static bool is_conn_buffer_file(const char *fname) {
 }
 
 void clean_up_buffer_files(const char *dir) {
-    if (!std::filesystem::exists(dir)) {
+    if (!fs::exists(dir)) {
         return;
     }
 
-    std::vector<std::filesystem::path> to_remove;
-    for (const auto &i : std::filesystem::directory_iterator{ dir }) {
+    std::vector<fs::path> to_remove;
+    for (const auto &i : fs::directory_iterator{ dir }) {
         if (!i.is_directory() && is_conn_buffer_file(i.path().filename().string().c_str())) {
             to_remove.push_back(i);
         }
     }
 
     for (auto &i : to_remove) {
-        std::filesystem::remove(i);
+        fs::remove(i);
     }
 }
 

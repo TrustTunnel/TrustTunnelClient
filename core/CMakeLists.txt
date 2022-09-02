@@ -67,6 +67,9 @@ target_link_libraries(vpnlibs_core CONAN_PKG::quiche)
 if (WIN32)
     target_link_libraries(vpnlibs_core BCrypt) # Quiche requirement
 endif()
+if (APPLE)
+    target_link_libraries(vpnlibs_core CONAN_PKG::ghc-filesystem)
+endif()
 
 if(NOT TARGET vpnlibs_tcpip)
     add_subdirectory(${VPN_LIB_DIR}/tcpip ${CMAKE_BINARY_DIR}/tcpip)

@@ -54,7 +54,7 @@ public:
     };
 
     IcmpManager();
-    ~IcmpManager() = default;
+    ~IcmpManager();
     IcmpManager(IcmpManager &&) = default;
     IcmpManager &operator=(IcmpManager &&) = default;
 
@@ -87,8 +87,7 @@ public:
 
 private:
     struct RequestInfo;
-    static void request_info_delete(RequestInfo *i);
-    using RequestInfoPtr = DeclPtr<RequestInfo, &request_info_delete>;
+    using RequestInfoPtr = std::unique_ptr<RequestInfo>;
 
     std::map<IcmpRequestKey, RequestInfoPtr> m_requests;
     Parameters m_parameters = {};

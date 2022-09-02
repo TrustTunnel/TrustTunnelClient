@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "vpn/internal/endpoint_connector.h"
 
 namespace ag {
@@ -7,7 +9,7 @@ namespace ag {
 class SingleUpstreamConnector : public EndpointConnector {
 public:
     SingleUpstreamConnector(const EndpointConnectorParameters &parameters, std::unique_ptr<ServerUpstream> upstream);
-    ~SingleUpstreamConnector() override = default;
+    ~SingleUpstreamConnector() override;
 
     SingleUpstreamConnector(const SingleUpstreamConnector &) = delete;
     SingleUpstreamConnector &operator=(const SingleUpstreamConnector &) = delete;
@@ -17,8 +19,7 @@ public:
 private:
     struct Impl;
     friend struct Impl;
-    static void delete_impl(Impl *);
-    DeclPtr<Impl, &delete_impl> m_impl;
+    std::unique_ptr<Impl> m_impl;
 
     VpnError connect(std::optional<Millis> timeout) override;
     void disconnect() override;
