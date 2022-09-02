@@ -37,19 +37,24 @@ static bool is_conn_buffer_file(const char *fname) {
 }
 
 void clean_up_buffer_files(const char *dir) {
-    if (!fs::exists(dir)) {
+    std::error_code fs_err;
+    if (!fs::exists(dir, fs_err) || fs_err) {
         return;
     }
 
     std::vector<fs::path> to_remove;
-    for (const auto &i : fs::directory_iterator{ dir }) {
-        if (!i.is_directory() && is_conn_buffer_file(i.path().filename().string().c_str())) {
-            to_remove.push_back(i);
+    fs::directory_iterator diter(dir, fs_err);
+    while (!fs_err && diter != fs::directory_iterator()) {
+        if (!diter->is_directory(fs_err)
+                && !fs_err
+                && is_conn_buffer_file(diter->path().filename().string().c_str())) {
+            to_remove.push_back(diter->path());
         }
+        diter = diter.increment(fs_err);
     }
 
     for (auto &i : to_remove) {
-        fs::remove(i);
+        fs::remove(i, fs_err);
     }
 }
 

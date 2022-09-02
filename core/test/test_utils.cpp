@@ -56,13 +56,16 @@ INSTANTIATE_TEST_SUITE_P(TunnelAddressTest, NotEqual, testing::ValuesIn(NOT_EQUA
 class CleanUpFiles : public ::testing::Test {
 protected:
     static constexpr const char *DIR = "./hopefully_nonexisting_dir";
+    std::error_code fs_err;
 
     void SetUp() override {
-        ASSERT_FALSE(fs::exists(DIR));
+        ASSERT_FALSE(fs::exists(DIR, fs_err));
+        ASSERT_FALSE(fs_err) << fs_err.message();
     }
 
     void TearDown() override {
-        ASSERT_NO_THROW(fs::remove_all(DIR));
+        fs::remove_all(DIR, fs_err);
+        ASSERT_FALSE(fs_err) << fs_err.message();
     }
 };
 
@@ -78,7 +81,8 @@ static void create_buffer_file(const std::string &dir, const std::string &name) 
 }
 
 TEST_F(CleanUpFiles, Test) {
-    ASSERT_NO_THROW(fs::create_directory(DIR));
+    fs::create_directory(DIR, fs_err);
+    ASSERT_FALSE(fs_err) << fs_err.message();
 
     std::vector<std::string> file_names;
     for (uint64_t i = 0; i < 10; ++i) {
@@ -92,6 +96,7 @@ TEST_F(CleanUpFiles, Test) {
     clean_up_buffer_files(DIR);
 
     for (const std::string &fn : file_names) {
-        ASSERT_FALSE(fs::exists(fs::path(DIR) / fn));
+        ASSERT_FALSE(fs::exists(fs::path(DIR) / fn, fs_err));
+        ASSERT_FALSE(fs_err) << fs_err.message();
     }
 }
