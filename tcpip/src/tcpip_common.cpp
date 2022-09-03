@@ -73,18 +73,18 @@ static err_t tun_output(const struct netif *netif, const struct pbuf *packet_buf
     err_t err;
     if (ctx->parameters.tun_fd != -1) {
 #ifdef __MACH__
-        err = tun_output_to_utun_fd(ctx, chunks, family);
+        err = tun_output_to_utun_fd(ctx, {chunks.data(), chunks.size()}, family);
 #elif !defined _WIN32
-        err = tun_output_to_fd(ctx, chunks);
+        err = tun_output_to_fd(ctx, {chunks.data(), chunks.size()});
 #else
         err = ERR_ARG;
 #endif
     } else {
-        err = tun_output_to_callback(ctx, chunks, family);
+        err = tun_output_to_callback(ctx, {chunks.data(), chunks.size()}, family);
     }
 
     if (err == ERR_OK && ctx->pcap_fd != -1) {
-        dump_packet_iovec_to_pcap(ctx, chunks);
+        dump_packet_iovec_to_pcap(ctx, {chunks.data(), chunks.size()});
     }
 
     return err;
@@ -130,7 +130,7 @@ static err_t tun_output_to_utun_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chun
     for (const evbuffer_iovec &chunk : chunks) {
         new_chunks.push_back(chunk);
     }
-    return tun_output_to_fd(ctx, new_chunks);
+    return tun_output_to_fd(ctx, {new_chunks.data(), new_chunks.size()});
 }
 #endif /* __MACH__ */
 
