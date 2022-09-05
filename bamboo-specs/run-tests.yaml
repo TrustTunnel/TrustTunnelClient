@@ -144,9 +144,7 @@ Run tests on macOS:
             # Build tests
             mkdir -p build
             cd build
-            # @todo: bring back optimized build when Apple fix its compiler
-            # `Debug` because AppleClang crashes when sees our code
-            cmake -DCMAKE_BUILD_TYPE=Debug -GNinja \
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
                 -DTARGET_OS=macos \
                 -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_CXX_COMPILER=clang++ \

@@ -1,8 +1,6 @@
 include(default)
 [settings]
-# @todo: bring back optimized build when Apple fix its compiler
-# `Debug` because AppleClang crashes when sees our code
-build_type=Debug
+build_type=RelWithDebInfo
 compiler=apple-clang
 compiler.version=13.1
 compiler.libcxx=libc++
