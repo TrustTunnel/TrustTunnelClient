@@ -1,18 +1,12 @@
-#include <codecvt>
 #include <cstring>
-#include <locale>
-#include <optional>
 #include <string>
 
+#include "common/utils.h"
 #include "vpn/platform.h"
 
 namespace ag::sys {
 
 #ifdef _WIN32
-
-static std::string wide_to_utf8_string(const wchar_t *str, size_t len) {
-    return std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(str, str + len);
-}
 
 static size_t get_wide_error_message(DWORD code, wchar_t *dst, size_t dst_cap) {
     DWORD n = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
@@ -30,7 +24,7 @@ static size_t get_wide_error_message(DWORD code, wchar_t *dst, size_t dst_cap) {
 static std::string get_error_message(DWORD code) {
     wchar_t w[255];
     size_t n = get_wide_error_message(code, w, std::size(w));
-    return wide_to_utf8_string(w, n);
+    return utils::from_wstring({w, n});
 }
 
 int last_error() {

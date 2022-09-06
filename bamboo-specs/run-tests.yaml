@@ -96,7 +96,7 @@ Run tests on Windows:
                 -G "Visual Studio 16 2019" -A Win32 ^
                 ..
 
-            cmake --build . --target tests || exit /b 1
+            cmake --build . --target tests --parallel || exit /b 1
             ctest -D ExperimentalTest --no-compress-output || exit /b 1
     - script:
         description: Run tests
