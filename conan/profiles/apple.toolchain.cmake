@@ -67,7 +67,7 @@ elseif(CMAKE_OSX_SYSROOT STREQUAL iphoneos)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.2" CACHE STRING "Minimum iOS deployment version")
     add_compile_options(-fembed-bitcode)
 else()
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.12" CACHE STRING "Minimum macOS deployment version")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS deployment version")
 endif()
 
 # We don't need to export any symbol implicitly, and also disable C++ exceptions.
