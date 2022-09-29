@@ -274,6 +274,7 @@ struct TunInfo {
 
 static VpnSettings g_vpn_settings = {{vpn_handler, nullptr}, {}};
 static VpnUpstreamConfig g_vpn_server_config;
+static VpnEndpoint g_endpoint;
 static VpnListenerConfig g_vpn_common_listener_config;
 static VpnTunListenerConfig g_vpn_tun_listener_config;
 static VpnSocksListenerConfig g_vpn_socks_listener_config;
@@ -606,10 +607,9 @@ void apply_vpn_settings() {
     g_vpn_settings.exclusions = {g_params.exclusions.data(), (uint32_t) g_params.exclusions.size()};
     g_vpn_settings.mode = g_params.mode;
 
-    VpnEndpoint endpoints[] = {
-            {sockaddr_from_str(g_params.address.c_str()), g_params.hostname.c_str()},
-    };
-    g_vpn_server_config.location = (VpnLocation){"1", {endpoints, std::size(endpoints)}};
+    g_endpoint.address = sockaddr_from_str(g_params.address.c_str());
+    g_endpoint.name = g_params.hostname.c_str();
+    g_vpn_server_config.location = (VpnLocation){"1", {&g_endpoint, 1}};
     g_vpn_server_config.username = g_params.username.c_str();
     g_vpn_server_config.password = g_params.password.c_str();
     g_vpn_server_config.protocol.type = g_params.upstream_protocol;
