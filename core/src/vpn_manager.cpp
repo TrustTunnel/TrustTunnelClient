@@ -478,6 +478,11 @@ static void vpn_complete_connect_request_task(Vpn *vpn, ConnectRequestResult res
 void vpn_complete_connect_request(Vpn *vpn, const VpnConnectionInfo *info) {
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->ev_loop == nullptr) {
+        log_vpn(vpn, warn, "Can't complete request {} since event loop doesn't exist", info->id);
+        return;
+    }
+
     ConnectRequestResult result = {
             info->id,
             info->action,
