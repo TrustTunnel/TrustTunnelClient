@@ -88,3 +88,5 @@ commit_hash:
     hash: "b9a9fbbb30e2d0ade84a9a84dfe99c19cc1357b5"
   "0.91.11":
     hash: "63cffb92ac4d6021fd6c1ca5853866da03eaae8d"
+  "0.91.12":
+    hash: "ae207feab9b93e004e65e132d1f06f9b09e9132c"
