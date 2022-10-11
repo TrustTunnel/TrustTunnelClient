@@ -1,4 +1,5 @@
 from conans import ConanFile, CMake, tools
+import os
 
 
 class VpnLibsConan(ConanFile):
@@ -81,6 +82,10 @@ class VpnLibsConan(ConanFile):
 
         for m in MODULES:
             self.copy("*.h", dst="include", src="%s/include" % m)
+
+        WORK_DIR = os.path.dirname(os.path.realpath(__file__))
+        THIRD_PARTY_DIR = os.path.join(WORK_DIR, "third-party")
+        self.copy("*.h", dst="include", src=os.path.join(THIRD_PARTY_DIR, "wintun", "include"))
 
         self.copy("*.lib", dst="lib", keep_path=False)
         self.copy("*.dll", dst="bin", keep_path=False)
