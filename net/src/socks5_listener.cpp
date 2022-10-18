@@ -397,12 +397,20 @@ static Socks5AddressType socks_atyp_by_addr(const Socks5ConnectionAddress *addr)
     return type;
 }
 
+static size_t socks_addr_size(const Socks5ConnectionAddress *addr) {
+    switch (addr->type) {
+    case S5CAT_SOCKADDR:
+        return sockaddr_get_ip_size((sockaddr *) &addr->ip);
+    case S5CAT_DOMAIN_NAME:
+        return 1 + addr->domain.name.length();
+    }
+}
+
 static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, Socks5ConnectResult result) {
     const Socks5ConnectionAddress *dst = &conn->addr.dst;
     Socks5AddressType atyp = socks_atyp_by_addr(dst);
 
-    constexpr size_t REPLY_BUFFER_SIZE = 32;
-    uint8_t reply_data[REPLY_BUFFER_SIZE];
+    std::vector<uint8_t> reply_data(sizeof(Socks5Reply) + socks_addr_size(dst) + sizeof(uint16_t));
     size_t reply_size = sizeof(Socks5Reply);
     switch (atyp) {
     case S5AT_IPV4:
@@ -420,7 +428,7 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     }
     reply_size += 2;
 
-    Socks5Reply *reply = (Socks5Reply *) reply_data;
+    Socks5Reply *reply = (Socks5Reply *) reply_data.data();
     reply->ver = SOCKS5_VER;
     reply->rep = CONNECT_RESULT_TO_STATUS[result];
     reply->rsv = 0;
@@ -451,7 +459,7 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     memcpy(reply->bnd_addr + offset, &port, 2);
 
     log_conn(listener, conn->id, conn->proto, dbg, "Sending reply");
-    VpnError error = tcp_socket_write(conn->socket, reply_data, reply_size);
+    VpnError error = tcp_socket_write(conn->socket, reply_data.data(), reply_size);
     if (error.code != 0) {
         log_conn(listener, conn->id, conn->proto, err, "Failed to send socks reply: {} ({})",
                 safe_to_string_view(error.text), error.code);
