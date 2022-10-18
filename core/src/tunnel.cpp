@@ -846,7 +846,9 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
         conn->flags.set(CONNF_FORCIBLY_REDIRECTED);
         break;
     case VPN_CA_DEFAULT:
-        conn->flags.set(CONNF_LOOKINGUP_DOMAIN);
+        conn->flags.set(CONNF_LOOKINGUP_DOMAIN,
+                std::holds_alternative<sockaddr_storage>(conn->addr.dst)
+                        && !conn->flags.test(CONNF_PLAIN_DNS_CONNECTION));
         action = VPN_CA_DEFAULT;
         break;
     }
