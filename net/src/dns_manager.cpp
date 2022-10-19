@@ -1,8 +1,8 @@
-#include "net/dns_manager.h"
-
 #include <algorithm>
 #include <mutex>
 
+#include "net/dns_manager.h"
+#include "net/utils.h"
 #include "vpn/platform.h"
 
 namespace ag {
@@ -16,15 +16,6 @@ struct DnsManager {
 DnsManager *dns_manager_create() {
     auto *manager = new DnsManager{};
     return manager;
-}
-
-template <typename T, typename FFArr, typename Deleter>
-void ffarr_free_all(FFArr &arr, Deleter &&deleter) {
-    T *end = arr.ptr + arr.len;
-    for (T *it = arr.ptr; it != end; ++it) {
-        std::forward<Deleter>(deleter)(it);
-    }
-    ffarr_free(&arr);
 }
 
 void dns_manager_destroy(DnsManager *manager) {
@@ -46,7 +37,7 @@ static void add_servers_to_base(DnsManager *manager, struct evdns_base *base) {
         }
 #endif
         if (!success) {
-            evdns_base_nameserver_ip_add(base, DNS_MANAGER_DEFAULT_SERVER);
+            evdns_base_nameserver_ip_add(base, AG_UNFILTERED_DNS_IPS_V4[0].data());
         }
     } else {
         for (const std::string &server : manager->servers) {

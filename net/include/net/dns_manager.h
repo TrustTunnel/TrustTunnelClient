@@ -6,9 +6,6 @@
 #include <event2/dns.h>
 #include <event2/event.h>
 
-// This server is used if higher level has not set any DNS servers yet
-#define DNS_MANAGER_DEFAULT_SERVER "8.8.8.8"
-
 namespace ag {
 
 struct DnsManager;
