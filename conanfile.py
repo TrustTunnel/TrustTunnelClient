@@ -34,8 +34,8 @@ class VpnLibsConan(ConanFile):
 
     def configure(self):
         self.options["gtest"].build_gmock = False
-        # 2.0.28
-        self.options["dns-libs"].commit_hash = "46aecd61ca4341b37f23c8e0e6c447336865f2d7"
+        # 2.0.34
+        self.options["dns-libs"].commit_hash = "f1d8cabea8fff416d4ed23ebfd58207e66698ae9"
 
         # Resolve conflict between pcre2 required from dns-libs and pcre2 required form native_libs_common
         self.options["pcre2"].build_pcre2grep = False
