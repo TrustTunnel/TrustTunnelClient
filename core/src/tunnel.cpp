@@ -990,8 +990,9 @@ void Tunnel::on_after_endpoint_disconnect(ServerUpstream *upstream) { // NOLINT(
         }
 
         if (this->fake_upstream != nullptr) {
+            // just re-open the session to close all the currently open fake connections
             this->fake_upstream->close_session();
-            this->fake_upstream->deinit();
+            this->fake_upstream->open_session();
         }
     }
 }
@@ -1351,7 +1352,7 @@ bool Tunnel::init(VpnClient *vpn) {
     }
 
     this->fake_upstream = std::make_unique<FakeUpstream>(VpnClient::next_upstream_id());
-    if (!this->fake_upstream->init(this->vpn, {fake_upstream_handler, this})) {
+    if (!this->fake_upstream->init(this->vpn, {fake_upstream_handler, this}) || !this->fake_upstream->open_session()) {
         log_tun(this, warn, "Failed to initialize fake upstream");
         this->deinit();
         assert(0);
@@ -1382,6 +1383,10 @@ void Tunnel::deinit() {
     this->repeat_exclusions_resolve_task.reset();
     clean_connection_table(this, this->connections.by_client_id);
     clean_connection_table(this, this->connections.by_server_id);
+    if (this->fake_upstream != nullptr) {
+        this->fake_upstream->deinit();
+        this->fake_upstream.reset();
+    }
     this->icmp_manager.deinit();
 
     log_tun(this, dbg, "Done");

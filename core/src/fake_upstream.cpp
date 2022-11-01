@@ -16,8 +16,6 @@ bool FakeUpstream::init(VpnClient *vpn, ServerHandler handler) {
         return false;
     }
 
-    // `open_session` is not being used
-    m_session_open = true;
     return true;
 }
 
@@ -25,8 +23,8 @@ void FakeUpstream::deinit() {
 }
 
 bool FakeUpstream::open_session(std::optional<Millis>) {
-    assert(0);
-    return false;
+    m_session_open = true;
+    return true;
 }
 
 void FakeUpstream::close_session() {
@@ -76,7 +74,7 @@ ssize_t FakeUpstream::send(uint64_t, const uint8_t *, size_t) {
 }
 
 void FakeUpstream::consume(uint64_t, size_t) {
-    assert(0);
+    // can be called in case a destination is suspected to be an exclusion
 }
 
 size_t FakeUpstream::available_to_send(uint64_t) {

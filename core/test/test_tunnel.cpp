@@ -366,6 +366,7 @@ public:
         TunnelTest::SetUp();
 
         tun.fake_upstream = std::make_unique<TestFakeUpstream>(std::move(tun.fake_upstream));
+        ASSERT_TRUE(tun.fake_upstream->open_session());
         this->fake_upstream = (TestFakeUpstream *) tun.fake_upstream.get();
 
         ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, "localhost"));
@@ -397,6 +398,8 @@ public:
     }
 
     void TearDown() override {
+        tun.fake_upstream->close_session();
+        tun.fake_upstream->deinit();
         TunnelTest::TearDown();
     }
 
