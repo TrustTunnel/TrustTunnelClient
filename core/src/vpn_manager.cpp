@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 
@@ -41,36 +42,33 @@ Vpn::Vpn()
         , id(g_next_id++) {
 }
 
-Vpn::~Vpn() {
-    vpn_upstream_config_destroy(&this->upstream_config);
-}
+Vpn::~Vpn() = default;
 
-void Vpn::update_upstream_config(const VpnUpstreamConfig *config) {
-    vpn_upstream_config_destroy(&this->upstream_config);
-    this->upstream_config = vpn_upstream_config_clone(config);
+void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> config) {
+    this->upstream_config = std::move(config);
 
-    if (!this->upstream_config.fallback.enabled && this->upstream_config.protocol.type == VPN_UP_HTTP3) {
-        log_vpn(this, info, "Setting forcibly HTTP/2 as fallback protocol");
-        this->upstream_config.fallback.enabled = true;
-        this->upstream_config.fallback.protocol.type = VPN_UP_HTTP2;
+    if (!this->upstream_config->fallback.enabled && this->upstream_config->protocol.type == VPN_UP_HTTP3) {
+        log_vpn(this, info, "Forcibly setting HTTP/2 as fallback protocol");
+        this->upstream_config->fallback.enabled = true;
+        this->upstream_config->fallback.protocol.type = VPN_UP_HTTP2;
     }
 
-    if (this->upstream_config.location_ping_timeout_ms == 0) {
-        this->upstream_config.location_ping_timeout_ms = DEFAULT_PING_TIMEOUT_MS;
+    if (this->upstream_config->location_ping_timeout_ms == 0) {
+        this->upstream_config->location_ping_timeout_ms = DEFAULT_PING_TIMEOUT_MS;
     }
-    if (this->upstream_config.timeout_ms == 0) {
-        this->upstream_config.timeout_ms = VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS;
+    if (this->upstream_config->timeout_ms == 0) {
+        this->upstream_config->timeout_ms = VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS;
     }
-    if (this->upstream_config.endpoint_pinging_period_ms == 0) {
-        this->upstream_config.endpoint_pinging_period_ms = VPN_DEFAULT_ENDPOINT_PINGING_PERIOD_MS;
+    if (this->upstream_config->endpoint_pinging_period_ms == 0) {
+        this->upstream_config->endpoint_pinging_period_ms = VPN_DEFAULT_ENDPOINT_PINGING_PERIOD_MS;
     }
-    if (this->upstream_config.recovery.backoff_rate < 1) {
-        this->upstream_config.recovery.backoff_rate = VPN_DEFAULT_RECOVERY_BACKOFF_RATE;
+    if (this->upstream_config->recovery.backoff_rate < 1) {
+        this->upstream_config->recovery.backoff_rate = VPN_DEFAULT_RECOVERY_BACKOFF_RATE;
     }
-    if (this->upstream_config.recovery.location_update_period_ms == 0) {
-        this->upstream_config.recovery.location_update_period_ms = VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS;
+    if (this->upstream_config->recovery.location_update_period_ms == 0) {
+        this->upstream_config->recovery.location_update_period_ms = VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS;
     }
-    if (VpnUpstreamFallbackConfig &fallback = this->upstream_config.fallback; fallback.enabled) {
+    if (VpnUpstreamFallbackConfig &fallback = this->upstream_config->fallback; fallback.enabled) {
         if (fallback.connect_delay_ms == 0) {
             fallback.connect_delay_ms = VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS;
         }
@@ -89,13 +87,14 @@ vpn_client::Parameters Vpn::make_client_parameters() const {
 
 vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     return {
-            this->upstream_config.protocol,
-            this->upstream_config.fallback,
-            this->get_endpoint(),
-            milliseconds(this->upstream_config.timeout_ms),
-            this->upstream_config.username,
-            this->upstream_config.password,
-            milliseconds(this->upstream_config.endpoint_pinging_period_ms),
+            .main_protocol = this->upstream_config->protocol,
+            .fallback = this->upstream_config->fallback,
+            .endpoint = vpn_endpoint_clone(
+                    this->selected_endpoint.value().get()), // NOLINT(bugprone-unchecked-optional-access)
+            .timeout = milliseconds(this->upstream_config->timeout_ms),
+            .username = this->upstream_config->username,
+            .password = this->upstream_config->password,
+            .endpoint_pinging_period = milliseconds(this->upstream_config->endpoint_pinging_period_ms),
     };
 }
 
@@ -117,6 +116,7 @@ void Vpn::stop_pinging() {
         locations_pinger_stop(this->pinger.get());
         this->pinger.reset();
     }
+    this->ping_failure_induces_location_unavailable = false;
 }
 
 void Vpn::disconnect() {
@@ -150,11 +150,11 @@ bool Vpn::run_event_loop() {
 
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
-        assert(0);
         vpn_event_loop_stop(this->ev_loop.get());
         if (this->executor_thread.joinable()) {
             this->executor_thread.join();
         }
+        assert(0);
         return false;
     }
 
@@ -166,8 +166,8 @@ bool Vpn::run_event_loop() {
 void Vpn::submit(std::function<void()> &&func, std::optional<Millis> defer) {
     VpnEventLoopTask task = {
             new std::function(std::move(func)),
-            [](void *arg, TaskId task_id) {
-                std::function<void()> *func = (std::function<void()> *) arg;
+            [](void *arg, TaskId) {
+                auto *func = (std::function<void()> *) arg;
                 (*func)();
             },
             [](void *arg) {
@@ -180,53 +180,6 @@ void Vpn::submit(std::function<void()> &&func, std::optional<Millis> defer) {
     } else {
         vpn_event_loop_schedule(this->ev_loop.get(), task, defer.value());
     }
-}
-
-const VpnEndpoint *Vpn::get_endpoint() const {
-    if (this->selected_endpoint_info.endpoint != nullptr) {
-        return this->selected_endpoint_info.endpoint;
-    }
-
-    // find first active
-    for (size_t i = 0; i < this->upstream_config.location.endpoints.size; ++i) {
-        const VpnEndpoint *endpoint = &this->upstream_config.location.endpoints.data[i];
-        auto it = std::find(this->inactive_endpoints.begin(), this->inactive_endpoints.end(), endpoint);
-        if (it == this->inactive_endpoints.end()) {
-            return endpoint;
-        }
-    }
-
-    // if none, just return the first one
-    return &this->upstream_config.location.endpoints.data[0];
-}
-
-void Vpn::register_selected_endpoint_fail() {
-    if (this->selected_endpoint_info.endpoint == nullptr) {
-        return;
-    }
-
-    ++this->selected_endpoint_info.recoveries_num;
-    if (this->selected_endpoint_info.recoveries_num >= vpn_manager::INACTIVE_ENDPOINT_RECOVERIES_NUM) {
-        this->mark_selected_endpoint_inactive();
-    }
-}
-
-void Vpn::mark_selected_endpoint_inactive() {
-    if (this->selected_endpoint_info.endpoint == nullptr) {
-        return;
-    }
-
-    const VpnEndpoint *endpoint = this->selected_endpoint_info.endpoint;
-    this->selected_endpoint_info = {};
-
-    auto it = std::find(this->inactive_endpoints.begin(), this->inactive_endpoints.end(), endpoint);
-    if (it != this->inactive_endpoints.end()) {
-        return;
-    }
-
-    this->inactive_endpoints.push_back(endpoint);
-    log_vpn(this, info, "Adding endpoint to the list of inactive: '{}' {} (list size={})", endpoint->name,
-            sockaddr_to_str((sockaddr *) &endpoint->address), this->inactive_endpoints.size());
 }
 
 void Vpn::complete_postponed_requests() {
@@ -337,17 +290,18 @@ VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
         break;
     }
 
-    vpn->submit([vpn, cfg = vpn_upstream_config_clone(&parameters->upstream_config),
+    vpn->submit([vpn,
+                        cfg = std::make_shared<decltype(vpn->upstream_config)>(
+                                vpn_upstream_config_clone(&parameters->upstream_config)),
                         retry_info = std::move(retry_info)]() mutable {
         vpn->client.update_parameters(vpn->make_client_parameters());
-        vpn->update_upstream_config(&cfg);
+        vpn->update_upstream_config(std::move(*cfg));
         vpn->connect_retry_info = std::move(retry_info);
         if (auto *several_attempts = std::get_if<vpn_manager::ConnectSeveralAttempts>(&vpn->connect_retry_info);
                 several_attempts != nullptr) {
             several_attempts->attempts_left -= 1;
         }
         vpn->fsm.perform_transition(vpn_fsm::CE_DO_CONNECT, nullptr);
-        vpn_upstream_config_destroy(&cfg);
     });
 
     log_vpn(vpn, info, "Done");
@@ -426,8 +380,7 @@ void vpn_stop(Vpn *vpn) {
     vpn->ev_loop.reset();
 
     vpn->recovery = {};
-    vpn->selected_endpoint_info = {};
-    vpn->inactive_endpoints.clear();
+    vpn->selected_endpoint.reset();
 
     vpn->update_exclusions_task.release(); // The event loop is stopped, no need to reset()
 
@@ -521,8 +474,9 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
             {
                     .arg = ctx,
                     .action =
-                            [](void *arg, TaskId task_id) {
+                            [](void *arg, TaskId) {
                                 auto *ctx = (Ctx *) arg;
+                                ctx->vpn->update_exclusions_task.release();
                                 ctx->vpn->client.reset_connections(-1);
                                 ctx->vpn->client.update_exclusions(ctx->mode, ctx->exclusions);
                             },
@@ -769,12 +723,54 @@ VpnEventLoop *vpn_get_event_loop(Vpn *vpn) {
     return vpn->ev_loop.get();
 }
 
-void vpn_abandon_current_endpoint(Vpn *vpn) {
-    log_vpn(vpn, info, "...");
+void vpn_abandon_endpoint(Vpn *vpn, const VpnEndpoint *endpoint) {
+    log_vpn(vpn, info, "{}", *endpoint);
 
     std::unique_lock l(vpn->stop_guard);
 
-    vpn->submit([vpn]() {
+    vpn->submit([vpn, endpoint = std::make_shared<AutoVpnEndpoint>(vpn_endpoint_clone(endpoint))]() mutable {
+        bool is_selected_endpoint = vpn->selected_endpoint.has_value()
+                && vpn_endpoint_equals(vpn->selected_endpoint->get(), endpoint->get());
+        if (is_selected_endpoint) {
+            vpn->selected_endpoint.reset();
+        }
+
+        VpnEndpoint *endpoints_end =
+                vpn->upstream_config->location.endpoints.data + vpn->upstream_config->location.endpoints.size;
+        VpnEndpoint *abandoned = swap_remove_if(vpn->upstream_config->location.endpoints.data, endpoints_end,
+                [seek = endpoint->get()](const VpnEndpoint &iter) {
+                    return vpn_endpoint_equals(seek, &iter);
+                });
+        if (abandoned == endpoints_end) {
+            log_vpn(vpn, dbg, "Abandoning endpoint is not found in upstream location");
+        }
+
+        vpn->upstream_config->location.endpoints.size -= std::distance(abandoned, endpoints_end);
+        while (abandoned != endpoints_end) {
+            vpn_endpoint_destroy(abandoned++);
+        }
+
+        endpoints_end = vpn->upstream_config->location.endpoints.data + vpn->upstream_config->location.endpoints.size;
+        if (int abandoned_family = endpoint->get()->address.ss_family;
+                std::none_of(vpn->upstream_config->location.endpoints.data, endpoints_end,
+                        [abandoned_family](const VpnEndpoint &iter) {
+                            return abandoned_family == iter.address.ss_family;
+                        })) {
+            vpn->pending_error = (vpn->upstream_config->location.endpoints.size == 0)
+                    ? VpnError{VPN_EC_LOCATION_UNAVAILABLE, "Exhausted all endpoints of location"}
+                    : ((abandoned_family == AF_INET)
+                                    ? VpnError{VPN_EC_LOCATION_UNAVAILABLE, "Exhausted IPv4 endpoints of location"}
+                                    : VpnError{VPN_EC_LOCATION_UNAVAILABLE, "Exhausted IPv6 endpoints of location"});
+            log_vpn(vpn, info, "{}", vpn->pending_error->text);
+            vpn_endpoints_destroy(&vpn->upstream_config->location.endpoints);
+        } else if (!is_selected_endpoint) {
+            assert(vpn->upstream_config->location.endpoints.size > 0);
+            return;
+        } else {
+            vpn->pending_error = {VPN_EC_ERROR, "Current endpoint is abandoned"};
+            log_vpn(vpn, dbg, "{}", vpn->pending_error->text);
+            vpn->ping_failure_induces_location_unavailable = true;
+        }
         vpn->fsm.perform_transition(vpn_fsm::CE_ABANDON_ENDPOINT, nullptr);
     });
 

@@ -23,29 +23,19 @@ struct PingedAddress {
 };
 
 struct LocationsCtx {
-    explicit LocationsCtx(const VpnLocation &i) {
-        vpn_location_clone(&this->info, &i);
+    explicit LocationsCtx(AutoVpnLocation i)
+            : info(std::move(i)) {
     }
 
-    LocationsCtx(LocationsCtx &&other) noexcept {
-        *this = std::move(other);
-    }
-
-    LocationsCtx &operator=(LocationsCtx &&other) noexcept {
-        std::swap(this->info, other.info);
-        this->pinged_ipv6 = std::move(other.pinged_ipv6);
-        this->pinged_ipv4 = std::move(other.pinged_ipv4);
-        return *this;
-    }
+    LocationsCtx(LocationsCtx &&other) noexcept = default;
+    LocationsCtx &operator=(LocationsCtx &&other) noexcept = default;
 
     LocationsCtx(const LocationsCtx &) = delete;
     LocationsCtx &operator=(const LocationsCtx &) = delete;
 
-    ~LocationsCtx() {
-        vpn_location_destroy(&this->info);
-    }
+    ~LocationsCtx() = default;
 
-    VpnLocation info = {};
+    AutoVpnLocation info;
     std::vector<PingedAddress> pinged_ipv6;
     std::vector<PingedAddress> pinged_ipv4;
 };
@@ -70,11 +60,11 @@ struct FinalizeLocationInfo {
 typedef size_t (*PingerSort)(const LocationsCtx *location, const sockaddr *a, int ping_ms);
 
 static size_t get_addr_priority(const LocationsCtx *location, const sockaddr *a, int /*ping_ms*/) {
-    auto *i = std::find_if(location->info.endpoints.data, location->info.endpoints.data + location->info.endpoints.size,
+    auto *i = std::find_if(location->info->endpoints.data, location->info->endpoints.data + location->info->endpoints.size,
             [a](const VpnEndpoint &i) -> bool {
                 return sockaddr_equals(a, (sockaddr *) &i.address);
             });
-    return location->info.endpoints.size - std::distance(location->info.endpoints.data, i);
+    return location->info->endpoints.size - std::distance(location->info->endpoints.data, i);
 }
 
 static size_t get_smallest_ping_priority(const LocationsCtx *, const sockaddr *, int ping_ms) {
@@ -112,21 +102,20 @@ static void finalize_location(LocationsPinger *pinger, const FinalizeLocationInf
             select_endpoint(location, pinger->query_all_interfaces ? &get_smallest_ping_priority : &get_addr_priority);
 
     LocationsPingerResult result = {};
-    result.id = location->info.id;
+    result.id = location->info->id;
     if (selected != nullptr) {
         result.ping_ms = selected->ping_ms;
-        for (size_t i = 0; i < location->info.endpoints.size; ++i) {
-            VpnEndpoint *ep = &location->info.endpoints.data[i];
+        for (size_t i = 0; i < location->info->endpoints.size; ++i) {
+            VpnEndpoint *ep = &location->info->endpoints.data[i];
             if (sockaddr_equals((sockaddr *) &ep->address, (sockaddr *) &selected->addr)) {
                 result.endpoint = ep;
                 break;
             }
         }
         assert(result.endpoint != nullptr);
-        log_location(pinger, location->info.id, dbg, "Selected endpoint: '{}' {} ({}ms)", result.endpoint->name,
-                sockaddr_to_str((sockaddr *) &result.endpoint->address), result.ping_ms);
+        log_location(pinger, location->info->id, dbg, "Selected endpoint: {} ({}ms)", *result.endpoint, result.ping_ms);
     } else {
-        log_location(pinger, location->info.id, dbg, "None of the addresses has been pinged successfully");
+        log_location(pinger, location->info->id, dbg, "None of the addresses has been pinged successfully");
         result.ping_ms = -1;
     }
 
@@ -194,10 +183,10 @@ static void start_location_ping(LocationsPinger *pinger) {
     assert(!pinger->pending_locations.empty());
     auto i = pinger->pending_locations.begin();
 
-    log_location(pinger, i->info.id, dbg, "Starting location ping");
+    log_location(pinger, i->info->id, dbg, "Starting location ping");
     std::vector<sockaddr_storage> addresses;
-    addresses.reserve(i->info.endpoints.size);
-    std::transform(i->info.endpoints.data, i->info.endpoints.data + i->info.endpoints.size,
+    addresses.reserve(i->info->endpoints.size);
+    std::transform(i->info->endpoints.data, i->info->endpoints.data + i->info->endpoints.size,
             std::back_inserter(addresses), [](const VpnEndpoint &endpoint) {
                 return endpoint.address;
             });
@@ -235,7 +224,7 @@ LocationsPinger *locations_pinger_start(
 
     for (size_t i = 0; i < info->locations.size; ++i) {
         const VpnLocation *l = &info->locations.data[i];
-        pinger->pending_locations.emplace_back(*l);
+        pinger->pending_locations.emplace_back(vpn_location_clone(l));
     }
 
     if (!pinger->pending_locations.empty()) {

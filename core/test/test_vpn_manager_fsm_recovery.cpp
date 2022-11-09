@@ -150,7 +150,7 @@ struct ConnectedVpnManagerTest : public ConnectingVpnManagerTest {
     void SetUp() override {
         ConnectingVpnManagerTest::SetUp();
         g_infos[test_mock::IDX_LOCATIONS_PINGER_START].wait_called();
-        vpn->selected_endpoint_info.endpoint = &ENDPOINTS[0];
+        vpn->selected_endpoint.emplace(vpn_endpoint_clone(&ENDPOINTS[0]));
         vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
         raise_client_event(vpn_client::EVENT_CONNECTED);
         ASSERT_TRUE(await_state_change(VPN_SS_CONNECTED));

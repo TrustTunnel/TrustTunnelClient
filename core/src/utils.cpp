@@ -58,12 +58,16 @@ void clean_up_buffer_files(const char *dir) {
     }
 }
 
-VpnUpstreamConfig vpn_upstream_config_clone(const VpnUpstreamConfig *src) {
-    VpnUpstreamConfig dst = *src;
+AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> vpn_upstream_config_clone(const VpnUpstreamConfig *src) {
+    AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> dst;
+    std::memcpy(dst.get(), src, sizeof(*src));
 
-    vpn_location_clone(&dst.location, &src->location);
-    dst.username = safe_strdup(src->username);
-    dst.password = safe_strdup(src->password);
+    AutoPod location = vpn_location_clone(&src->location);
+    std::memcpy(&dst->location, location.get(), sizeof(dst->location));
+    location.release();
+
+    dst->username = safe_strdup(src->username);
+    dst->password = safe_strdup(src->password);
 
     return dst;
 }

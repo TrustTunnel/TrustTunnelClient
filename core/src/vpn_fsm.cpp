@@ -10,12 +10,10 @@ using namespace ag::vpn_fsm;
 
 namespace ag {
 
-static bool need_to_ping(const void *ctx, void *data);
 static bool is_fatal_error(const void *ctx, void *data);
 static bool need_to_ping_on_recovery(const void *ctx, void *data);
 static bool fall_into_recovery(const void *ctx, void *data);
 static bool no_connect_attempts(const void *ctx, void *data);
-static bool last_active_endpoint(const void *ctx, void *data);
 static bool network_loss_suspected(const void *ctx, void *data);
 
 static void run_ping(void *ctx, void *data);
@@ -31,7 +29,6 @@ static void start_listening(void *ctx, void *data);
 static void on_wrong_connect_state(void *ctx, void *data);
 static void on_wrong_listen_state(void *ctx, void *data);
 static void on_network_loss(void *ctx, void *data);
-static void abandon_endpoint(void *ctx, void *data);
 
 static void raise_state(void *ctx, void *data);
 
@@ -46,29 +43,29 @@ static void bypass_until_connected(void *ctx, void *data);
 
 // clang-format off
 static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
-        {VPN_SS_DISCONNECTED,     CE_DO_CONNECT,          need_to_ping,             run_ping,               VPN_SS_CONNECTING,       raise_state},
-        {VPN_SS_DISCONNECTED,     CE_DO_CONNECT,          Fsm::OTHERWISE,           connect_client,         VPN_SS_CONNECTING,       raise_state},
+        {VPN_SS_DISCONNECTED,     CE_DO_CONNECT,          Fsm::ANYWAY,              run_ping,               VPN_SS_CONNECTING,       raise_state},
         {VPN_SS_DISCONNECTED,     CE_CLIENT_DISCONNECTED, Fsm::ANYWAY,              Fsm::DO_NOTHING,        Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_DISCONNECTED,     CE_SHUTDOWN,            Fsm::ANYWAY,              do_disconnect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_DISCONNECTED,     CE_START_LISTENING,     Fsm::ANYWAY,              on_wrong_listen_state,  Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
 
-        {VPN_SS_CONNECTING,       CE_RETRY_CONNECT,       need_to_ping,             run_ping,               VPN_SS_CONNECTING,       Fsm::DO_NOTHING},
-        {VPN_SS_CONNECTING,       CE_RETRY_CONNECT,       Fsm::OTHERWISE,           connect_client,         Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTING,       CE_RETRY_CONNECT,       Fsm::ANYWAY,              run_ping,               Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_CONNECTING,       CE_PING_READY,          Fsm::ANYWAY,              connect_client,         Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTING,       CE_PING_FAIL,           is_fatal_error,           complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
         {VPN_SS_CONNECTING,       CE_PING_FAIL,           fall_into_recovery,       prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
         {VPN_SS_CONNECTING,       CE_PING_FAIL,           no_connect_attempts,      complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
-        {VPN_SS_CONNECTING,       CE_PING_FAIL,           last_active_endpoint,     complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
-        {VPN_SS_CONNECTING,       CE_PING_FAIL,           Fsm::OTHERWISE,           retry_connect,          VPN_SS_CONNECTING,       Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTING,       CE_PING_FAIL,           Fsm::OTHERWISE,           retry_connect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_CONNECTING,       CE_CLIENT_READY,        Fsm::ANYWAY,              complete_connect,       VPN_SS_CONNECTED,        raise_state},
         {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, is_fatal_error,           complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
         {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, fall_into_recovery,       prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
         {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, no_connect_attempts,      complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
-        {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, last_active_endpoint,     complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
-        {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           retry_connect,          VPN_SS_CONNECTING,       Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTING,       CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           retry_connect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTING,       CE_ABANDON_ENDPOINT,    is_fatal_error,           complete_connect,       VPN_SS_DISCONNECTED,     raise_state},
+        {VPN_SS_CONNECTING,       CE_ABANDON_ENDPOINT,    Fsm::OTHERWISE,           retry_connect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
 
         {VPN_SS_CONNECTED,        CE_NETWORK_CHANGE,      network_loss_suspected,   on_network_loss,        VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_CONNECTED,        CE_NETWORK_CHANGE,      Fsm::OTHERWISE,           do_health_check,        Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
-        {VPN_SS_CONNECTED,        CE_ABANDON_ENDPOINT,    Fsm::ANYWAY,              abandon_endpoint,       Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_CONNECTED,        CE_ABANDON_ENDPOINT,    is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
+        {VPN_SS_CONNECTED,        CE_ABANDON_ENDPOINT,    Fsm::OTHERWISE,           prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
 
         {VPN_SS_WAITING_RECOVERY, CE_NETWORK_CHANGE,      network_loss_suspected,   on_network_loss,        VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_NETWORK_CHANGE,      need_to_ping_on_recovery, run_ping,               VPN_SS_RECOVERING,       raise_state},
@@ -77,11 +74,15 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {VPN_SS_WAITING_RECOVERY, CE_DO_RECOVERY,         Fsm::OTHERWISE,           connect_client,         VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           do_disconnect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_WAITING_RECOVERY, CE_ABANDON_ENDPOINT,    is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
 
         {VPN_SS_RECOVERING,       CE_NETWORK_CHANGE,      network_loss_suspected,   on_network_loss,        Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_RECOVERING,       CE_PING_READY,          Fsm::ANYWAY,              reconnect_client,       Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
-        {VPN_SS_RECOVERING,       CE_PING_FAIL,           Fsm::ANYWAY,              prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
+        {VPN_SS_RECOVERING,       CE_PING_FAIL,           is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
+        {VPN_SS_RECOVERING,       CE_PING_FAIL,           Fsm::OTHERWISE,           prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
         {VPN_SS_RECOVERING,       CE_CLIENT_READY,        Fsm::ANYWAY,              finalize_recovery,      VPN_SS_CONNECTED,        raise_state},
+        {VPN_SS_RECOVERING,       CE_ABANDON_ENDPOINT,    is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
+        {VPN_SS_RECOVERING,       CE_ABANDON_ENDPOINT,    Fsm::OTHERWISE,           prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
 
         {Fsm::ANY_SOURCE_STATE,   CE_CLIENT_DISCONNECTED, is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
         {Fsm::ANY_SOURCE_STATE,   CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
@@ -131,12 +132,11 @@ static void initiate_recovery(Vpn *vpn) {
             },
             time_to_next);
 
-    vpn->recovery.attempt_interval = Millis{Millis::rep(float(vpn->recovery.attempt_interval.count()) * vpn->upstream_config.recovery.backoff_rate)};
+    vpn->recovery.attempt_interval = std::chrono::round<Millis>(vpn->recovery.attempt_interval * vpn->upstream_config->recovery.backoff_rate);
     time_point next_attempt_ts = now + time_to_next;
-    if (next_attempt_ts - vpn->recovery.start_ts >= Millis{vpn->upstream_config.recovery.location_update_period_ms}) {
+    if (next_attempt_ts - vpn->recovery.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
         log_vpn(vpn, dbg, "Resetting recovery state due to the recovery took too long");
         vpn->recovery = {};
-        vpn->register_selected_endpoint_fail();
     }
 
     vpn->recovery.to_next = time_to_next;
@@ -148,82 +148,39 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
         return;
     }
 
-    Vpn *vpn = (Vpn *) arg;
-
-    const VpnEndpoint *endpoint = nullptr;
-    if (result->endpoint != nullptr) {
-        for (size_t i = 0; i < vpn->upstream_config.location.endpoints.size; ++i) {
-            endpoint = &vpn->upstream_config.location.endpoints.data[i];
-            if (vpn_endpoint_equals(result->endpoint, endpoint)) {
-                break;
-            }
-        }
-    }
-
-    vpn->selected_endpoint_info = {endpoint};
-    if (endpoint != nullptr) {
-        log_vpn(vpn, dbg, "Using endpoint '{}' {} (ping={}ms)", endpoint->name,
-                sockaddr_to_str((sockaddr *) &endpoint->address), result->ping_ms);
-        vpn->fsm.perform_transition(vpn_fsm::CE_PING_READY, nullptr);
-    } else {
-        VpnError error = {VPN_EC_LOCATION_UNAVAILABLE, "None of the endpoints were pinged successfully"};
+    auto *vpn = (Vpn *) arg;
+    assert(!vpn->selected_endpoint.has_value());
+    vpn->selected_endpoint.reset();
+    bool failure_induces_location_unavailable = std::exchange(vpn->ping_failure_induces_location_unavailable, false);
+    if (result->ping_ms < 0) {
+        VpnError error = failure_induces_location_unavailable
+                ? VpnError{VPN_EC_LOCATION_UNAVAILABLE, "None of the endpoints were pinged successfully"}
+                : VpnError{VPN_EC_ERROR, "Failed to ping location"};
         log_vpn(vpn, warn, "{}", error.text);
         vpn->fsm.perform_transition(vpn_fsm::CE_PING_FAIL, &error);
-    }
-}
-
-static bool are_there_active_endpoints(const Vpn *vpn) {
-    return vpn->inactive_endpoints.size() < vpn->upstream_config.location.endpoints.size;
-}
-
-template <typename It, typename Pred, typename Free>
-static It remove_if(It begin, It end, Pred &&pred, Free &&free) {
-    begin = std::find_if(begin, end, std::forward<Pred>(pred));
-    if (begin != end) {
-        It it = begin;
-        while (++it != end) {
-            if (!std::forward<Pred>(pred)(*it)) {
-                std::forward<Free>(free)(*begin);
-                *begin = *it;
-                *it = {};
-                ++begin;
-            }
-        }
-    }
-    return begin;
-}
-
-static VpnLocation filter_out_inactive_endpoints(const Vpn *vpn, const VpnLocation &src) {
-    VpnLocation dst;
-    vpn_location_clone(&dst, &src);
-
-    assert(src.endpoints.size >= vpn->inactive_endpoints.size());
-    size_t available_endpoints_num = src.endpoints.size - vpn->inactive_endpoints.size();
-    if (available_endpoints_num > 0) {
-        for (const VpnEndpoint *inactive_endpoint : vpn->inactive_endpoints) {
-            VpnEndpoint *end = dst.endpoints.data + dst.endpoints.size;
-            VpnEndpoint *begin = remove_if(
-                    dst.endpoints.data, end,
-                    [inactive_endpoint](const VpnEndpoint &endpoint) {
-                        return vpn_endpoint_equals(&endpoint, inactive_endpoint);
-                    },
-                    [](VpnEndpoint &endpoint) {
-                        vpn_endpoint_destroy(&endpoint);
-                    });
-            dst.endpoints.size -= (end - begin);
-            for (; begin != end; ++begin) {
-                vpn_endpoint_destroy(begin);
-            }
-        }
-    } else {
-        log_vpn(vpn, dbg, "All endpoints are marked inactive, re-ping them all in case some were resurrected");
+        return;
     }
 
-    return dst;
+    VpnEndpoint *endpoints_end =
+            vpn->upstream_config->location.endpoints.data + vpn->upstream_config->location.endpoints.size;
+    if (std::none_of(vpn->upstream_config->location.endpoints.data, endpoints_end,
+                [seek = result->endpoint](const VpnEndpoint &iter) {
+                    return vpn_endpoint_equals(seek, &iter);
+                })) {
+        vpn->ping_failure_induces_location_unavailable = failure_induces_location_unavailable;
+        VpnError error = {VPN_EC_ERROR, "Best available endpoint isn't found in location"};
+        log_vpn(vpn, warn, "{}: {}", error.text, *result->endpoint);
+        vpn->fsm.perform_transition(vpn_fsm::CE_PING_FAIL, &error);
+        return;
+    }
+
+    vpn->selected_endpoint.emplace(vpn_endpoint_clone(result->endpoint));
+    log_vpn(vpn, dbg, "Using endpoint: {} (ping={}ms)", *result->endpoint, result->ping_ms);
+    vpn->fsm.perform_transition(vpn_fsm::CE_PING_READY, nullptr);
 }
 
 static bool is_fatal_error_code(int code) {
-    return code == VPN_EC_AUTH_REQUIRED;
+    return code == VPN_EC_AUTH_REQUIRED || code == VPN_EC_LOCATION_UNAVAILABLE;
 }
 
 static void run_client_connect(Vpn *vpn, std::optional<Millis> timeout = std::nullopt) {
@@ -240,29 +197,18 @@ static void run_client_connect(Vpn *vpn, std::optional<Millis> timeout = std::nu
     }
 }
 
-static bool need_to_ping(const void *ctx, void *) {
+static bool need_to_ping_on_recovery(const void *ctx, void *) {
     const Vpn *vpn = (Vpn *) ctx;
-    const auto *endpoints = &vpn->upstream_config.location.endpoints;
-    // special case: a single endpoint is specified without resolved address
-    return !(endpoints->size == 1 && endpoints->data[0].address.ss_family == AF_UNSPEC);
-}
-
-static bool need_to_ping_on_recovery(const void *ctx, void *data) {
-    if (!need_to_ping(ctx, data)) {
-        return false;
-    }
-
-    const Vpn *vpn = (Vpn *) ctx;
-    if (vpn->selected_endpoint_info.endpoint == nullptr) {
+    if (!vpn->selected_endpoint.has_value()) {
         // we lost endpoint for some reason, need to refresh the location
         return true;
     }
 
     time_point now = steady_clock::now();
-    return now - vpn->recovery.start_ts >= Millis{vpn->upstream_config.recovery.location_update_period_ms};
+    return now - vpn->recovery.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms};
 }
 
-static bool fall_into_recovery(const void *ctx, void *data) {
+static bool fall_into_recovery(const void *ctx, void *) {
     const auto *vpn = (Vpn *) ctx;
     return std::holds_alternative<vpn_manager::ConnectFallIntoRecovery>(vpn->connect_retry_info);
 }
@@ -271,11 +217,6 @@ static bool no_connect_attempts(const void *ctx, void *) {
     const auto *vpn = (Vpn *) ctx;
     const auto *several_attempts = std::get_if<vpn_manager::ConnectSeveralAttempts>(&vpn->connect_retry_info);
     return several_attempts != nullptr && several_attempts->attempts_left == 0;
-}
-
-static bool last_active_endpoint(const void *ctx, void *) {
-    const Vpn *vpn = (Vpn *) ctx;
-    return vpn->upstream_config.location.endpoints.size <= vpn->inactive_endpoints.size() + 1;
 }
 
 static bool network_loss_suspected(const void *, void *data) {
@@ -296,14 +237,15 @@ static void run_ping(void *ctx, void *) {
 
     vpn->stop_pinging();
 
-    VpnLocation filtered_location = filter_out_inactive_endpoints(vpn, vpn->upstream_config.location);
-
-    LocationsPingerInfo pinger_info = {vpn->upstream_config.location_ping_timeout_ms, {&filtered_location, 1}, 1};
+    LocationsPingerInfo pinger_info = {
+            .timeout_ms = vpn->upstream_config->location_ping_timeout_ms,
+            .locations = {&vpn->upstream_config->location, 1},
+            .rounds = 1,
+    };
     vpn->pinger.reset(locations_pinger_start(&pinger_info, {pinger_handler, vpn}, vpn->ev_loop.get()));
 
-    vpn_location_destroy(&filtered_location);
-
     vpn->pending_error.reset();
+    vpn->selected_endpoint.reset();
 
     log_vpn(vpn, trace, "Done");
 }
@@ -328,7 +270,6 @@ static void complete_connect(void *ctx, void *data) {
     }
 
     vpn->recovery = {};
-    vpn->inactive_endpoints.clear();
 
     log_vpn(vpn, trace, "Done");
 }
@@ -336,9 +277,6 @@ static void complete_connect(void *ctx, void *data) {
 static void retry_connect(void *ctx, void *) {
     Vpn *vpn = (Vpn *) ctx;
     log_vpn(vpn, trace, "...");
-
-    // mark current endpoint inactive without retries like in connected case
-    vpn->mark_selected_endpoint_inactive();
 
     if (auto *several_attempts = std::get_if<vpn_manager::ConnectSeveralAttempts>(&vpn->connect_retry_info)) {
         several_attempts->attempts_left -= 1;
@@ -363,10 +301,7 @@ static void prepare_for_recovery(void *ctx, void *data) {
     initiate_recovery(vpn);
 
     const VpnError *error = (VpnError *) data;
-    if (!are_there_active_endpoints(vpn)) {
-        vpn->pending_error = {VPN_EC_LOCATION_UNAVAILABLE, "Got errors on each endpoint of location"};
-        log_vpn(vpn, dbg, "No active endpoints left");
-    } else if (!vpn->pending_error.has_value() && error != nullptr && error->code != VPN_EC_NOERROR) {
+    if (!vpn->pending_error.has_value() && error != nullptr && error->code != VPN_EC_NOERROR) {
         vpn->pending_error = *error;
     }
 
@@ -379,7 +314,7 @@ static void reconnect_client(void *ctx, void *) {
 
     vpn->disconnect_client();
 
-    run_client_connect(vpn, std::min(vpn->recovery.attempt_interval, Millis{vpn->upstream_config.timeout_ms}));
+    run_client_connect(vpn, std::min(vpn->recovery.attempt_interval, Millis{vpn->upstream_config->timeout_ms}));
 
     log_vpn(vpn, trace, "Done");
 }
@@ -390,8 +325,6 @@ static void finalize_recovery(void *ctx, void *) {
 
     vpn->recovery = {};
     vpn->stop_pinging();
-    vpn->inactive_endpoints.clear();
-    vpn->selected_endpoint_info.recoveries_num = 0;
     vpn->postponement_window_timer.reset();
     vpn->complete_postponed_requests();
     vpn->reset_bypassed_connections();
@@ -430,7 +363,7 @@ static void start_listening(void *ctx, void *data) {
     auto *args = (StartListeningArgs *) data;
 
     log_vpn(vpn, info, "...");
-    const VpnLocation &location = vpn->upstream_config.location;
+    const VpnLocation &location = vpn->upstream_config->location;
     bool ipv6_available = std::any_of(location.endpoints.data, location.endpoints.data + location.endpoints.size,
             [](const VpnEndpoint &e) -> bool {
                 return e.address.ss_family == AF_INET6;
@@ -463,17 +396,11 @@ static void on_wrong_listen_state(void *ctx, void *) {
             magic_enum::enum_name((VpnSessionState) vpn->fsm.get_state()));
 }
 
-static void on_network_loss(void *ctx, void *data) {
+static void on_network_loss(void *ctx, void *) {
     Vpn *vpn = (Vpn *) ctx;
     log_vpn(vpn, trace, "...");
 
     vpn->disconnect_client();
-
-    bool network_loss_suspected = *(bool *) data;
-    if (network_loss_suspected) {
-        vpn->inactive_endpoints.clear();
-    }
-
     run_ping(ctx, nullptr);
 
     log_vpn(vpn, trace, "Done");
@@ -482,17 +409,22 @@ static void on_network_loss(void *ctx, void *data) {
 static void raise_state(void *ctx, void *) {
     Vpn *vpn = (Vpn *) ctx;
     auto state = (VpnSessionState) vpn->fsm.get_state();
-    VpnStateChangedEvent event = {vpn->upstream_config.location.id, state};
+    VpnStateChangedEvent event = {vpn->upstream_config->location.id, state};
 
     log_vpn(vpn, info, "{}", magic_enum::enum_name((VpnSessionState) vpn->fsm.get_state()));
 
     switch (state) {
     case VPN_SS_WAITING_RECOVERY:
-        event.waiting_recovery_info = {vpn->pending_error.value_or(VpnError{}), uint32_t(vpn->recovery.to_next.count())};
+        event.waiting_recovery_info = {
+                .error = vpn->pending_error.value_or(VpnError{}),
+                .time_to_next_ms = uint32_t(vpn->recovery.to_next.count()),
+        };
         break;
     case VPN_SS_CONNECTED:
-        assert(vpn->selected_endpoint_info.endpoint != nullptr);
-        event.connected_info = {vpn->selected_endpoint_info.endpoint, vpn->client.endpoint_upstream->get_protocol()};
+        event.connected_info = {
+                .endpoint = vpn->selected_endpoint.value().get(), // NOLINT(bugprone-unchecked-optional-access)
+                .protocol = vpn->client.endpoint_upstream->get_protocol(),
+        };
         break;
     case VPN_SS_DISCONNECTED:
     case VPN_SS_CONNECTING:
@@ -504,23 +436,13 @@ static void raise_state(void *ctx, void *) {
     vpn->handler.func(vpn->handler.arg, VPN_EVENT_STATE_CHANGED, (void *) &event);
 }
 
-void abandon_endpoint(void *ctx, void *) {
-    auto *vpn = (Vpn *) ctx;
-    log_vpn(vpn, trace, "...");
-
-    vpn->mark_selected_endpoint_inactive();
-    vpn->disconnect_client();
-
-    log_vpn(vpn, trace, "Done");
-}
-
 static bool can_complete(const void *ctx, void *data) {
     auto *result = (ConnectRequestResult *) data;
     if (result->action == VPN_CA_FORCE_BYPASS) {
         return true;
     }
     const auto *vpn = (Vpn *) ctx;
-    int state = vpn->fsm.get_state();
+    auto state = VpnSessionState(vpn->fsm.get_state());
     return state == VPN_SS_CONNECTED || state == VPN_SS_CONNECTING || state == VPN_SS_DISCONNECTED;
 }
 

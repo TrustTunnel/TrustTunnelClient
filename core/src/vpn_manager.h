@@ -12,6 +12,7 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
+#include "common/utils.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
 #include "net/tls.h"
@@ -42,12 +43,9 @@ struct RecoveryInfo {
 
 struct SelectedEndpointInfo {
     const VpnEndpoint *endpoint = nullptr; // pointer to endpoint in `upstream_config.location`
-    uint32_t recoveries_num = 0;           // the number of recovery attempts to the endpoint
 };
 
 static constexpr const char *LOG_NAME = "VPNCORE";
-// the number of recovery attempts before marking an endpoint inactive
-static constexpr size_t INACTIVE_ENDPOINT_RECOVERIES_NUM = 1;
 
 struct ConnectSeveralAttempts {
     size_t attempts_left = ag::VPN_DEFAULT_CONNECT_ATTEMPTS_NUM;
@@ -72,7 +70,7 @@ struct Vpn {
     Vpn();
     ~Vpn();
 
-    void update_upstream_config(const VpnUpstreamConfig *config);
+    void update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> config);
     vpn_client::Parameters make_client_parameters() const;
     vpn_client::EndpointConnectionConfig make_client_upstream_config() const;
     void disconnect_client();
@@ -80,20 +78,6 @@ struct Vpn {
     void disconnect();
     bool run_event_loop();
     void submit(std::function<void()> &&func, std::optional<Millis> defer = std::nullopt);
-    /**
-     * Get endpoint to connect to
-     * @return the selected one if some, the first active from the location list otherwise
-     */
-    const VpnEndpoint *get_endpoint() const;
-    /**
-     * Increment failures counter and mark the selected endpoint inactive
-     * if it's reached the threshold
-     */
-    void register_selected_endpoint_fail();
-    /**
-     * Mark the selected endpoint inactive unconditionally
-     */
-    void mark_selected_endpoint_inactive();
     void complete_postponed_requests();
     void reset_bypassed_connections();
 
@@ -106,18 +90,15 @@ struct Vpn {
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
     evdns_base *dns_base = dns_manager_create_base(this->network_manager->dns,
             vpn_event_loop_get_base(this->ev_loop.get())); // DNS base used for resolving hosts in bypassing upstream
-    VpnUpstreamConfig upstream_config = {};
-    vpn_manager::SelectedEndpointInfo selected_endpoint_info = {}; // the most suitable endpoint
+    AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> upstream_config;
+    /** The endpoint the client is connected or trying to connect to */
+    std::optional<AutoVpnEndpoint> selected_endpoint;
 
     DeclPtr<LocationsPinger, &locations_pinger_destroy> pinger;
+    bool ping_failure_induces_location_unavailable = false;
 
     vpn_manager::ClientConnectionState client_state = vpn_manager::CLIS_DISCONNECTED;
     VpnClient client;
-
-    // An endpoint becomes inactive in case it was disconnected for any reason.
-    // If all endpoints were marked inactive, the library re-pings them all in case some of them were resurrected.
-    // This list is reset on successful recovery and on `vpn_stop` call.
-    std::vector<const VpnEndpoint *> inactive_endpoints; // pointers to endpoints in `upstream_config.location`
 
     vpn_manager::ConnectRetryInfo connect_retry_info;
 

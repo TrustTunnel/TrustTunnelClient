@@ -141,6 +141,48 @@ private:
     std::vector<VpnPacket> m_packets;
 };
 
+template <typename T, auto DELETER, std::enable_if_t<std::is_pod_v<T>, bool> = true>
+struct AutoPod {
+    T data{};
+
+    explicit AutoPod(const T &data) : data{data} {}
+
+    AutoPod() = default;
+    ~AutoPod() { reset(); }
+
+    AutoPod(const AutoPod&) = delete;
+    AutoPod &operator=(const AutoPod&) = delete;
+
+    AutoPod(AutoPod &&o) noexcept { *this = std::move(o); }
+    AutoPod &operator=(AutoPod &&rhs) noexcept {
+        std::swap(this->data, rhs.data);
+        return *this;
+    }
+
+    const T *get() const { return &data; }
+    T *get() { return &data; }
+
+    T *operator->() { return get(); }
+    const T *operator->() const { return get(); }
+
+    const T &operator*() const { return data; }
+    T &operator*() { return data; }
+
+    void reset() {
+        DELETER(get());
+        release();
+    }
+
+    void reset(const T &d) {
+        reset();
+        data = d;
+    }
+
+    void release() {
+        data = {};
+    }
+};
+
 /**
  * Convert milliseconds to timeval structure
  */
@@ -360,6 +402,22 @@ bool case_equals(std::string_view a, std::string_view b);
 
 /** Convert the unsigned 24-bit wide integer from network byte order to host byte order */
 uint32_t ntoh_24(uint32_t x);
+
+/**
+ * Just like `std::remove_if()`, but swaps elements to the tail instead of moving them
+ */
+template<typename Iterator, typename Predicate>
+Iterator swap_remove_if(Iterator begin, Iterator end, Predicate p) {
+    begin = std::find_if(begin, end, p);
+    if (begin != end) {
+        for (Iterator i = begin; ++i != end;) {
+            if (!p(*i)) {
+                std::swap(*begin++, *i);
+            }
+        }
+    }
+    return begin;
+}
 
 extern "C" {
 

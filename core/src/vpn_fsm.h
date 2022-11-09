@@ -18,8 +18,8 @@ enum ConnectEvent {
     CE_DO_RECOVERY,         // need to run recovery
     CE_SHUTDOWN,            // shutting down
     CE_NETWORK_CHANGE,      // network has been changed
-    CE_START_LISTENING,     // start listenning for connections from client
-    CE_ABANDON_ENDPOINT,    // mark current endpoint inactive and do recovery
+    CE_START_LISTENING,     // start listening for connections from client
+    CE_ABANDON_ENDPOINT,    // current endpoint is notified of being inactive
     CE_COMPLETE_REQUEST,    // complete connection request
 };
 

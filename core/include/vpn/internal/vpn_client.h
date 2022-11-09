@@ -60,7 +60,7 @@ struct Parameters {
 struct EndpointConnectionConfig {
     VpnUpstreamProtocolConfig main_protocol;
     VpnUpstreamFallbackConfig fallback;
-    const VpnEndpoint *endpoint;
+    AutoVpnEndpoint endpoint;
     std::chrono::milliseconds timeout{VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS};
     std::string username;
     std::string password;

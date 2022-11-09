@@ -245,7 +245,7 @@ typedef enum {
     VPN_SS_DISCONNECTED,
     /**
      * VPN client is connecting to an endpoint after call to `vpn_connect`.
-     * If the connection fails, returns to to `VPN_SS_DISCONNECTED` state,
+     * If the connection fails, returns to `VPN_SS_DISCONNECTED` state,
      * otherwise to `VPN_SS_CONNECTED` state.
      */
     VPN_SS_CONNECTING,
@@ -645,9 +645,10 @@ WIN_EXPORT VpnDnsUpstreamValidationStatus vpn_validate_dns_upstream(const char *
 WIN_EXPORT ag::VpnEventLoop *vpn_get_event_loop(Vpn *vpn);
 
 /**
- * If connected, mark the current endpoint unavailable and start recovery, otherwise do nothing.
+ * Disqualify the endpoint from connection procedure.
+ * In case it is the currently connected one, disconnect and start recovery procedure.
  */
-WIN_EXPORT void vpn_abandon_current_endpoint(Vpn *vpn);
+WIN_EXPORT void vpn_abandon_endpoint(Vpn *vpn, const VpnEndpoint *endpoint);
 
 /** Create a TUN interface listener. */
 WIN_EXPORT VpnListener *vpn_create_tun_listener(Vpn *vpn, const VpnTunListenerConfig *config);

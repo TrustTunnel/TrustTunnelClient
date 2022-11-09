@@ -43,8 +43,7 @@ public:
         VpnError error = vpn.init(&settings);
         ASSERT_EQ(error.code, VPN_EC_NOERROR) << error.text;
 
-        vpn_client::EndpointConnectionConfig upstream_config = {};
-        error = vpn.connect(upstream_config);
+        error = vpn.connect(vpn_client::EndpointConnectionConfig{});
         ASSERT_EQ(error.code, VPN_EC_NOERROR) << error.text;
 
         this->redirect_upstream->handler.func(

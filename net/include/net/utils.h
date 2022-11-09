@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <openssl/x509.h>
 
+#include "common/utils.h"
 #include "net/http_header.h"
 #include "vpn/utils.h"
 
@@ -140,16 +141,17 @@ std::string http_headers_to_http1_message(const HttpHeaders *headers, bool one_l
  */
 std::vector<NameValue> http_headers_to_nv_list(const HttpHeaders *headers);
 
-
-/**
- * Make a deep copy of an endpoint
- */
-void vpn_endpoint_clone(VpnEndpoint *dst, const VpnEndpoint *src);
-
 /**
  * Destroy endpoint's inner resources
  */
 void vpn_endpoint_destroy(VpnEndpoint *endpoint);
+
+using AutoVpnEndpoint = AutoPod<VpnEndpoint, vpn_endpoint_destroy>;
+
+/**
+ * Make a deep copy of an endpoint
+ */
+AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src);
 
 /**
  * Check if 2 endpoints are equal
@@ -157,14 +159,21 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint);
 bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh);
 
 /**
- * Make a deep copy of a location
+ * Destroy endpoints inner resources
  */
-void vpn_location_clone(VpnLocation *dst, const VpnLocation *src);
+void vpn_endpoints_destroy(VpnEndpoints *endpoints);
 
 /**
  * Destroy location's inner resources
  */
 void vpn_location_destroy(VpnLocation *location);
+
+using AutoVpnLocation = AutoPod<VpnLocation, vpn_location_destroy>;
+
+/**
+ * Make a deep copy of a location
+ */
+AutoVpnLocation vpn_location_clone(const VpnLocation *src);
 
 #ifndef _WIN32
 /**
@@ -216,5 +225,19 @@ struct fmt::formatter<ag::IcmpEchoReply> {
     auto format(const ag::IcmpEchoReply &reply, FormatContext &ctx) {
         return fmt::format_to(ctx.out(), "peer={}, id={}, seqno={}, type={}, code={}",
                 ag::sockaddr_ip_to_str((sockaddr *) &reply.peer), reply.id, reply.seqno, reply.type, reply.code);
+    }
+};
+
+template <>
+struct fmt::formatter<ag::VpnEndpoint> {
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext &ctx) {
+        return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(const ag::VpnEndpoint &endpoint, FormatContext &ctx) {
+        return fmt::format_to(
+                ctx.out(), "name={}, address={}", endpoint.name, ag::sockaddr_to_str((sockaddr *) &endpoint.address));
     }
 };

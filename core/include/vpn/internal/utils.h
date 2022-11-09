@@ -10,6 +10,7 @@
 #include <event2/event.h>
 #include <magic_enum.hpp>
 
+#include "common/utils.h"
 #include "net/tcp_socket.h"
 #include "net/udp_socket.h"
 #include "vpn/platform.h"
@@ -148,9 +149,9 @@ std::string make_buffer_file_path(const char *base_path, uint64_t id);
  */
 void clean_up_buffer_files(const char *base_path);
 
-ag::VpnUpstreamConfig vpn_upstream_config_clone(const ag::VpnUpstreamConfig *src);
-
 void vpn_upstream_config_destroy(ag::VpnUpstreamConfig *config);
+
+ag::AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> vpn_upstream_config_clone(const ag::VpnUpstreamConfig *src);
 
 template <std::size_t N, std::size_t... IS>
 constexpr std::array<const char *, N> cpp_to_cstr_array(

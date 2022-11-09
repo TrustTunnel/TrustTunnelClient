@@ -1,5 +1,13 @@
 # CHANGELOG
 
+* [Changed] `Location unavailable` semantics:
+  * It is now considered as a fatal error, i.e. the client goes in the disconnected state.
+    It is up to application to refresh a location data and restart the client.
+  * It is now raised only after the client receives the abandon command.
+    It is up to application to detect infinite recovery loop in case there are some
+    connectivity issues.
+* [Changed] [Windows] `vpn_abandon_endpoint()` now takes an endpoint as a parameter
+
 ## 0.91.20
 
 * [Changed] [Windows] Calling `vpn_win_set_bound_if()` now turns off the socket protection instead of

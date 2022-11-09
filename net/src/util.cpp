@@ -100,9 +100,11 @@ int http_version_get_minor(HttpVersion v) {
     return v & 0xff;
 }
 
-void vpn_endpoint_clone(VpnEndpoint *dst, const VpnEndpoint *src) {
-    *dst = *src;
+AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
+    AutoVpnEndpoint dst;
+    std::memcpy(dst.get(), src, sizeof(*src));
     dst->name = safe_strdup(src->name);
+    return dst;
 }
 
 void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
@@ -119,16 +121,33 @@ bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
             && 0 == strcmp(lh->name, rh->name);
 }
 
-void vpn_location_clone(VpnLocation *dst, const VpnLocation *src) {
-    *dst = *src;
+AutoVpnLocation vpn_location_clone(const VpnLocation *src) {
+    AutoVpnLocation dst;
+    std::memcpy(dst.get(), src, sizeof(*src));
     dst->id = safe_strdup(src->id);
 
     dst->endpoints = {};
     dst->endpoints.data = (VpnEndpoint *) malloc(src->endpoints.size * sizeof(VpnEndpoint));
 
     for (size_t i = 0; i < src->endpoints.size; ++i) {
-        vpn_endpoint_clone(&dst->endpoints.data[dst->endpoints.size++], &src->endpoints.data[i]);
+        AutoVpnEndpoint e = vpn_endpoint_clone(&src->endpoints.data[i]);
+        std::memcpy(&dst->endpoints.data[dst->endpoints.size++], e.get(), sizeof(*e.get()));
+        e.release();
     }
+
+    return dst;
+}
+
+void vpn_endpoints_destroy(VpnEndpoints *endpoints) {
+    if (endpoints == nullptr) {
+        return;
+    }
+
+    for (size_t i = 0; i < endpoints->size; ++i) {
+        vpn_endpoint_destroy(&endpoints->data[i]);
+    }
+    free(endpoints->data);
+    std::memset(endpoints, 0, sizeof(*endpoints));
 }
 
 void vpn_location_destroy(VpnLocation *location) {
@@ -137,10 +156,7 @@ void vpn_location_destroy(VpnLocation *location) {
     }
 
     free((char *) location->id);
-    for (size_t i = 0; i < location->endpoints.size; ++i) {
-        vpn_endpoint_destroy(&location->endpoints.data[i]);
-    }
-    free(location->endpoints.data);
+    vpn_endpoints_destroy(&location->endpoints);
 
     std::memset(location, 0, sizeof(*location));
 }

@@ -47,7 +47,9 @@ static test_mock::LocationsPingerInfo make_deep_copy(const ag::LocationsPingerIn
     dst->locations.data = (VpnLocation *) malloc(src->locations.size * sizeof(VpnLocation));
 
     for (size_t i = 0; i < src->locations.size; ++i) {
-        vpn_location_clone(&dst->locations.data[i], &src->locations.data[i]);
+        AutoVpnLocation location = vpn_location_clone(&src->locations.data[i]);
+        std::memcpy(&dst->locations.data[i], location.get(), sizeof(*location.get()));
+        location.release();
     }
 
     return dst;
