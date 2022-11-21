@@ -237,7 +237,8 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
         } else {
             auto found = upstream->get_conn_by_stream_id(stream_id);
             if (found.second == nullptr) {
-                log_upstream(upstream, dbg, "Got stream processed event on closed connection: stream={}", stream_id);
+                log_upstream(upstream, dbg, "Got stream processed event on closed connection: stream={}: {} ({})", stream_id,
+                        nghttp2_http2_strerror(http_event->error_code), http_event->error_code);
                 assert(0);
                 break;
             }
