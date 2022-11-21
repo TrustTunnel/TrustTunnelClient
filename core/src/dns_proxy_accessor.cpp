@@ -48,6 +48,7 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
     }};
 
     settings.ipv6_available = parameters.ipv6_available;
+    settings.enable_route_resolver = false;
 
     return settings;
 }
