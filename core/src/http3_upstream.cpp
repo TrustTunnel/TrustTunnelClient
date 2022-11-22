@@ -986,7 +986,9 @@ Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
 
     return {
             (stream_id >= 0) ? std::make_optional(stream_id) : std::nullopt,
-            stream_id == QUICHE_H3_ERR_STREAM_BLOCKED,
+            // Due to a bug, Quiche may also return QUICHE_H3_ERR_DONE when sending is blocked.
+            // TODO: this was fixed in later versions of Quiche, so remove when Quiche is updated.
+            stream_id == QUICHE_H3_ERR_STREAM_BLOCKED || stream_id == QUICHE_H3_ERR_DONE,
     };
 }
 
