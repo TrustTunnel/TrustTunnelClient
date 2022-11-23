@@ -77,7 +77,9 @@ static void runner_stop(LocationsPingerRunner *runner) {
 
     std::unique_lock l(runner->stop_guard);
 
-    vpn_event_loop_stop(runner->ev_loop.get());
+    if (runner->ev_loop != nullptr) {
+        vpn_event_loop_stop(runner->ev_loop.get());
+    }
     locations_pinger_stop(runner->pinger.get());
 
     log_runner(runner, info, "Waiting for event loop stop");
@@ -90,8 +92,10 @@ static void runner_stop(LocationsPingerRunner *runner) {
 }
 
 void locations_pinger_runner_free(LocationsPingerRunner *runner) {
-    runner_stop(runner);
-    delete runner;
+    if (runner != nullptr) {
+        runner_stop(runner);
+        delete runner;
+    }
 }
 
 } // namespace ag
