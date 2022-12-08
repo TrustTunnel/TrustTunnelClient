@@ -9,7 +9,7 @@ requirements:
   - "openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon"
   - "quiche/0.10.0@AdguardTeam/NativeLibsCommon"
   - "nghttp2/1.44.0@AdguardTeam/NativeLibsCommon"
-  - "dns-libs/2.0.63@AdguardTeam/NativeLibsCommon"
+  - "dns-libs/2.0.65@AdguardTeam/NativeLibsCommon"
   - "native_libs_common/2.0.23@AdguardTeam/NativeLibsCommon"
 requirements_apple:
   - "ghc-filesystem/1.5.12"
