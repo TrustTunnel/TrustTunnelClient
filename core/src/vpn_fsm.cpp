@@ -416,7 +416,7 @@ static void raise_state(void *ctx, void *) {
     switch (state) {
     case VPN_SS_WAITING_RECOVERY:
         event.waiting_recovery_info = {
-                .error = vpn->pending_error.value_or(VpnError{}),
+                .error = std::exchange(vpn->pending_error, std::nullopt).value_or(VpnError{}),
                 .time_to_next_ms = uint32_t(vpn->recovery.to_next.count()),
         };
         break;
@@ -429,7 +429,7 @@ static void raise_state(void *ctx, void *) {
     case VPN_SS_DISCONNECTED:
     case VPN_SS_CONNECTING:
     case VPN_SS_RECOVERING:
-        event.error = vpn->pending_error.value_or(VpnError{});
+        event.error = std::exchange(vpn->pending_error, std::nullopt).value_or(VpnError{});
         break;
     }
 
