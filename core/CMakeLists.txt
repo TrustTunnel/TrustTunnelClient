@@ -119,9 +119,10 @@ include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
 set(TEST_EXTRA_INCLUDES ${VPNCORE_SRC_DIR} ${THIRD_PARTY_DIR}/klib)
 
 # do not link `VpnClient` tests against the mocked library as it mocks `VpnClient` also
-add_unit_test(test_vpn_client_fsm "${TEST_DIR}" "" TRUE TRUE)
+add_unit_test(test_vpn_client_fsm "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_vpn_client_fsm PRIVATE vpnlibs_core)
-target_include_directories(test_vpn_client_fsm PRIVATE ${TEST_EXTRA_INCLUDES})
+add_unit_test(test_vpn_client_live "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+target_link_libraries(test_vpn_client_live PRIVATE vpnlibs_core)
 
 target_link_libraries(module_vpncore_mocked vpnlibs_core)
 target_include_directories(module_vpncore_mocked PUBLIC ${TEST_EXTRA_INCLUDES})

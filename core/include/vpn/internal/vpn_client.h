@@ -114,7 +114,7 @@ public:
 
     void do_health_check();
 
-    void do_dns_upstream_health_check();
+    bool do_dns_upstream_health_check();
 
     void handle_sleep();
 

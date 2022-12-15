@@ -111,8 +111,13 @@ static void endpoint_connector_finalizer(void *arg, TaskId task_id) {
     // reconnect or `listen` was called before connection procedure completion
     if (self->client_listener != nullptr) {
         self->tunnel->on_exclusions_updated();
-        if (self->dns_proxy != nullptr) {
-            self->do_dns_upstream_health_check();
+        if (self->dns_proxy != nullptr && !self->do_dns_upstream_health_check()) {
+            log_client(self, dbg, "Failed to start DNS upstream health check");
+            VpnDnsUpstreamUnavailableEvent event = {
+                    .upstream = self->listener_config.dns_upstream,
+            };
+            self->parameters.handler.func(
+                    self->parameters.handler.arg, vpn_client::EVENT_DNS_UPSTREAM_UNAVAILABLE, &event);
         }
     }
 }
@@ -449,8 +454,16 @@ VpnError VpnClient::listen(
     // got here after connect procedure completion
     if (this->fsm.get_state() == vpn_client::S_CONNECTED) {
         this->tunnel->on_exclusions_updated();
-        if (this->dns_proxy != nullptr) {
-            this->do_dns_upstream_health_check();
+
+        if (this->listener_config.dns_upstream != nullptr && this->dns_proxy == nullptr) {
+            error = start_dns_proxy(this);
+            if (error.code != VPN_EC_NOERROR) {
+                goto fail;
+            }
+            if (!this->do_dns_upstream_health_check()) {
+                error.text = "Failed to start DNS upstream health check";
+                goto fail;
+            }
         }
     }
 
@@ -564,16 +577,11 @@ void VpnClient::do_health_check() {
     submit_health_check(this, milliseconds(0));
 }
 
-void VpnClient::do_dns_upstream_health_check() {
-    std::optional resolve_id = this->tunnel->dns_resolver->resolve(
-            VDRQ_FOREGROUND, std::string(DNS_PROXY_CHECK_DOMAIN), 1 << dns_utils::RT_A, {dns_resolver_handler, this});
-    if (!resolve_id.has_value()) {
-        log_client(this, dbg, "Failed to start DNS upstream health check");
-        VpnDnsUpstreamUnavailableEvent event = {
-                .upstream = this->listener_config.dns_upstream,
-        };
-        this->parameters.handler.func(this->parameters.handler.arg, vpn_client::EVENT_DNS_UPSTREAM_UNAVAILABLE, &event);
-    }
+bool VpnClient::do_dns_upstream_health_check() {
+    return this->tunnel->dns_resolver
+            ->resolve(VDRQ_FOREGROUND, std::string(DNS_PROXY_CHECK_DOMAIN), 1 << dns_utils::RT_A,
+                    {dns_resolver_handler, this})
+            .has_value();
 }
 
 VpnConnectionStats VpnClient::get_connection_stats() const {
