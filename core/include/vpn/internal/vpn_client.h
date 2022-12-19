@@ -153,6 +153,7 @@ public:
     int id = 0;
     std::optional<VpnError> pending_error;
     sockaddr_storage socks_listener_address{}; // The address the SOCKS listener is bound to
+    bool in_disconnect = false;
 };
 
 } // namespace ag

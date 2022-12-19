@@ -154,7 +154,7 @@ struct VpnClientLive : public ::testing::Test {
         });
     }
 
-    void wait_log(std::string_view needle, std::chrono::seconds wait_for = std::chrono::seconds{10}) {
+    static void wait_log(std::string_view needle, std::chrono::seconds wait_for = std::chrono::seconds{10}) {
         std::unique_lock lock(log_guard);
         ASSERT_TRUE(log_waker.wait_for(lock, wait_for, [&]() {
             return log_storage.find(needle) != log_storage.npos;
@@ -248,4 +248,32 @@ TEST_F(VpnClientLive, DnsUnavailableOnTimeout) {
     ASSERT_NO_FATAL_FAILURE(wait_log(";; ipv4only.arpa.\tIN\tA"));
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_DNS_UPSTREAM_UNAVAILABLE, 3 * DNS_TIMEOUT / 2));
+}
+
+TEST_F(VpnClientLive, DisconnectDoesNotCauseDnsUnavailable) {
+    constexpr std::chrono::seconds DNS_TIMEOUT{3};
+
+    ag::VpnError error = this->vpn->connect(std::move(connection_config));
+    ASSERT_EQ(error.code, ag::VPN_EC_NOERROR) << error.text;
+
+    ag::VpnListenerConfig listener_config = {
+            .dns_upstream = "tls://unfiltered.adguard-dns.com",
+    };
+    error = this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+    ASSERT_EQ(error.code, ag::VPN_EC_NOERROR) << error.text;
+
+    ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
+    ASSERT_NO_FATAL_FAILURE(wait_log(";; ipv4only.arpa.\tIN\tA"));
+
+    ag::vpn_event_loop_submit(this->ev_loop.get(),
+            {
+                    .arg = this,
+                    .action =
+                            [](void *arg, ag::TaskId) {
+                                auto *self = (VpnClientLive *) arg;
+                                self->vpn->disconnect();
+                            },
+            });
+
+    ASSERT_FALSE(this->wait_event(ag::vpn_client::EVENT_DNS_UPSTREAM_UNAVAILABLE, 3 * DNS_TIMEOUT / 2));
 }

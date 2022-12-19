@@ -223,6 +223,11 @@ static void dns_resolver_handler(void *arg, VpnDnsResolveId, VpnDnsResolverResul
 
     if (std::holds_alternative<VpnDnsResolverSuccess>(result)) {
         log_client(self, dbg, "DNS resolver health check succeeded");
+    } else if (self->fsm.get_state() != vpn_client::S_CONNECTED) {
+        log_client(self, dbg, "Ignoring DNS resolver health check failure due to state: {}",
+                magic_enum::enum_name<>(vpn_client::State(self->fsm.get_state())));
+    } else if (self->in_disconnect) {
+        log_client(self, dbg, "Ignoring DNS resolver health check failure while disconnecting by next level");
     } else {
         log_client(self, dbg, "DNS resolver health check failed");
         VpnDnsUpstreamUnavailableEvent event = {
@@ -479,7 +484,9 @@ fail:
 void VpnClient::disconnect() {
     log_client(this, dbg, "...");
 
+    this->in_disconnect = true;
     this->fsm.perform_transition(vpn_client::E_DISCONNECT, nullptr);
+    this->in_disconnect = false;
 
     log_client(this, dbg, "Done");
 }
