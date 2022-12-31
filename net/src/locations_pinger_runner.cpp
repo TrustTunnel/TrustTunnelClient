@@ -80,7 +80,9 @@ static void runner_stop(LocationsPingerRunner *runner) {
     if (runner->ev_loop != nullptr) {
         vpn_event_loop_stop(runner->ev_loop.get());
     }
-    locations_pinger_stop(runner->pinger.get());
+    if (runner->pinger != nullptr) {
+        locations_pinger_stop(runner->pinger.get());
+    }
 
     log_runner(runner, info, "Waiting for event loop stop");
 
