@@ -278,11 +278,11 @@ static AfterLookuperAction pass_through_lookuper(
 
     switch (r.status) {
     case DLUS_NOTFOUND:
-        log_conn(tunnel, conn, trace, "Gave up to find domain name");
+        log_conn(tunnel, conn, dbg, "Gave up to find domain name");
         lookuper->reset();
         break;
     case DLUS_FOUND: {
-        log_conn(tunnel, conn, trace, "Found domain in {} data: {}", (dir == DLUPD_OUTGOING) ? "outgoing" : "incoming",
+        log_conn(tunnel, conn, dbg, "Found domain in {} data: {}", (dir == DLUPD_OUTGOING) ? "outgoing" : "incoming",
                 r.domain);
         if (DFMS_EXCLUSION == filter->match_domain(r.domain)) {
             action = ALUA_SHUTDOWN;
@@ -725,8 +725,8 @@ static ServerUpstream *select_upstream(const Tunnel *self, VpnConnectAction acti
 
     uint64_t server_id = upstream->open_connection(&conn->addr, conn->proto, {});
     if (server_id == NON_ID) {
-        close_client_side_connection(self, conn, -1, true);
-        return 0;
+        log_conn(self, conn, dbg, "Couldn't open connection on new upstream");
+        return -1;
     }
 
     size_t processed = 0;
@@ -1304,8 +1304,9 @@ void Tunnel::listener_handler(ClientListener *listener, ClientEvent what, void *
         if (conn->flags.test(CONNF_FAKE_CONNECTION)) {
             // assume that SNI (in case of TLS) or host name (in case of plain HTTP) comes in
             // the first packet
-            log_conn(this, conn, trace,
-                    "Couldn't find domain name for suspect-to-be-exclusion connection, routing it as usual");
+            log_conn(this, conn, dbg,
+                    "Couldn't find domain name for suspect-to-be-exclusion connection, routing it as usual ({})",
+                    encode_to_hex({event->data, std::min(event->length, size_t(517))}));
             conn->flags.reset(CONNF_FAKE_CONNECTION);
             conn->flags.reset(CONNF_SUSPECT_EXCLUSION);
             event->result = initiate_connection_migration(

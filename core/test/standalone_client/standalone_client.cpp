@@ -166,12 +166,11 @@ struct Params {
         username = server_info["username"];
         password = server_info["password"];
         skip_verify = server_info["skip_cert_verify"];
-        if (auto it = UPSTREAM_PROTO_MAP.find(server_info["upstream_protocol"]); it != UPSTREAM_PROTO_MAP.end()) {
-            upstream_protocol = it->second;
+        if (server_info.contains("upstream_protocol")) {
+            upstream_protocol = UPSTREAM_PROTO_MAP.at(server_info["upstream_protocol"]);
         }
-        if (auto it = UPSTREAM_PROTO_MAP.find(server_info["upstream_fallback_protocol"]);
-                it != UPSTREAM_PROTO_MAP.end()) {
-            upstream_fallback_protocol = it->second;
+        if (server_info.contains("upstream_fallback_protocol")) {
+            upstream_fallback_protocol = UPSTREAM_PROTO_MAP.at(server_info["upstream_fallback_protocol"]);
         }
     }
 
