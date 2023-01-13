@@ -13,18 +13,9 @@ using namespace std::chrono;
 
 namespace ag {
 
-static const sockaddr_storage BOOTSTRAP_ADDRESSES[] = {
-        sockaddr_from_str(AG_FMT("{}:53", AG_UNFILTERED_DNS_IPS_V4[0]).c_str()),
-        sockaddr_from_str(AG_FMT("{}:53", AG_UNFILTERED_DNS_IPS_V4[1]).c_str()),
-        sockaddr_from_str("1.1.1.1:53"),
-        sockaddr_from_str("8.8.8.8:53"),
-};
-
 static const sockaddr_storage CUSTOM_SRC_IP = sockaddr_from_str("127.0.0.11");
 static constexpr std::string_view CUSTOM_APP_NAME = "__vpn_dns_resolver__";
-static constexpr std::string_view RESOLVER_DOMAIN = AG_UNFILTERED_DNS_HOSTNAME;
-/// Manually resolved `RESOLVER_DOMAIN`
-static const sockaddr_storage DEFAULT_RESOLVER_ADDRESS =
+static const sockaddr_storage RESOLVER_ADDRESS =
         sockaddr_from_str(AG_FMT("{}:53", AG_UNFILTERED_DNS_IPS_V4[0]).c_str());
 static constexpr size_t RESOLVE_CAPACITIES[magic_enum::enum_count<VpnDnsResolverQueue>()] = {
         /** VDRQ_BACKGROUND */ VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES,
@@ -40,66 +31,18 @@ std::optional<VpnDnsResolveId> VpnDnsResolver::resolve(
     log_resolver(this, trace, "{}", name);
     VpnDnsResolveId id = this->next_id++;
     this->queues[queue].emplace(id, Resolve{std::move(name), record_types, result_handler});
-
-    if (std::holds_alternative<BootstrapState>(this->state)) {
-        return id;
+    if (!this->deferred_resolve_task.has_value()) {
+        this->deferred_resolve_task = event_loop::submit(this->vpn->parameters.ev_loop,
+                {
+                        .arg = this,
+                        .action =
+                                [](void *arg, TaskId) {
+                                    auto *self = (VpnDnsResolver *) arg;
+                                    self->deferred_resolve_task.release();
+                                    self->resolve_pending_domains();
+                                },
+                });
     }
-
-    if (std::holds_alternative<ResolveState>(this->state)) {
-        if (!this->deferred_resolve_task.has_value()) {
-            this->deferred_resolve_task = event_loop::submit(this->vpn->parameters.ev_loop,
-                    {
-                            .arg = this,
-                            .action =
-                                    [](void *arg, TaskId) {
-                                        auto *self = (VpnDnsResolver *) arg;
-                                        self->deferred_resolve_task.release();
-                                        self->resolve_pending_domains();
-                                    },
-                    });
-        }
-        return id;
-    }
-
-    if (!std::holds_alternative<std::monostate>(this->state)) {
-        log_resolver(this, warn, "Invalid resolver state: {}", this->state.index());
-        assert(0);
-        return std::nullopt;
-    }
-
-    uint64_t connection_ids[std::size(BOOTSTRAP_ADDRESSES)];
-    std::generate(
-            std::begin(connection_ids), std::end(connection_ids), [gen = &this->vpn->listener_conn_id_generator]() {
-                return gen->get();
-            });
-
-    auto &bootstrap = this->state.emplace<BootstrapState>();
-    bootstrap.connections.reserve(std::size(BOOTSTRAP_ADDRESSES));
-    std::transform(std::begin(connection_ids), std::end(connection_ids),
-            std::inserter(bootstrap.connections, bootstrap.connections.begin()), [](uint64_t id) {
-                return std::make_pair(id, BootstrapState::Connection{});
-            });
-
-    TunnelAddress dst;
-    sockaddr_storage src = this->make_source_address();
-    ClientConnectRequest event = {
-            0,
-            IPPROTO_UDP,
-            (sockaddr *) &src,
-            &dst,
-            CUSTOM_APP_NAME,
-    };
-    for (size_t i = 0; i < std::size(BOOTSTRAP_ADDRESSES); ++i) {
-        dst = BOOTSTRAP_ADDRESSES[i];
-        event.id = connection_ids[i];
-        this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
-    }
-
-    if (std::holds_alternative<BootstrapState>(this->state)) {
-        bootstrap.timeout_task = event_loop::schedule(
-                this->vpn->parameters.ev_loop, {this, on_bootstrap_timeout}, this->vpn->upstream_config.timeout);
-    }
-
     return id;
 }
 
@@ -109,17 +52,11 @@ void VpnDnsResolver::cancel(VpnDnsResolveId id) {
             return;
         }
     }
-
-    auto *resolve = std::get_if<ResolveState>(&this->state);
-    if (resolve == nullptr) {
-        return;
-    }
-
-    auto on_the_wire_it = std::find_if(resolve->queries.begin(), resolve->queries.end(), [id](const auto &i) {
+    auto on_the_wire_it = std::find_if(this->state.queries.begin(), this->state.queries.end(), [id](const auto &i) {
         return i.second.id == id;
     });
-    if (on_the_wire_it != resolve->queries.end()) {
-        resolve->queries.erase(on_the_wire_it);
+    if (on_the_wire_it != this->state.queries.end()) {
+        this->state.queries.erase(on_the_wire_it);
     }
 }
 
@@ -138,17 +75,12 @@ void VpnDnsResolver::stop_resolving_queues(QueueTypeSet stopping_queues) {
         }
     }
 
-    auto *resolve = std::get_if<ResolveState>(&this->state);
-    if (resolve == nullptr) {
-        return;
-    }
-
     std::vector<ResolveState::Query> cancelled_queries;
-    cancelled_queries.reserve(resolve->queries.size());
-    for (auto it = resolve->queries.begin(); it != resolve->queries.end();) {
+    cancelled_queries.reserve(this->state.queries.size());
+    for (auto it = this->state.queries.begin(); it != this->state.queries.end();) {
         if (stopping_queues.test(it->second.queue_kind)) {
             cancelled_queries.emplace_back(std::move(it->second));
-            it = resolve->queries.erase(it);
+            it = this->state.queries.erase(it);
         } else {
             ++it;
         }
@@ -161,29 +93,15 @@ void VpnDnsResolver::stop_resolving_queues(QueueTypeSet stopping_queues) {
 
 void VpnDnsResolver::stop_resolving() {
     this->stop_resolving_queues(QueueTypeSet{}.set());
-
-    std::vector<uint64_t> connections;
-    if (auto *bootstrap = std::get_if<BootstrapState>(&this->state); bootstrap != nullptr) {
-        connections.reserve(bootstrap->connections.size());
-        std::transform(bootstrap->connections.begin(), bootstrap->connections.end(), std::back_inserter(connections),
-                [](const auto &i) {
-                    return i.first;
-                });
-    } else if (auto *resolve = std::get_if<ResolveState>(&this->state); resolve != nullptr) {
-        connections.push_back(resolve->connection_id);
+    if (this->state.connection_id != NON_ID) {
+        this->close_connection(this->state.connection_id, false, false);
     }
-
-    for (uint64_t id : connections) {
-        this->close_connection(id, false, false);
-    }
-
     this->deinit();
 }
 
 void VpnDnsResolver::deinit() {
-    m_dns_resolver_address.reset();
     this->queues = {};
-    this->state = std::monostate{};
+    this->state = ResolveState{};
     this->accepting_connections.clear();
     this->deferred_accept_task.reset();
     this->closing_connections.clear();
@@ -192,12 +110,6 @@ void VpnDnsResolver::deinit() {
 }
 
 void VpnDnsResolver::complete_connect_request(uint64_t id, ClientConnectResult result) {
-    if (std::holds_alternative<std::monostate>(this->state)
-            || this->closing_connections.end()
-                    != std::find(this->closing_connections.begin(), this->closing_connections.end(), id)) {
-        return;
-    }
-
     if (result != CCR_PASS) {
         log_conn(this, id, dbg, "Failed to make connection: {}", magic_enum::enum_name(result));
         this->close_connection(id, false, true);
@@ -224,54 +136,24 @@ void VpnDnsResolver::complete_connect_request(uint64_t id, ClientConnectResult r
 }
 
 void VpnDnsResolver::accept_pending_connection(uint64_t id) {
-    if (auto *bootstrap = std::get_if<BootstrapState>(&this->state); bootstrap != nullptr) {
-        auto it = bootstrap->connections.find(id);
-        if (it == bootstrap->connections.end()) {
-            log_conn(this, id, dbg, "Not found among bootstrap connections");
-            this->close_connection(id, false, false);
-            assert(0);
-            return;
-        }
-
-        this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECTION_ACCEPTED, &id);
-        if (!std::holds_alternative<BootstrapState>(this->state)
-                || bootstrap->connections.end() == (it = bootstrap->connections.find(id))) {
-            return;
-        }
-
-        BootstrapState::Connection &conn = it->second;
-        conn.queries = this->send_request(id, RESOLVER_DOMAIN, 1 << dns_utils::RT_A | 1 << dns_utils::RT_AAAA);
-        if (std::all_of(conn.queries.begin(), conn.queries.end(), [](const auto &i) {
-                return !i.has_value();
-            })) {
-            this->close_connection(id, true, false);
-        }
-
-        return;
-    }
-
     this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECTION_ACCEPTED, &id);
-    auto *resolve = std::get_if<ResolveState>(&this->state);
-    if (resolve == nullptr) {
-        return;
-    }
 
-    if (resolve->is_open) {
-        log_conn(this, resolve->connection_id, dbg, "Resolving connection is already open");
+    if (this->state.is_open) {
+        log_conn(this, this->state.connection_id, dbg, "Resolving connection is already open");
         this->close_connection(id, false, false);
         assert(0);
         return;
     }
 
-    if (resolve->connection_id != id) {
-        log_conn(this, resolve->connection_id, dbg, "Unexpected resolving connection ID: {}", resolve->connection_id,
+    if (this->state.connection_id != id) {
+        log_conn(this, this->state.connection_id, dbg, "Unexpected resolving connection ID: {}", this->state.connection_id,
                 id);
         this->close_connection(id, false, false);
         assert(0);
         return;
     }
 
-    resolve->is_open = true;
+    this->state.is_open = true;
     this->resolve_pending_domains();
 }
 
@@ -307,61 +189,28 @@ void VpnDnsResolver::close_connection(uint64_t id, bool graceful, bool async) {
         this->closing_connections.erase(it);
     }
 
-    if (auto *bootstrap = std::get_if<BootstrapState>(&this->state); bootstrap != nullptr) {
-        bootstrap->connections.erase(id);
-        if (!bootstrap->connections.empty()) {
-            goto raise_event;
-        }
+    log_resolver(this, dbg, "Resolve connection has been closed");
 
-        if (!m_dns_resolver_address.has_value()) {
-            log_resolver(this, dbg, "Failed to bootstrap the resolver, falling back to the default address: {}",
-                    sockaddr_to_str((sockaddr *) &DEFAULT_RESOLVER_ADDRESS));
-            m_dns_resolver_address = DEFAULT_RESOLVER_ADDRESS;
-        }
+    for (auto &[_, q] : std::exchange(this->state.queries, {})) {
+        raise_result(q.result_handler, q.id, VpnDnsResolverFailure{q.record_type});
+    }
 
-        this->state.emplace<ResolveState>();
-        assert(!this->deferred_resolve_task.has_value());
-        this->deferred_resolve_task = event_loop::submit(this->vpn->parameters.ev_loop,
-                {
-                        .arg = this,
-                        .action =
-                                [](void *arg, TaskId) {
-                                    auto *self = (VpnDnsResolver *) arg;
-                                    self->deferred_resolve_task.release();
-                                    self->resolve_pending_domains();
-                                },
-                });
-    } else if (auto *resolve = std::get_if<ResolveState>(&this->state);
-               resolve != nullptr && resolve->connection_id == id) {
-        log_resolver(this, dbg, "Resolve connection has been closed");
-
-        for (auto &[_, q] : std::exchange(resolve->queries, {})) {
-            raise_result(q.result_handler, q.id, VpnDnsResolverFailure{q.record_type});
-        }
-
-        for (const Queue &queue : std::exchange(this->queues, {})) {
-            for (auto &[entry_id, entry] : queue) {
-                for (size_t i = 0; i < entry.record_types.size(); ++i) {
-                    if (entry.record_types.test(i)) {
-                        raise_result(entry.handler, entry_id, VpnDnsResolverFailure{dns_utils::RecordType(i)});
-                    }
+    for (const Queue &queue : std::exchange(this->queues, {})) {
+        for (auto &[entry_id, entry] : queue) {
+            for (size_t i = 0; i < entry.record_types.size(); ++i) {
+                if (entry.record_types.test(i)) {
+                    raise_result(entry.handler, entry_id, VpnDnsResolverFailure{dns_utils::RecordType(i)});
                 }
             }
         }
-
-        this->state = std::monostate{};
     }
 
-raise_event:
+    this->state = ResolveState{};
     this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECTION_CLOSED, &id);
 }
 
 ssize_t VpnDnsResolver::send(uint64_t id, const uint8_t *data, size_t length) {
     log_conn(this, id, dbg, "{}", length);
-    if (std::holds_alternative<std::monostate>(this->state)) {
-        log_conn(this, id, dbg, "Invalid state: idle");
-        return -1;
-    }
 
     dns_utils::DecodeResult r = dns_utils::decode_packet({data, length});
     if (const auto *e = std::get_if<dns_utils::Error>(&r); e != nullptr) {
@@ -369,58 +218,7 @@ ssize_t VpnDnsResolver::send(uint64_t id, const uint8_t *data, size_t length) {
         return -1;
     }
 
-    if (auto *bootstrap = std::get_if<BootstrapState>(&this->state); bootstrap != nullptr) {
-        auto it = bootstrap->connections.find(id);
-        if (bootstrap->connections.end() == it) {
-            log_conn(this, id, dbg, "Not found");
-            return -1;
-        }
-
-        uint16_t reply_id; // NOLINT(cppcoreguidelines-init-variables)
-        BootstrapState::Connection &conn = it->second;
-        if (const auto *inapplicable_reply = std::get_if<dns_utils::InapplicablePacket>(&r);
-                inapplicable_reply != nullptr) {
-            log_conn(this, id, trace, "Packet holds inapplicable reply");
-            reply_id = inapplicable_reply->id;
-        } else {
-            const auto &reply = std::get<dns_utils::DecodedReply>(r);
-            reply_id = reply.id;
-            if (!reply.addresses.empty()) {
-                m_dns_resolver_address =
-                        sockaddr_from_raw(reply.addresses[0].ip.data(), reply.addresses[0].ip.size(), htons(53));
-                log_conn(this, id, dbg, "Got resolver address: {}",
-                        sockaddr_to_str((sockaddr *) &m_dns_resolver_address.value()));
-            } else {
-                log_conn(this, id, trace, "Dropping reply without any address");
-            }
-        }
-
-        if (reply_id == conn.queries[0]) {
-            conn.queries[0].reset();
-        } else {
-            assert(reply_id == conn.queries[1]);
-            conn.queries[1].reset();
-        }
-
-        if (m_dns_resolver_address.has_value()) {
-            std::vector<uint64_t> bootstrap_connections(bootstrap->connections.size());
-            std::transform(bootstrap->connections.begin(), bootstrap->connections.end(), bootstrap_connections.begin(),
-                    [](const auto &i) -> uint64_t {
-                        return i.first;
-                    });
-            for (uint64_t bc_id : bootstrap_connections) { // NOLINT(clang-analyzer-core.uninitialized.Assign)
-                this->close_connection(bc_id, true, false);
-            }
-        } else if (std::all_of(conn.queries.begin(), conn.queries.end(), [](const auto &i) {
-                       return !i.has_value();
-                   })) {
-            this->close_connection(id, true, false);
-        }
-        return (ssize_t) length;
-    }
-
-    auto &resolve = std::get<ResolveState>(this->state);
-    if (resolve.connection_id != id) {
+    if (this->state.connection_id != id) {
         log_conn(this, id, dbg, "Wrong connection ID");
         assert(0);
         return -1;
@@ -447,13 +245,13 @@ ssize_t VpnDnsResolver::send(uint64_t id, const uint8_t *data, size_t length) {
         // @note: resolved addresses are passed to filter via the DNS sniffer in the tunnel
     }
 
-    if (auto it = resolve.queries.find(reply_id); it != resolve.queries.end()) {
+    if (auto it = this->state.queries.find(reply_id); it != this->state.queries.end()) {
         if (auto *failure = std::get_if<VpnDnsResolverFailure>(&result); failure != nullptr) {
             failure->record_type = it->second.record_type;
         }
 
         ResolveState::Query q = it->second;
-        resolve.queries.erase(it);
+        this->state.queries.erase(it);
         raise_result(q.result_handler, q.id, result);
     }
 
@@ -466,18 +264,8 @@ void VpnDnsResolver::consume(uint64_t, size_t) {
 }
 
 TcpFlowCtrlInfo VpnDnsResolver::flow_control_info(uint64_t id) {
-    if (std::holds_alternative<std::monostate>(this->state)) {
-        return {};
-    }
-
-    if (auto *bootstrap = std::get_if<BootstrapState>(&this->state); bootstrap != nullptr) {
-        return (bootstrap->connections.count(id) != 0) ? TcpFlowCtrlInfo{UDP_MAX_DATAGRAM_SIZE, UDP_MAX_DATAGRAM_SIZE}
-                                                       : TcpFlowCtrlInfo{};
-    }
-
-    auto &resolve = std::get<ResolveState>(this->state);
-    return (resolve.connection_id == id) ? TcpFlowCtrlInfo{UDP_MAX_DATAGRAM_SIZE, UDP_MAX_DATAGRAM_SIZE}
-                                         : TcpFlowCtrlInfo{};
+    return (this->state.connection_id == id) ? TcpFlowCtrlInfo{UDP_MAX_DATAGRAM_SIZE, UDP_MAX_DATAGRAM_SIZE}
+                                             : TcpFlowCtrlInfo{};
 }
 
 void VpnDnsResolver::turn_read(uint64_t, bool) {
@@ -527,12 +315,6 @@ std::array<std::optional<uint16_t>, 2> VpnDnsResolver::send_request(
 }
 
 void VpnDnsResolver::resolve_pending_domains() {
-    if (!std::holds_alternative<ResolveState>(this->state)) {
-        log_resolver(this, dbg, "Invalid state: {}", this->state.index());
-        assert(0);
-        return;
-    }
-
     if (std::all_of(this->queues.begin(), this->queues.end(), [](const Queue &q) {
             return q.empty();
         })) {
@@ -540,16 +322,15 @@ void VpnDnsResolver::resolve_pending_domains() {
         return;
     }
 
-    auto *resolve = std::get_if<ResolveState>(&this->state);
-    resolve->timeout_task = event_loop::schedule(
+    this->state.timeout_task = event_loop::schedule(
             this->vpn->parameters.ev_loop, {this, on_resolve_timeout}, this->vpn->upstream_config.timeout);
 
-    if (!resolve->is_open) {
-        resolve->connection_id = this->vpn->listener_conn_id_generator.get();
+    if (!this->state.is_open) {
+        this->state.connection_id = this->vpn->listener_conn_id_generator.get();
         sockaddr_storage src = this->make_source_address();
-        TunnelAddress dst = m_dns_resolver_address.value();
+        TunnelAddress dst = RESOLVER_ADDRESS;
         ClientConnectRequest event = {
-                resolve->connection_id,
+                this->state.connection_id,
                 IPPROTO_UDP,
                 (sockaddr *) &src,
                 &dst,
@@ -565,19 +346,18 @@ void VpnDnsResolver::resolve_pending_domains() {
 }
 
 void VpnDnsResolver::resolve_queue(VpnDnsResolverQueue queue_type) {
-    auto &resolve_state = std::get<ResolveState>(this->state);
     Queue &queue = this->queues[queue_type];
 
-    while (resolve_state.queries.size() < RESOLVE_CAPACITIES[queue_type] && !queue.empty()) {
+    while (this->state.queries.size() < RESOLVE_CAPACITIES[queue_type] && !queue.empty()) {
         auto [entry_id, entry] = std::move(*queue.begin());
         queue.erase(queue.begin());
 
-        auto ids = this->send_request(resolve_state.connection_id, entry.name, entry.record_types);
+        auto ids = this->send_request(this->state.connection_id, entry.name, entry.record_types);
         static_assert(ids.size() == decltype(entry.record_types){}.size());
         for (size_t i = 0; i < ids.size(); ++i) {
             const auto &id = ids[i];
             if (id.has_value()) {
-                resolve_state.queries.emplace(id.value(),
+                this->state.queries.emplace(id.value(),
                         ResolveState::Query{
                                 .id = entry_id,
                                 .record_type = dns_utils::RecordType(i),
@@ -603,42 +383,11 @@ void VpnDnsResolver::raise_result(ResultHandler h, VpnDnsResolveId id, VpnDnsRes
     }
 }
 
-void VpnDnsResolver::on_bootstrap_timeout(void *arg, TaskId) {
-    auto *self = (VpnDnsResolver *) arg;
-    log_resolver(self, dbg, "...");
-
-    auto *bootstrap = std::get_if<BootstrapState>(&self->state);
-    if (bootstrap == nullptr) {
-        log_resolver(self, dbg, "Invalid state: {}", self->state.index());
-        assert(0);
-        return;
-    }
-
-    bootstrap->timeout_task.release();
-
-    std::vector<uint64_t> bootstrap_connections(bootstrap->connections.size());
-    std::transform(bootstrap->connections.begin(), bootstrap->connections.end(), bootstrap_connections.begin(),
-            [](const auto &i) -> uint64_t {
-                return i.first;
-            });
-    for (uint64_t bc_id : bootstrap_connections) { // NOLINT(clang-analyzer-core.uninitialized.Assign)
-        self->close_connection(bc_id, true, false);
-    }
-}
-
 void VpnDnsResolver::on_resolve_timeout(void *arg, TaskId) {
     auto *self = (VpnDnsResolver *) arg;
     log_resolver(self, dbg, "...");
-
-    auto *resolve = std::get_if<ResolveState>(&self->state);
-    if (resolve == nullptr) {
-        log_resolver(self, dbg, "Invalid state: {}", self->state.index());
-        assert(0);
-        return;
-    }
-
-    resolve->timeout_task.release();
-    self->close_connection(resolve->connection_id, true, false);
+    self->state.timeout_task.release();
+    self->close_connection(self->state.connection_id, true, false);
 }
 
 } // namespace ag

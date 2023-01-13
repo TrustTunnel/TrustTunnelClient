@@ -110,15 +110,6 @@ private:
         ResultHandler handler = {};
     };
 
-    struct BootstrapState {
-        struct Connection {
-            std::array<std::optional<uint16_t>, 2> queries;
-        };
-
-        std::unordered_map<uint64_t, Connection> connections;
-        event_loop::AutoTaskId timeout_task;
-    };
-
     struct ResolveState {
         struct Query {
             VpnDnsResolveId id;
@@ -133,14 +124,12 @@ private:
         event_loop::AutoTaskId timeout_task;
     };
 
-    using State = std::variant<std::monostate, BootstrapState, ResolveState>;
     using Queue = std::map<VpnDnsResolveId, Resolve>;
 
     bool m_ipv6_available = false;
-    std::optional<sockaddr_storage> m_dns_resolver_address;
     VpnDnsResolveId next_id = 0;
     std::array<Queue, magic_enum::enum_count<VpnDnsResolverQueue>()> queues;
-    State state;
+    ResolveState state;
     std::vector<uint64_t> accepting_connections;
     event_loop::AutoTaskId deferred_accept_task;
     std::vector<uint64_t> closing_connections;
@@ -167,7 +156,6 @@ private:
     sockaddr_storage make_source_address();
     static void raise_result(ResultHandler h, VpnDnsResolveId id, VpnDnsResolverResult result);
 
-    static void on_bootstrap_timeout(void *arg, TaskId);
     static void on_resolve_timeout(void *arg, TaskId);
 };
 

@@ -114,13 +114,10 @@ constexpr int DEFAULT_PING_ROUNDS = 3;
 constexpr std::string_view HTTP_METHOD_CONNECT = "CONNECT";
 constexpr std::string_view HTTP_METHOD_GET = "GET";
 
-constexpr std::string_view AG_UNFILTERED_DNS_HOSTNAME = "dns-unfiltered.adguard.com";
-/** Manually resolved `AG_UNFILTERED_DNS_HOSTNAME` */
 constexpr std::string_view AG_UNFILTERED_DNS_IPS_V4[] = {
         "94.140.14.140",
         "94.140.14.141",
 };
-/** Manually resolved `AG_UNFILTERED_DNS_HOSTNAME` */
 constexpr std::string_view AG_UNFILTERED_DNS_IPS_V6[] = {
         "2a10:50c0::1:ff",
         "2a10:50c0::2:ff",

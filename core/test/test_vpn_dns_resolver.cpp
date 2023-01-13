@@ -58,58 +58,13 @@ public:
         vpn_event_loop_exit(this->ev_loop.get(), Millis{0});
         vpn_event_loop_run(this->ev_loop.get());
     }
-
-    void fail_bootstrap() {
-        std::vector<uint64_t> connections;
-        connections.swap(this->raised_connection_requests);
-        for (uint64_t id : connections) {
-            ASSERT_EQ(this->raised_connection_requests.size(), 0);
-            this->resolver->complete_connect_request(id, CCR_REJECT);
-        }
-    }
 };
-
-TEST_F(VpnDnsResolverTest, SuccessfulBootstrap) {
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
-
-    uint64_t connection_id = this->raised_connection_requests[0];
-    this->raised_connection_requests.clear();
-
-    this->resolver->complete_connect_request(connection_id, CCR_PASS);
-    this->run_event_loop_once();
-    ASSERT_NE(this->raised_reads.size(), 0);
-    ASSERT_EQ(this->raised_reads[0].first, connection_id);
-
-    const uint8_t REPLY[] = {this->raised_reads[0].second[0], this->raised_reads[0].second[1], 0x81, 0x80, 0x00, 0x01,
-            0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x0e, 0x64, 0x6e, 0x73, 0x2d, 0x75, 0x6e, 0x66, 0x69, 0x6c, 0x74, 0x65,
-            0x72, 0x65, 0x64, 0x07, 0x61, 0x64, 0x67, 0x75, 0x61, 0x72, 0x64, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01,
-            0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x0f, 0x00, 0x04, 0x5e, 0x8c, 0x0e, 0x8c,
-            0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x0f, 0x00, 0x04, 0x5e, 0x8c, 0x0e, 0x8d, 0x00, 0x00,
-            0x29, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    this->raised_reads.clear();
-
-    ASSERT_EQ(this->resolver->send(connection_id, REPLY, std::size(REPLY)), std::size(REPLY));
-    this->run_event_loop_once();
-    ASSERT_EQ(this->raised_connection_requests.size(), 1);
-}
-
-TEST_F(VpnDnsResolverTest, FailedBootstrap) {
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
-
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
-    this->run_event_loop_once();
-
-    ASSERT_EQ(this->raised_connection_requests.size(), 1);
-}
 
 TEST_F(VpnDnsResolverTest, ResolveV4Only) {
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.com");
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -122,9 +77,8 @@ TEST_F(VpnDnsResolverTest, ResolveV6Available) {
     ((VpnDnsResolver *) this->resolver.get())->set_ipv6_availability(true);
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.com");
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -136,9 +90,8 @@ TEST_F(VpnDnsResolverTest, ResolveV6Available) {
 TEST_F(VpnDnsResolverTest, ResultV4Only) {
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A, {result_handler, this});
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -164,9 +117,8 @@ TEST_F(VpnDnsResolverTest, ResultV6Disabled) {
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A | 1 << dns_utils::RT_AAAA,
                     {result_handler, this});
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -197,9 +149,8 @@ TEST_F(VpnDnsResolverTest, ResultV6) {
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A | 1 << dns_utils::RT_AAAA,
                     {result_handler, this});
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -236,9 +187,8 @@ TEST_F(VpnDnsResolverTest, Cancel) {
             ((VpnDnsResolver *) this->resolver.get())
                     ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A, {result_handler, this});
     ASSERT_TRUE(id.has_value());
-    ASSERT_NE(this->raised_connection_requests.size(), 0);
+    ASSERT_EQ(this->raised_connection_requests.size(), 0);
 
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
 
     ASSERT_EQ(this->raised_connection_requests.size(), 1);
@@ -260,7 +210,6 @@ TEST_F(VpnDnsResolverTest, Cancel) {
 
 TEST_F(VpnDnsResolverTest, BackgroundsDontBlockForegrounds) {
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
     this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
     this->run_event_loop_once();
@@ -284,7 +233,6 @@ TEST_F(VpnDnsResolverTest, BackgroundsDontBlockForegrounds) {
 
 TEST_F(VpnDnsResolverTest, ForegroundsBlockBackgrounds) {
     ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_FOREGROUND, "example.org");
-    ASSERT_NO_FATAL_FAILURE(this->fail_bootstrap());
     this->run_event_loop_once();
     this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
     this->run_event_loop_once();
