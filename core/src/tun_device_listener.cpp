@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <cassert>
-#include <forward_list>
 #include <numeric>
+#include <span>
 
 #define log_conn(lstnr_, id_, lvl_, fmt_, ...)                                                                         \
     lvl_##log((lstnr_)->m_log, "[L:{}] " fmt_, (uint64_t) (id_), ##__VA_ARGS__)
@@ -176,7 +176,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
         }
 
         std::queue<std::vector<uint8_t>> &pending = conn->unread_data;
-        std::forward_list<evbuffer_iovec> iov = {tcp_event->iov, tcp_event->iov + tcp_event->iovlen};
+        std::span<evbuffer_iovec> iov = {(evbuffer_iovec *)tcp_event->iov, tcp_event->iovlen};
         if ((conn->flags & CF_READ_ENABLED) && pending.empty()) {
             ClientRead event = {tcp_event->id, nullptr, 0, 0};
             while (!iov.empty()) {
@@ -186,10 +186,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
                     event.length = v->iov_len;
                     listener->handler.func(listener->handler.arg, CLIENT_EVENT_READ, &event);
                     if (conn->proto == IPPROTO_UDP && event.result >= 0 && event.length != size_t(event.result)) {
-                        log_conn(listener, tcp_event->id, dbg,
-                                "UDP packet sent partially, dropping the rest: length={}, result={}", event.length,
-                                event.result);
-                        event.result = event.length;
+                        goto loop_exit;
                     }
                     if (event.result >= 0) {
                         tcp_event->result += event.result;
@@ -203,12 +200,24 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
                         goto loop_exit;
                     }
                 } while (v->iov_len > 0);
-                iov.pop_front();
+                iov = iov.subspan(1);
             }
         }
 
     loop_exit:
-        if (tcp_event->result >= 0 && !iov.empty()) {
+        if (iov.empty()) {
+            // do nothing
+        } else if (conn->proto == IPPROTO_UDP) {
+            size_t total_length = std::accumulate(
+                    tcp_event->iov, tcp_event->iov + tcp_event->iovlen, 0, [](size_t acc, evbuffer_iovec v) {
+                        return acc + v.iov_len;
+                    });
+            log_conn(listener, tcp_event->id, dbg, "UDP packet sent partially, dropping unsent: total={}, unsent={}",
+                    total_length, std::accumulate(iov.begin(), iov.end(), 0, [](size_t acc, evbuffer_iovec v) {
+                        return acc + v.iov_len;
+                    }));
+            tcp_event->result = total_length;
+        } else if (tcp_event->result >= 0) {
             // not completely sent
             std::for_each(iov.begin(), iov.end(), [&pending](const evbuffer_iovec &vec) {
                 pending.emplace((uint8_t *) vec.iov_base, (uint8_t *) vec.iov_base + vec.iov_len);
