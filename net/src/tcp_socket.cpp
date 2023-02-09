@@ -443,18 +443,23 @@ static void on_host_resolved(int err, struct evutil_addrinfo *resolved, void *ar
             socket->ssl = nullptr;
             bool is_sync_connect = !!(socket->flags & SF_CONNECT_CALLED);
             socket->flags |= SF_CONNECT_CALLED;
-            bufferevent_socket_connect(socket->bev, resolved->ai_addr, (int) resolved->ai_addrlen);
+            int ret = bufferevent_socket_connect(socket->bev, resolved->ai_addr, (int) resolved->ai_addrlen);
             if (!is_sync_connect) {
                 socket->flags &= ~SF_CONNECT_CALLED;
             }
             if (socket->pending_connect_error.code != 0) {
                 e = socket->pending_connect_error;
             }
+            if (ret != 0) {
+                e.code = ret;
+                e.text = evutil_socket_error_to_string(e.code);
+            }
 
             if (e.code == 0) {
                 log_sock(socket, dbg, "Connecting...");
             } else {
-                log_sock(socket, dbg, "Failed to start connection after resolve: {} ({})", e.text, e.code);
+                log_sock(socket, dbg, "Failed to start connection after resolve%s: {} ({})", e.text, e.code,
+                        ret == 0 ? "" : " (bufferevent_socket_connect returned error)");
             }
         }
         evutil_freeaddrinfo(resolved);
@@ -603,7 +608,7 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
     VpnError error = {};
 
     switch (param->connect_by) {
-    case TCP_SOCKET_CB_ADDR:
+    case TCP_SOCKET_CB_ADDR: {
         if (param->by_addr.addr != nullptr) {
             char buf[SOCKADDR_STR_BUF_SIZE];
             sockaddr_to_str(param->by_addr.addr, buf, sizeof(buf));
@@ -616,14 +621,22 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
                 goto fail;
             }
         }
-        bufferevent_socket_connect(socket->bev, param->by_addr.addr, (int) sockaddr_get_size(param->by_addr.addr));
+        int ret = bufferevent_socket_connect(socket->bev, param->by_addr.addr, (int) sockaddr_get_size(param->by_addr.addr));
         if (socket->pending_connect_error.code != 0) {
             error = socket->pending_connect_error;
             log_sock(socket, dbg, "Failed to start connection: {} ({})", safe_to_string_view(error.text), error.code);
             goto fail;
         }
+        if (ret != 0) {
+            error.code = ret;
+            error.text = evutil_socket_error_to_string(error.code);
+            log_sock(socket, dbg, "Failed to start connection (bufferevent_socket_connect returned error): {} ({})",
+                    safe_to_string_view(error.text), error.code);
+            goto fail;
+        }
         log_sock(socket, dbg, "Connecting...");
         break;
+    }
     case TCP_SOCKET_CB_HOSTNAME:
         snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT "%s:%d", socket->id, param->by_name.host,
                 param->by_name.port);
