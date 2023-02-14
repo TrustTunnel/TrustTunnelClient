@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.91.88
+
 * DNS queries are now routed according to VPN settings. I.e., queries with domains
   matching exclusions are routed directly to the target resolver in the general mode,
   but queries not matching exclusions are routed through the endpoint. To do it correctly
