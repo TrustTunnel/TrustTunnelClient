@@ -601,6 +601,14 @@ void ag::PlainDnsManager::on_async_task(void *arg, TaskId) {
 void ag::PlainDnsManager::on_dns_updated(void *arg, DnsManagerServersKind kind) {
     auto *self = (PlainDnsManager *) arg;
 
+    static constexpr auto server_address_from_str = [](std::string_view str) {
+        auto [host, port] = utils::split_host_port(str).value();
+        // Strip scope-id via `SocketAddress`
+        return sockaddr_to_storage(
+                SocketAddress(host, utils::to_integer<uint16_t>(port).value_or(dns_utils::PLAIN_DNS_PORT_NUMBER))
+                        .c_sockaddr());
+    };
+
     switch (kind) {
     case DMSK_SYSTEM: {
         SystemDnsServers servers =
@@ -612,15 +620,17 @@ void ag::PlainDnsManager::on_dns_updated(void *arg, DnsManagerServersKind kind) 
                     if (s.resolved_host.has_value()) {
                         return sockaddr_to_storage(s.resolved_host->c_sockaddr());
                     }
-                    return sockaddr_from_str(s.address.c_str());
+                    return server_address_from_str(s.address);
                 });
         std::transform(servers.fallback.begin(), servers.fallback.end(),
                 std::inserter(self->m_system_dns_servers, self->m_system_dns_servers.begin()),
                 [](const std::string &s) {
-                    return sockaddr_from_str(s.c_str());
+                    return server_address_from_str(s);
                 });
         for (sockaddr_storage &a : self->m_system_dns_servers) {
-            sockaddr_set_port((sockaddr *) &a, dns_utils::PLAIN_DNS_PORT_NUMBER);
+            if (0 == sockaddr_get_port((sockaddr *) &a)) {
+                sockaddr_set_port((sockaddr *) &a, dns_utils::PLAIN_DNS_PORT_NUMBER);
+            }
         }
 
         if (self->m_system_dns_proxy != nullptr) {
@@ -641,9 +651,7 @@ void ag::PlainDnsManager::on_dns_updated(void *arg, DnsManagerServersKind kind) 
         std::transform(servers.begin(), servers.end(),
                 std::inserter(self->m_tun_interface_dns_servers, self->m_tun_interface_dns_servers.begin()),
                 [](const std::string &s) {
-                    sockaddr_storage a = sockaddr_from_str(s.c_str());
-                    sockaddr_set_port((sockaddr *) &a, dns_utils::PLAIN_DNS_PORT_NUMBER);
-                    return a;
+                    return server_address_from_str(s);
                 });
         break;
     }

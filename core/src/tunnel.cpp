@@ -1181,8 +1181,11 @@ void Tunnel::listener_handler(ClientListener *listener, ClientEvent what, void *
             return;
         }
 
-        if (const sockaddr_storage *addr = std::get_if<sockaddr_storage>(client_event->dst)) {
-            if ((ag::sockaddr_is_loopback((sockaddr *) addr)) || (ag::sockaddr_is_private((sockaddr *) addr))) {
+        // Plain DNS connections are routed by `PlainDnsManager`
+        if (!conn->flags.test(CONNF_PLAIN_DNS_CONNECTION)) {
+            if (const auto *addr = (sockaddr *) std::get_if<sockaddr_storage>(client_event->dst);
+                    addr != nullptr && (sockaddr_is_loopback(addr) || sockaddr_is_private(addr))) {
+                log_conn(this, conn, dbg, "Routing connection inside private network directly");
                 this->complete_connect_request(conn->client_id, VPN_CA_FORCE_BYPASS);
                 return;
             }
