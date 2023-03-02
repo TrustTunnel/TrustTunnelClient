@@ -303,6 +303,32 @@ static DWORD set_dns_via_registry(std::string_view dns_list, std::string_view if
     return error;
 }
 
+static bool add_adapter_route(const ag::CidrRange &route, uint32_t tun_number, bool ipv6) {
+    MIB_IPFORWARD_ROW2 row{};
+    InitializeIpForwardEntry(&row);
+
+    IP_ADDRESS_PREFIX prefix;
+    if (ipv6) {
+        prefix.Prefix.si_family = AF_INET6;
+        auto addr = route.get_address_as_string();
+        inet_pton(AF_INET6, addr.c_str(), &(prefix.Prefix.Ipv6.sin6_addr));
+    } else {
+        prefix.Prefix.si_family = AF_INET;
+        auto addr = route.get_address_as_string();
+        inet_pton(AF_INET, addr.c_str(), &(prefix.Prefix.Ipv4.sin_addr));
+    }
+    prefix.PrefixLength = route.get_prefix_len();
+    row.DestinationPrefix = prefix;
+    row.InterfaceIndex = tun_number;
+
+    DWORD error = CreateIpForwardEntry2(&row);
+    if (error != ERROR_SUCCESS) {
+        SetLastError(error);
+        return false;
+    }
+    return true;
+}
+
 bool ag::VpnWinTunnel::setup_dns() {
     std::string dns_nameserver_list_v4;
     std::string dns_nameserver_list_v6;
@@ -345,37 +371,21 @@ bool ag::VpnWinTunnel::setup_dns() {
         return false;
     }
 
-    vpn_network_manager_update_tun_interface_dns({
-            .data = m_win_settings->dns_servers.data,
-            .size = m_win_settings->dns_servers.size,
-    });
-
-    return true;
-}
-
-static bool add_adapter_route(const ag::CidrRange &route, uint32_t tun_number, bool ipv6) {
-    MIB_IPFORWARD_ROW2 row{};
-    InitializeIpForwardEntry(&row);
-
-    IP_ADDRESS_PREFIX prefix;
-    if (ipv6) {
-        prefix.Prefix.si_family = AF_INET6;
-        auto addr = route.get_address_as_string();
-        inet_pton(AF_INET6, addr.c_str(), &(prefix.Prefix.Ipv6.sin6_addr));
-    } else {
-        prefix.Prefix.si_family = AF_INET;
-        auto addr = route.get_address_as_string();
-        inet_pton(AF_INET, addr.c_str(), &(prefix.Prefix.Ipv4.sin_addr));
+    for (const sockaddr *dns_server : dns_servers0) {
+        ag::SocketAddress address{dns_server};
+        ag::CidrRange route{address.addr(), address.addr().length()};
+        if (!add_adapter_route(route, m_if_index, address.is_ipv6())) {
+            return false;
+        }
     }
-    prefix.PrefixLength = route.get_prefix_len();
-    row.DestinationPrefix = prefix;
-    row.InterfaceIndex = tun_number;
 
-    DWORD error = CreateIpForwardEntry2(&row);
-    if (error != ERROR_SUCCESS) {
-        SetLastError(error);
+    if (!vpn_network_manager_update_tun_interface_dns({
+                .data = m_win_settings->dns_servers.data,
+                .size = m_win_settings->dns_servers.size,
+        })) {
         return false;
     }
+
     return true;
 }
 
