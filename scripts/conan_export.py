@@ -30,7 +30,7 @@ if "bamboo_repository_branch_name" in os.environ:
     branch_name = os.environ["bamboo_repository_branch_name"]
 
 for version in versions:
-    if False and version == commit_hash_version:
+    if version == commit_hash_version:
         subprocess.run(["git", "checkout", "-B", branch_name, "origin/" + branch_name], check=True)
     else:
         hash1 = yaml_data["commit_hash"][version]["hash"]
