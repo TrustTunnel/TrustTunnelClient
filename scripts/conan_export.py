@@ -25,12 +25,16 @@ elif sys.argv[1] == "all":
 else:
     versions.append(sys.argv[1])
 
+branch_name = "master"
+if "bamboo_repository_branch_name" in os.environ:
+    branch_name = os.environ["bamboo_repository_branch_name"]
+
 for version in versions:
-    if version == commit_hash_version:
-        subprocess.run(["git", "checkout", "-B", "master", "origin/master"], check=True)
+    if False and version == commit_hash_version:
+        subprocess.run(["git", "checkout", "-B", branch_name, "origin/" + branch_name], check=True)
     else:
         hash1 = yaml_data["commit_hash"][version]["hash"]
-        the_hash = subprocess.run(["git", "log", "--reverse", "--ancestry-path", hash1 + "..master", "--pretty=%h"],
+        the_hash = subprocess.run(["git", "log", "--reverse", "--ancestry-path", hash1 + ".." + branch_name, "--pretty=%h"],
                                   check=True, capture_output=True, text=True).stdout.splitlines()[0]
         print("HASH is ", the_hash)
         subprocess.run(["git", "checkout", the_hash], check=True)
