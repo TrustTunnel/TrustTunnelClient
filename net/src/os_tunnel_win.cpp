@@ -46,7 +46,7 @@ static constexpr std::string_view WINREG_INTERFACES_PATH_V6 =
 struct WintunThreadParams {
     WINTUN_SESSION_HANDLE session_ptr;
     HANDLE quit_event;
-    void (*read_callback)(void *arg, ag::VpnPackets *packets);
+    void (*read_callback)(void *arg, const ag::VpnPackets *packets);
     void *read_callback_arg;
 };
 
@@ -421,7 +421,7 @@ evutil_socket_t ag::VpnWinTunnel::get_fd() {
 }
 
 void ag::VpnWinTunnel::start_recv_packets(
-        void (*read_callback)(void *arg, VpnPackets *packets), void *read_callback_arg) {
+        void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) {
     ResetEvent(m_wintun_quit_event);
     std::unique_ptr<WintunThreadParams> pass_params(
             new WintunThreadParams{m_wintun_session, m_wintun_quit_event, read_callback, read_callback_arg});

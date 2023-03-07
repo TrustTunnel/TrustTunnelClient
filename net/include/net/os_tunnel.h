@@ -109,7 +109,7 @@ public:
 #ifdef _WIN32
 
     /** Start receiving packets */
-    virtual void start_recv_packets(void (*read_callback)(void *arg, VpnPackets *packets), void *read_callback_arg) = 0;
+    virtual void start_recv_packets(void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) = 0;
 
     /** Stop receiving packets */
     virtual void stop_recv_packets() = 0;

@@ -56,6 +56,16 @@ TunListener::TunListener(const VpnTunListenerConfig *config)
 
 TunListener::~TunListener() {
     destroy_cloned_config(&m_config);
+#ifdef _WIN32
+    {
+        std::scoped_lock l(m_recv_packets_queue_mutex);
+        while (!m_recv_packets_queue.empty()) {
+            auto &p = m_recv_packets_queue.front();
+            p.destructor(p.destructor_arg, p.data);
+            m_recv_packets_queue.pop_front();
+        }
+    }
+#endif
 }
 
 ClientListener::InitResult TunListener::init(VpnClient *vpn, ClientHandler handler) {
@@ -417,28 +427,47 @@ void TunListener::process_icmp_reply(const IcmpEchoReply &reply) {
 }
 
 #ifdef _WIN32
-void TunListener::recv_packets_handler(void *arg, VpnPackets *packets){
+void TunListener::recv_packets_task(void *arg, ag::TaskId) {
+    auto *listener = (TunListener *) arg;
+    std::list<VpnPacket> packets;
+    {
+        std::scoped_lock l(listener->m_recv_packets_queue_mutex);
+        packets.swap(listener->m_recv_packets_queue);
+        listener->m_recv_packets_task.release();
+    }
+    static constexpr size_t BATCH_SIZE = 64;
+    for (size_t i = 0; i < BATCH_SIZE && !packets.empty(); ++i) {
+        listener->vpn->process_client_packets({&packets.front(), 1});
+        packets.front().destructor(packets.front().destructor_arg, packets.front().data);
+        packets.pop_front();
+    }
+    if (!packets.empty()) {
+        std::scoped_lock l(listener->m_recv_packets_queue_mutex);
+        listener->m_recv_packets_queue.splice(listener->m_recv_packets_queue.begin(), std::move(packets));
+        if (!listener->m_recv_packets_task.has_value()) {
+            listener->m_recv_packets_task = event_loop::submit(listener->vpn->parameters.ev_loop,
+                    VpnEventLoopTask{
+                            .arg = listener,
+                            .action = recv_packets_task,
+                            .finalize = nullptr,
+                    });
+        }
+    }
+}
+
+void TunListener::recv_packets_handler(void *arg, const VpnPackets *packets){
     auto *listener = (TunListener *) arg;
     std::unique_lock l(listener->m_recv_packets_queue_mutex);
-    listener->m_recv_packets_queue.add(*packets);
+    for (size_t i = 0; i < packets->size; ++i) {
+        listener->m_recv_packets_queue.emplace_back(packets->data[i]);
+    }
     if (!listener->m_recv_packets_task.has_value()) {
-        auto action = [](void *arg, TaskId task_id) {
-            auto *listener = (TunListener *) arg;
-            std::vector<VpnPacket> packets;
-            {
-                std::unique_lock l(listener->m_recv_packets_queue_mutex);
-                packets = listener->m_recv_packets_queue.release();
-                listener->m_recv_packets_task.release();
-            }
-            listener->vpn->process_client_packets({packets.data(), (uint32_t) packets.size()});
-        };
         listener->m_recv_packets_task = event_loop::submit(listener->vpn->parameters.ev_loop,
                 VpnEventLoopTask{
                         .arg = listener,
-                        .action = action,
+                        .action = recv_packets_task,
                         .finalize = nullptr,
                 });
-        tracelog(listener->m_log, "Scheduled new recv_packets task");
     }
 }
 #endif // _WIN32

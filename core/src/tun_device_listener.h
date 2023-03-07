@@ -4,6 +4,7 @@
 #include <queue>
 #include <unordered_map>
 #include <vector>
+#include <list>
 
 #include "tcpip/tcpip.h"
 #include "vpn/internal/client_listener.h"
@@ -46,7 +47,7 @@ private:
 
 #ifdef _WIN32
     std::mutex m_recv_packets_queue_mutex;
-    VpnPacketsHolder m_recv_packets_queue;
+    std::list<VpnPacket> m_recv_packets_queue;
     event_loop::AutoTaskId m_recv_packets_task;
 #endif // _WIN32
 
@@ -65,7 +66,8 @@ private:
     static void complete_read(void *arg, TaskId task_id);
 
 #ifdef _WIN32
-    static void recv_packets_handler(void *arg, VpnPackets *packets);
+    static void recv_packets_handler(void *arg, const VpnPackets *packets);
+    static void recv_packets_task(void *arg, ag::TaskId id);
 #endif // _WIN32
 
     int read_out_pending_data(uint64_t id, Connection *conn) const;

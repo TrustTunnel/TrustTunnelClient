@@ -13,7 +13,7 @@ public:
     /** Initialize tunnel */
     VpnError init(const VpnOsTunnelSettings *settings, const VpnWinTunnelSettings *win_settings) override;
     /** Start receiving packets */
-    void start_recv_packets(void (*read_callback)(void *arg, VpnPackets *packets), void *read_callback_arg) override;
+    void start_recv_packets(void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) override;
     /** Stop receiving packets */
     void stop_recv_packets() override;
     /** Send packet */
