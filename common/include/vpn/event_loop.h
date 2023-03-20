@@ -120,7 +120,7 @@ namespace event_loop {
 class [[nodiscard]] AutoTaskId {
 public:
     AutoTaskId() = default;
-    AutoTaskId(VpnEventLoop *loop, TaskId id);
+    AutoTaskId(VpnEventLoop *loop, std::weak_ptr<bool> weak, TaskId id);
 
     ~AutoTaskId();
 
@@ -153,6 +153,7 @@ private:
     explicit AutoTaskId(TaskId id);
 
     VpnEventLoop *m_loop = nullptr;
+    std::weak_ptr<bool> m_guard;
     std::optional<TaskId> m_id;
 };
 

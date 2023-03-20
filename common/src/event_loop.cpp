@@ -67,6 +67,7 @@ struct VpnEventLoop {
     bool stopping_externally = false;
     ag::Logger log{"EVLOOP"};
     int id = g_next_loop_id++;
+    std::shared_ptr<bool> shutdown_guard = std::make_shared<bool>(true);
 };
 
 extern "C" struct evthread_lock_callbacks *evthread_get_lock_callbacks(void);
@@ -376,15 +377,16 @@ AutoTaskId make_auto_id(TaskId id) {
 }
 
 AutoTaskId submit(VpnEventLoop *loop, VpnEventLoopTask task) {
-    return {loop, vpn_event_loop_submit(loop, task)};
+    return {loop, loop->shutdown_guard, vpn_event_loop_submit(loop, task)};
 }
 
 AutoTaskId schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis defer) {
-    return {loop, vpn_event_loop_schedule(loop, task, defer)};
+    return {loop, loop->shutdown_guard, vpn_event_loop_schedule(loop, task, defer)};
 }
 
-AutoTaskId::AutoTaskId(VpnEventLoop *loop, TaskId id)
+AutoTaskId::AutoTaskId(VpnEventLoop *loop, std::weak_ptr<bool> weak, TaskId id)
         : m_loop(loop)
+        , m_guard(weak)
         , m_id((id >= 0) ? std::make_optional<TaskId>(id) : std::nullopt) {
 }
 
@@ -402,19 +404,23 @@ AutoTaskId::AutoTaskId(AutoTaskId &&other) noexcept {
 
 AutoTaskId &AutoTaskId::operator=(AutoTaskId &&other) noexcept {
     std::swap(m_loop, other.m_loop);
+    std::swap(m_guard, other.m_guard);
     std::swap(m_id, other.m_id);
     return *this;
 }
 
 void AutoTaskId::reset() {
     if (m_loop != nullptr && m_id.has_value()) {
-        vpn_event_loop_cancel(m_loop, m_id.value());
+        if (!m_guard.expired()) {
+            vpn_event_loop_cancel(m_loop, m_id.value());
+        }
     }
     this->release();
 }
 
 void AutoTaskId::release() {
     m_loop = nullptr;
+    m_guard.reset();
     m_id.reset();
 }
 
