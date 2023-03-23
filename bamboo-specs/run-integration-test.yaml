@@ -10,9 +10,64 @@ stages:
       final: false
       jobs:
         - Run integration test
+        - Run live test
 Run integration test:
   key: JOB1
-  description: Runs C++ tests
+  description: Runs integration tests
+  tasks:
+    - checkout:
+        repository: core-libs/vpn-libs
+        path: test/client/vpn-libs
+        force-clean-build: 'true'
+        description: Checkout client
+    - checkout:
+        repository: core-libs/vpn-libs-endpoint
+        path: test/endpoint/vpn-libs-endpoint
+        force-clean-build: 'true'
+        description: Checkout endpoint
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+
+            set -x -e
+
+            cp -RT client/vpn-libs/integration-tests/ ./
+
+            ./integration_test.sh clean
+            ./integration_test.sh run socks ${bamboo.conanRepoUrl}; exit $?
+        description: Run integration SOCKS tests
+        working-dir: test
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+
+            set -x -e
+
+            ./integration_test.sh run tun ${bamboo.conanRepoUrl}; exit $?
+        description: Run integration TUN tests
+        working-dir: test
+  final-tasks:
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+
+            set -x -e
+
+            ./integration_test.sh clean
+        description: Cleanup
+        working-dir: test
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions: [ ]
+Run live test:
+  key: JOB2
+  description: Runs C++ live tests
   docker:
     image: adguard/core-libs:1.16
     volumes:
@@ -30,12 +85,32 @@ Run integration test:
         repository: core-libs/vpn-libs-endpoint
         path: vpn-libs-endpoint
         force-clean-build: 'true'
-        description: Checkout server
+        description: Checkout endpoint
     - script:
         interpreter: SHELL
         scripts:
           - conan remote add -i 0 art ${bamboo.conanRepoUrl} || true
         description: conan remote
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+
+            set -x -e
+
+            mkdir -p build_no_asan && cd build_no_asan
+
+            # Using DNS proxy in VPN libs leads to false-positive address sanitizer errors
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS='-stdlib=libc++ -DI_DO_WANT_TO_RUN_LIVE_TESTS' \
+            ..
+
+            make -j 4 test_vpn_client_live
+        description: Build vpn-libs without address sanitizer
+        working-dir: vpn-libs
     - script:
         interpreter: SHELL
         scripts:
@@ -60,132 +135,6 @@ Run integration test:
         working-dir: vpn-libs-endpoint
     - script:
         interpreter: SHELL
-        scripts:
-          - |-
-            #!/bin/bash
-            
-            set -x -e
-
-            mkdir -p build && cd build
-
-            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_C_FLAGS='-fsanitize=address' \
-            -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
-            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
-            ..
-
-            make -j 4 standalone_client
-        description: Build vpn-libs
-        working-dir: vpn-libs
-
-    - script:
-        interpreter: SHELL
-        description: Run integration test
-        scripts:
-          - |-
-            #!/bin/bash
-            
-            set -x -e
-
-            export SRC_ROOT=${PWD}
-
-            echo "Integration test start"
-
-            declare -i has_error
-            has_error=0
-
-            check_error() {
-                if [ $? -eq 0 ] 
-                then
-                    echo "...Passed"
-                else
-                    has_error=`expr $has_error + 1`
-                    echo "...Failed"
-                fi
-            }
-
-            cd vpn-libs-endpoint/examples/my_vpn
-            ../../target/release/vpn_endpoint vpn.conf tls_hosts.conf > /dev/null 2>&1 &
-            echo "Start endpoint"
-            sleep 3
-
-            cd $SRC_ROOT/vpn-libs/build/core
-            cp $SRC_ROOT/vpn-libs/core/test/standalone_client/standalone_client.conf local_socks.conf
-            ./standalone_client -s -c local_socks.conf -l trace > /dev/null 2>&1 &
-            echo "Start client"
-            sleep 3
-
-            echo "Check connection..."
-            nc -vz 127.0.0.1 7777 >/dev/null
-            check_error
-            sleep 1
-
-            echo "HTTP request -> 1.1.1.1, ipv4..."
-            curl -x socks5://127.0.0.1:7777 1.1.1.1 >/dev/null
-            check_error
-            sleep 1
-
-            echo "HTTP request -> example.com, ipv4..."
-            curl -x socks5://127.0.0.1:7777 -4 http://example.com >/dev/null
-            check_error
-            sleep 1
-
-            echo "HTTPs request -> example.com, ipv4..."
-            curl -x socks5://127.0.0.1:7777 -4 https://example.com >/dev/null
-            check_error
-            sleep 1
-
-            echo "HTTP request -> ipv6.google.com, ipv6..."
-            curl -x socks5h://127.0.0.1:7777 http://ipv6.google.com >/dev/null
-            check_error
-            sleep 1
-
-            echo "HTTPS request -> ipv6.google.com, ipv6..."
-            curl -x socks5h://127.0.0.1:7777 https://ipv6.google.com >/dev/null
-            check_error
-            sleep 1
-
-            echo "Download 100MB file..."
-            curl -x socks5://127.0.0.1:7777 -O https://speed.hetzner.de/100MB.bin >/dev/null
-            check_error
-            sleep 1
-
-            if [ $has_error -gt 0 ]
-            then
-                echo "There were errors"
-                kill -15 $(jobs -p) >/dev/null 2>&1
-                exit 1
-            else
-                echo "All tests passed"
-                kill -15 $(jobs -p) >/dev/null 2>&1
-                exit 0
-            fi
-
-    - script:
-        interpreter: SHELL
-        scripts:
-          - |-
-            #!/bin/bash
-
-            set -x -e
-
-            mkdir -p build_no_asan && cd build_no_asan
-
-            # Using DNS proxy in VPN libs leads to false-positive address sanitizer errors
-            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_CXX_FLAGS='-stdlib=libc++ -DI_DO_WANT_TO_RUN_LIVE_TESTS' \
-            ..
-
-            make -j 4 test_vpn_client_live
-        description: Build vpn-libs without address sanitizer
-        working-dir: vpn-libs
-
-    - script:
-        interpreter: SHELL
         description: Run live test
         scripts:
           - |-
@@ -201,14 +150,13 @@ Run integration test:
             sleep 3
 
             $SRC_ROOT/vpn-libs/build_no_asan/core/test_vpn_client_live
-
   final-tasks:
     - script:
         interpreter: SHELL
         scripts:
           - |-
             #!/bin/bash
-            
+
             conan user -p "${bamboo_artifactoryPassword}" -r art "${bamboo_artifactoryUser}" > upload.txt 2>&1
             conan upload -r art --all -c '*' > upload.txt 2>&1
             echo conan upload finished with status $?

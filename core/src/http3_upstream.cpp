@@ -473,6 +473,7 @@ VpnConnectionStats Http3Upstream::get_connection_stats() const {
 
 void Http3Upstream::on_icmp_request(IcmpEchoRequestEvent &event) {
     event.result = m_icmp_mux.send_request(event.request) ? 0 : -1;
+    this->flush_pending_quic_data();
 }
 
 void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
