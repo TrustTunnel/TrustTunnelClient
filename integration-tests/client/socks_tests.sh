@@ -32,6 +32,21 @@ curl -x socks5://127.0.0.1:$SOCKS_PORT -4 http://example.com >/dev/null
 check_error
 sleep 1
 
+echo "HTTPS request -> https://1.1.1.1, ipv4..."
+curl -x socks5://127.0.0.1:$SOCKS_PORT -4 https://1.1.1.1 >/dev/null
+check_error
+sleep 1
+
+echo "SOCKS request with IPv4 as a domain name -> https://1.1.1.1 ..."
+curl -x socks5h://127.0.0.1:$SOCKS_PORT https://1.1.1.1 >/dev/null
+check_error
+sleep 1
+
+echo "SOCKS request with IPv6 as a domain name -> https://[2606:4700:4700::1111]/ ..."
+curl -x socks5h://127.0.0.1:$SOCKS_PORT https://[2606:4700:4700::1111]/ >/dev/null
+check_error
+sleep 1
+
 echo "HTTPs request -> example.com, ipv4..."
 curl -x socks5://127.0.0.1:$SOCKS_PORT -4 https://example.com >/dev/null
 check_error

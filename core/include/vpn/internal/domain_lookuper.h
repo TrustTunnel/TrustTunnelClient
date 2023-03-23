@@ -9,9 +9,10 @@
 namespace ag {
 
 enum DomainLookuperStatus {
-    DLUS_NOTFOUND, // gave up looking for a domain name
-    DLUS_FOUND,    // found a domain name
-    DLUS_PASS,     // pass current packet, check the next one
+    DLUS_NOTFOUND,  // gave up looking for a domain name
+    DLUS_FOUND,     // found a domain name
+    DLUS_PASS,      // pass current packet, check the next one (client hello -> server hello)
+    DLUS_WANT_MORE, // need more data to parse (client hello pt.1 -> client hello pt.2)
 };
 
 struct DomainLookuperResult {

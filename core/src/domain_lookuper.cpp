@@ -100,9 +100,9 @@ struct TlsParser : public Parser { // NOLINT(cppcoreguidelines-special-member-fu
                 }
                 this->state = TPS_SERVER_HELLO;
                 buffer->clear();
-                [[fallthrough]];
-            case TLS_RMORE:
                 return {DLUS_PASS};
+            case TLS_RMORE:
+                return {DLUS_WANT_MORE};
             default:
                 break;
             }
@@ -252,6 +252,7 @@ DomainLookuperResult DomainLookuper::Context::parse(
     while (this->current_parser != nullptr) {
         DomainLookuperResult r = this->current_parser->parse(dir, &this->buffer);
         switch (r.status) {
+        case DLUS_WANT_MORE:
         case DLUS_FOUND:
         case DLUS_PASS:
             return r;

@@ -235,10 +235,11 @@ static void close_client_side(Tunnel *tunnel, ServerUpstream *upstream) {
 }
 
 enum AfterLookuperAction {
-    ALUA_DONE,     // lookuper has nothing more to do
-    ALUA_PASS,     // lookuper wants to process the next packet, the current one can be sent
-    ALUA_SHUTDOWN, // lookuper realized that connection should've been routed to another upstream
-    ALUA_BLOCK,    // lookuper realized that connection shouldn't be processed
+    ALUA_DONE,      // lookuper has nothing more to do
+    ALUA_PASS,      // lookuper wants to process the next packet, the current one can be sent
+    ALUA_SHUTDOWN,  // lookuper realized that connection should've been routed to another upstream
+    ALUA_BLOCK,     // lookuper realized that connection shouldn't be processed
+    ALUA_WANT_MORE, // the same as `ALUA_PASS`, but waiting for a packet divided by AntiDpi
 };
 
 static AfterLookuperAction pass_through_lookuper(
@@ -294,6 +295,9 @@ static AfterLookuperAction pass_through_lookuper(
     }
     case DLUS_PASS:
         action = ALUA_PASS;
+        break;
+    case DLUS_WANT_MORE:
+        action = ALUA_WANT_MORE;
         break;
     }
 
@@ -481,6 +485,7 @@ void Tunnel::upstream_handler(ServerUpstream *upstream, ServerEvent what, void *
                 conn->flags.reset(CONNF_LOOKINGUP_DOMAIN);
                 break;
             case ALUA_PASS:
+            case ALUA_WANT_MORE:
                 break;
             case ALUA_SHUTDOWN:
                 log_conn(this, conn, dbg, "Connection had been routed {} while should've been routed {}",
@@ -1160,8 +1165,19 @@ void Tunnel::listener_handler(ClientListener *listener, ClientEvent what, void *
     case CLIENT_EVENT_CONNECT_REQUEST: {
         const ClientConnectRequest *client_event = (ClientConnectRequest *) data;
 
+        TunnelAddressPair client_event_addr = {client_event->src, client_event->dst};
+        if (const auto addr = std::get_if<NamePort>(client_event->dst); addr != nullptr) {
+            if (utils::is_valid_ip4(addr->name)) {
+                auto dst = sockaddr_from_str(AG_FMT("{}:{}", addr->name, addr->port).c_str());
+                client_event_addr = {client_event->src, (sockaddr *) &dst};
+            } else if (utils::is_valid_ip6(addr->name)) {
+                auto dst = sockaddr_from_str(AG_FMT("[{}]:{}", addr->name, addr->port).c_str());
+                client_event_addr = {client_event->src, (sockaddr *) &dst};
+            }
+        }
+
         VpnConnection *conn =
-                VpnConnection::make(client_event->id, {client_event->src, client_event->dst}, client_event->protocol);
+                VpnConnection::make(client_event->id, client_event_addr, client_event->protocol);
         conn->listener = listener;
         conn->app_name = client_event->app_name;
         conn->flags.set(CONNF_FIRST_PACKET);
@@ -1276,7 +1292,9 @@ void Tunnel::listener_handler(ClientListener *listener, ClientEvent what, void *
             case ALUA_DONE:
                 conn->flags.reset(CONNF_LOOKINGUP_DOMAIN);
                 break;
-            case ALUA_PASS: {
+            case ALUA_PASS:
+                break;
+            case ALUA_WANT_MORE: {
                 // If tunnel faced with Anti-Dpi which can split ClientHello into parts, it needs to wait other parts
                 // of ClientHello message (max - 3 parts)
                 static constexpr int MAX_LOOKUP_ATTEMPTS = 3;

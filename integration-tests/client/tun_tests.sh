@@ -27,7 +27,12 @@ curl http://example.com -4 >/dev/null
 check_error
 sleep 1
 
-echo "HTTPs request -> example.com, ipv4..."
+echo "HTTPS request -> https://1.1.1.1, ipv4..."
+curl https://1.1.1.1 -4 >/dev/null
+check_error
+sleep 1
+
+echo "HTTPS request -> example.com, ipv4..."
 curl https://example.com -4 >/dev/null
 check_error
 sleep 1
