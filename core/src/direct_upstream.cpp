@@ -164,23 +164,36 @@ void DirectUpstream::udp_socket_handler(void *arg, UdpSocketEvent what, void *da
         upstream->m_udp_connections.erase(ctx->conn_id);
         break;
     }
-    case UDP_SOCKET_EVENT_READ: {
-        auto *sock_event = (UdpSocketReadEvent *) data;
-
+    case UDP_SOCKET_EVENT_READABLE: {
         auto it = upstream->m_udp_connections.find(ctx->conn_id);
         if (it == upstream->m_udp_connections.end()) {
             log_conn(upstream, ctx->conn_id, dbg, "Read on closed connection");
-            sock_event->closed = true;
             break;
         }
 
-        if (!it->second.read_enabled) {
-            log_conn(upstream, ctx->conn_id, dbg, "Dropping packet as read disabled ({} bytes)", sock_event->length);
-            break;
-        }
+        constexpr size_t READ_BUDGET = 64;
 
-        ServerReadEvent event = {ctx->conn_id, sock_event->data, sock_event->length, 0};
-        upstream->handler.func(upstream->handler.arg, SERVER_EVENT_READ, &event);
+        uint8_t buffer[UDP_MAX_DATAGRAM_SIZE];
+        size_t attempts_made = 0;
+        do {
+            ssize_t r = udp_socket_recv(it->second.socket.get(), buffer, std::size(buffer));
+            if (r <= 0) {
+                int err = evutil_socket_geterror(udp_socket_get_fd(it->second.socket.get()));
+                if (r != 0 && !AG_ERR_IS_EAGAIN(err)) {
+                    log_conn(upstream, ctx->conn_id, dbg, "Failed to read data from socket: {} ({})",
+                            evutil_socket_error_to_string(err), err);
+                }
+                break;
+            }
+
+            if (!it->second.read_enabled) {
+                log_conn(upstream, ctx->conn_id, dbg, "Dropping packet as read disabled ({} bytes)", r);
+                break;
+            }
+
+            ServerReadEvent event = {ctx->conn_id, buffer, size_t(r), 0};
+            upstream->handler.func(upstream->handler.arg, SERVER_EVENT_READ, &event);
+        } while (++attempts_made < READ_BUDGET && it->second.read_enabled);
         break;
     }
     }

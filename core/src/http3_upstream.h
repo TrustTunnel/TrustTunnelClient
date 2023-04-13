@@ -128,7 +128,7 @@ private:
     static int verify_callback(X509_STORE_CTX *store_ctx, void *arg);
 
     bool flush_pending_quic_data();
-    void handle_socket_data(U8View data);
+    void on_udp_packet();
     bool initiate_h3_session();
     std::pair<uint64_t, TcpConnection *> get_tcp_conn_by_stream_id(uint64_t id);
     void handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_id);

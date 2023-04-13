@@ -13,17 +13,10 @@ namespace ag {
 typedef struct UdpSocket UdpSocket;
 
 typedef enum {
-    UDP_SOCKET_EVENT_PROTECT, /**< Raised when socket needs to be protected (raised with `SocketProtectEvent`) */
-    UDP_SOCKET_EVENT_READ,    /**< Raised whenever socket has some data to read from (raised with
-                                 `UdpSocketReadEvent`) */
-    UDP_SOCKET_EVENT_TIMEOUT, /**< Raised if there was no activity on socket for specified time (raised with `null`) */
+    UDP_SOCKET_EVENT_PROTECT,  /**< Raised when socket needs to be protected (raised with `SocketProtectEvent`) */
+    UDP_SOCKET_EVENT_READABLE, /**< Raised whenever socket has some data to read from (raised with `null`) */
+    UDP_SOCKET_EVENT_TIMEOUT,  /**< Raised if there was no activity on socket for specified time (raised with `null`) */
 } UdpSocketEvent;
-
-typedef struct {
-    const uint8_t *data; // buffer with data
-    size_t length;       // data length
-    bool closed;         // set by event handler when socket is closed to prevent reading from the closed descriptor
-} UdpSocketReadEvent;
 
 typedef struct {
     void (*func)(void *arg, UdpSocketEvent what, void *data);
@@ -66,10 +59,9 @@ VpnError udp_socket_write(UdpSocket *socket, const uint8_t *data, size_t length)
 evutil_socket_t udp_socket_get_fd(const UdpSocket *socket);
 
 /**
- * Read from the underlying fd and raise `UDP_SOCKET_EVENT_READ` zero or more times synchronously
- * until `read` returns a retriable error or, if `cap` is non-zero, the total number of bytes read exceeds `cap`.
- * @return `true` if socket was closed during draining.
+ * Read from the underlying fd.
+ * @return the number of bytes received, or a negative number if an error occurred.
  */
-bool udp_socket_drain(UdpSocket *socket, size_t cap);
+ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap);
 
 } // namespace ag

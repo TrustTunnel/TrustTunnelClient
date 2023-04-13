@@ -14,7 +14,7 @@ static ag::Logger g_logger{"UDP_SOCKET"};
 static std::atomic_int g_next_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 #ifdef __MACH__
-static int MAX_DATAGRAM_PROCESS_DELAY_SECS = 10;
+static constexpr int MAX_DATAGRAM_PROCESS_DELAY_SECS = 10;
 #endif
 
 namespace ag {
@@ -49,9 +49,8 @@ static void event_handler(evutil_socket_t, short what, void *arg) {
     auto *sock = (UdpSocket *) arg;
 
     if (what & EV_READ) {
-        if (!udp_socket_drain(sock, UDP_MAX_DATAGRAM_SIZE)) {
-            sock->timeout_ts = get_next_timeout_ts(sock);
-        }
+        sock->parameters.handler.func(sock->parameters.handler.arg, UDP_SOCKET_EVENT_READABLE, nullptr);
+        sock->timeout_ts = get_next_timeout_ts(sock);
     } else if (what & EV_TIMEOUT) {
         log_sock(sock, dbg, "Timed out");
         sock->parameters.handler.func(sock->parameters.handler.arg, UDP_SOCKET_EVENT_TIMEOUT, nullptr);
@@ -192,25 +191,23 @@ evutil_socket_t udp_socket_get_fd(const UdpSocket *socket) {
     return event_get_fd(socket->event);
 }
 
-bool udp_socket_drain(UdpSocket *socket, size_t cap) {
-    uint8_t read_buffer[UDP_MAX_DATAGRAM_SIZE];
-
+ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap) {
     evutil_socket_t fd = udp_socket_get_fd(socket);
-    size_t total = 0;
 
-    while (total < cap) {
+    ssize_t ret; // NOLINT(cppcoreguidelines-init-variables)
+    while (true) {
 #ifndef __MACH__
-        ssize_t r = recv(fd, (char *) read_buffer, sizeof(read_buffer), 0);
+        ret = recv(fd, (char *) buffer, cap, 0);
 #else
         // Check timestamp before passing packet to Quiche.
-        struct iovec vec = {.iov_base = read_buffer, .iov_len = sizeof(read_buffer)};
+        iovec vec = {.iov_base = buffer, .iov_len = cap};
         char cmsgspace[CMSG_SPACE(sizeof(struct timeval))] = "";
         struct msghdr msg = {.msg_iov = &vec,
                 .msg_iovlen = 1,
                 .msg_control = &cmsgspace,
                 .msg_controllen = CMSG_LEN(sizeof(struct timeval))};
-        ssize_t r = recvmsg(fd, &msg, 0);
-        if (r > 0) {
+        ret = recvmsg(fd, &msg, 0);
+        if (ret > 0) {
             struct timeval time_receive = {}, time_now = {}, time_diff_receive = {};
             evutil_gettimeofday(&time_now, nullptr);
 
@@ -224,28 +221,19 @@ bool udp_socket_drain(UdpSocket *socket, size_t cap) {
             if (time_receive.tv_sec > 0 && time_diff_receive.tv_sec >= MAX_DATAGRAM_PROCESS_DELAY_SECS) {
                 log_sock(socket, dbg, "Received datagram is expired, time spent since receive: {}.{}",
                         (int64_t) time_diff_receive.tv_sec, (int) time_diff_receive.tv_usec);
-                break;
+                continue;
             }
         }
 #endif
-        if (r > 0) {
-            UdpSocketReadEvent event = {read_buffer, (size_t) r};
-            socket->parameters.handler.func(socket->parameters.handler.arg, UDP_SOCKET_EVENT_READ, &event);
-            if (event.closed) {
-                return true;
-            }
-            total += r;
-        } else {
-            int err = evutil_socket_geterror(fd);
-            if (r != 0 && !AG_ERR_IS_EAGAIN(err)) {
-                log_sock(socket, dbg, "Failed to read data from socket: {} ({})", evutil_socket_error_to_string(err),
-                        err);
-            }
-            break;
+
+        if (ret < 0 && AG_EINTR == evutil_socket_geterror(fd)) {
+            continue;
         }
+
+        break;
     }
 
-    return false;
+    return ret;
 }
 
 } // namespace ag

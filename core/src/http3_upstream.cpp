@@ -486,13 +486,9 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
         break;
     }
 
-    case UDP_SOCKET_EVENT_READ: {
-        auto *event = (UdpSocketReadEvent *) data;
-        log_upstream(upstream, trace, "Read {} bytes from endpoint", event->length);
-        upstream->handle_socket_data({event->data, event->length});
-        event->closed = (upstream->m_socket == nullptr);
+    case UDP_SOCKET_EVENT_READABLE:
+        upstream->on_udp_packet();
         break;
-    }
 
     case UDP_SOCKET_EVENT_TIMEOUT:
         log_upstream(upstream, dbg, "Socket timed out");
@@ -610,7 +606,9 @@ bool Http3Upstream::flush_pending_quic_data() {
     return true;
 }
 
-void Http3Upstream::handle_socket_data(U8View data) {
+void Http3Upstream::on_udp_packet() {
+    constexpr size_t READ_BUDGET = 64;
+
     quiche_conn *quic_conn = m_quic_conn.get();
     sockaddr_storage local_address = local_sockaddr_from_fd(udp_socket_get_fd(m_socket.get()));
     quiche_recv_info info{
@@ -619,15 +617,30 @@ void Http3Upstream::handle_socket_data(U8View data) {
             .to = (sockaddr *) &local_address,
             .to_len = socklen_t(sockaddr_get_size((sockaddr *) &local_address)),
     };
-    if (ssize_t r = quiche_conn_recv(quic_conn, (uint8_t *) data.data(), data.size(), &info); r < 0) {
-        log_upstream(this, err, "Failed to process packet: {}", magic_enum::enum_name((quiche_error) r));
-        return;
-    }
+    uint8_t buffer[MAX_QUIC_UDP_PAYLOAD_SIZE];
+    for (size_t i = 0; i < READ_BUDGET; ++i) {
+        ssize_t r = udp_socket_recv(m_socket.get(), buffer, std::size(buffer));
+        if (r <= 0) {
+            int err = evutil_socket_geterror(udp_socket_get_fd(m_socket.get()));
+            if (r != 0 && !AG_ERR_IS_EAGAIN(err)) {
+                log_upstream(
+                        this, dbg, "Failed to read data from socket: {} ({})", evutil_socket_error_to_string(err), err);
+            }
+            break;
+        }
 
-    if (quiche_conn_is_closed(quic_conn)) {
-        log_upstream(this, dbg, "QUIC connection closed");
-        close_session_inner();
-        return;
+        log_upstream(this, trace, "Read {} bytes from endpoint", r);
+        r = quiche_conn_recv(quic_conn, buffer, r, &info);
+        if (r < 0) {
+            log_upstream(this, err, "Failed to process packet: {}", magic_enum::enum_name((quiche_error) r));
+            return;
+        }
+
+        if (quiche_conn_is_closed(quic_conn)) {
+            log_upstream(this, dbg, "QUIC connection closed");
+            close_session_inner();
+            return;
+        }
     }
 
     m_in_handler = true;
@@ -1258,7 +1271,6 @@ void Http3Upstream::handle_sleep() {
     log_upstream(this, dbg, "...");
 
     if (m_state != H3US_IDLE) {
-        udp_socket_drain(m_socket.get(), 0);
         this->flush_pending_quic_data();
     }
 
