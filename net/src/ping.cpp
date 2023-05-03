@@ -80,6 +80,7 @@ struct PingConn {
     std::optional<int> best_result_ms;
     uint32_t bound_if = 0;
     std::string bound_if_name;
+    int socket_error = 0;
 };
 
 struct Ping {
@@ -120,13 +121,12 @@ static void on_event(evutil_socket_t fd, short, void *arg) {
     });
     assert(it != self->syn_sent.end());
 
-    int error = 0;
-    ev_socklen_t error_len = sizeof(error);
-    getsockopt(fd, SOL_SOCKET, SO_ERROR, (char *) &error, &error_len);
-    if (error != 0) {
+    ev_socklen_t error_len = sizeof(it->socket_error);
+    getsockopt(fd, SOL_SOCKET, SO_ERROR, (char *) &it->socket_error, &error_len);
+    if (it->socket_error != 0) {
         self->errors.splice(self->errors.end(), self->syn_sent, it);
         log_ping(self, dbg, "Failed to connect to {} via {}: ({}) {}", sockaddr_to_str((sockaddr *) &it->dest),
-                it->bound_if_name, error, evutil_socket_error_to_string(error));
+                it->bound_if_name, it->socket_error, evutil_socket_error_to_string(it->socket_error));
     } else {
         auto dt = PingClock::now() - it->started_at;
         auto dt_ms = int(duration_cast<milliseconds>(dt).count());
@@ -211,10 +211,10 @@ static void do_connect(void *arg) {
 
     log_ping(self, trace, "Connecting to {} via {}", sockaddr_to_str((sockaddr *) &it->dest), it->bound_if_name);
     it->started_at = PingClock::now();
-    int error = xconnect(*it);
-    if (error != 0) {
+    it->socket_error = xconnect(*it);
+    if (it->socket_error != 0) {
         log_ping(self, dbg, "Failed to connect to {} via {}: connect: ({}) {}", sockaddr_to_str((sockaddr *) &it->dest),
-                it->bound_if_name, error, evutil_socket_error_to_string(error));
+                it->bound_if_name, it->socket_error, evutil_socket_error_to_string(it->socket_error));
         goto error;
     }
     if (0 != event_add(it->event.get(), nullptr)) {
@@ -255,13 +255,19 @@ static void do_report(void *arg) {
     assert(!self->connect_task_id.has_value());
     assert(!self->prepare_task_id.has_value());
 
-    PingResult result{.ping = self};
+    PingResult result{
+            .ping = self,
+            .status = PING_OK,
+    };
 
     if (!self->done.empty()) {
         auto it = self->done.begin();
         result.addr = (sockaddr *) &it->dest;
-        result.status = it->best_result_ms ? PING_OK : PING_TIMEDOUT;
-        result.ms = it->best_result_ms.value_or(-1);
+        if (it->best_result_ms.has_value()) {
+            result.ms = it->best_result_ms.value();
+        } else {
+            result.status = PING_TIMEDOUT;
+        }
         self->handler.func(self->handler.arg, &result);
         self->done.pop_front();
         goto schedule_next;
@@ -270,8 +276,12 @@ static void do_report(void *arg) {
     if (!self->errors.empty()) {
         auto it = self->errors.begin();
         result.addr = (sockaddr *) &it->dest;
-        result.status = it->best_result_ms ? PING_OK : PING_SOCKET_ERROR;
-        result.ms = it->best_result_ms.value_or(-1);
+        if (it->best_result_ms.has_value()) {
+            result.ms = it->best_result_ms.value();
+        } else {
+            result.status = PING_SOCKET_ERROR;
+            result.socket_error = it->socket_error;
+        }
         self->handler.func(self->handler.arg, &result);
         self->errors.pop_front();
         goto schedule_next;
@@ -347,7 +357,7 @@ static void do_prepare(void *arg) {
             int option = (it->dest.ss_family == AF_INET) ? IP_BOUND_IF : IPV6_BOUND_IF;
             int level = (it->dest.ss_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
             int error = setsockopt(it->fd.get(), level, option, &it->bound_if, sizeof(it->bound_if));
-#else // #ifdef __MACH__
+#else  // #ifdef __MACH__
             int error = setsockopt(
                     it->fd.get(), SOL_SOCKET, SO_BINDTODEVICE, it->bound_if_name.data(), it->bound_if_name.size());
 #endif // #ifdef __MACH__
@@ -357,7 +367,7 @@ static void do_prepare(void *arg) {
                 goto error;
             }
         }
-#else // #ifndef _WIN32
+#else  // #ifndef _WIN32
         if (!vpn_win_socket_protect(it->fd.get(), (sockaddr *) &it->dest)) {
             log_ping(self, dbg, "Failed to connect to {} via {}: failed to protect socket",
                     sockaddr_to_str((sockaddr *) &it->dest), it->bound_if_name);
@@ -437,7 +447,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     constexpr uint32_t DEFAULT_IF_IDX = 0;
     std::span<uint32_t> interfaces = info->interfaces_to_query;
     if (interfaces.empty()) {
-        interfaces = {(uint32_t *)&DEFAULT_IF_IDX, size_t(1)};
+        interfaces = {(uint32_t *) &DEFAULT_IF_IDX, size_t(1)};
     }
     for (const sockaddr_storage &addr : info->addrs) {
         for (uint32_t bound_if : interfaces) {

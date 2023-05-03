@@ -39,6 +39,8 @@ struct LocationsCtx {
     AutoVpnLocation info;
     std::vector<PingedAddress> pinged_ipv6;
     std::vector<PingedAddress> pinged_ipv4;
+    size_t ipv4_unavailable_errors_cnt = 0;
+    size_t ipv6_unavailable_errors_cnt = 0;
 };
 
 struct LocationsPinger {
@@ -62,8 +64,8 @@ struct FinalizeLocationInfo {
 typedef size_t (*PingerSort)(const LocationsCtx *location, const sockaddr *a, int ping_ms);
 
 static size_t get_addr_priority(const LocationsCtx *location, const sockaddr *a, int /*ping_ms*/) {
-    auto *i = std::find_if(location->info->endpoints.data, location->info->endpoints.data + location->info->endpoints.size,
-            [a](const VpnEndpoint &i) -> bool {
+    auto *i = std::find_if(location->info->endpoints.data,
+            location->info->endpoints.data + location->info->endpoints.size, [a](const VpnEndpoint &i) -> bool {
                 return sockaddr_equals(a, (sockaddr *) &i.address);
             });
     return location->info->endpoints.size - std::distance(location->info->endpoints.data, i);
@@ -98,12 +100,29 @@ static const PingedAddress *select_endpoint(const LocationsCtx *location, Pinger
     return selected;
 }
 
+static constexpr size_t count_of_ip_version(const VpnEndpoints &endpoints, IpVersion v) {
+    int family = ip_version_to_sa_family(v);
+    return std::count_if(endpoints.data, endpoints.data + endpoints.size, [family](const VpnEndpoint &e) {
+        return e.address.ss_family == family;
+    });
+}
+
 static void finalize_location(LocationsPinger *pinger, const FinalizeLocationInfo &info) {
     const LocationsCtx *location = &info.location_ctx;
     const PingedAddress *selected =
             select_endpoint(location, pinger->query_all_interfaces ? &get_smallest_ping_priority : &get_addr_priority);
 
-    LocationsPingerResult result = {};
+    LocationsPingerResultExtra result = {
+            .ip_availability =
+                    [&] {
+                        IpVersionSet ret;
+                        size_t ipv4_num = count_of_ip_version(location->info->endpoints, IPV4);
+                        ret.set(IPV4, ipv4_num == 0 || location->ipv4_unavailable_errors_cnt != ipv4_num);
+                        size_t ipv6_num = count_of_ip_version(location->info->endpoints, IPV6);
+                        ret.set(IPV6, ipv6_num == 0 || location->ipv6_unavailable_errors_cnt != ipv6_num);
+                        return ret;
+                    }(),
+    };
     result.id = location->info->id;
     if (selected != nullptr) {
         result.ping_ms = selected->ping_ms;
@@ -162,6 +181,14 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
         return {{std::move(node.mapped()), pinger->locations.empty()}};
     }
     case PING_SOCKET_ERROR:
+        if (result->socket_error == AG_EHOSTUNREACH || result->socket_error == AG_ENETUNREACH) {
+            if (result->addr->sa_family == AF_INET) {
+                l->ipv4_unavailable_errors_cnt += 1;
+            } else {
+                l->ipv6_unavailable_errors_cnt += 1;
+            }
+        }
+        [[fallthrough]];
     case PING_TIMEDOUT:
         log_location(pinger, ping_get_id(result->ping), dbg, "Failed to ping endpoint {} - error code {}",
                 sockaddr_to_str(result->addr), magic_enum::enum_name(result->status));

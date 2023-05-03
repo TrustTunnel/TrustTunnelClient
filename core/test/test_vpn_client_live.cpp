@@ -93,6 +93,7 @@ struct VpnClientLive : public ::testing::Test {
             }},
             .username = "premium",
             .password = "premium",
+            .ip_availability = ag::IpVersionSet{}.set(),
     };
     std::list<ag::vpn_client::Event> raised_events;
     std::thread worker;
@@ -222,7 +223,7 @@ TEST_F(VpnClientLive, DnsBeingHealthCheckedListenBeforeConnected) {
         ag::VpnListenerConfig listener_config = {
                 .dns_upstreams = {&dns_upstream, 1},
         };
-        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
@@ -248,7 +249,7 @@ TEST_F(VpnClientLive, DnsBeingHealthCheckedListenAfterConnected) {
         ag::VpnListenerConfig listener_config = {
                 .dns_upstreams = {&dns_upstream, 1},
         };
-        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
@@ -272,7 +273,7 @@ TEST_F(VpnClientLive, ExclusionsUpdateDoesNotBreakDnsHealthCheck) {
         ag::VpnListenerConfig listener_config = {
                 .dns_upstreams = {&dns_upstream, 1},
         };
-        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
@@ -302,7 +303,7 @@ TEST_F(VpnClientLive, DnsUnavailableOnTimeout) {
         ag::VpnListenerConfig listener_config = {
                 .dns_upstreams = {&dns_upstream, 1},
         };
-        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
@@ -328,7 +329,7 @@ TEST_F(VpnClientLive, DisconnectDoesNotCauseDnsUnavailable) {
         ag::VpnListenerConfig listener_config = {
                 .dns_upstreams = {&dns_upstream, 1},
         };
-        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config, /* ipv6_available */ true);
+        return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;

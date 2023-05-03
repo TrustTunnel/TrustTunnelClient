@@ -67,33 +67,6 @@ public:
 };
 
 TEST_F(VpnDnsResolverTest, ResolveV4Only) {
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.com");
-    ASSERT_EQ(this->raised_connection_requests.size(), 0);
-
-    this->run_event_loop_once();
-
-    ASSERT_EQ(this->raised_connection_requests.size(), 1);
-    this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
-    this->run_event_loop_once();
-    ASSERT_EQ(this->raised_reads.size(), 2);
-}
-
-TEST_F(VpnDnsResolverTest, ResolveV6Available) {
-    ((VpnDnsResolver *) this->resolver.get())->set_ipv6_availability(true);
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.org");
-    ((VpnDnsResolver *) this->resolver.get())->resolve(VDRQ_BACKGROUND, "example.com");
-    ASSERT_EQ(this->raised_connection_requests.size(), 0);
-
-    this->run_event_loop_once();
-
-    ASSERT_EQ(this->raised_connection_requests.size(), 1);
-    this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
-    this->run_event_loop_once();
-    ASSERT_EQ(this->raised_reads.size(), 4);
-}
-
-TEST_F(VpnDnsResolverTest, ResultV4Only) {
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A, {result_handler, this});
     ASSERT_EQ(this->raised_connection_requests.size(), 0);
@@ -120,36 +93,7 @@ TEST_F(VpnDnsResolverTest, ResultV4Only) {
     ASSERT_EQ(result->addresses[0].ss_family, AF_INET);
 }
 
-TEST_F(VpnDnsResolverTest, ResultV6Disabled) {
-    ((VpnDnsResolver *) this->resolver.get())
-            ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A | 1 << dns_utils::RT_AAAA,
-                    {result_handler, this});
-    ASSERT_EQ(this->raised_connection_requests.size(), 0);
-
-    this->run_event_loop_once();
-
-    ASSERT_EQ(this->raised_connection_requests.size(), 1);
-    uint64_t connection_id = this->raised_connection_requests[0];
-    this->resolver->complete_connect_request(connection_id, CCR_PASS);
-    this->run_event_loop_once();
-    ASSERT_EQ(this->raised_reads.size(), 1);
-
-    const uint8_t REPLY[] = {
-            this->raised_reads[0].second[0], this->raised_reads[0].second[1], EXAMPLE_ORG_A_REPLY_NO_ID};
-    this->raised_reads.clear();
-
-    ASSERT_EQ(this->resolver->send(connection_id, REPLY, std::size(REPLY)), std::size(REPLY));
-    this->run_event_loop_once();
-    ASSERT_TRUE(this->raised_result.has_value());
-
-    const auto *success = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
-    ASSERT_NE(success, nullptr);
-    ASSERT_EQ(success->addresses.size(), 1);
-    ASSERT_EQ(success->addresses[0].ss_family, AF_INET);
-}
-
 TEST_F(VpnDnsResolverTest, ResultV6) {
-    ((VpnDnsResolver *) this->resolver.get())->set_ipv6_availability(true);
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", 1 << dns_utils::RT_A | 1 << dns_utils::RT_AAAA,
                     {result_handler, this});
@@ -215,21 +159,21 @@ TEST_F(VpnDnsResolverTest, BackgroundsDontBlockForegrounds) {
     this->run_event_loop_once();
     this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
     this->run_event_loop_once();
-    ASSERT_EQ(this->raised_reads.size(), 1);
+    ASSERT_EQ(this->raised_reads.size(), 2);
 
     auto initiate_resolve = [this](VpnDnsResolverQueue queue) {
         ((VpnDnsResolver *) this->resolver.get())->resolve(queue, "example.org");
         this->run_event_loop_once();
     };
 
-    for (size_t i = this->raised_reads.size() + 1; i < VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + 5; ++i) {
+    for (size_t i = this->raised_reads.size() / 2 + 1; i < VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + 5; ++i) {
         ASSERT_NO_FATAL_FAILURE(initiate_resolve(VDRQ_BACKGROUND));
-        ASSERT_EQ(this->raised_reads.size(), std::min(i, VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES));
+        ASSERT_EQ(this->raised_reads.size(), std::min(2 * i, VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES));
     }
 
     for (size_t i = 1; i < 10; ++i) {
         ASSERT_NO_FATAL_FAILURE(initiate_resolve(VDRQ_FOREGROUND));
-        ASSERT_EQ(this->raised_reads.size(), VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + i);
+        ASSERT_EQ(this->raised_reads.size(), VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + 2 * i);
     }
 }
 
@@ -238,16 +182,16 @@ TEST_F(VpnDnsResolverTest, ForegroundsBlockBackgrounds) {
     this->run_event_loop_once();
     this->resolver->complete_connect_request(this->raised_connection_requests[0], CCR_PASS);
     this->run_event_loop_once();
-    ASSERT_EQ(this->raised_reads.size(), 1);
+    ASSERT_EQ(this->raised_reads.size(), 2);
 
     auto initiate_resolve = [this](VpnDnsResolverQueue queue) {
         ((VpnDnsResolver *) this->resolver.get())->resolve(queue, "example.org");
         this->run_event_loop_once();
     };
 
-    for (size_t i = this->raised_reads.size() + 1; i < VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + 5; ++i) {
+    for (size_t i = this->raised_reads.size() / 2 + 1; i < VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES + 5; ++i) {
         ASSERT_NO_FATAL_FAILURE(initiate_resolve(VDRQ_FOREGROUND));
-        ASSERT_EQ(this->raised_reads.size(), i);
+        ASSERT_EQ(this->raised_reads.size(), 2 * i);
     }
 
     size_t current_queries_number = this->raised_reads.size();
@@ -260,7 +204,6 @@ TEST_F(VpnDnsResolverTest, ForegroundsBlockBackgrounds) {
 TEST_F(VpnDnsResolverTest, QueryTimeout) {
     VpnDnsResolver::set_query_timeout(Millis{1});
 
-    ((VpnDnsResolver *) this->resolver.get())->set_ipv6_availability(true);
     ((VpnDnsResolver *) this->resolver.get())
             ->resolve(VDRQ_BACKGROUND, "example.org", VpnDnsResolver::RecordTypeSet{}.set(), {result_handler, this});
     ASSERT_EQ(this->raised_connection_requests.size(), 0);

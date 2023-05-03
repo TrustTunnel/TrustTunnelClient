@@ -814,6 +814,42 @@ std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestRe
     return out;
 }
 
+static std::optional<sockaddr_storage> select_resolved_destination_address(
+        const Tunnel *self, const VpnConnection *conn, std::span<sockaddr_storage> addresses) {
+    for (sockaddr_storage address : addresses) {
+        log_conn(self, conn, dbg, "Checking: {}", sockaddr_ip_to_str((sockaddr *) &address));
+
+        sockaddr_set_port((sockaddr *) &address, std::get<NamePort>(conn->addr.dst).port);
+        VpnConnectAction action = VPN_CA_DEFAULT;
+        // if the action was default, check if the address matches exclusions
+        if (!conn->flags.test(CONNF_FORCIBLY_BYPASSED) && !conn->flags.test(CONNF_FORCIBLY_REDIRECTED)) {
+            DomainFilterMatchStatus filter_result = self->vpn->domain_filter.match_tag(SockAddrTag{address});
+            switch (filter_result) {
+            case DFMS_DEFAULT:
+                // neither the domain name nor resolved address matched against exclusions,
+                // continue with the default action
+            case DFMS_SUSPECT_EXCLUSION:
+                // we already know the domain name, so ignore suspicions
+                break;
+            case DFMS_EXCLUSION:
+                log_conn(self, conn, dbg, "Resolved address matches exclusions");
+                action = invert_action(vpn_mode_to_action(self->vpn->domain_filter.get_mode()));
+                break;
+            }
+        }
+
+        ServerUpstream *upstream = select_upstream(self, action, nullptr);
+        if (upstream != nullptr
+                && upstream->ip_version_availability.test(sa_family_to_ip_version(address.ss_family).value())) {
+            return address;
+        }
+
+        log_conn(self, conn, dbg, "{} is unreachable", sockaddr_to_str((sockaddr *) &address));
+    }
+
+    return std::nullopt;
+}
+
 static void on_destination_resolve_result(void *arg, VpnDnsResolveId id, VpnDnsResolverResult result) {
     auto *self = (Tunnel *) arg;
 
@@ -852,16 +888,22 @@ static void on_destination_resolve_result(void *arg, VpnDnsResolveId id, VpnDnsR
     self->dns_resolver->cancel(id);
     self->dns_resolve_waiters.erase(it);
 
-    auto &success = std::get<VpnDnsResolverSuccess>(result);
-    const sockaddr_storage &address = success.addresses.at(0);
-    log_conn(self, conn, dbg, "Resolved address: {}", sockaddr_ip_to_str((sockaddr *) &address));
+    std::optional<sockaddr_storage> maybe_address =
+            select_resolved_destination_address(self, conn, std::get<VpnDnsResolverSuccess>(result).addresses);
+    if (!maybe_address.has_value()) {
+        log_conn(self, conn, dbg, "Suitable address not found");
+        close_client_side_connection(self, conn, 0, false);
+        return;
+    }
 
+    const sockaddr_storage &address = maybe_address.value();
     sockaddr_set_port((sockaddr *) &address, std::get<NamePort>(conn->addr.dst).port);
+    log_conn(self, conn, dbg, "Resolved address: {}", sockaddr_to_str((sockaddr *) &address));
+
     VpnConnectAction action = VPN_CA_DEFAULT;
     // if the action was default, check if the address matches exclusions
     if (!conn->flags.test(CONNF_FORCIBLY_BYPASSED) && !conn->flags.test(CONNF_FORCIBLY_REDIRECTED)) {
-        DomainFilterMatchStatus filter_result =
-                self->vpn->domain_filter.match_tag(SockAddrTag{address});
+        DomainFilterMatchStatus filter_result = self->vpn->domain_filter.match_tag(SockAddrTag{address});
         switch (filter_result) {
         case DFMS_DEFAULT:
             // neither the domain name nor resolved address matched against exclusions,
@@ -925,6 +967,30 @@ static bool need_resolve_hostname(const Tunnel *self, VpnConnectAction action, c
     }
 }
 
+static bool is_destination_reachable(const Tunnel *self, VpnConnection *conn, ServerUpstream *upstream) {
+    IpVersion ipv = sa_family_to_ip_version(conn->addr.src.ss_family).value();
+
+    if (conn->flags.test(CONNF_SUSPECT_EXCLUSION)
+            && !(self->vpn->endpoint_upstream->ip_version_availability.test(ipv)
+                    && self->vpn->bypass_upstream->ip_version_availability.test(ipv))) {
+        // Suspecting that the connection targets an excluded domain, the library
+        // accepts it creating a fake connection, reads some outgoing packets to find
+        // out if the guess is true, and in case it is, the connection is migrated
+        // to the needed upstream. At this point, the library is no longer able to
+        // notify the client of the unreachable status.
+        //
+        // To avoid that, all suspicious connections are rejected with the unreachable
+        // status if an IP version is not available on any of the "real" upstreams.
+        return false;
+    }
+
+    if (upstream != nullptr && !upstream->ip_version_availability.test(ipv)) {
+        return false;
+    }
+
+    return true;
+}
+
 void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectAction> action) {
     VpnConnection *conn = vpn_connection_get_by_id(this->connections.by_client_id, id);
     if (conn == nullptr) {
@@ -947,11 +1013,10 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
         break;
     }
 
-    ServerUpstream *upstream = select_upstream(this, action.value(), conn); // NOLINT(bugprone-unchecked-optional-access)
-    if (const sockaddr_storage * dst; // NOLINT(cppcoreguidelines-init-variables)
-            !this->vpn->ipv6_available && upstream == this->vpn->endpoint_upstream.get()
-            && nullptr != (dst = std::get_if<sockaddr_storage>(&conn->addr.dst)) && dst->ss_family == AF_INET6) {
-        log_conn(this, conn, dbg, "Closing with unreachable status as IPv6 is unavailable on endpoint");
+    ServerUpstream *upstream =
+            select_upstream(this, action.value(), conn); // NOLINT(bugprone-unchecked-optional-access)
+    if (!is_destination_reachable(this, conn, upstream)) {
+        log_conn(this, conn, dbg, "Closing as destination is considered unavailable");
         close_client_side_connection(this, conn, AG_ENETUNREACH, true);
         return;
     }
@@ -1117,7 +1182,6 @@ void Tunnel::on_exclusions_updated() {
 
     if (this->vpn->endpoint_upstream != nullptr) {
         std::vector<std::string_view> names = this->vpn->domain_filter.get_resolvable_exclusions();
-        this->dns_resolver->set_ipv6_availability(this->vpn->ipv6_available);
         for (std::string_view name : names) {
             if (!this->dns_resolver->resolve(VDRQ_BACKGROUND, std::string(name)).has_value()) {
                 log_tun(this, dbg, "Failed to start resolve of {}", name);

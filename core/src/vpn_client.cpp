@@ -375,7 +375,6 @@ static VpnError start_dns_proxy(VpnClient *self) {
             .upstreams = std::move(dns_upstreams),
             .socks_listener_address = ((SocksListener &) *self->dns_proxy_listener).get_listen_address(),
             .cert_verify_handler = self->parameters.cert_verify_handler,
-            .ipv6_available = self->ipv6_available,
     });
 
     if (!self->dns_proxy->start(std::nullopt)) {
@@ -406,8 +405,10 @@ VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, std::op
     };
 
     std::unique_ptr<ServerUpstream> main_upstream = make_upstream(this->upstream_config.main_protocol);
+    main_upstream->update_ip_availability(this->upstream_config.ip_availability);
     if (this->upstream_config.fallback.enabled) {
         std::unique_ptr<ServerUpstream> fallback_upstream = make_upstream(this->upstream_config.fallback.protocol);
+        fallback_upstream->update_ip_availability(this->upstream_config.ip_availability);
         this->endpoint_connector = std::make_unique<FallbackableUpstreamConnector>(connector_parameters,
                 std::move(main_upstream), std::move(fallback_upstream),
                 std::chrono::milliseconds(this->upstream_config.fallback.connect_delay_ms));
@@ -445,7 +446,7 @@ fail:
 }
 
 VpnError VpnClient::listen(
-        std::unique_ptr<ClientListener> listener, const VpnListenerConfig *config, bool ipv6_available) {
+        std::unique_ptr<ClientListener> listener, const VpnListenerConfig *config) {
     log_client(this, dbg, "...");
 
     this->client_listener = std::move(listener);
@@ -453,7 +454,6 @@ VpnError VpnClient::listen(
 
     VpnError error = {.code = VPN_EC_ERROR};
 
-    this->ipv6_available = ipv6_available;
     if (this->listener_config.timeout_ms == 0) {
         this->listener_config.timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS;
     }
@@ -635,6 +635,10 @@ std::string_view VpnClient::dns_health_check_domain() {
 
 bool VpnClient::drop_non_app_initiated_dns_queries() const {
     return this->kill_switch_on && this->fsm.get_state() != vpn_client::S_CONNECTED;
+}
+
+void VpnClient::update_bypass_ip_availability(IpVersionSet x) {
+    this->bypass_upstream->update_ip_availability(x);
 }
 
 bool VpnClient::may_send_icmp_request() const {

@@ -273,6 +273,33 @@ Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers();
 
 #endif // ifdef _WIN32
 
+enum IpVersion {
+    IPV4,
+    IPV6,
+};
+
+using IpVersionSet = EnumSet<IpVersion>;
+
+constexpr std::optional<IpVersion> sa_family_to_ip_version(int family) {
+    switch (family) {
+    case AF_INET:
+        return IPV4;
+    case AF_INET6:
+        return IPV6;
+    default:
+        return std::nullopt;
+    }
+}
+
+constexpr int ip_version_to_sa_family(IpVersion v) {
+    switch (v) {
+    case IPV4:
+        return AF_INET;
+    case IPV6:
+        return AF_INET6;
+    }
+}
+
 } // namespace ag
 
 template <>

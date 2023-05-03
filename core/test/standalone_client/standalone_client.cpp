@@ -363,7 +363,7 @@ static void vpn_runner(ListenerType type) {
 
         std::vector<std::string> owned_excluded_routes = g_params.excluded_routes;
         for (const std::string &address : g_params.addresses) {
-            auto result = ag::utils::split_host_port(address.c_str());
+            auto result = ag::utils::split_host_port(address);
             if (result.has_error()) {
                 errlog(g_logger, "Failed to parse endpoint address: address={}, error={}", address,
                         result.error()->str());

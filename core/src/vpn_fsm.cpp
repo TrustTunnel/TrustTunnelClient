@@ -132,7 +132,8 @@ static void initiate_recovery(Vpn *vpn) {
             },
             time_to_next);
 
-    vpn->recovery.attempt_interval = std::chrono::round<Millis>(vpn->recovery.attempt_interval * vpn->upstream_config->recovery.backoff_rate);
+    vpn->recovery.attempt_interval =
+            std::chrono::round<Millis>(vpn->recovery.attempt_interval * vpn->upstream_config->recovery.backoff_rate);
     time_point next_attempt_ts = now + time_to_next;
     if (next_attempt_ts - vpn->recovery.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
         log_vpn(vpn, dbg, "Resetting recovery state due to the recovery took too long");
@@ -176,6 +177,10 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
 
     vpn->selected_endpoint.emplace(vpn_endpoint_clone(result->endpoint));
     log_vpn(vpn, dbg, "Using endpoint: {} (ping={}ms)", *result->endpoint, result->ping_ms);
+
+    const auto *extra_result = (LocationsPingerResultExtra *) result;
+    vpn->client.update_bypass_ip_availability(extra_result->ip_availability);
+
     vpn->fsm.perform_transition(vpn_fsm::CE_PING_READY, nullptr);
 }
 
@@ -366,12 +371,7 @@ static void start_listening(void *ctx, void *data) {
     auto *args = (StartListeningArgs *) data;
 
     log_vpn(vpn, info, "...");
-    const VpnLocation &location = vpn->upstream_config->location;
-    bool ipv6_available = std::any_of(location.endpoints.data, location.endpoints.data + location.endpoints.size,
-            [](const VpnEndpoint &e) -> bool {
-                return e.address.ss_family == AF_INET6;
-            });
-    VpnError error = vpn->client.listen(std::move(args->listener), args->config, ipv6_available);
+    VpnError error = vpn->client.listen(std::move(args->listener), args->config);
     if (error.code != VPN_EC_NOERROR) {
         log_vpn(vpn, err, "Client run failed: {} ({})", safe_to_string_view(error.text), error.code);
         vpn->submit([vpn, error] {

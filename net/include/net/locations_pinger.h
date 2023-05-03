@@ -35,6 +35,14 @@ typedef struct {
     const VpnEndpoint *endpoint; // selected endpoint
 } LocationsPingerResult;
 
+struct LocationsPingerResultExtra : public LocationsPingerResult {
+    /**
+     * An IP version is considered unavailable in case pinging all the addresses
+     * of the corresponding family failed with the unavailable status.
+     */
+    IpVersionSet ip_availability;
+};
+
 typedef struct {
     /**
      * Ping result handler

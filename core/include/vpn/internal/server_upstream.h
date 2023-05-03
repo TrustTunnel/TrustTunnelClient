@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "common/defs.h"
+#include "net/utils.h"
 #include "vpn/internal/icmp_manager.h"
 #include "vpn/internal/utils.h"
 #include "vpn/vpn.h"
@@ -72,6 +73,7 @@ public:
     VpnClient *vpn = nullptr;
     ServerHandler handler = {};
     int id;
+    IpVersionSet ip_version_availability = IpVersionSet{}.set();
 
     explicit ServerUpstream(int id, std::optional<VpnUpstreamProtocolConfig> protocol_config = std::nullopt)
             : PROTOCOL_CONFIG(protocol_config)
@@ -199,6 +201,13 @@ public:
      */
     virtual void handle_wake() {
         // Default no-op
+    }
+
+    /**
+     * Update IP protocol versions availability
+     */
+    void update_ip_availability(IpVersionSet x) {
+        this->ip_version_availability = x;
     }
 };
 

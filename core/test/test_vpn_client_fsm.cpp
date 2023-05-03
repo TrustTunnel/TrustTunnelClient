@@ -57,7 +57,7 @@ public:
 
         VpnListenerConfig listener_config = {};
         VpnSocksListenerConfig socks_listener_config = {};
-        error = vpn.listen(std::make_unique<SocksListener>(&socks_listener_config), &listener_config, true);
+        error = vpn.listen(std::make_unique<SocksListener>(&socks_listener_config), &listener_config);
         ASSERT_EQ(error.code, VPN_EC_NOERROR) << error.text;
     }
 

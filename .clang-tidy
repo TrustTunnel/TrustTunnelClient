@@ -49,6 +49,7 @@ Checks: '
   -cppcoreguidelines-pro-type-union-access,
   -hicpp-signed-bitwise,
   -hicpp-deprecated-headers,
+  -hicpp-no-array-decay,
   -modernize-deprecated-headers,
   -readability-duplicate-include,
   -cert-err33-c,

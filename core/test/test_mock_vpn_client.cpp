@@ -19,7 +19,7 @@ VpnError VpnClient::connect(vpn_client::EndpointConnectionConfig config, std::op
     test_mock::g_client.notify_called(test_mock::CMID_CONNECT);
     return test_mock::g_client.error;
 }
-VpnError VpnClient::listen(std::unique_ptr<ClientListener>, const VpnListenerConfig *, bool) {
+VpnError VpnClient::listen(std::unique_ptr<ClientListener>, const VpnListenerConfig *) {
     return {};
 }
 void VpnClient::disconnect() {
@@ -77,4 +77,7 @@ std::string_view VpnClient::dns_health_check_domain() {
 }
 bool VpnClient::drop_non_app_initiated_dns_queries() const {
     return test_mock::g_client.is_dropping_non_app_initiated_dns_queries;
+}
+
+void VpnClient::update_bypass_ip_availability(ag::IpVersionSet) {
 }

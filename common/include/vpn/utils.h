@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bitset>
 #include <climits>
 #include <cstdint>
 #include <cstdlib>
@@ -369,6 +370,9 @@ template <typename T>
 constexpr size_t width_of() {
     return sizeof(T) * CHAR_BIT;
 }
+
+template <typename Enum, typename = std::enable_if_t<std::is_enum_v<Enum>>>
+using EnumSet = std::bitset<width_of<Enum>()>;
 
 std::string sockaddr_ip_to_str(const struct sockaddr *addr);
 std::string sockaddr_to_str(const struct sockaddr *addr);

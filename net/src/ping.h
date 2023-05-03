@@ -18,6 +18,7 @@ enum PingStatus {
 struct PingResult {
     Ping *ping;                  // ping pointer (don't delete from callback unless PING_FINISHED is reported)
     PingStatus status;           // ping status
+    int socket_error;            // has sense if `status` == `PING_SOCKET_ERROR`
     const struct sockaddr *addr; // pinged address
     int ms;                      // RTT value
 };

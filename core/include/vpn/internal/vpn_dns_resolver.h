@@ -83,11 +83,6 @@ public:
     static void set_query_timeout(Millis v);
 
     /**
-     * Set the IPV6 availability
-     */
-    void set_ipv6_availability(bool available);
-
-    /**
      * Start the domain name resolving procedure
      * @param name the name to be resolved
      * @param record_types record types to resolve
@@ -153,7 +148,6 @@ private:
 
     using Queue = std::unordered_set<VpnDnsResolveId>;
 
-    bool m_ipv6_available = false;
     VpnDnsResolveId next_id = 0;
     std::unordered_map<VpnDnsResolveId, Resolve> resolutions;
     std::array<Queue, magic_enum::enum_count<VpnDnsResolverQueue>()> queues;

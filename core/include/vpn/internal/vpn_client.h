@@ -64,6 +64,7 @@ struct EndpointConnectionConfig {
     std::string username;
     std::string password;
     std::chrono::milliseconds endpoint_pinging_period{VPN_DEFAULT_ENDPOINT_PINGING_PERIOD_MS};
+    IpVersionSet ip_availability;
 };
 
 static constexpr const char *LOG_NAME = "VPNCLIENT";
@@ -86,7 +87,7 @@ public:
 
     VpnError connect(vpn_client::EndpointConnectionConfig config, std::optional<Millis> timeout = std::nullopt);
 
-    VpnError listen(std::unique_ptr<ClientListener> listener, const VpnListenerConfig *config, bool ipv6_available);
+    VpnError listen(std::unique_ptr<ClientListener> listener, const VpnListenerConfig *config);
 
     void disconnect();
 
@@ -130,13 +131,14 @@ public:
 
     [[nodiscard]] bool drop_non_app_initiated_dns_queries() const;
 
+    void update_bypass_ip_availability(IpVersionSet x);
+
     Fsm fsm;
     std::unique_ptr<Tunnel> tunnel = std::make_unique<Tunnel>(); // tunnel connections manager
     vpn_client::Parameters parameters = {};
     VpnListenerConfig listener_config = {};                    // common listener configuration
     vpn_client::EndpointConnectionConfig upstream_config = {}; // upstream configuration
     bool kill_switch_on = false;
-    bool ipv6_available = false;
     std::unique_ptr<ServerUpstream> endpoint_upstream;  // upstream for connections routed through vpn
     std::unique_ptr<ServerUpstream> bypass_upstream;    // upstream for bypassed connections
     std::unique_ptr<ClientListener> client_listener;    // client listener

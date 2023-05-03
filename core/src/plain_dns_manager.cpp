@@ -846,7 +846,6 @@ bool ag::PlainDnsManager::start_dns_proxy(SystemDnsServers servers) {
             .upstreams = std::move(upstreams),
             .fallbacks = std::move(servers.fallback),
             .cert_verify_handler = this->ag::ServerUpstream::vpn->parameters.cert_verify_handler,
-            .ipv6_available = this->ag::ServerUpstream::vpn->ipv6_available,
     });
 
     return m_system_dns_proxy->start(std::nullopt);

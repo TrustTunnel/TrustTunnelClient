@@ -21,10 +21,6 @@ static constexpr size_t RESOLVE_CAPACITIES[magic_enum::enum_count<VpnDnsResolver
         /** VDRQ_FOREGROUND */ std::numeric_limits<size_t>::max(),
 };
 
-void VpnDnsResolver::set_ipv6_availability(bool available) {
-    m_ipv6_available = available;
-}
-
 std::optional<VpnDnsResolveId> VpnDnsResolver::resolve(
         VpnDnsResolverQueue queue, std::string name, RecordTypeSet record_types, ResultHandler result_handler) {
     log_resolver(this, trace, "{}", name);
@@ -355,9 +351,8 @@ std::array<std::optional<uint16_t>, 2> VpnDnsResolver::send_request(
         uint64_t conn_id, std::string_view name, RecordTypeSet record_types) {
     return {
             record_types.test(dns_utils::RT_A) ? this->send_request(dns_utils::RT_A, conn_id, name) : std::nullopt,
-            (m_ipv6_available && record_types.test(dns_utils::RT_AAAA))
-                    ? this->send_request(dns_utils::RT_AAAA, conn_id, name)
-                    : std::nullopt,
+            record_types.test(dns_utils::RT_AAAA) ? this->send_request(dns_utils::RT_AAAA, conn_id, name)
+                                                  : std::nullopt,
     };
 }
 
@@ -512,7 +507,7 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
     SystemDnsServers servers = dns_manager_get_system_servers(self->vpn->parameters.network_manager->dns);
     for (const SystemDnsServer &x : servers.main) {
         sockaddr_storage address = server_address_from_str(x.address);
-        if (address.ss_family == AF_UNSPEC || (!self->m_ipv6_available && address.ss_family == AF_INET6)) {
+        if (address.ss_family == AF_UNSPEC) {
             continue;
         }
 
@@ -527,7 +522,7 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
 
     for (std::string_view x : servers.fallback) {
         sockaddr_storage address = server_address_from_str(x);
-        if (address.ss_family == AF_UNSPEC || (!self->m_ipv6_available && address.ss_family == AF_INET6)) {
+        if (address.ss_family == AF_UNSPEC) {
             continue;
         }
 

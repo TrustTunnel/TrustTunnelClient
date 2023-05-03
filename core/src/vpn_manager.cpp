@@ -94,6 +94,18 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
             .username = this->upstream_config->username,
             .password = this->upstream_config->password,
             .endpoint_pinging_period = milliseconds(this->upstream_config->endpoint_pinging_period_ms),
+            .ip_availability =
+                    [&] {
+                        const VpnEndpoints &endpoints = this->upstream_config->location.endpoints;
+                        // IPv4 is considered always available on an endpoint
+                        IpVersionSet ret = IpVersionSet{}.set(IPV4);
+                        ret.set(IPV6,
+                                std::any_of(endpoints.data, endpoints.data + endpoints.size,
+                                        [](const VpnEndpoint &e) -> bool {
+                                            return e.address.ss_family == AF_INET6;
+                                        }));
+                        return ret;
+                    }(),
     };
 }
 

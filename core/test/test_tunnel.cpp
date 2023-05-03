@@ -231,6 +231,8 @@ public:
 };
 
 TEST_F(TunnelTest, IPv6Unavailable) {
+    src = sockaddr_from_str("[::1:1:1:1]:443");
+    vpn.endpoint_upstream->update_ip_availability(IpVersionSet{1 << IPV4});
     size_t client_id = vpn.listener_conn_id_generator.get();
 
     dst = sockaddr_from_str("[::2:2:2:2]:443");

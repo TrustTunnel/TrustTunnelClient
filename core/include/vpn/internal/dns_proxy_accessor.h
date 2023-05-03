@@ -35,8 +35,6 @@ public:
         std::optional<sockaddr_storage> socks_listener_address;
         /// Certificate verification handler
         CertVerifyHandler cert_verify_handler = {};
-        /// Whether IPv6 is available
-        bool ipv6_available = true;
     };
 
     explicit DnsProxyAccessor(Parameters p);
