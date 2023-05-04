@@ -46,6 +46,8 @@ typedef enum {
     SF_CONNECT_CALLED = 1 << 0,
     /** When set, connection will be closed with RST instead of a graceful shutdown */
     SF_RST_SET = 1 << 1,
+    /** Received */
+    SF_GOT_EOF = 1 << 2,
 } SocketFlags;
 
 struct TcpSocket {
@@ -54,7 +56,7 @@ struct TcpSocket {
     char log_id[11 + SOCKADDR_STR_BUF_SIZE];
     int id;
     TaskId complete_read_task_id;
-    int flags; // see `socket_flags_t`
+    int flags; // see `SocketFlags`
     struct timeval timeouts_set_ts;
     SSL *ssl;
     VpnError pending_connect_error; // buffer for synchronously raised error (see `SF_CONNECT_CALLED`)
@@ -87,10 +89,7 @@ static void set_rst(TcpSocket *socket) {
 }
 
 TcpSocket *tcp_socket_create(const TcpSocketParameters *parameters) {
-    auto *socket = (TcpSocket *) calloc(1, sizeof(TcpSocket));
-    if (socket == nullptr) {
-        return socket;
-    }
+    auto socket = std::make_unique<TcpSocket>();
 
     socket->parameters = *parameters;
 
@@ -98,7 +97,7 @@ TcpSocket *tcp_socket_create(const TcpSocketParameters *parameters) {
     socket->complete_read_task_id = -1;
     snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT UNKNOWN_ADDR_STR, socket->id);
 
-    return socket;
+    return socket.release();
 }
 
 static void socket_clean_up(TcpSocket *socket) {
@@ -118,7 +117,7 @@ static void socket_clean_up(TcpSocket *socket) {
         socket->ssl = nullptr;
     }
 
-    free(socket);
+    delete socket;
 }
 
 void tcp_socket_destroy(TcpSocket *socket) {
@@ -207,6 +206,10 @@ void tcp_socket_set_read_enabled(TcpSocket *socket, bool flag) {
     }
 }
 
+bool tcp_socket_is_read_enabled(TcpSocket *self) {
+    return bufferevent_get_enabled(self->bev) & EV_READ;
+}
+
 VpnError tcp_socket_write(TcpSocket *socket, const uint8_t *data, size_t length) {
     struct bufferevent *bev = socket->bev;
 
@@ -242,38 +245,8 @@ static void on_read(struct bufferevent *bev, void *ctx) {
         return;
     }
 
-    struct evbuffer *buffer = bufferevent_get_input(bev);
-
-    size_t available_to_read = evbuffer_get_length(buffer);
-    int chunks_to_peek = evbuffer_peek(buffer, available_to_read, nullptr, nullptr, 0);
-
-    std::vector<evbuffer_iovec> chunks(chunks_to_peek);
-    size_t chunks_peeked = evbuffer_peek(buffer, available_to_read, nullptr, chunks.data(), chunks.size());
-
-    size_t bytes_read = 0u;
-    for (size_t i = 0; i < chunks_peeked && readable; ++i) {
-        do {
-            TcpSocketHandler *callbacks = &socket->parameters.handler;
-            TcpSocketReadEvent event = {(const uint8_t *) chunks[i].iov_base, chunks[i].iov_len, 0};
-            // `on_read` handler can delete the socket - be careful
-            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READ, &event);
-            // handler doesn't want anymore for now
-            if (event.processed == 0) {
-                goto loop_exit;
-            }
-
-            bytes_read += event.processed;
-            chunks[i].iov_base = (void *) ((size_t) chunks[i].iov_base + event.processed);
-            chunks[i].iov_len -= event.processed;
-
-            readable = bufferevent_get_enabled(bev) & EV_READ;
-        } while (chunks[i].iov_len > 0 && readable);
-    }
-
-loop_exit:
-    if (bytes_read > 0) {
-        evbuffer_drain(buffer, bytes_read);
-    }
+    const TcpSocketHandler &handler = socket->parameters.handler;
+    handler.handler(handler.arg, TCP_SOCKET_EVENT_READABLE, nullptr);
 }
 
 static const VpnError UNKNOWN_ERROR = {-1, "TCP socket error"};
@@ -315,8 +288,10 @@ static void on_event(struct bufferevent *bev, short what, void *ctx) {
 
     if (what & BEV_EVENT_EOF) {
         log_sock(socket, trace, "Eof event");
-        TcpSocketReadEvent e = {nullptr, 0, 0};
-        callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READ, &e);
+        socket->flags |= SF_GOT_EOF;
+        if (bufferevent_get_enabled(bev) & EV_READ) {
+            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READABLE, nullptr);
+        }
     } else if (what & BEV_EVENT_TIMEOUT) {
         struct timeval timeout_tv = ms_to_timeval(uint32_t(socket->parameters.timeout.count()));
         struct timeval expected_timeout_ts;
@@ -593,6 +568,23 @@ void tcp_socket_set_timeout(TcpSocket *socket, Millis x) {
 int make_fd_dual_stack(evutil_socket_t fd) {
     int unset = 0;
     return setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &unset, sizeof(unset));
+}
+
+tcp_socket::PeekResult tcp_socket_peek(TcpSocket *self) {
+    evbuffer_iovec chunk = {};
+    if (0 < evbuffer_peek(bufferevent_get_input(self->bev), -1, nullptr, &chunk, 1) && chunk.iov_len > 0) {
+        return tcp_socket::Chunk{(uint8_t *) chunk.iov_base, chunk.iov_len};
+    }
+
+    if (self->flags & SF_GOT_EOF) {
+        return tcp_socket::Eof{};
+    }
+
+    return tcp_socket::NoData{};
+}
+
+bool tcp_socket_drain(TcpSocket *self, size_t n) {
+    return (n == 0) || (self->bev != nullptr && 0 == evbuffer_drain(bufferevent_get_input(self->bev), n));
 }
 
 #ifdef __linux__

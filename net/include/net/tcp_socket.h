@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <variant>
 
 #include "vpn/platform.h" // Unbreak Windows builddows
 
@@ -21,9 +22,9 @@ struct TcpSocket;
 typedef enum {
     /**< Raised on `tcp_socket_connect` result is ready (raised with null) */
     TCP_SOCKET_EVENT_CONNECTED,
-    /**< Raised whenever socket has some data from connected peer (raised with `TcpSocketReadEvent`) */
-    TCP_SOCKET_EVENT_READ,
-    /**< Raised whenever socket sent some data in network (raised with `tcp_socket_sent_event_t`) */
+    /**< Raised whenever socket has some data from connected peer (raised with null) */
+    TCP_SOCKET_EVENT_READABLE,
+    /**< Raised whenever socket sent some data in network (raised with `TcpSocketSentEvent`) */
     TCP_SOCKET_EVENT_SENT,
     /**< Raised if some error happened on socket (raised with `VpnError`) */
     TCP_SOCKET_EVENT_ERROR,
@@ -32,12 +33,6 @@ typedef enum {
     /**< Raised when socket needs to be protected (raised with `SocketProtectEvent`) */
     TCP_SOCKET_EVENT_PROTECT,
 } TcpSocketEvent;
-
-typedef struct {
-    const uint8_t *data; // buffer with data
-    size_t length;       // data length
-    size_t processed;    // FILLED BY HANDLER: number of bytes processed by handler
-} TcpSocketReadEvent;
 
 typedef struct {
     size_t bytes; // number of bytes sent
@@ -109,6 +104,11 @@ VpnError tcp_socket_acquire_fd(TcpSocket *socket, evutil_socket_t fd);
 void tcp_socket_set_read_enabled(TcpSocket *socket, bool flag);
 
 /**
+ * Check whether read is enabled on the socket
+ */
+bool tcp_socket_is_read_enabled(TcpSocket *socket);
+
+/**
  * Get free space in write buffer
  * @param socket socket
  */
@@ -153,5 +153,36 @@ TcpFlowCtrlInfo tcp_socket_flow_control_info(const TcpSocket *socket);
  * Get statistics for underlying socket
  */
 VpnConnectionStats tcp_socket_get_stats(const TcpSocket *socket);
+
+namespace tcp_socket {
+
+/** Retrieved data chunk */
+using Chunk = U8View;
+
+/** No more data will be read from the socket */
+struct Eof {};
+
+/** The buffer is currently empty. Try after the next readable event. */
+using NoData = std::monostate;
+
+using PeekResult = std::variant<NoData, Chunk, Eof>;
+
+} // namespace tcp_socket
+
+/**
+ * Get data chunk from the socket buffer without moving the read pointer.
+ * The caller is responsible for draining the portion of data it does not
+ * need anymore.
+ *
+ * To read out all the buffered data it may require to run a `peek()`-`drain()`
+ * loop until `peek()` returns not `Chunk`.
+ */
+tcp_socket::PeekResult tcp_socket_peek(TcpSocket *socket);
+
+/**
+ * Move the read pointer of the socket buffer.
+ * @return true if successful
+ */
+bool tcp_socket_drain(TcpSocket *socket, size_t n);
 
 } // namespace ag

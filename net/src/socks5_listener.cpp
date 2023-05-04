@@ -728,23 +728,23 @@ static Socks5ConnectionAddress dst_addr_from_request(Socks5AddressType type, con
 }
 
 // Return number of bytes consumed, or 0 if need more data
-static size_t read_username_password_request(size_t len, const uint8_t *data, Socks5UsernamePasswordRequest *request) {
-    if (len < 2) {
+static size_t read_username_password_request(U8View data, Socks5UsernamePasswordRequest *request) {
+    if (data.size() < 2) {
         return 0;
     }
     uint8_t ver = data[0];
     uint8_t ulen = data[1];
-    len -= 2, data += 2;
-    if (len <= ulen) {
+    data.remove_prefix(2);
+    if (data.size() <= ulen) {
         return 0;
     }
-    request->uname = data;
+    request->uname = data.data();
     uint8_t plen = data[ulen];
-    len -= ulen + 1, data += ulen + 1;
-    if (len < plen) {
+    data.remove_prefix(ulen + 1);
+    if (data.size() < plen) {
         return 0;
     }
-    request->passwd = data;
+    request->passwd = data.data();
     request->ver = ver;
     request->ulen = ulen;
     request->plen = plen;
@@ -791,8 +791,8 @@ static uint64_t socks_addr_pair_hash(const AddressPair *addr) {
     return hash_pair_combine(sockaddr_hash((struct sockaddr *) &addr->src), socks_addr_hash(&addr->dst));
 }
 
-static int handle_tcp_read(Socks5Listener *listener, Connection *conn, const uint8_t *data, size_t length) {
-    Socks5ReadEvent event = {conn->id, data, length, 0};
+static int handle_tcp_read(Socks5Listener *listener, Connection *conn, U8View data) {
+    Socks5ReadEvent event = {conn->id, data.data(), data.size(), 0};
     listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_READ, &event);
     return event.result;
 }
@@ -1192,25 +1192,24 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         assert(0);
         break;
     }
-    case TCP_SOCKET_EVENT_READ: {
-        TcpSocketReadEvent *sock_event = (TcpSocketReadEvent *) data;
-
+    case TCP_SOCKET_EVENT_READABLE: {
+        tcp_socket::PeekResult result = tcp_socket_peek(conn->socket);
+        if (std::holds_alternative<tcp_socket::NoData>(result)) {
+            break;
+        }
+        if (std::holds_alternative<tcp_socket::Eof>(result)) {
+            goto close;
+        }
         if (is_udp_association_tcp_connection(listener, conn)) {
-            VpnError error = {};
-            if (sock_event->length != 0) {
-                error = {-1, "Got some data on TCP socket of UDP association session"};
-            }
-            terminate_udp_association(listener, conn, error);
+            terminate_udp_association(listener, conn, {-1, "Got some data on TCP socket of UDP association session"});
             break;
         }
 
-        if (sock_event->length == 0) {
-            goto close;
-        }
-
+        U8View chunk = std::get<tcp_socket::Chunk>(result);
+        size_t to_drain = 0;
         switch (conn->state) {
         case S5CONNS_IDLE: {
-            if (sock_event->length < sizeof(Socks5AuthRequest)) {
+            if (chunk.size() < sizeof(Socks5AuthRequest)) {
                 break;
             }
 
@@ -1221,13 +1220,13 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             int chosen_method;
             int supported_method;
 
-            const Socks5AuthRequest *req = (Socks5AuthRequest *) sock_event->data;
+            const Socks5AuthRequest *req = (Socks5AuthRequest *) chunk.data();
             if (req->ver != SOCKS5_VER) {
                 log_conn(listener, conn->id, conn->proto, dbg, "Got wrong protocol version: {}", (int) req->ver);
                 goto auth_failed;
             }
 
-            if (sock_event->length < sizeof(Socks5AuthRequest) + req->nmethods) {
+            if (chunk.size() < sizeof(Socks5AuthRequest) + req->nmethods) {
                 // wait all methods
                 break;
             }
@@ -1252,7 +1251,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
                 goto auth_failed;
             }
 
-            sock_event->processed = sizeof(Socks5AuthRequest) + req->nmethods;
+            to_drain = sizeof(Socks5AuthRequest) + req->nmethods;
             if (chosen_method == S5AM_USERNAME_PASSWORD || chosen_method == S5AM_USERNAME_PASSWORD_APPNAME) {
                 conn->state = S5CONNS_WAITING_USERNAME_PASSWORD;
             } else {
@@ -1265,7 +1264,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             goto send_resp;
 
         auth_failed:
-            sock_event->processed = sock_event->length;
+            to_drain = chunk.size();
             conn->state = S5CONNS_FAILED;
             resp.method = S5AM_NO_ACCEPTABLE_METHODS;
 
@@ -1282,7 +1281,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         case S5CONNS_WAITING_USERNAME_PASSWORD: {
             Socks5UsernamePasswordResponse resp = {.ver = USERNAME_PASSWORD_VER, .status = 1}; // failure response
             Socks5UsernamePasswordRequest req = {0};
-            size_t processed = read_username_password_request(sock_event->length, sock_event->data, &req);
+            size_t processed = read_username_password_request(chunk, &req);
             if (processed == 0) {
                 break;
             }
@@ -1293,7 +1292,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
                 log_conn(listener, conn->id, conn->proto, dbg, "Got wrong protocol version: {}", (int) req.ver);
                 goto uname_passwd_failed;
             }
-            sock_event->processed = processed;
+            to_drain = processed;
 
             {
                 std::string_view username = {(char *) req.uname, req.ulen};
@@ -1307,7 +1306,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             }
 
         uname_passwd_failed:
-            sock_event->processed = sock_event->length;
+            to_drain = chunk.size();
             conn->state = S5CONNS_FAILED;
 
             log_conn(listener, conn->id, conn->proto, dbg, "Username/password processing failed");
@@ -1325,7 +1324,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             break;
         }
         case S5CONNS_WAITING_REQUEST: {
-            if (sock_event->length < sizeof(Socks5Request)) {
+            if (chunk.size() < sizeof(Socks5Request)) {
                 break;
             }
 
@@ -1334,7 +1333,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             size_t addr_len;
             Socks5ReplyStatus reply_status;
 
-            const Socks5Request *req = (Socks5Request *) sock_event->data;
+            const Socks5Request *req = (Socks5Request *) chunk.data();
             if (req->ver != SOCKS5_VER) {
                 log_conn(listener, conn->id, conn->proto, dbg, "Got wrong protocol version: {}", (int) req->ver);
                 reply_status = S5RS_SOCKS_SERVER_FAILURE;
@@ -1378,7 +1377,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             }
 
             addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
-            if (sizeof(Socks5Request) + addr_len + 2 > sock_event->length) {
+            if (sizeof(Socks5Request) + addr_len + 2 > chunk.size()) {
                 // wait full address
                 break;
             }
@@ -1386,7 +1385,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             conn->addr.dst = dst_addr_from_request((Socks5AddressType) req->atyp, req->dst_addr);
             conn->app_name = app_name_from_request((Socks5AddressType) req->atyp, req->dst_addr);
 
-            sock_event->processed = sizeof(Socks5Request) + addr_len + 2;
+            to_drain = sizeof(Socks5Request) + addr_len + 2;
 
             if (req->cmd == S5CMD_CONNECT) {
                 conn->state = S5CONNS_WAITING_CONNECT_RESULT;
@@ -1408,7 +1407,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             break;
 
         invalid_request:
-            sock_event->processed = sock_event->length;
+            to_drain = chunk.size();
             conn->state = S5CONNS_FAILED;
 
             addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
@@ -1439,19 +1438,44 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             log_conn(listener, conn->id, conn->proto, dbg, "Got data in wrong state: {}", conn->state);
             goto close;
         case S5CONNS_ESTABLISHED: {
-            log_conn(listener, conn->id, conn->proto, trace, "Got {} bytes", sock_event->length);
+            constexpr size_t READ_BUDGET = 64;
+            TcpSocket *socket = conn->socket;
+            for (size_t j = 0; j < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++j) {
+                log_conn(listener, conn->id, conn->proto, trace, "Got {} bytes", chunk.size());
 
-            int r = handle_tcp_read(listener, conn, sock_event->data, sock_event->length);
-            if (r < 0) {
-                goto close;
+                int r = handle_tcp_read(listener, conn, chunk);
+                if (r < 0) {
+                    goto close;
+                }
+                if (r == 0) {
+                    break;
+                }
+                if (!tcp_socket_drain(socket, r)) {
+                    log_conn(listener, conn->id, conn->proto, dbg, "Couldn't drain data from socket buffer");
+                    goto close;
+                }
+
+                result = tcp_socket_peek(socket);
+                if (std::holds_alternative<tcp_socket::NoData>(result)) {
+                    break;
+                }
+                if (std::holds_alternative<tcp_socket::Eof>(result)) {
+                    goto close;
+                }
+
+                chunk = std::get<tcp_socket::Chunk>(result);
             }
-            sock_event->processed = r;
+
             break;
         }
         case S5CONNS_FAILED:
             // do nothing, just waiting for flush
-            sock_event->processed = sock_event->length;
+            to_drain = chunk.size();
             break;
+        }
+        if (!tcp_socket_drain(conn->socket, to_drain)) {
+            log_conn(listener, conn->id, conn->proto, dbg, "Couldn't drain data from socket buffer");
+            goto close;
         }
         break;
     }

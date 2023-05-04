@@ -354,23 +354,39 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
 
         break;
     }
-    case TCP_SOCKET_EVENT_READ: {
-        TcpSocketReadEvent *sock_event = (TcpSocketReadEvent *) data;
+    case TCP_SOCKET_EVENT_READABLE: {
+        constexpr size_t READ_BUDGET = 64;
+        TcpSocket *socket = upstream->m_socket.get();
+        for (size_t i = 0; i < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++i) {
+            tcp_socket::PeekResult result = tcp_socket_peek(socket);
+            if (std::holds_alternative<tcp_socket::NoData>(result)) {
+                break;
+            }
 
-        if (sock_event->length == 0) {
-            log_upstream(upstream, dbg, "Got EOF from endpoint");
-            upstream->close_session_inner(std::nullopt);
-        } else {
-            log_upstream(upstream, trace, "Got {} bytes from endpoint", sock_event->length);
-            int r = http_session_input(upstream->m_session.get(), sock_event->data, sock_event->length);
-            if (r > 0) {
-                sock_event->processed = r;
-                if (0 == http_session_available_to_read(upstream->m_session.get(), 0)) {
-                    tcp_socket_set_read_enabled(upstream->m_socket.get(), false);
-                }
-            } else {
-                log_upstream(upstream, err, "Failed to process HTTP data from server: {} ({})", nghttp2_strerror(r), r);
+            if (std::holds_alternative<tcp_socket::Eof>(result)) {
+                log_upstream(upstream, dbg, "Got EOF from endpoint");
+                upstream->close_session_inner(std::nullopt);
+                break;
+            }
+
+            U8View chunk = std::get<tcp_socket::Chunk>(result);
+            log_upstream(upstream, trace, "Got {} bytes from endpoint", chunk.size());
+            int r = http_session_input(upstream->m_session.get(), chunk.data(), chunk.size());
+            if (r <= 0) {
+                log_upstream(
+                        upstream, warn, "Failed to process HTTP data from server: {} ({})", nghttp2_strerror(r), r);
                 upstream->close_session_inner(VpnError{VPN_EC_ERROR, nghttp2_strerror(r)});
+                break;
+            }
+
+            if (!tcp_socket_drain(socket, r)) {
+                VpnError err = {VPN_EC_ERROR, "Couldn't drain data from socket buffer"};
+                upstream->close_session_inner(err);
+                break;
+            }
+
+            if (0 == http_session_available_to_read(upstream->m_session.get(), 0)) {
+                tcp_socket_set_read_enabled(socket, false);
             }
         }
         break;

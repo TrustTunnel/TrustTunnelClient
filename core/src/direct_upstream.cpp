@@ -94,25 +94,51 @@ void DirectUpstream::tcp_socket_handler(void *arg, TcpSocketEvent what, void *da
         upstream->handler.func(upstream->handler.arg, SERVER_EVENT_CONNECTION_OPENED, &ctx->conn_id);
         break;
     }
-    case TCP_SOCKET_EVENT_READ: {
-        auto *sock_event = (TcpSocketReadEvent *) data;
+    case TCP_SOCKET_EVENT_READABLE: {
+        uint64_t conn_id = ctx->conn_id;
+        auto conn_iter = upstream->m_tcp_connections.find(conn_id);
+        if (conn_iter == upstream->m_tcp_connections.end()) {
+            log_conn(upstream, conn_id, warn, "Got read on nonexistent connection");
+            break;
+        }
 
-        if (sock_event->length == 0) {
-            log_conn(upstream, ctx->conn_id, dbg, "Got EOF from remote host");
-            upstream->handler.func(upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &ctx->conn_id);
-            upstream->m_tcp_connections.erase(ctx->conn_id);
-        } else {
-            log_conn(upstream, ctx->conn_id, trace, "Got {} bytes from remote host", sock_event->length);
+        TcpSocket *socket = conn_iter->second.socket.get();
 
-            ServerReadEvent serv_event = {ctx->conn_id, sock_event->data, sock_event->length, 0};
+        constexpr size_t READ_BUDGET = 64;
+        for (size_t i = 0; i < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++i) {
+            tcp_socket::PeekResult result = tcp_socket_peek(socket);
+            if (std::holds_alternative<tcp_socket::NoData>(result)) {
+                break;
+            }
+
+            if (std::holds_alternative<tcp_socket::Eof>(result)) {
+                log_conn(upstream, conn_id, dbg, "Got EOF from remote host");
+                upstream->handler.func(upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &conn_id);
+                upstream->m_tcp_connections.erase(conn_iter);
+                break;
+            }
+
+            U8View chunk = std::get<tcp_socket::Chunk>(result);
+            log_conn(upstream, conn_id, trace, "Got {} bytes from remote host", chunk.size());
+
+            ServerReadEvent serv_event = {conn_id, chunk.data(), chunk.size()};
             upstream->handler.func(upstream->handler.arg, SERVER_EVENT_READ, &serv_event);
 
-            if (serv_event.result >= 0) {
-                sock_event->processed = serv_event.result;
-            } else {
-                upstream->close_connection(ctx->conn_id, false, false);
+            if (!upstream->m_tcp_connections.contains(conn_id)) {
+                break;
+            }
+
+            if (serv_event.result < 0) {
+                upstream->close_connection(conn_id, false, false);
+                break;
+            }
+
+            if (!tcp_socket_drain(socket, serv_event.result)) {
+                log_conn(upstream, conn_id, dbg, "Couldn't drain data from socket buffer");
+                upstream->close_connection(conn_id, false, false);
             }
         }
+
         break;
     }
     case TCP_SOCKET_EVENT_SENT: {
@@ -503,7 +529,7 @@ void DirectUpstream::icmp_socket_handler(void *arg, TcpSocketEvent what, void *d
         vpn_handler->func(vpn_handler->arg, vpn_client::EVENT_PROTECT_SOCKET, data);
         break;
     }
-    case TCP_SOCKET_EVENT_READ:
+    case TCP_SOCKET_EVENT_READABLE:
     case TCP_SOCKET_EVENT_SENT:
     case TCP_SOCKET_EVENT_WRITE_FLUSH:
         log_upstream(self, dbg, "Unexpected event: {}", magic_enum::enum_name(what));
