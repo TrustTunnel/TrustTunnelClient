@@ -1033,7 +1033,7 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
     ServerUpstream *upstream =
             select_upstream(this, action.value(), conn); // NOLINT(bugprone-unchecked-optional-access)
     if (!is_destination_reachable(this, conn, upstream)) {
-        log_conn(this, conn, dbg, "Closing as destination is considered unavailable");
+        log_conn(this, conn, dbg, "Closing as destination is considered unreachable");
         close_client_side_connection(this, conn, AG_ENETUNREACH, true);
         return;
     }

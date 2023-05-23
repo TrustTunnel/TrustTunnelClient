@@ -9,8 +9,8 @@ requirements:
   - "openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon"
   - "quiche/0.17.1@AdguardTeam/NativeLibsCommon"
   - "nghttp2/1.44.0@AdguardTeam/NativeLibsCommon"
-  - "dns-libs/2.2.1@AdguardTeam/NativeLibsCommon"
-  - "native_libs_common/2.0.57@AdguardTeam/NativeLibsCommon"
+  - "dns-libs/2.2.7@AdguardTeam/NativeLibsCommon"
+  - "native_libs_common/2.0.60@AdguardTeam/NativeLibsCommon"
 requirements_apple:
   - "ghc-filesystem/1.5.12"
 commit_hash:

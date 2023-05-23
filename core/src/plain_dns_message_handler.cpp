@@ -98,18 +98,18 @@ void PlainDnsMessageHandler::on_incoming_message(U8View data, bool library_reque
 PlainDnsMessageHandler::RoutingPolicy PlainDnsMessageHandler::vpn_action_to_routing_policy(
         VpnMode mode, VpnConnectAction action) {
     constexpr RoutingPolicy TABLE[magic_enum::enum_count<VpnMode>()][magic_enum::enum_count<VpnConnectAction>()] = {
-        /** VPN_MODE_GENERAL */
-                {
-                        /** VPN_CA_DEFAULT */ RP_DEFAULT,
-                        /** VPN_CA_FORCE_BYPASS */ RP_EXCEPTIONAL,
-                        /** VPN_CA_FORCE_REDIRECT */ RP_DEFAULT,
-                },
-        /** VPN_MODE_SELECTIVE */
-                {
-                        /** VPN_CA_DEFAULT */ RP_DEFAULT,
-                        /** VPN_CA_FORCE_BYPASS */ RP_DEFAULT,
-                        /** VPN_CA_FORCE_REDIRECT */ RP_EXCEPTIONAL,
-                },
+            /** VPN_MODE_GENERAL */
+            {
+                    /** VPN_CA_DEFAULT */ RP_DEFAULT,
+                    /** VPN_CA_FORCE_BYPASS */ RP_EXCEPTIONAL,
+                    /** VPN_CA_FORCE_REDIRECT */ RP_DEFAULT,
+            },
+            /** VPN_MODE_SELECTIVE */
+            {
+                    /** VPN_CA_DEFAULT */ RP_DEFAULT,
+                    /** VPN_CA_FORCE_BYPASS */ RP_DEFAULT,
+                    /** VPN_CA_FORCE_REDIRECT */ RP_EXCEPTIONAL,
+            },
     };
 
     return TABLE[mode][action]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)

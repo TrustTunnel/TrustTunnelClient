@@ -772,10 +772,7 @@ ssize_t ag::PlainDnsManager::send_outgoing_query(uint64_t cs_conn_id, ClientSide
         // already conform to the logic.
         PlainDnsMessageHandler::RoutingPolicy overwrite_policy = PlainDnsMessageHandler::vpn_action_to_routing_policy(
                 this->ag::ClientListener::vpn->domain_filter.get_mode(), cs_conn.connect_action);
-        bool need_overwrite = overwrite_policy != routing_policy
-                && (cs_conn.connect_action != VPN_CA_FORCE_BYPASS
-                        || routing_policy != PlainDnsMessageHandler::RP_FORCE_BYPASS);
-        if (need_overwrite) {
+        if (overwrite_policy != routing_policy) {
             routing_policy = overwrite_policy;
             log_cs_conn(this, cs_conn_id, dbg, "Overwriting routing policy for query on forcibly routed connection: {}",
                     magic_enum::enum_name(routing_policy));
@@ -883,10 +880,12 @@ std::optional<sockaddr_storage> ag::PlainDnsManager::get_redirect_address(uint64
     bool routed_directly = false;
     switch (this->ag::ServerUpstream::vpn->domain_filter.get_mode()) {
     case VPN_MODE_GENERAL:
-        routed_directly = routing_policy != PlainDnsMessageHandler::RP_DEFAULT;
+        routed_directly = routing_policy == PlainDnsMessageHandler::RP_EXCEPTIONAL
+                || routing_policy == PlainDnsMessageHandler::RP_FORCE_BYPASS;
         break;
     case VPN_MODE_SELECTIVE:
-        routed_directly = routing_policy == PlainDnsMessageHandler::RP_DEFAULT;
+        routed_directly = routing_policy == PlainDnsMessageHandler::RP_DEFAULT
+                || routing_policy == PlainDnsMessageHandler::RP_FORCE_BYPASS;
         break;
     }
 
@@ -901,7 +900,8 @@ std::optional<sockaddr_storage> ag::PlainDnsManager::get_redirect_address(uint64
         return m_system_dns_proxy->get_listen_address(cs_conn.protocol);
     }
 
-    if (!routed_directly && contains_address(m_system_dns_servers, (sockaddr *) dst)) {
+    if (!routed_directly && routing_policy != PlainDnsMessageHandler::RP_THROUGH_DNS_PROXY
+            && contains_address(m_system_dns_servers, (sockaddr *) dst)) {
         log_cs_conn(this, cs_conn_id, dbg, "Redirecting query routed through VPN endpoint to public DNS resolver");
 
         constexpr auto make_redirect_addr = [](const char *str) {

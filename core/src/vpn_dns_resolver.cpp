@@ -514,6 +514,7 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
         self->m_resolver_address = address;
         log_resolver(self, dbg, "Chosen resolver from main system servers: {}",
                 tunnel_addr_to_str(&self->m_resolver_address));
+        break;
     }
 
     if (!std::holds_alternative<std::monostate>(self->m_resolver_address)) {
