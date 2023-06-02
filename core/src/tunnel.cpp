@@ -988,8 +988,12 @@ static bool is_destination_reachable(const Tunnel *self, VpnConnection *conn, Se
     IpVersion ipv = sa_family_to_ip_version(conn->addr.src.ss_family).value();
 
     if (conn->flags.test(CONNF_SUSPECT_EXCLUSION)
-            && !(self->vpn->endpoint_upstream->ip_version_availability.test(ipv)
-                    && self->vpn->bypass_upstream->ip_version_availability.test(ipv))) {
+            // if upstream is not yet connected, it will be decided later whether to
+            // reject or bypass the connection
+            && ((self->vpn->endpoint_upstream != nullptr
+                        && !self->vpn->endpoint_upstream->ip_version_availability.test(ipv))
+                    || (self->vpn->bypass_upstream != nullptr
+                            && !self->vpn->bypass_upstream->ip_version_availability.test(ipv)))) {
         // Suspecting that the connection targets an excluded domain, the library
         // accepts it creating a fake connection, reads some outgoing packets to find
         // out if the guess is true, and in case it is, the connection is migrated
