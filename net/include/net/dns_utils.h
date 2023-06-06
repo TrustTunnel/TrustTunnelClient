@@ -33,8 +33,9 @@ struct InapplicablePacket {
 struct DecodedRequest {
     /// ID of the request
     uint16_t id;
-    /// Record type of the question section
-    RecordType question_type;
+    /// Record type of the question section.
+    /// None in case the query type is not one of `RecordType`s.
+    std::optional<RecordType> question_type;
     /// Domain name
     std::string name;
 };

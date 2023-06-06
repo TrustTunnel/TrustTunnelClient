@@ -32,6 +32,17 @@ static void add_name_to_answer(dns_utils::DecodedReply &answer, const ldns_rdf *
     }
 }
 
+static std::optional<dns_utils::RecordType> ldns_to_utils_rr_type(ldns_rr_type x) {
+    switch (x) {
+    case LDNS_RR_TYPE_A:
+        return dns_utils::RT_A;
+    case LDNS_RR_TYPE_AAAA:
+        return dns_utils::RT_AAAA;
+    default:
+        return std::nullopt;
+    }
+}
+
 static dns_utils::DecodeResult decode_request(ldns_pkt *pkt) {
     const ldns_rr_list *question = ldns_pkt_question(pkt);
     if (ldns_rr_list_rr_count(question) == 0) {
@@ -39,14 +50,10 @@ static dns_utils::DecodeResult decode_request(ldns_pkt *pkt) {
     }
 
     const ldns_rr *question_rr = ldns_rr_list_rr(question, 0);
-    ldns_rr_type question_type = ldns_rr_get_type(question_rr);
-    if (question_type != LDNS_RR_TYPE_A && question_type != LDNS_RR_TYPE_AAAA) {
-        return dns_utils::InapplicablePacket{ldns_pkt_id(pkt)};
-    }
 
     return dns_utils::DecodedRequest{
             .id = ldns_pkt_id(pkt),
-            .question_type = (question_type == LDNS_RR_TYPE_A) ? dns_utils::RT_A : dns_utils::RT_AAAA,
+            .question_type = ldns_to_utils_rr_type(ldns_rr_get_type(question_rr)),
             .name = rdf_to_string(ldns_rr_owner(question_rr)),
     };
 }
