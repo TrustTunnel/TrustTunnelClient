@@ -406,6 +406,10 @@ typedef struct {
      *                  - IPv4Address:port
      *                  - IPv4Address
      *              - if port is not specified, any port will be matched
+     *          - CIDR range
+     *              - recognized formats are:
+     *                  - IPv4Address/mask
+     *                  - IPv6Address/mask
      *
      *  examples:
      *      - example.org 1.2.3.4

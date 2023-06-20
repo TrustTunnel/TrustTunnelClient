@@ -98,6 +98,12 @@ static const MatchTestParam ADDRESS_MATCH_TEST_SAMPLES[] = {
         {VPN_MODE_GENERAL, "dead::beef", "[dead::beef]:70"},
         {VPN_MODE_GENERAL, "1.1.1.1", "1.1.1.1:30"},
         {VPN_MODE_GENERAL, "1.1.1.1", "1.1.1.1:60"},
+
+        {VPN_MODE_GENERAL, "192.168.0.0/16", "192.168.0.1"},
+        {VPN_MODE_GENERAL, "192.168.0.0/16", "192.168.0.1:30"},
+        {VPN_MODE_GENERAL, "2000::/64", "2000::1"},
+        {VPN_MODE_GENERAL, "2000::/64", "[2000::1]"},
+        {VPN_MODE_GENERAL, "2000::/64", "[2000::1]:123"},
 };
 INSTANTIATE_TEST_SUITE_P(Simple, AddressMatch, testing::ValuesIn(ADDRESS_MATCH_TEST_SAMPLES));
 
@@ -118,6 +124,12 @@ static const MatchTestParam ADDRESS_NOMATCH_TEST_SAMPLES[] = {
 
         {VPN_MODE_GENERAL, "1.1.1.1:1", "1.1.1.1:2"},
         {VPN_MODE_GENERAL, "[dead::beef]:1", "[dead::beef]:2"},
+
+        {VPN_MODE_GENERAL, "192.168.0.0/16", "172.168.0.0"},
+        {VPN_MODE_GENERAL, "192.168.0.0/16", "172.168.0.0:1122"},
+        {VPN_MODE_GENERAL, "2000::/64", "2001::1"},
+        {VPN_MODE_GENERAL, "2000::/64", "[2001::1]"},
+        {VPN_MODE_GENERAL, "2000::/64", "[2001::1]:4433"},
 };
 INSTANTIATE_TEST_SUITE_P(Simple, AddressNoMatch, testing::ValuesIn(ADDRESS_NOMATCH_TEST_SAMPLES));
 

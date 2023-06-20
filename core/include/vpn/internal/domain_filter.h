@@ -2,6 +2,7 @@
 
 #include <bitset>
 #include <chrono>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -99,11 +100,12 @@ private:
         std::string text;
         MatchFlagsSet flags;
     };
-    using ParseResult = std::variant<sockaddr_storage, DomainEntryInfo, DomainFilterValidationStatus>;
+    using ParseResult = std::variant<sockaddr_storage, DomainEntryInfo, DomainFilterValidationStatus, CidrRange>;
 
     VpnMode m_mode = VPN_MODE_GENERAL;
     std::unordered_map<std::string, MatchFlagsSet> m_domains; // key - domain name / value - set of `MatchFlags`
     std::unordered_set<sockaddr_storage> m_addresses;
+    std::set<CidrRange> m_cidr_ranges;
     ag::LruTimeoutCache<ag::SockAddrTag, std::string> m_resolved_tags{DEFAULT_CACHE_SIZE, DEFAULT_TAG_TTL};
     ag::LruTimeoutCache<sockaddr_storage, uint8_t> m_exclusion_suspects{DEFAULT_CACHE_SIZE, DEFAULT_TAG_TTL};
     ag::Logger m_log{"DOMAIN_FILTER"};

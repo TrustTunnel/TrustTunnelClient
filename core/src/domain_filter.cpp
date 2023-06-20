@@ -1,5 +1,6 @@
 #include "vpn/internal/domain_filter.h"
 
+#include "common/defs.h"
 #include "vpn/internal/utils.h"
 #include "vpn/utils.h"
 
@@ -32,6 +33,10 @@ DomainFilterValidationStatus DomainFilter::validate_entry(const std::string &ent
 DomainFilter::ParseResult DomainFilter::parse_entry(const std::string &entry) {
     if (sockaddr_storage addr = sockaddr_from_str(entry.c_str()); addr.ss_family != AF_UNSPEC) {
         return addr;
+    }
+    
+    if (auto range = ag::CidrRange(entry); range.valid()) {
+        return range;
     }
 
     if (entry.npos == entry.find_first_of(":/")) {
@@ -68,6 +73,9 @@ bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions)
         } else if (auto *domain_info = std::get_if<DomainEntryInfo>(&result); domain_info != nullptr) {
             log_filter(this, trace, "Entry added in domain table: {}", domain_info->text);
             m_domains[std::move(domain_info->text)] |= domain_info->flags;
+        } else if (auto *range = std::get_if<CidrRange>(&result); range != nullptr) {
+            log_filter(this, trace, "Entry added in CIDR ranges table: {}", range->to_string());
+            m_cidr_ranges.insert(*range);
         } else {
             auto status = std::get<DomainFilterValidationStatus>(result);
             log_filter(this, warn, "Malformed entry detected in exceptions list: {} ({})", entry,
@@ -137,6 +145,15 @@ DomainFilterMatchStatus DomainFilter::match_tag(const SockAddrTag &tag) const {
     bool found = m_addresses.end() != m_addresses.find(tag.addr);
     if (!found) {
         found = m_addresses.end() != m_addresses.find(addr_no_port);
+    }
+
+    if (!found) {
+        auto addr_size = sockaddr_get_ip_size((sockaddr *) &tag.addr);
+        ag::CidrRange addr_cidr = ag::CidrRange(
+                Uint8View((uint8_t *) sockaddr_get_ip_ptr((sockaddr *) &tag.addr), addr_size), addr_size * 8);
+        found = std::any_of(m_cidr_ranges.begin(), m_cidr_ranges.upper_bound(addr_cidr), [&](const auto &range) {
+            return range.contains(addr_cidr);
+        });
     }
 
     if (found) {

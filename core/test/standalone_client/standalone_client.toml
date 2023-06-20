@@ -36,6 +36,10 @@ killswitch_enabled = true
 #           * IPv4Address:port
 #           * IPv4Address
 #       * if port is not specified, any port will be matched
+#   * CIDR range
+#       * recognized formats are:
+#           * IPv4Address/mask
+#           * IPv6Address/mask
 #
 # Examples:
 #   * example.org
