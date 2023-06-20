@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.92.46
+
 * [Feature] The library now accepts CIDR range in exclusion list.
 
 ## 0.92.28
