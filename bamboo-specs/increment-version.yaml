@@ -32,15 +32,15 @@ Increment version:
         scripts:
           - |-
             set -x -e
-            
+
             git config user.name "Bamboo"
             git config user.email "Bamboo"
-            
+
             if [ ${bamboo_custom_version} = "none" ]; then
                 bamboo_custom_version=
             fi
             ./scripts/increment_version.sh ${bamboo_custom_version} || exit 1
-            
+
             git remote set-url origin ${bamboo_planRepository_repositoryUrl}
             git pull
             git reset
@@ -48,6 +48,14 @@ Increment version:
             git add CHANGELOG.md
             git commit -m "skipci: Automatic version increment by Bamboo"
             git push
+
+            case "${bamboo_repository_branch_name}" in
+            master)
+                BAMBOO_URL=$(echo ${bamboo_resultsUrl} | sed -ne 's|\(https://[^/]\+\)/.*|\1|p')
+                curl -H "Authorization: Bearer ${bamboo.bambooTriggerTokenSecret}" \
+                    "${BAMBOO_URL}/rest/api/latest/queue/CL-VUCRP" -X POST -d "executeAllStages=1"
+                ;;
+            esac
         working-dir: vpn-libs
         description: Increment version
   requirements:
