@@ -58,6 +58,7 @@ static void tcp_raw_error(void *arg, err_t err) {
     // PCB is no longer interactable at this point
     conn->pcb = nullptr;
     tcp_cm_close_descriptor(ctx->tcpip, ctx->id, false);
+    free(ctx);
 }
 
 static err_t tcp_raw_poll(void *arg, struct tcp_pcb *tpcb) {
