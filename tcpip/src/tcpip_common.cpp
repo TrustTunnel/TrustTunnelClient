@@ -162,49 +162,59 @@ static err_t netif_init_cb(struct netif *netif) {
     return ERR_OK;
 }
 
-// Return `true` if there may be more to read, `false` if there's definitely no more to read.
-#ifdef __MACH__
-static bool process_data_from_utun(TcpipCtx *ctx) {
-    VpnPacket packet = ctx->pool->get_packet();
+enum TunReadStatus {
+    TRS_OK,     // data was read from tun device and sent to netif driver
+    TRS_DROP,   // read data was malformed, so another read is required
+    TRS_STOP    // no more data can be read from tun device
+};
 
-    struct UtunHdr hdr;
+/**
+ * Read data from tun device and send it to netif driver.
+ * If packet is VpnPacket was sent to netif driver, its destructor will be called on the driver's side,
+ * else call VpnPacket's destructor manually to avoid leak.
+ * @param ctx context holder for tcp/ip stack
+ * @param packet container for reading data from tun device
+ * @return see TunReadStatus fields description
+ */
+#ifdef __MACH__
+static TunReadStatus process_data_from_utun(TcpipCtx *ctx, VpnPacket *packet) {
+    UtunHdr hdr{};
 
     static constexpr int HDR_SIZE = sizeof(hdr);
     evbuffer_iovec iov[] = {
-            {.iov_base = &hdr, .iov_len = HDR_SIZE}, {.iov_base = packet.data, .iov_len = ctx->parameters.mtu_size}};
+            {.iov_base = &hdr, .iov_len = HDR_SIZE}, {.iov_base = packet->data, .iov_len = ctx->parameters.mtu_size}};
     ssize_t bytes_read = readv(ctx->parameters.tun_fd, iov, std::size(iov));
     if (bytes_read <= 0) {
         if (EWOULDBLOCK != errno) {
             errlog(ctx->logger, "data from UTUN: read failed (errno={})", strerror(errno));
         }
-        return false;
+        return TRS_STOP;
     }
     if (bytes_read < HDR_SIZE) {
         errlog(ctx->logger, "data from UTUN: read less than header size bytes");
-        return true;
+        return TRS_DROP;
     }
 
     tracelog(ctx->logger, "data from UTUN: {} bytes", bytes_read);
-    packet.size = bytes_read - HDR_SIZE;
-    process_input_packet(ctx, &packet);
-    return true;
+    packet->size = bytes_read - HDR_SIZE;
+    process_input_packet(ctx, packet);
+    return TRS_OK;
 }
 #else  /* __MACH__ */
-static bool process_data_from_tun(TcpipCtx *ctx) {
-    VpnPacket packet = ctx->pool->get_packet();
+static TunReadStatus process_data_from_tun(TcpipCtx *ctx, VpnPacket *packet) {
 
-    ssize_t bytes_read = read(ctx->parameters.tun_fd, packet.data, ctx->parameters.mtu_size);
+    ssize_t bytes_read = read(ctx->parameters.tun_fd, packet->data, ctx->parameters.mtu_size);
     if (bytes_read <= 0) {
         if (EWOULDBLOCK != errno) {
             errlog(ctx->logger, "data from TUN: read failed (errno={})", strerror(errno));
         }
-        return false;
+        return TRS_STOP;
     }
-    packet.size = bytes_read;
+    packet->size = bytes_read;
     tracelog(ctx->logger, "data from TUN: {} bytes", bytes_read);
 
-    process_input_packet(ctx, &packet);
-    return true;
+    process_input_packet(ctx, packet);
+    return TRS_OK;
 }
 #endif /* else of __MACH__ */
 
@@ -216,7 +226,7 @@ struct ZeroCopyPBuf {
 static void zerocopy_pbuf_free(struct pbuf *buf) {
     auto *buf_custom = (ZeroCopyPBuf *) buf;
     if (buf_custom->v.destructor) {
-        buf_custom->v.destructor(buf_custom->v.destructor_arg, (uint8_t *) buf_custom->v.data);
+        buf_custom->v.destructor(buf_custom->v.destructor_arg, buf_custom->v.data);
     }
     delete buf_custom;
 }
@@ -227,7 +237,7 @@ static pbuf *zerocopy_pbuf_create(VpnPacket *packet) {
     buf_custom->v = *packet;
 
     pbuf *buffer = pbuf_alloced_custom(PBUF_RAW, buf_custom->v.size, PBUF_REF, &buf_custom->p,
-            (void *) buf_custom->v.data, u16_t(buf_custom->v.size));
+            buf_custom->v.data, u16_t(buf_custom->v.size));
     if (buffer == nullptr) {
         delete buf_custom;
         return nullptr;
@@ -241,10 +251,11 @@ static void process_input_packet(TcpipCtx *ctx, VpnPacket *packet) {
         dump_packet_to_pcap(ctx, packet->data, packet->size);
     }
 
-    struct pbuf *buffer = zerocopy_pbuf_create(packet);
+    pbuf *buffer = zerocopy_pbuf_create(packet);
     err_t result = netif_input(buffer, ctx->netif);
 
     if (ERR_OK != result) {
+        pbuf_free(buffer);
         errlog(ctx->logger, "data from TUN: netif_input failed ({})", result);
     }
 }
@@ -260,13 +271,17 @@ static void tun_event_callback(evutil_socket_t fd, short ev_flag, void *arg) {
             (ev_flag & EV_SIGNAL) ? " signal" : "");
 
     for (size_t i = 0; i < TUN_READ_BUDGET; ++i) {
-        bool ret;
+        TunReadStatus status{};
+        VpnPacket packet = ctx->pool->get_packet();
 #ifdef __MACH__
-        ret = process_data_from_utun(ctx);
+        status = process_data_from_utun(ctx, &packet);
 #else
-        ret = process_data_from_tun(ctx);
+        status = process_data_from_tun(ctx, &packet);
 #endif
-        if (!ret) {
+        if (status != TRS_OK && packet.destructor) {
+            packet.destructor(packet.destructor_arg, packet.data);
+        }
+        if (status == TRS_STOP) {
             break;
         }
     }
