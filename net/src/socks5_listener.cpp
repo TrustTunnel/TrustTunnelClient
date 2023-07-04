@@ -33,6 +33,8 @@ static ag::Logger g_logger{"SOCKS5_LISTENER"};
 static const uint32_t SOCKS5_VER = 0x05;
 static const uint32_t USERNAME_PASSWORD_VER = 0x01;
 
+using EventPtr = ag::DeclPtr<event, event_free>;
+
 enum Socks5AuthMethod {
     S5AM_NO_AUTHENTICATION_REQUIRED = 0x00,
     S5AM_GSSAPI = 0x01,
@@ -169,50 +171,57 @@ KHASH_INIT(connections_by_addr, AddressPair *, Connection *, 1, // NOLINT(hicpp-
 
 struct SocketArg {
     ag::Socks5Listener *listener;
-    uint32_t id;
+    uint64_t id;
 };
 
 struct UdpRelay {
-    struct event *udp_event;
+    EventPtr udp_event;
     Connection *tcp_conn;
-    khash_t(connections_by_addr) * connections_by_addr;
-    uint8_t *packet_buffer;
+    ag::DeclPtr<khash_t(connections_by_addr), kh_destroy_connections_by_addr> connections_by_addr;
+    std::vector<uint8_t> packet_buffer;
     SocketArg *event_arg;
 };
 
 KHASH_MAP_INIT_INT(udp_relays_by_id, UdpRelay *) // NOLINT(hicpp-use-auto,modernize-use-auto)
 
 struct ag::Socks5Listener {
-    khash_t(connections_by_id) * connections;
-    khash_t(udp_relays_by_id) * udp_relays;
-    struct evconnlistener *evconn_listener;
-    ag::Socks5ListenerConfig config;
-    ag::Socks5ListenerHandler handler;
+    Socks5Listener() = default;
+    ~Socks5Listener() = default;
+    Socks5Listener(const Socks5Listener &) = delete;
+    Socks5Listener &operator=(const Socks5Listener &) = delete;
+    Socks5Listener(Socks5Listener &&) = delete;
+    Socks5Listener &operator=(Socks5Listener &&) = delete;
+
+    ag::DeclPtr<khash_t(connections_by_id), kh_destroy_connections_by_id> connections;
+    ag::DeclPtr<khash_t(udp_relays_by_id), kh_destroy_udp_relays_by_id> udp_relays;
+    ag::DeclPtr<evconnlistener, evconnlistener_free> evconn_listener;
+    ag::Socks5ListenerConfig config = {};
+    ag::Socks5ListenerHandler handler = {};
     std::string upbuffer;
     event_loop::AutoTaskId async_task;
     std::list<uint64_t> conns_with_pending_udp;
 };
 
 struct UdpSpecific {
-    bool readable;
-    size_t sent_bytes_since_flush;
+    bool readable = false;
+    size_t sent_bytes_since_flush = 0;
     std::vector<std::vector<uint8_t>> pending_udp_packets;
-    UdpRelay *relay;
+    UdpRelay *relay = nullptr;
 };
 
 struct TcpSpecific {
-    SocketArg *sock_arg;
+    std::unique_ptr<SocketArg> sock_arg;
 };
 
 struct Connection {
-    ConnectionState state;
-    uint64_t id;
-    ag::TcpSocket *socket;
-    AddressPair addr;
-    int proto;
+    ConnectionState state = S5CONNS_IDLE;
+    uint64_t id = 0;
+    ag::DeclPtr<ag::TcpSocket, ag::tcp_socket_destroy> socket;
+    AddressPair addr = {};
+    int proto = 0;
     std::string app_name;
-    TcpSpecific tcp;
-    UdpSpecific udp;
+    TcpSpecific tcp = {};
+    UdpSpecific udp = {};
 };
 
 extern "C" int evutil_sockaddr_is_loopback_(const struct sockaddr *sa); // NOLINT(readability-identifier-naming)
@@ -229,13 +238,9 @@ static bool is_udp_association_tcp_connection(const Socks5Listener *listener, co
 
 Socks5Listener *socks5_listener_create(const Socks5ListenerConfig *config, const Socks5ListenerHandler *handler) {
     auto *listener = new Socks5Listener{};
-    if (listener == nullptr) {
-        return nullptr;
-    }
 
-    listener->connections = kh_init(connections_by_id);
-    listener->udp_relays = kh_init(udp_relays_by_id);
-
+    listener->connections.reset(kh_init(connections_by_id));
+    listener->udp_relays.reset(kh_init(udp_relays_by_id));
     listener->config = *config;
     listener->upbuffer.append(config->username);
     listener->upbuffer.append(config->password);
@@ -313,24 +318,24 @@ Socks5ListenerStartResult socks5_listener_start(Socks5Listener *listener) {
             return error;
         }
 
-        listener->evconn_listener = evconnlistener_new(
-                vpn_event_loop_get_base(listener->config.ev_loop), on_accept, listener, LEV_OPT_CLOSE_ON_FREE, -1, fd);
+        listener->evconn_listener.reset(evconnlistener_new(
+                vpn_event_loop_get_base(listener->config.ev_loop), on_accept, listener, LEV_OPT_CLOSE_ON_FREE, -1, fd));
         if (listener->evconn_listener == nullptr) {
             errlog(g_logger, "Failed to create evlistener");
             evutil_closesocket(fd);
             return SOCKS5L_START_FAILURE;
         }
 
-        evconnlistener_set_error_cb(listener->evconn_listener, on_error);
+        evconnlistener_set_error_cb(listener->evconn_listener.get(), on_error);
     } else {
-        if (0 != evconnlistener_enable(listener->evconn_listener)) {
+        if (0 != evconnlistener_enable(listener->evconn_listener.get())) {
             errlog(g_logger, "Failed to start listener");
             return SOCKS5L_START_FAILURE;
         }
     }
 
     if (sockaddr_get_port((struct sockaddr *) &listener->config.listen_address) == 0) {
-        struct sockaddr_storage addr = local_sockaddr_from_fd(evconnlistener_get_fd(listener->evconn_listener));
+        sockaddr_storage addr = local_sockaddr_from_fd(evconnlistener_get_fd(listener->evconn_listener.get()));
         sockaddr_set_port(
                 (struct sockaddr *) &listener->config.listen_address, sockaddr_get_port((struct sockaddr *) &addr));
     }
@@ -340,45 +345,69 @@ Socks5ListenerStartResult socks5_listener_start(Socks5Listener *listener) {
     return SOCKS5L_START_SUCCESS;
 }
 
-void socks5_listener_stop(Socks5Listener *listener) {
-    if (listener->evconn_listener != nullptr) {
-        evconnlistener_disable(listener->evconn_listener);
-    }
-    listener->async_task.reset();
-
+static void clean_up_udp_relays(Socks5Listener *listener) {
+    std::vector<uint64_t> ids;
+    ids.reserve(kh_size(listener->udp_relays));
     for (khiter_t i = kh_begin(listener->udp_relays); i != kh_end(listener->udp_relays); ++i) {
-        if (!kh_exist(listener->udp_relays, i)) {
-            continue;
+        if (kh_exist(listener->udp_relays, i)) {
+            ids.push_back(i);
         }
-
-        UdpRelay *relay = kh_value(listener->udp_relays, i);
-        terminate_udp_association(listener, relay->tcp_conn, {});
-        kh_del(udp_relays_by_id, listener->udp_relays, i);
     }
 
-    khash_t(connections_by_id) *table = listener->connections;
-    for (khiter_t it = kh_begin(table); it != kh_end(table); ++it) {
-        if (!kh_exist(table, it)) {
-            continue;
-        }
-        Connection *conn = kh_value(table, it);
-        Socks5ConnectionClosedEvent event = {.id = conn->id};
-        listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
-        destroy_connection(listener, conn);
+    for (uint64_t id : ids) {
+        UdpRelay *relay = kh_value(listener->udp_relays, id);
+        terminate_udp_association(listener, relay->tcp_conn, {});
+        kh_del(udp_relays_by_id, listener->udp_relays.get(), id);
     }
 }
 
-void socks5_listener_destroy(Socks5Listener *listener) {
-    if (listener != nullptr) {
-        assert(0 == kh_size(listener->connections));
-        assert(0 == kh_size(listener->udp_relays));
-        kh_destroy(connections_by_id, listener->connections);
-        kh_destroy(udp_relays_by_id, listener->udp_relays);
-        if (listener->evconn_listener != nullptr) {
-            evconnlistener_free(listener->evconn_listener);
+static void clean_up_connections(Socks5Listener *listener) {
+    std::vector<uint64_t> ids;
+    ids.reserve(kh_size(listener->connections));
+    for (khiter_t i = kh_begin(listener->connections); i != kh_end(listener->connections); ++i) {
+        if (kh_exist(listener->connections, i)) {
+            ids.push_back(i);
         }
-        delete listener;
     }
+
+    for (uint64_t id : ids) {
+        Connection *conn = kh_value(listener->connections, id);
+        destroy_connection(listener, conn);
+        Socks5ConnectionClosedEvent event = {.id = id};
+        listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
+    }
+}
+
+void socks5_listener_stop(Socks5Listener *listener) {
+    if (listener->evconn_listener != nullptr) {
+        evconnlistener_disable(listener->evconn_listener.get());
+    }
+    listener->async_task.reset();
+
+    clean_up_udp_relays(listener);
+    clean_up_connections(listener);
+}
+
+void socks5_listener_destroy(Socks5Listener *listener) {
+    if (listener == nullptr) {
+        return;
+    }
+
+    if (0 != kh_size(listener->udp_relays)) {
+        warnlog(g_logger, "Some UDP relays are left open: {}", kh_size(listener->udp_relays));
+        clean_up_udp_relays(listener);
+        assert(0);
+    }
+    listener->udp_relays.reset();
+
+    if (0 != kh_size(listener->connections)) {
+        warnlog(g_logger, "Some connection are left open: {}", kh_size(listener->connections));
+        clean_up_connections(listener);
+        assert(0);
+    }
+    listener->connections.reset();
+
+    delete listener;
 }
 
 static Socks5AddressType socks_atyp_by_addr(const Socks5ConnectionAddress *addr) {
@@ -453,12 +482,12 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
         break;
     }
 
-    struct sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket));
+    sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
     int port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
     memcpy(reply->bnd_addr + offset, &port, 2);
 
     log_conn(listener, conn->id, conn->proto, dbg, "Sending reply");
-    VpnError error = tcp_socket_write(conn->socket, reply_data.data(), reply_size);
+    VpnError error = tcp_socket_write(conn->socket.get(), reply_data.data(), reply_size);
     if (error.code != 0) {
         log_conn(listener, conn->id, conn->proto, err, "Failed to send socks reply: {} ({})",
                 safe_to_string_view(error.text), error.code);
@@ -473,7 +502,7 @@ static void send_pending_udp_data(void *arg, TaskId) {
     self->async_task.release();
 
     for (uint64_t conn_id : std::exchange(self->conns_with_pending_udp, {})) {
-        khiter_t i = kh_get(connections_by_id, self->connections, conn_id);
+        khiter_t i = kh_get(connections_by_id, self->connections.get(), conn_id);
         if (i == kh_end(self->connections)) {
             continue;
         }
@@ -511,7 +540,7 @@ static void complete_udp_connection(Socks5Listener *listener, Connection *conn, 
 void socks5_listener_complete_connect_request(Socks5Listener *listener, uint64_t id, Socks5ConnectResult result) {
     Connection *conn;
 
-    khiter_t i = kh_get(connections_by_id, listener->connections, id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {
         conn = kh_value(listener->connections, i);
     } else {
@@ -544,7 +573,7 @@ void socks5_listener_complete_connect_request(Socks5Listener *listener, uint64_t
 int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8_t *data, size_t length) {
     Connection *conn;
 
-    khiter_t i = kh_get(connections_by_id, listener->connections, id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {
         conn = kh_value(listener->connections, i);
     } else {
@@ -556,7 +585,7 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
 
     int r = 0;
     if (conn->proto == IPPROTO_TCP) {
-        r = tcp_socket_write(conn->socket, data, length).code;
+        r = tcp_socket_write(conn->socket.get(), data, length).code;
     } else {
         const Socks5ConnectionAddress *dst = &conn->addr.dst;
         Socks5AddressType atyp = socks_atyp_by_addr(dst);
@@ -576,9 +605,9 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
         reply_size += 2;
         reply_size += length;
 
-        uint8_t *reply_data = (uint8_t *) malloc(reply_size);
+        std::vector<uint8_t> reply_data(reply_size);
 
-        Socks5UdpHeader *reply = (Socks5UdpHeader *) reply_data;
+        auto *reply = (Socks5UdpHeader *) reply_data.data();
         reply->rsv = 0;
         reply->frag = 0;
         reply->atyp = atyp;
@@ -604,9 +633,9 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
 
         memcpy(reply->dst_addr + offset, data, length);
 
-        evutil_socket_t fd = event_get_fd(conn->udp.relay->udp_event);
-        r = sendto(fd, (const char *) reply_data, reply_size, 0, (struct sockaddr *) &conn->addr.src,
-                sockaddr_get_size((struct sockaddr *) &conn->addr.src));
+        evutil_socket_t fd = event_get_fd(conn->udp.relay->udp_event.get());
+        r = sendto(fd, (const char *) reply_data.data(), reply_data.size(), 0, (sockaddr *) &conn->addr.src,
+                sockaddr_get_size((sockaddr *) &conn->addr.src));
         int err = evutil_socket_geterror(fd);
         if (err == 0 || AG_ERR_IS_EAGAIN(err)) {
             r = 0;
@@ -615,19 +644,17 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
             log_conn(listener, conn->id, IPPROTO_UDP, dbg, "Failed to sendto: {} ({})",
                     evutil_socket_error_to_string(err), err);
         }
-
-        free(reply_data);
     }
 
     return r;
 }
 
 void socks5_listener_turn_read(const Socks5Listener *listener, uint64_t id, bool on) {
-    khiter_t i = kh_get(connections_by_id, listener->connections, id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {
         Connection *conn = kh_value(listener->connections, i);
         if (conn->proto == IPPROTO_TCP) {
-            tcp_socket_set_read_enabled(conn->socket, on);
+            tcp_socket_set_read_enabled(conn->socket.get(), on);
         } else {
             conn->udp.readable = on;
         }
@@ -639,11 +666,11 @@ void socks5_listener_turn_read(const Socks5Listener *listener, uint64_t id, bool
 TcpFlowCtrlInfo socks5_listener_flow_ctrl_info(const Socks5Listener *listener, uint64_t id) {
     TcpFlowCtrlInfo r = {};
 
-    khiter_t i = kh_get(connections_by_id, listener->connections, id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {
         Connection *conn = kh_value(listener->connections, i);
         if (conn->proto == IPPROTO_TCP) {
-            r = tcp_socket_flow_control_info(conn->socket);
+            r = tcp_socket_flow_control_info(conn->socket.get());
         } else {
             r = {UDP_MAX_DATAGRAM_SIZE, DEFAULT_SEND_WINDOW_SIZE};
         }
@@ -655,11 +682,11 @@ TcpFlowCtrlInfo socks5_listener_flow_ctrl_info(const Socks5Listener *listener, u
 }
 
 void socks5_listener_close_connection(Socks5Listener *listener, uint64_t id, bool graceful) {
-    khiter_t i = kh_get(connections_by_id, listener->connections, id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {
         Connection *conn = kh_value(listener->connections, i);
         if (!graceful && conn->proto == IPPROTO_TCP) {
-            tcp_socket_set_rst(conn->socket);
+            tcp_socket_set_rst(conn->socket.get());
         }
 
         Socks5ConnectionClosedEvent event = {conn->id, {}};
@@ -844,17 +871,17 @@ static void handle_udp_read(Socks5Listener *listener, Connection *conn, const ui
     }
 }
 
-static struct event *create_udp_event(Socks5Listener *listener, Connection *conn) {
+static EventPtr create_udp_event(Socks5Listener *listener, Connection *conn) {
     sa_family_t saf = listener->config.listen_address.ss_family;
     struct sockaddr_storage sa;
-    SocketArg *arg;
+    std::unique_ptr<SocketArg> arg;
 
     evutil_socket_t fd = socket(saf, SOCK_DGRAM, 0);
     if (fd < 0) {
         return nullptr;
     }
 
-    struct event *event = nullptr;
+    EventPtr event;
 
     int r = evutil_make_socket_nonblocking(fd);
     if (r != 0) {
@@ -889,35 +916,33 @@ static struct event *create_udp_event(Socks5Listener *listener, Connection *conn
         goto fail;
     }
 
-    arg = (SocketArg *) malloc(sizeof(SocketArg));
+    arg = std::make_unique<SocketArg>();
     arg->listener = listener;
     arg->id = conn->id;
-    event = event_new(
-            vpn_event_loop_get_base(listener->config.ev_loop), fd, EV_READ | EV_PERSIST, udp_event_handler, arg);
+    event.reset(event_new(
+            vpn_event_loop_get_base(listener->config.ev_loop), fd, EV_READ | EV_PERSIST, udp_event_handler, arg.get()));
     if (event == nullptr) {
         errlog(g_logger, "Failed to create event for UDP traffic");
         goto fail;
     }
 
-    if (0 != event_add(event, nullptr)) {
+    if (0 != event_add(event.get(), nullptr)) {
         errlog(g_logger, "Failed to add event for UDP traffic in event base");
         goto fail;
     }
 
+    (void) arg.release();
     return event;
 
 fail:
     evutil_closesocket(fd);
-    if (event != nullptr) {
-        event_free(event);
-    }
     return nullptr;
 }
 
 static bool complete_udp_association(Socks5Listener *listener, Connection *conn) {
-    struct event *udp_event = create_udp_event(listener, conn);
+    EventPtr udp_event = create_udp_event(listener, conn);
     struct sockaddr_storage bound_addr =
-            (udp_event != nullptr) ? local_sockaddr_from_fd(event_get_fd(udp_event)) : sockaddr_storage{};
+            (udp_event != nullptr) ? local_sockaddr_from_fd(event_get_fd(udp_event.get())) : sockaddr_storage{};
 
     Socks5AddressType atyp = socks_atyp_by_addr(&conn->addr.dst);
     if (bound_addr.ss_family == AF_INET) {
@@ -968,31 +993,33 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
         break;
     }
 
-    if (udp_event != nullptr) {
-        assert(kh_end(listener->udp_relays) == kh_get(udp_relays_by_id, listener->udp_relays, conn->id));
-        UdpRelay *relay = (UdpRelay *) calloc(1, sizeof(UdpRelay));
-        relay->udp_event = udp_event;
-        relay->tcp_conn = conn;
-        relay->event_arg = (SocketArg *) event_get_callback_arg(udp_event);
+    bool has_event = udp_event != nullptr;
+    if (has_event) {
+        assert(kh_end(listener->udp_relays) == kh_get(udp_relays_by_id, listener->udp_relays.get(), conn->id));
+        auto *relay = new UdpRelay{
+                .udp_event = std::move(udp_event),
+                .tcp_conn = conn,
+        };
+        relay->event_arg = (SocketArg *) event_get_callback_arg(relay->udp_event.get());
         int r;
-        khiter_t i = kh_put(udp_relays_by_id, listener->udp_relays, conn->id, &r);
+        khiter_t i = kh_put(udp_relays_by_id, listener->udp_relays.get(), conn->id, &r);
         kh_value(listener->udp_relays, i) = relay;
     }
 
     log_conn(listener, conn->id, conn->proto, dbg, "Sending reply");
-    VpnError error = tcp_socket_write(conn->socket, reply_data, reply_size);
+    VpnError error = tcp_socket_write(conn->socket.get(), reply_data, reply_size);
     if (error.code != 0) {
         log_conn(listener, conn->id, conn->proto, err, "Failed to send socks reply: {} ({})",
                 safe_to_string_view(error.text), error.code);
         terminate_udp_association(listener, conn, error);
-    } else if (udp_event != nullptr) {
-        tcp_socket_set_timeout(conn->socket, Millis::max());
-        tcp_socket_set_read_enabled(conn->socket, true);
+    } else if (has_event) {
+        tcp_socket_set_timeout(conn->socket.get(), Millis::max());
+        tcp_socket_set_read_enabled(conn->socket.get(), true);
         log_conn(listener, conn->id, 0, dbg, "UDP association started on port {}...",
                 sockaddr_get_port((struct sockaddr *) &bound_addr));
     }
 
-    return error.code == 0 && udp_event != nullptr;
+    return error.code == 0 && has_event;
 }
 
 static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const uint8_t *data, size_t length,
@@ -1031,7 +1058,7 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
     }
 
     if (relay->connections_by_addr == nullptr) {
-        relay->connections_by_addr = kh_init(connections_by_addr);
+        relay->connections_by_addr.reset(kh_init(connections_by_addr));
     }
 
     Connection *udp_conn = nullptr;
@@ -1039,7 +1066,7 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
     AddressPair key = {};
     memcpy(&key.src, src, sizeof(*src));
     key.dst = dst_addr_from_request((Socks5AddressType) req->atyp, req->dst_addr);
-    khiter_t i = kh_get(connections_by_addr, relay->connections_by_addr, &key);
+    khiter_t i = kh_get(connections_by_addr, relay->connections_by_addr.get(), &key);
     if (i == kh_end(relay->connections_by_addr)) {
         udp_conn = new Connection{};
         listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_GENERATE_CONN_ID, &udp_conn->id);
@@ -1049,18 +1076,18 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
         udp_conn->app_name = app_name_from_request((Socks5AddressType) req->atyp, req->dst_addr);
 
         int r;
-        i = kh_put(connections_by_addr, relay->connections_by_addr, &udp_conn->addr, &r);
+        i = kh_put(connections_by_addr, relay->connections_by_addr.get(), &udp_conn->addr, &r);
         if (r < 0) {
             dbglog(g_logger, "Failed to put UDP connection in address table");
             destroy_connection(listener, udp_conn);
             return -1;
         }
 
-        kh_value(relay->connections_by_addr, i) = udp_conn;
+        kh_value(relay->connections_by_addr.get(), i) = udp_conn;
 
-        assert(kh_end(listener->connections) == kh_get(connections_by_id, listener->connections, udp_conn->id));
+        assert(kh_end(listener->connections) == kh_get(connections_by_id, listener->connections.get(), udp_conn->id));
 
-        i = kh_put(connections_by_id, listener->connections, udp_conn->id, &r);
+        i = kh_put(connections_by_id, listener->connections.get(), udp_conn->id, &r);
         if (r < 0) {
             dbglog(g_logger, "Failed to put UDP connection in table");
             destroy_connection(listener, udp_conn);
@@ -1083,8 +1110,8 @@ static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
     SocketArg *info = (SocketArg *) arg;
     Socks5Listener *listener = info->listener;
 
-    khiter_t i = kh_get(connections_by_id, listener->connections, info->id);
-    khiter_t j = kh_get(udp_relays_by_id, listener->udp_relays, info->id);
+    khiter_t i = kh_get(connections_by_id, listener->connections.get(), info->id);
+    khiter_t j = kh_get(udp_relays_by_id, listener->udp_relays.get(), info->id);
     if (i == kh_end(listener->connections) || j == kh_end(listener->udp_relays)) {
         assert(0);
         return;
@@ -1094,26 +1121,28 @@ static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
     UdpRelay *relay = kh_value(listener->udp_relays, j);
 
     if (what & EV_READ) {
-        if (relay->packet_buffer == nullptr) {
-            relay->packet_buffer = (uint8_t *) malloc(UDP_MAX_DATAGRAM_SIZE);
+        if (relay->packet_buffer.empty()) {
+            relay->packet_buffer.resize(UDP_MAX_DATAGRAM_SIZE);
         }
 
-        uint8_t *buffer = relay->packet_buffer;
+        U8View buffer = {relay->packet_buffer.data(), relay->packet_buffer.size()};
 
         struct sockaddr_storage src = {};
         socklen_t src_len = sizeof(src);
 
-        int r = recvfrom(fd, (char *) buffer, UDP_MAX_DATAGRAM_SIZE, 0, (struct sockaddr *) &src, &src_len);
+        ssize_t r = recvfrom(fd, (char *) buffer.data(), buffer.size(), 0, (sockaddr *) &src, &src_len);
 
         if (r > 0) {
-            Connection *conn;
-            int processed_bytes = process_udp_header(listener, relay, buffer, r, &src, &conn);
+            buffer = {buffer.data(), size_t(r)};
+            Connection *conn = nullptr;
+            int processed_bytes = process_udp_header(listener, relay, buffer.data(), buffer.size(), &src, &conn);
             if (processed_bytes > 0) {
-                handle_udp_read(listener, conn, buffer + processed_bytes, r - processed_bytes);
+                buffer.remove_prefix(processed_bytes);
+                handle_udp_read(listener, conn, buffer.data(), buffer.size());
             }
         } else if (r < 0) {
             VpnError error = make_vpn_error_from_fd(fd);
-            if (!AG_ERR_IS_EAGAIN(error.code)) {
+            if (!AG_ERR_IS_EAGAIN(error.code)) { // NOLINT(readability-simplify-boolean-expr)
                 terminate_udp_association(listener, tcp_conn, error);
             }
         }
@@ -1125,19 +1154,20 @@ static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
 }
 
 static bool is_udp_association_tcp_connection(const Socks5Listener *listener, const Connection *conn) {
-    return conn->proto == 0 && kh_end(listener->udp_relays) != kh_get(udp_relays_by_id, listener->udp_relays, conn->id);
+    return conn->proto == 0
+            && kh_end(listener->udp_relays) != kh_get(udp_relays_by_id, listener->udp_relays.get(), conn->id);
 }
 
 static void terminate_udp_association(Socks5Listener *listener, Connection *tcp_conn, VpnError error) {
     assert(is_udp_association_tcp_connection(listener, tcp_conn));
 
     uint32_t tcp_id = tcp_conn->id;
-    UdpRelay *udp_relay = kh_value(listener->udp_relays, kh_get(udp_relays_by_id, listener->udp_relays, tcp_id));
+    UdpRelay *udp_relay = kh_value(listener->udp_relays, kh_get(udp_relays_by_id, listener->udp_relays.get(), tcp_id));
 
     Socks5ConnectionClosedEvent event = {0, error};
 
     if (udp_relay->connections_by_addr != nullptr) {
-        khash_t(connections_by_addr) *table = udp_relay->connections_by_addr;
+        khash_t(connections_by_addr) *table = udp_relay->connections_by_addr.get();
         for (khiter_t it = kh_begin(table); it != kh_end(table); ++it) {
             if (!kh_exist(table, it)) {
                 continue;
@@ -1147,26 +1177,21 @@ static void terminate_udp_association(Socks5Listener *listener, Connection *tcp_
             listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
             destroy_connection(listener, conn);
         }
-        kh_destroy(connections_by_addr, udp_relay->connections_by_addr);
+        udp_relay->connections_by_addr.reset();
     }
 
     if (udp_relay->udp_event != nullptr) {
-        evutil_closesocket(event_get_fd(udp_relay->udp_event));
-        event_free(udp_relay->udp_event);
-        udp_relay->udp_event = nullptr;
+        evutil_closesocket(event_get_fd(udp_relay->udp_event.get()));
+        udp_relay->udp_event.reset();
     }
 
-    kh_del(udp_relays_by_id, listener->udp_relays,
-            kh_get(udp_relays_by_id, listener->udp_relays, udp_relay->tcp_conn->id));
+    kh_del(udp_relays_by_id, listener->udp_relays.get(),
+            kh_get(udp_relays_by_id, listener->udp_relays.get(), udp_relay->tcp_conn->id));
 
-    destroy_connection(listener, udp_relay->tcp_conn);
-    udp_relay->tcp_conn = nullptr;
+    destroy_connection(listener, std::exchange(udp_relay->tcp_conn, nullptr));
 
-    free(udp_relay->packet_buffer);
-    udp_relay->packet_buffer = nullptr;
-
-    free(udp_relay->event_arg);
-    free(udp_relay);
+    delete std::exchange(udp_relay->event_arg, nullptr);
+    delete udp_relay;
 
     if (error.code == 0) {
         log_conn(listener, tcp_id, 0, dbg, "UDP association terminated");
@@ -1186,10 +1211,10 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         return;
     }
 
-    Connection *conn = [](auto &connections, uint32_t conn_id) {
+    Connection *conn = [](auto *connections, uint32_t conn_id) {
         khiter_t i = kh_get(connections_by_id, connections, conn_id);
         return (i != kh_end(connections)) ? kh_value(connections, i) : nullptr;
-    }(listener->connections, conn_id);
+    }(listener->connections.get(), conn_id);
     if (conn == nullptr) {
         return;
     }
@@ -1203,7 +1228,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         break;
     }
     case TCP_SOCKET_EVENT_READABLE: {
-        tcp_socket::PeekResult result = tcp_socket_peek(conn->socket);
+        tcp_socket::PeekResult result = tcp_socket_peek(conn->socket.get());
         if (std::holds_alternative<tcp_socket::NoData>(result)) {
             break;
         }
@@ -1278,7 +1303,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             resp.method = S5AM_NO_ACCEPTABLE_METHODS;
 
         send_resp:
-            error = tcp_socket_write(conn->socket, (uint8_t *) &resp, sizeof(resp));
+            error = tcp_socket_write(conn->socket.get(), (uint8_t *) &resp, sizeof(resp));
             if (error.code != 0) {
                 log_conn(listener, conn->id, conn->proto, err, "Failed to send socks authentication response: {} ({})",
                         safe_to_string_view(error.text), error.code);
@@ -1321,7 +1346,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             log_conn(listener, conn->id, conn->proto, dbg, "Username/password processing failed");
 
         uname_passwd_send_resp:
-            error = tcp_socket_write(conn->socket, (uint8_t *) &resp, sizeof(resp));
+            error = tcp_socket_write(conn->socket.get(), (uint8_t *) &resp, sizeof(resp));
             if (error.code != 0) {
                 log_conn(listener, conn->id, conn->proto, err,
                         "Failed to send socks username/password response: {} ({})", safe_to_string_view(error.text),
@@ -1397,10 +1422,10 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
 
             if (req->cmd == S5CMD_CONNECT) {
                 conn->state = S5CONNS_WAITING_CONNECT_RESULT;
-                conn->addr.src = remote_sockaddr_from_fd(tcp_socket_get_fd(conn->socket));
+                conn->addr.src = remote_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
                 raise_connect_request(listener, conn);
-                if (kh_get(connections_by_id, listener->connections, conn_id) != kh_end(listener->connections)) {
-                    tcp_socket_set_read_enabled(conn->socket, false);
+                if (kh_get(connections_by_id, listener->connections.get(), conn_id) != kh_end(listener->connections)) {
+                    tcp_socket_set_read_enabled(conn->socket.get(), false);
                     log_conn(listener, conn->id, conn->proto, dbg, "Request processed, waiting for connect result");
                 }
             } else if (complete_udp_association(listener, conn)) {
@@ -1426,11 +1451,11 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             reply->rsv = 0;
             reply->atyp = req->atyp;
             memcpy(reply->bnd_addr, req->dst_addr, addr_len);
-            struct sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket));
+            sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
             int port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
             memcpy(reply->bnd_addr + addr_len, &port, 2);
 
-            error = tcp_socket_write(conn->socket, (uint8_t *) reply_data, reply_size);
+            error = tcp_socket_write(conn->socket.get(), (uint8_t *) reply_data, reply_size);
             if (error.code != 0) {
                 log_conn(listener, conn->id, conn->proto, err, "Failed to send socks response: {} ({})",
                         safe_to_string_view(error.text), error.code);
@@ -1446,7 +1471,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             goto close;
         case S5CONNS_ESTABLISHED: {
             constexpr size_t READ_BUDGET = 64;
-            TcpSocket *socket = conn->socket;
+            TcpSocket *socket = conn->socket.get();
             for (size_t j = 0; j < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++j) {
                 log_conn(listener, conn->id, conn->proto, trace, "Got {} bytes", chunk.size());
 
@@ -1480,7 +1505,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             to_drain = chunk.size();
             break;
         }
-        if (!tcp_socket_drain(conn->socket, to_drain)) {
+        if (!tcp_socket_drain(conn->socket.get(), to_drain)) {
             log_conn(listener, conn->id, conn->proto, dbg, "Couldn't drain data from socket buffer");
             goto close;
         }
@@ -1524,13 +1549,17 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         if (is_udp_association_tcp_connection(listener, conn)) {
             switch (conn->state) {
             case S5CONNS_ESTABLISHED: {
-                UdpRelay *relay =
-                        kh_value(listener->udp_relays, kh_get(udp_relays_by_id, listener->udp_relays, conn->id));
+                khiter_t iter = kh_get(udp_relays_by_id, listener->udp_relays.get(), conn->id);
+                if (iter == kh_end(listener->udp_relays)) {
+                    log_conn(listener, conn->id, conn->proto, dbg, "UDP relay not found");
+                    goto close;
+                }
+                UdpRelay *relay = kh_value(listener->udp_relays, iter);
                 if (relay->connections_by_addr == nullptr) {
                     break;
                 }
 
-                khash_t(connections_by_addr) *table = relay->connections_by_addr;
+                khash_t(connections_by_addr) *table = relay->connections_by_addr.get();
                 for (khiter_t it = kh_begin(table); it != kh_end(table); ++it) {
                     if (!kh_exist(table, it)) {
                         continue;
@@ -1586,10 +1615,10 @@ close:
     destroy_connection(listener, conn);
 }
 
-static void on_accept(
-        struct evconnlistener *evlistener, evutil_socket_t fd, struct sockaddr *sa, int salen, void *data) {
-    Socks5Listener *socks_listener = (Socks5Listener *) data;
-    khint_t iter;
+static void on_accept(evconnlistener *, evutil_socket_t fd, sockaddr *sa, int, void *data) {
+    auto *socks_listener = (Socks5Listener *) data;
+    khint_t iter{};
+    int r = 0;
 
     if (g_logger.is_enabled(ag::LogLevel::LOG_LEVEL_DEBUG)) {
         char buf[SOCKADDR_STR_BUF_SIZE];
@@ -1597,86 +1626,68 @@ static void on_accept(
         dbglog(g_logger, "New connection from client {} fd {}", buf, fd);
     }
 
-    Connection *conn = nullptr;
+    uint64_t conn_id = 0;
+    socks_listener->handler.func(socks_listener->handler.arg, SOCKS5L_EVENT_GENERATE_CONN_ID, &conn_id);
 
-    SocketArg *arg = (SocketArg *) malloc(sizeof(SocketArg));
-    arg->listener = socks_listener;
-    socks_listener->handler.func(socks_listener->handler.arg, SOCKS5L_EVENT_GENERATE_CONN_ID, &arg->id);
+    auto conn = std::make_unique<Connection>();
+    conn->id = conn_id;
+    conn->tcp.sock_arg = std::make_unique<SocketArg>();
+    conn->tcp.sock_arg->listener = socks_listener;
+    conn->tcp.sock_arg->id = conn->id;
 
     TcpSocketParameters sock_params = {
             .ev_loop = socks_listener->config.ev_loop,
-            .handler = {sock_handler, arg},
+            .handler = {sock_handler, conn->tcp.sock_arg.get()},
             .timeout = socks_listener->config.timeout,
             .socket_manager = socks_listener->config.socket_manager,
             .read_threshold = socks_listener->config.read_threshold,
     };
-    TcpSocket *socket = tcp_socket_create(&sock_params);
+    DeclPtr<TcpSocket, tcp_socket_destroy> socket{tcp_socket_create(&sock_params)};
     if (socket == nullptr) {
-        log_conn(socks_listener, arg->id, 0, err, "Failed to create socket");
+        log_conn(socks_listener, conn_id, 0, err, "Failed to create socket");
         goto fail;
     }
 
-    if (0 != tcp_socket_acquire_fd(socket, fd).code) {
+    if (0 != tcp_socket_acquire_fd(socket.get(), fd).code) {
         goto fail;
     }
 
     fd = -1; // will be closed in `tcp_socket_destroy`
 
-    conn = new Connection{};
-    if (conn == nullptr) {
-        log_conn(socks_listener, arg->id, 0, err, "No memory to create connection");
-        goto fail;
-    }
+    conn->socket = std::move(socket);
 
-    conn->id = arg->id;
-    conn->socket = socket;
-    conn->tcp.sock_arg = arg;
-
-    // will be destroyed in `destroy_connection`
-    socket = nullptr;
-    arg = nullptr;
-
-    int r;
-    iter = kh_put(connections_by_id, socks_listener->connections, conn->id, &r);
+    iter = kh_put(connections_by_id, socks_listener->connections.get(), conn_id, &r);
     if (r < 0) {
-        log_conn(socks_listener, arg->id, 0, err, "Failed to put connection in table");
+        log_conn(socks_listener, conn_id, 0, err, "Failed to put connection in table");
         goto fail;
     }
-    kh_value(socks_listener->connections, iter) = conn;
+    tcp_socket_set_read_enabled(conn->socket.get(), true);
+    kh_value(socks_listener->connections, iter) = conn.release();
 
-    log_conn(socks_listener, conn->id, 0, trace, "New incoming connection");
-
-    tcp_socket_set_read_enabled(conn->socket, true);
+    log_conn(socks_listener, conn_id, 0, trace, "New incoming connection");
     return;
 
 fail:
     if (fd != -1) {
         evutil_closesocket(fd);
     }
-    free(arg);
-    if (socket != nullptr) {
-        tcp_socket_destroy(socket);
-    }
-    destroy_connection(socks_listener, conn);
+    destroy_connection(socks_listener, conn.release());
 }
 
-static void on_error(struct evconnlistener *evl, void *arg) {
+static void on_error(struct evconnlistener *, void *) {
     errlog(g_logger, "Connection accept error: {}", evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()));
 }
 
 static void destroy_connection(Socks5Listener *listener, Connection *conn) {
     if (conn != nullptr) {
-        khiter_t i = kh_get(connections_by_id, listener->connections, conn->id);
-        kh_del(connections_by_id, listener->connections, i);
+        khiter_t i = kh_get(connections_by_id, listener->connections.get(), conn->id);
+        kh_del(connections_by_id, listener->connections.get(), i);
 
-        if (conn->proto == IPPROTO_TCP || conn->proto == 0) {
-            tcp_socket_destroy(conn->socket);
-            free(conn->tcp.sock_arg);
-        } else {
+        if (conn->proto == IPPROTO_UDP) {
             UdpSpecific *udp = &conn->udp;
             if (udp->relay->connections_by_addr != nullptr) {
-                i = kh_get(connections_by_addr, udp->relay->connections_by_addr, &conn->addr);
-                kh_del(connections_by_addr, udp->relay->connections_by_addr, i);
+                i = kh_get(connections_by_addr, udp->relay->connections_by_addr.get(), &conn->addr);
+                kh_del(connections_by_addr, udp->relay->connections_by_addr.get(), i);
             }
         }
 
