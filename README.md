@@ -72,7 +72,7 @@ It supports Linux, macOS, and Windows platforms.
 This command builds and exports required binaries to the `bin` directory:
 
 ```shell
-EXPORT_DIR=bin make build_and_export_standalone_client
+EXPORT_DIR=bin make build_and_export_bin
 ```
 
 `EXPORT_DIR=bin` can be omitted. `bin` is the default value for `EXPORT_DIR`.
@@ -108,7 +108,7 @@ To build the main library:
 
     ```shell
     mkdir build && cd build
-    cmake -DCMAKE_BUILD_TYPE=ReleaseWithDebInfo \
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DCMAKE_C_COMPILER="clang" \
       -DCMAKE_CXX_COMPILER="clang++" \
       -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
