@@ -121,8 +121,10 @@ TEST_F(PingTest, Timeout) {
     static const std::string TEST_DATA[] = {
             "94.140.14.200:443",
             "1.2.3.4:443",
+#ifndef IPV6_UNAVAILABLE
             "[2a10:50c0::42]:443",
             "[2a10:50c0::43]:443",
+#endif
     };
 
     TestCtx test_ctx = generate_test_ctx();

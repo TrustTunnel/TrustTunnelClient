@@ -511,7 +511,7 @@ static void postpone_request(void *ctx, void *data) {
     log_vpn(vpn, trace, "Done");
 }
 
-static void postponement_window_timer_cb(int, short, void *arg) {
+static void postponement_window_timer_cb(evutil_socket_t, short, void *arg) {
     auto *vpn = (Vpn *) arg;
     log_vpn(vpn, trace, "...");
 

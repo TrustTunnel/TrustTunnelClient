@@ -8,6 +8,7 @@
 #include <event2/buffer.h>
 
 #include <common/cidr_range.h>
+#include <common/error.h>
 #include <vpn/utils.h>
 
 #ifdef _WIN32
@@ -109,7 +110,8 @@ public:
 #ifdef _WIN32
 
     /** Start receiving packets */
-    virtual void start_recv_packets(void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) = 0;
+    virtual void start_recv_packets(
+            void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) = 0;
 
     /** Stop receiving packets */
     virtual void stop_recv_packets() = 0;
@@ -182,8 +184,15 @@ private:
 std::unique_ptr<ag::VpnOsTunnel> make_vpn_tunnel();
 
 namespace tunnel_utils {
-/** execute command in shell and return output as string */
-std::string exec_with_output(const char *cmd);
+enum ExecError {
+    AE_POPEN,
+    AE_PCLOSE,
+    AE_CMD_FAILURE,
+};
+
+/** Execute command in shell and return output as string */
+Result<std::string, ExecError> exec_with_output(const char *cmd);
+
 /**
  * Needed because using `__func__` (which is used in `tracelog()`) inside variadic
  * template function causes a compiler error inside fmtlib's headers
@@ -193,6 +202,10 @@ template <typename... Ts>
 void fsystem(std::string_view fmt, Ts &&...args) {
     sys_cmd(fmt::vformat(fmt, fmt::make_format_args(args...)));
 }
+template <typename... Ts>
+Result<std::string, ExecError> fsystem_with_output(std::string_view fmt, Ts &&...args) {
+    return exec_with_output(fmt::vformat(fmt, fmt::make_format_args(args...)).c_str());
+}
 void get_setup_dns(std::string &dns_list_v4, std::string &dns_list_v6, ag::VpnAddressArray &dns_servers);
 void get_setup_routes(std::vector<ag::CidrRange> &ipv4_routes, std::vector<ag::CidrRange> &ipv6_routes,
         ag::VpnAddressArray &included_routes, ag::VpnAddressArray &excluded_routes);
@@ -200,5 +213,19 @@ void split_default_route(std::vector<ag::CidrRange> &routes, ag::CidrRange route
 ag::CidrRange get_address_for_index(const char *ipv4_address, uint32_t index);
 } // namespace tunnel_utils
 
+template <>
+struct ErrorCodeToString<tunnel_utils::ExecError> {
+    std::string operator()(tunnel_utils::ExecError code) {
+        // clang-format off
+        switch (code) {
+        case tunnel_utils::AE_POPEN: return "popen()";
+        case tunnel_utils::AE_PCLOSE: return "pclose()";
+        case tunnel_utils::AE_CMD_FAILURE: return "Command failure";
+        }
+        // clang-format on
+    }
+};
+
 } // namespace ag
+
 #endif

@@ -168,7 +168,9 @@ docgen! {
 docgen! {
     #[derive(Deserialize, Serialize)]
     pub struct TunListener {
-        #{doc("Outbound interface for outgoing connections")}
+        #{doc(r#"Outbound interface for outgoing connections.
+Defaults to `en0` on macOS.
+On Linux and Windows, it is detected automatically if not specified."#)}
         #[serde(default = "TunListener::default_bound_if")]
         pub bound_if: String,
         #{doc("Routes in CIDR notation to set to the virtual interface")}
@@ -232,10 +234,10 @@ impl SocksListener {
 
 impl TunListener {
     pub fn default_bound_if() -> String {
-        if cfg!(target_os = "linux") {
-            "eth0"
-        } else {
+        if cfg!(target_os = "macos") {
             "en0"
+        } else {
+            ""
         }.into()
     }
 
@@ -403,11 +405,15 @@ fn build_listener(template: Option<&Listener>) -> Listener {
                 _ => None,
             });
             Listener::Tun(TunListener {
-                bound_if: ask_for_input(
-                    TunListener::doc_bound_if(),
-                    Some(opt_field!(template, bound_if).cloned()
-                        .unwrap_or_else(TunListener::default_bound_if)),
-                ),
+                bound_if: if cfg!(target_os = "windows") {
+                    Default::default()
+                } else {
+                    ask_for_input(
+                        TunListener::doc_bound_if(),
+                        Some(opt_field!(template, bound_if).cloned()
+                            .unwrap_or_else(TunListener::default_bound_if)),
+                    )
+                },
                 included_routes: opt_field!(template, included_routes).cloned()
                     .unwrap_or_else(TunListener::default_included_routes),
                 excluded_routes: opt_field!(template, excluded_routes).cloned()

@@ -114,7 +114,7 @@ typedef struct {
  * This structure holds TCP/IP stack configuration parameters
  */
 typedef struct {
-    int tun_fd; /**< File descriptor of TUN device */
+    evutil_socket_t tun_fd; /**< File descriptor of TUN device */
     VpnEventLoop *event_loop;
     uint32_t mtu_size;         /**< Maximum transfer unit for TCP protocol (if 0 `DEFAULT_MTU_SIZE` will be used) */
     const char *pcap_filename; /**< Pcap file name */

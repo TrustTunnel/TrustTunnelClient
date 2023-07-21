@@ -53,7 +53,6 @@ if [[ "$MODE" == "tun" ]]; then
 $COMMON_CONFIG
 
 [listener.tun]
-bound_if = "eth0"
 included_routes = [
     "0.0.0.0/0",
     "2000::/3",

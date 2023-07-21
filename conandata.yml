@@ -1,18 +1,3 @@
-requirements:
-  - "magic_enum/0.7.3"
-  - "http_parser/2.9.4"
-  - "brotli/1.0.9"
-  - "zlib/1.2.11"
-  - "libevent/2.1.11@AdguardTeam/NativeLibsCommon"
-  - "ldns/2021-03-29@AdguardTeam/NativeLibsCommon"
-  - "klib/2021-04-06@AdguardTeam/NativeLibsCommon"
-  - "openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon"
-  - "quiche/0.17.1@AdguardTeam/NativeLibsCommon"
-  - "nghttp2/1.44.0@AdguardTeam/NativeLibsCommon"
-  - "dns-libs/2.2.7@AdguardTeam/NativeLibsCommon"
-  - "native_libs_common/2.0.60@AdguardTeam/NativeLibsCommon"
-requirements_apple:
-  - "ghc-filesystem/1.5.12"
 commit_hash:
   "0.90.6":
     hash: "58a57f19ee4e194de266429c00c45f677e2c0d0a"

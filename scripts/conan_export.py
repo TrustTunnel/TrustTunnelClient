@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 
+"""
+This script exports the vpn-libs package to the local conan cache.
+
+By default, it exports the last version from `conandata.yml` of the vpn-libs and
+the special `777` version (i.e., current master in case a commit hash is not
+specified).
+
+Pass `all` as an argument to export all versions (i.e., `export_conan.py all`).
+
+Pass a version number as an argument to export only the specific version
+(e.g., `export_conan.py 1.0.0`).
+"""
+
 import os
 import subprocess
 import sys

@@ -85,9 +85,7 @@ Refer to the [details here](https://github.com/AdguardTeam/NativeLibsCommon/blob
 or run the helper script:
 
 ```shell
-./scripts/bootstrap_conan_deps.py conandata.yml \
-  https://github.com/AdguardTeam/NativeLibsCommon.git \
-  https://github.com/AdguardTeam/DnsLibs.git
+./scripts/bootstrap_conan_deps.py
 ```
 
 To build the main library:

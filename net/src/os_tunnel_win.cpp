@@ -58,8 +58,12 @@ void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
     } else {
         dbglog(logger, "{}", cmd);
     }
-    auto output = exec_with_output(cmd.c_str());
-    dbglog(logger, "{}", output);
+    auto result = exec_with_output(cmd.c_str());
+    if (result.has_value()) {
+        dbglog(logger, "{}", result.value());
+    } else {
+        dbglog(logger, "{}", result.error()->str());
+    }
 }
 
 static bool initialize_wintun(HMODULE wintun) {

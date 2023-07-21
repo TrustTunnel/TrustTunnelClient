@@ -1,0 +1,276 @@
+name: Run tests
+
+env:
+  CONAN_VER: 1.54
+
+  BUILD_DIR: build
+
+on:
+  push:
+    branches:
+      - "*"
+    paths-ignore:
+      - '**/README.md'
+      - 'bamboo-specs/**'
+      - 'scripts/**'
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  Linux:
+    runs-on: ubuntu-latest
+    env:
+      LLVM_MAJOR_VER: 14
+    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Install packages
+        run: |
+          sudo apt install -y ninja-build
+          pip install conan~=$CONAN_VER
+          ## Install LLVM
+          curl -O https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh $LLVM_MAJOR_VER
+          rm ./llvm.sh
+          sudo apt install -y libc++-${LLVM_MAJOR_VER}-dev libclang-rt-${LLVM_MAJOR_VER}-dev
+          echo "/usr/lib/llvm-$LLVM_MAJOR_VER/bin" >> $GITHUB_PATH
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Conan cache
+        uses: actions/cache@v3
+        id: conan-cache
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+          restore-keys: ${{ runner.os }}-conan-
+
+      - name: Bootstrap conan
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake
+        run: |
+          mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER="clang" \
+            -DCMAKE_CXX_COMPILER="clang++" \
+            -DCMAKE_C_FLAGS="-fsanitize=address" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++ -DIPV6_UNAVAILABLE" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -GNinja \
+            ..
+
+      - name: Cache built conan packages
+        uses: actions/cache/save@v3
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Build tests
+        run: |
+          cmake --build $BUILD_DIR --target tests
+
+      - name: Run tests
+        run: |
+          cd $BUILD_DIR && \
+          ctest --no-compress-output
+
+# -------------------------------------------------------------
+
+  MacOS:
+    runs-on: macos-latest
+    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Install packages
+        run: |
+          brew install ninja
+          pip install conan~=$CONAN_VER
+          pip install pyyaml
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Conan cache
+        uses: actions/cache@v3
+        id: conan-cache
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+          restore-keys: ${{ runner.os }}-conan-
+
+      - name: Bootstrap conan
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake
+        run: |
+          mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_FLAGS="-fsanitize=address" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++ -DIPV6_UNAVAILABLE" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache \
+            -D CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -GNinja \
+            ..
+
+      - name: Cache built conan packages
+        uses: actions/cache/save@v3
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Build tests
+        run: |
+          cmake --build $BUILD_DIR --target tests
+
+      - name: Run tests
+        run: |
+          # Needed to avoid a sanitizer error (likely to be false positive)
+          # inside gtest
+          export ASAN_OPTIONS=detect_container_overflow=0
+
+          cd $BUILD_DIR && \
+          ctest --no-compress-output
+
+# -------------------------------------------------------------
+
+  Windows:
+    runs-on: windows-latest
+    env:
+      MSVC_VER: 17
+      MSVC_YEAR: 2022
+    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Install packages
+        run: |
+          choco install activeperl
+          choco install nasm
+          pip3 install conan~=${{ env.CONAN_VER }}
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-conan-
+
+      - name: Conan cache
+        uses: actions/cache@v3
+        id: conan-cache
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Bootstrap conan
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: |
+          python3 ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake
+        run: |
+          "C:\Program Files (x86)\Microsoft Visual Studio\${{ env.MSVC_YEAR }}\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+          mkdir ${{ env.BUILD_DIR }} && cd ${{ env.BUILD_DIR }} && `
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_C_FLAGS_DEBUG=/MT `
+            -DCMAKE_CXX_FLAGS_DEBUG="/MT -DIPV6_UNAVAILABLE" `
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache `
+            -D CMAKE_CXX_COMPILER_LAUNCHER=ccache `
+            -G "Visual Studio ${{ env.MSVC_VER }} ${{ env.MSVC_YEAR }}" `
+            -A Win32 `
+            ..
+
+      - name: Cache built conan packages
+        uses: actions/cache/save@v3
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Build tests
+        run: |
+          cmake --build ${{ env.BUILD_DIR }} `
+            --target tests `
+            --config RelWithDebInfo
+
+      - name: Run tests
+        run: |
+          cd ${{ env.BUILD_DIR }} && `
+          ctest --no-compress-output

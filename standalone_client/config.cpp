@@ -204,7 +204,7 @@ static void apply_endpoint_config(Config *self, const toml::table &config) {
     }
 }
 
-static std::optional<Config::SocksListener> parse_socks_listener_config(Config *self, const toml::table &config) {
+static std::optional<Config::SocksListener> parse_socks_listener_config(Config *, const toml::table &config) {
     const toml::table *socks_config = config["socks"].as_table();
     if (socks_config == nullptr) {
         return std::nullopt;
@@ -217,7 +217,7 @@ static std::optional<Config::SocksListener> parse_socks_listener_config(Config *
     };
 }
 
-static std::optional<Config::TunListener> parse_tun_listener_config(Config *self, const toml::table &config) {
+static std::optional<Config::TunListener> parse_tun_listener_config(Config *, const toml::table &config) {
     const toml::table *tun_config = config["tun"].as_table();
     if (tun_config == nullptr) {
         return std::nullopt;
@@ -225,7 +225,15 @@ static std::optional<Config::TunListener> parse_tun_listener_config(Config *self
 
     Config::TunListener tun = {
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
-            .bound_if = Field<std::string>(*tun_config, "bound_if").unwrap("Outbound interface is not specified"),
+            .bound_if = Field<std::string>(*tun_config, "bound_if")
+#if defined(_WIN32) || defined(__linux__)
+                                // will be detected automatically later
+                                .unwrap_or({}),
+#elif defined(__APPLE__)
+                                .unwrap_or("en0"),
+#else
+                                .unwrap("Outbound interface is not specified"),
+#endif
     };
 
     if (const auto *x = (*tun_config)["included_routes"].as_array(); x != nullptr) {

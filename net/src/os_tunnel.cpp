@@ -77,16 +77,28 @@ void ag::tunnel_utils::get_setup_routes(std::vector<ag::CidrRange> &ipv4_routes,
     split_default_route(ipv6_routes, ag::CidrRange(DEFAULT_IPV6_ROUTE_UNICAST));
 }
 
-std::string ag::tunnel_utils::exec_with_output(const char *cmd) {
+ag::Result<std::string, ag::tunnel_utils::ExecError> ag::tunnel_utils::exec_with_output(const char *cmd) {
+    FILE *pipe = POPEN(cmd, "r");
+    if (!pipe) {
+        int err = sys::last_error();
+        return make_error(ExecError::AE_POPEN, AG_FMT("{} ({})", sys::strerror(err), err));
+    }
+
     std::array<char, 128> buffer;
     std::string result;
-    std::unique_ptr<FILE, decltype(&PCLOSE)> pipe(POPEN(cmd, "r"), PCLOSE);
-    if (!pipe) {
-        return {"popen() failed!"};
-    }
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
         result += buffer.data();
     }
+
+    int r = PCLOSE(pipe);
+    if (-1 == r) {
+        int err = sys::last_error();
+        return make_error(ExecError::AE_PCLOSE, AG_FMT("{} ({})", sys::strerror(err), err));
+    }
+    if (r != 0) {
+        return make_error(ExecError::AE_CMD_FAILURE, AG_FMT("Error code: {}", r));
+    }
+
     return result;
 }
 

@@ -229,7 +229,32 @@ static bool connect_to_server(Vpn *v) {
 }
 
 static VpnListener *make_tun_listener() {
-    const auto &config = std::get<Config::TunListener>(g_config.listener);
+    auto &config = std::get<Config::TunListener>(g_config.listener);
+#ifdef __linux__
+    if (config.bound_if.empty()) {
+        infolog(g_logger, "Outbound interface is not specified, trying to detect it automatically");
+        constexpr std::string_view CMD = "ip -o route show to default";
+        infolog(g_logger, "{} {}", (geteuid() == 0) ? '#' : '$', CMD);
+        Result result = tunnel_utils::fsystem_with_output(CMD);
+        if (result.has_error()) {
+            errlog(g_logger,
+                    "Couldn't detect the outbound interface automatically. Please specify it manually. Error: {}",
+                    result.error()->str());
+            return nullptr;
+        }
+
+        dbglog(g_logger, "Command output: {}", result.value());
+        std::vector parts = utils::split_by(result.value(), ' ');
+        auto found = std::find(parts.begin(), parts.end(), "dev");
+        if (found == parts.end() || std::next(found) == parts.end()) {
+            errlog(g_logger, "Couldn't find the outbound interface name automatically. Please specify it manually.");
+            return nullptr;
+        }
+
+        config.bound_if = *std::next(found);
+        infolog(g_logger, "Using automatically detected outbound interface: {}", config.bound_if);
+    }
+#endif
 
     uint32_t if_index = 0;
     if (!config.bound_if.empty()) {

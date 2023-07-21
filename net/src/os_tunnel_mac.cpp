@@ -10,8 +10,12 @@ static const ag::Logger logger("OS_TUNNEL_MAC");
 
 void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
     dbglog(logger, "{} {}", (geteuid() == 0) ? '#' : '$', cmd);
-    auto output = exec_with_output(cmd.c_str());
-    dbglog(logger, "{}", output);
+    auto result = exec_with_output(cmd.c_str());
+    if (result.has_value()) {
+        dbglog(logger, "{}", result.value());
+    } else {
+        dbglog(logger, "{}", result.error()->str());
+    }
 }
 
 ag::VpnError ag::VpnMacTunnel::init(const ag::VpnOsTunnelSettings *settings) {
@@ -82,8 +86,7 @@ void ag::VpnMacTunnel::setup_if() {
     ag::tunnel_utils::fsystem("/sbin/ifconfig {} mtu {} up", m_tun_name, m_settings->mtu);
     auto ipv4_address = tunnel_utils::get_address_for_index(m_settings->ipv4_address, m_if_index);
     ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet add {} {} prefixlen {}\n", m_tun_name,
-            ipv4_address.get_address_as_string(), ipv4_address.get_address_as_string(),
-            ipv4_address.get_prefix_len());
+            ipv4_address.get_address_as_string(), ipv4_address.get_address_as_string(), ipv4_address.get_prefix_len());
     auto ipv6_address = tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index);
     ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet6 add {} prefixlen {}\n", m_tun_name,
             ipv6_address.get_address_as_string(), ipv6_address.get_prefix_len());

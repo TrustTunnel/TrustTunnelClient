@@ -1,0 +1,291 @@
+name: Deploy
+
+env:
+  CONAN_VER: 1.54
+
+  BUILD_DIR: build
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  MacOS:
+    runs-on: macos-latest
+    env:
+      MIN_MACOS_VER: 10.15
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Install packages
+        run: |
+          brew install ninja
+          pip install conan~=$CONAN_VER
+          pip install pyyaml
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Conan cache (x86_64)
+        uses: actions/cache@v3
+        id: conan-cache
+        with:
+          path: |
+            ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Bootstrap conan (x86_64)
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake (x86_64)
+        run: |
+          mkdir -p $BUILD_DIR/x86_64 && cd $BUILD_DIR/x86_64 && \
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64" \
+            -GNinja \
+            ../..
+
+      - name: Build binaries (x86_64)
+        run: |
+          cd $BUILD_DIR/x86_64 && \
+          cmake --build . --target standalone_client && \
+          cmake --build . --target setup_wizard
+
+      - name: Conan cache (arm64)
+        uses: actions/cache@v3
+        id: conan-cache-arm64
+        with:
+          path: |
+            ~/.conan/
+          key: ${{ runner.os }}-conan-arm64-${{ hashFiles('conanfile.py') }}
+
+      - name: Bootstrap conan (arm64)
+        if: steps.conan-cache-arm64.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake (arm64)
+        run: |
+          mkdir -p $BUILD_DIR/arm64 && cd $BUILD_DIR/arm64 && \
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_ARCHITECTURES="arm64" \
+            -GNinja \
+            ../..
+
+      - name: Build binaries (arm64)
+        run: |
+          cd $BUILD_DIR/arm64 && \
+          cmake --build . --target standalone_client && \
+          cmake --build . --target setup_wizard
+
+      - name: Prepare files
+        run: |
+          lipo -create -output $BUILD_DIR/adguard-vpn-client \
+            $BUILD_DIR/x86_64/standalone_client/standalone_client \
+            $BUILD_DIR/arm64/standalone_client/standalone_client
+          lipo -create -output $BUILD_DIR/adguard-vpn-client-wizard \
+            $BUILD_DIR/x86_64/standalone_client/setup_wizard \
+            $BUILD_DIR/arm64/standalone_client/setup_wizard
+          tar -czf adguard-vpn-client-${{ github.ref_name }}-apple-darwin.tar.gz \
+            LICENSE \
+            -C $BUILD_DIR adguard-vpn-client adguard-vpn-client-wizard
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-bins
+          path: adguard-vpn-client-${{ github.ref_name }}-apple-darwin.tar.gz
+
+# -------------------------------------------------------------
+
+  Windows:
+    runs-on: windows-latest
+    env:
+      MSVC_VER: 17
+      MSVC_YEAR: 2022
+      WINTUN_VER: 0.14.1
+      WINTUN_CHECKSUM: "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install packages
+        run: |
+          choco install activeperl
+          choco install nasm
+          pip3 install conan~=${{ env.CONAN_VER }}
+          rustup target add i686-pc-windows-msvc
+
+      - name: Cargo cache
+        uses: actions/cache@v3
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Conan cache
+        uses: actions/cache@v3
+        id: conan-cache
+        with:
+          path: |
+            ~/.conan/
+          key: ${{ runner.os }}-conan-${{ hashFiles('conanfile.py') }}
+
+      - name: Bootstrap conan
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        run: |
+          python3 ./scripts/bootstrap_conan_deps.py
+
+      - name: Run cmake
+        run: |
+          mkdir ${{ env.BUILD_DIR }} && cd ${{ env.BUILD_DIR }} && `
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_C_FLAGS_DEBUG=/MT `
+            -DCMAKE_CXX_FLAGS_DEBUG=/MT `
+            -A Win32 `
+            -G "Visual Studio ${{ env.MSVC_VER }} ${{ env.MSVC_YEAR }}" `
+            ..
+
+      - name: Build binaries
+        run: |
+          cmake --build ${{ env.BUILD_DIR }} `
+            --target standalone_client `
+            --config RelWithDebInfo
+          cd standalone_client/setup_wizard && `
+            cargo build --release --target i686-pc-windows-msvc --bin setup_wizard
+
+      - name: Download Wintun
+        run: |
+          curl https://www.wintun.net/builds/wintun-${{ env.WINTUN_VER }}.zip -o wintun.zip
+          if ((((shasum -a 256 -b ./wintun.zip) -split ' ')[0] -like "${{ env.WINTUN_CHECKSUM }}") -eq $false) {
+            throw "Checksum validation failure"
+          }
+          Expand-Archive -Force .\wintun.zip .
+
+      - name: Prepare files
+        run: |
+          cp ${{ env.BUILD_DIR }}/standalone_client/Debug/standalone_client.exe ${{ env.BUILD_DIR }}
+          cp standalone_client/setup_wizard/target/i686-pc-windows-msvc/release/setup_wizard.exe ${{ env.BUILD_DIR }}
+          cp wintun/bin/x86/wintun.dll ${{ env.BUILD_DIR }}
+          tar -a -cf adguard-vpn-client-${{ github.ref_name }}-win32.zip `
+            LICENSE `
+            -C ${{ env.BUILD_DIR }} standalone_client.exe setup_wizard.exe wintun.dll
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: win-bins
+          path: |
+            adguard-vpn-client-${{ github.ref_name }}-win32.zip
+
+# -------------------------------------------------------------
+
+  Release:
+    needs: [MacOS, Windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Download MacOS binaries
+        uses: actions/download-artifact@v3
+        with:
+          name: macos-bins
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v3
+        with:
+          name: win-bins
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Prepare changelog
+        id: changelog
+        run: |
+          LAST_TAG="${GITHUB_REF#refs/*/}"
+          PREV_TAG=$(git describe --tags --abbrev=0 ${LAST_TAG}^)
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "CHANGELOG<<$EOF" >> "$GITHUB_ENV"
+          ./scripts/extract_changelog.py "$PREV_TAG" "$LAST_TAG" >> "$GITHUB_ENV"
+          echo "$EOF" >> "$GITHUB_ENV"
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ env.CHANGELOG }}
+          files: |
+            adguard-vpn-client-${{ github.ref_name }}-apple-darwin.tar.gz
+            adguard-vpn-client-${{ github.ref_name }}-win32.zip
+
+# -------------------------------------------------------------
+
+# TODO: check with public repository
+#  Notify:
+#    needs: Release
+#
+#    # Secrets are not passed to workflows that are triggered by a pull request
+#    # from a fork.
+#    #
+#    # Use always() to signal to the runner that this job must run even if the
+#    # previous ones failed.
+#    if:
+#      ${{
+#        always() &&
+#        github.repository_owner == 'AdguardTeam' &&
+#        (
+#          github.event_name == 'push' ||
+#          github.event.pull_request.head.repo.full_name == github.repository
+#        )
+#      }}
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Conclusion
+#        uses: technote-space/workflow-conclusion-action@v1
+#      - name: Send Slack notification
+#        uses: 8398a7/action-slack@v3
+#        with:
+#          status: ${{ env.WORKFLOW_CONCLUSION }}
+#          fields: repo, message, commit, author, workflow
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

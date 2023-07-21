@@ -72,6 +72,10 @@ static const VpnEndpoint *find_endpoint_in_context(const TestCtx *ctx, const Vpn
 }
 
 TEST_F(LocationsPingerRunnerTest, Single) {
+#ifdef IPV6_UNAVAILABLE
+    GTEST_SKIP() << "Comment me out if you want to run this test";
+#endif
+
     // Cloudflare DNS servers
     VpnEndpoint expected_endpoint = {sockaddr_from_str("[2606:4700:4700::1111]:443"), "nullptr"};
     std::vector<VpnEndpoint> addresses = {
@@ -173,9 +177,14 @@ TEST_F(LocationsPingerRunnerTest, Multiple) {
     for (const auto &l : locations) {
         ASSERT_EQ(test_ctx.result_ids[l.id], l.id)
                 << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+#ifdef IPV6_UNAVAILABLE
+        ASSERT_EQ(test_ctx.results[l.id].endpoint->address.ss_family, AF_INET)
+                << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+#else
         // IPv6 should always be preferred
         ASSERT_EQ(test_ctx.results[l.id].endpoint->address.ss_family, AF_INET6)
                 << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+#endif
     }
 }
 

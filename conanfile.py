@@ -26,12 +26,21 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        for req in self.conan_data["requirements"]:
-            self.requires(req)
+        self.requires("brotli/1.0.9")
+        self.requires("dns-libs/2.2.13@AdguardTeam/NativeLibsCommon")
+        self.requires("http_parser/2.9.4")
+        self.requires("klib/2021-04-06@AdguardTeam/NativeLibsCommon")
+        self.requires("ldns/2021-03-29@AdguardTeam/NativeLibsCommon")
+        self.requires("libevent/2.1.11@AdguardTeam/NativeLibsCommon")
+        self.requires("magic_enum/0.7.3")
+        self.requires("native_libs_common/2.0.60@AdguardTeam/NativeLibsCommon")
+        self.requires("nghttp2/1.44.0@AdguardTeam/NativeLibsCommon")
+        self.requires("openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon")
+        self.requires("quiche/0.17.1@AdguardTeam/NativeLibsCommon")
+        self.requires("zlib/1.2.11")
 
         if tools.is_apple_os(self.settings.os):
-            for req in self.conan_data["requirements_apple"]:
-                self.requires(req)
+            self.requires("ghc-filesystem/1.5.12")
 
     def build_requirements(self):
         self.build_requires("cxxopts/3.0.0")

@@ -18,9 +18,7 @@ EXPORT_DIR ?= bin
 .PHONY: bootstrap_deps
 ## Export all the required conan packages to the local cache
 bootstrap_deps:
-	./scripts/bootstrap_conan_deps.py conandata.yml \
-		https://github.com/AdguardTeam/NativeLibsCommon.git \
-		https://github.com/AdguardTeam/DnsLibs.git
+	./scripts/bootstrap_conan_deps.py
 
 .PHONY: build_libs
 ## Build the libraries
