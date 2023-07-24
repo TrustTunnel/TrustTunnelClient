@@ -5,9 +5,11 @@
 #include <sys/socket.h>
 #endif
 
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <list>
 #include <string>
 
@@ -18,6 +20,9 @@
 #include "net/utils.h"
 #include "ping.h"
 #include "vpn/utils.h"
+
+// These includes must be here in order to compile
+#include <openssl/rand.h>
 
 namespace ag {
 
@@ -33,6 +38,9 @@ using std::chrono::milliseconds;
 
 static constexpr int MIN_SHORT_TIMEOUT_MS = 50;
 static constexpr int MAX_SHORT_TIMEOUT_MS = 400;
+
+static constexpr size_t QUIC_VERSION_PROBE_CONN_ID_LENGTH = 20;
+static constexpr size_t QUIC_VERSION_PROBE_LENGTH = 2 * QUIC_VERSION_PROBE_CONN_ID_LENGTH + 7;
 
 class AutoFd {
 private:
@@ -96,6 +104,7 @@ struct Ping {
 
     DeclPtr<event, &event_free> timer;
 
+    uint32_t rounds_failed;
     uint32_t rounds_started;
     uint32_t rounds_total;
     uint32_t round_timeout_ms;
@@ -105,6 +114,7 @@ struct Ping {
     event_loop::AutoTaskId report_task_id;
 
     bool have_round_winner;
+    bool use_quic;
 };
 
 static void do_prepare(void *arg);
@@ -112,6 +122,7 @@ static void do_report(void *arg);
 static void do_connect(void *arg);
 static void on_event(evutil_socket_t fd, short, void *arg);
 static void on_timer(evutil_socket_t fd, short, void *arg);
+static std::array<uint8_t, QUIC_VERSION_PROBE_LENGTH> prepare_quic_version_probe();
 
 static void on_event(evutil_socket_t fd, short, void *arg) {
     auto *self = (Ping *) arg;
@@ -185,11 +196,9 @@ static void on_timer(evutil_socket_t, short, void *arg) {
             });
 }
 
-// Return 0 if connection started successfully (including if it is inprogress).
+// Return 0 if connection started successfully (including if it is inprogress), errno (or equivalent) otherwise.
 static int xconnect(const PingConn &ep) {
-    if (0
-            == connect(ep.fd.get(), (sockaddr *) &ep.dest,
-                    sockaddr_get_size((sockaddr *) &ep.dest))) { // NOLINT(cppcoreguidelines-narrowing-conversions)
+    if (0 == connect(ep.fd.get(), (sockaddr *) &ep.dest, (int) sockaddr_get_size((sockaddr *) &ep.dest))) {
         return 0;
     }
     int error = evutil_socket_geterror(ep.fd.get());
@@ -198,6 +207,17 @@ static int xconnect(const PingConn &ep) {
 #else
     return EINPROGRESS == error ? 0 : error;
 #endif
+}
+
+// Return 0 if initial packet was sent successfully, errno (or equivalent) otherwise.
+static int send_quic_version_probe(const PingConn &ep) {
+    auto probe = prepare_quic_version_probe();
+    if ((int) probe.size()
+            != sendto(ep.fd.get(), (char *) probe.data(), (int) probe.size(), 0, (sockaddr *) &ep.dest,
+                    (int) sockaddr_get_size((sockaddr *) &ep.dest))) {
+        return evutil_socket_geterror(ep.fd.get());
+    }
+    return 0;
 }
 
 static void do_connect(void *arg) {
@@ -211,7 +231,7 @@ static void do_connect(void *arg) {
 
     log_ping(self, trace, "Connecting to {} via {}", sockaddr_to_str((sockaddr *) &it->dest), it->bound_if_name);
     it->started_at = PingClock::now();
-    it->socket_error = xconnect(*it);
+    it->socket_error = self->use_quic ? send_quic_version_probe(*it) : xconnect(*it);
     if (it->socket_error != 0) {
         log_ping(self, dbg, "Failed to connect to {} via {}: connect: ({}) {}", sockaddr_to_str((sockaddr *) &it->dest),
                 it->bound_if_name, it->socket_error, evutil_socket_error_to_string(it->socket_error));
@@ -331,6 +351,11 @@ static void do_prepare(void *arg) {
     ++self->rounds_started;
     self->have_round_winner = false;
 
+    if (!self->use_quic && self->done.empty() && !self->errors.empty()
+            && ++self->rounds_failed == self->rounds_total - 1) {
+        self->use_quic = true;
+    }
+
     log_ping(self, dbg, "Starting round {} of {}", self->rounds_started, self->rounds_total);
 
     self->pending.splice(self->pending.end(), self->errors);
@@ -340,7 +365,7 @@ static void do_prepare(void *arg) {
     evtimer_add(self->timer.get(), &tv);
 
     for (auto it = self->pending.begin(); it != self->pending.end();) {
-        it->fd = AutoFd(socket(it->dest.ss_family, SOCK_STREAM, 0)); // NOLINT(cppcoreguidelines-narrowing-conversions)
+        it->fd = AutoFd(socket(it->dest.ss_family, self->use_quic ? SOCK_DGRAM : SOCK_STREAM, 0)); // NOLINT(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
         if (!it->fd.valid()) {
             log_ping(self, dbg, "Failed to connect to {} via {}: failed to create socket",
                     sockaddr_to_str((sockaddr *) &it->dest), it->bound_if_name);
@@ -374,7 +399,13 @@ static void do_prepare(void *arg) {
             goto error;
         }
 #endif // #ifndef _WIN32
-        it->event.reset(event_new(vpn_event_loop_get_base(self->loop), it->fd.get(), EV_WRITE, on_event, self));
+        if (!self->use_quic) {
+            // Send RST as soon as socket is closed.
+            linger linger_0 = {.l_onoff = 1, .l_linger = 0};
+            setsockopt(it->fd.get(), SOL_SOCKET, SO_LINGER, (char *) &linger_0, (int) sizeof(linger_0));
+        }
+        it->event.reset(event_new(vpn_event_loop_get_base(self->loop), it->fd.get(),
+                self->use_quic ? EV_READ : EV_WRITE, on_event, self));
         if (it->event == nullptr) {
             log_ping(self, dbg, "Failed to connect to {} via {}: failed to create event",
                     sockaddr_to_str((sockaddr *) &it->dest), it->bound_if_name);
@@ -391,10 +422,6 @@ static void do_prepare(void *arg) {
 
     if (self->pending.empty()) {
         // All errors, start next round or report result.
-        // If this round is not the last, move errors to pending to try again.
-        if (self->rounds_started != self->rounds_total) {
-            self->pending.splice(self->pending.end(), self->errors);
-        }
         self->prepare_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self,
@@ -431,13 +458,11 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
 
     self->loop = info->loop;
     self->handler = handler;
+    self->use_quic = info->use_quic;
 
-    if ((self->rounds_total = info->nrounds) == 0) {
-        self->rounds_total = DEFAULT_PING_ROUNDS;
-    }
-    if ((self->round_timeout_ms = info->timeout_ms) == 0) {
-        self->round_timeout_ms = DEFAULT_PING_TIMEOUT_MS;
-    }
+    self->rounds_total = info->nrounds ? info->nrounds : DEFAULT_PING_ROUNDS;
+    self->round_timeout_ms = info->timeout_ms ? info->timeout_ms : DEFAULT_PING_TIMEOUT_MS;
+
     self->round_timeout_ms /= self->rounds_total;
     self->timer.reset(evtimer_new(vpn_event_loop_get_base(self->loop), on_timer, self.get()));
 
@@ -504,6 +529,30 @@ void ping_destroy(Ping *ping) {
 
 int ping_get_id(const Ping *ping) {
     return ping->id;
+}
+
+std::array<uint8_t, QUIC_VERSION_PROBE_LENGTH> prepare_quic_version_probe() {
+    std::array<uint8_t, QUIC_VERSION_PROBE_LENGTH> probe{};
+    RAND_bytes(probe.data(), QUIC_VERSION_PROBE_LENGTH);
+
+    // Set the first bit to "1" for "long header".
+    probe[0] |= 0x80;
+
+    // This should be enough according to the spec (the remaining 7 bits are version-specific),
+    // but Quiche also reads the packet type. Give it "Handshake" by zeroing the bits 3 and 4
+    // and setting them to `2`. This way Quiche doesn't try to read past the connection IDs.
+    probe[0] = (probe[0] & 0xcf) | 0x20;
+
+    // Set the version to 0x?a?a?a?a to elicit version negotiation.
+    probe[1] = (probe[1] & 0xf0) | 0x0a;
+    probe[2] = (probe[2] & 0xf0) | 0x0a;
+    probe[3] = (probe[3] & 0xf0) | 0x0a;
+    probe[4] = (probe[4] & 0xf0) | 0x0a;
+
+    probe[5] = QUIC_VERSION_PROBE_CONN_ID_LENGTH;
+    probe[6 + QUIC_VERSION_PROBE_CONN_ID_LENGTH] = QUIC_VERSION_PROBE_CONN_ID_LENGTH;
+
+    return probe;
 }
 
 } // namespace ag

@@ -27,6 +27,7 @@ typedef struct {
     // query all interfaces to calculate pings. Supported only on Apple platforms.
     bool query_all_interfaces;
 #endif /* __MACH__ */
+    bool use_quic; // use QUIC version negotiation instead of a TCP handshake
 } LocationsPingerInfo;
 
 typedef struct {

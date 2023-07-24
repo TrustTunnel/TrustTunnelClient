@@ -54,6 +54,7 @@ struct LocationsPinger {
     event_loop::AutoTaskId task_id;
     uint32_t timeout_ms;
     uint32_t rounds;
+    bool use_quic;
 };
 
 struct FinalizeLocationInfo {
@@ -221,7 +222,7 @@ static void start_location_ping(LocationsPinger *pinger) {
             });
 
     PingInfo ping_info = {pinger->loop, {addresses.data(), addresses.size()}, pinger->timeout_ms,
-            {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds};
+            {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->use_quic};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
     pinger->locations.emplace(ping, std::move(*i));
     pinger->pending_locations.pop_front();
@@ -258,6 +259,7 @@ LocationsPinger *locations_pinger_start(
 
     pinger->timeout_ms = info->timeout_ms;
     pinger->rounds = info->rounds;
+    pinger->use_quic = info->use_quic;
 
     for (size_t i = 0; i < info->locations.size; ++i) {
         const VpnLocation *l = &info->locations.data[i];

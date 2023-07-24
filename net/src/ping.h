@@ -24,20 +24,21 @@ struct PingResult {
 };
 
 struct PingInfo {
-    VpnEventLoop *loop;                ///< Event loop
+    VpnEventLoop *loop = nullptr;                ///< Event loop
     std::span<sockaddr_storage> addrs; ///< List of addresses to ping
 
     /// The maximum amount of time the whole pinging process is allowed to take.
     /// The effective timeout before we report that a connection to an address
     /// has timed out will be `timeout_ms / nrounds`.
     /// If 0, `DEFAULT_PING_TIMEOUT_MS` will be assigned.
-    uint32_t timeout_ms;
+    uint32_t timeout_ms = 0;
 
     /// The list of the network interfaces to ping the endpoint through.
     /// If empty, the operation will use the default one.
     std::span<uint32_t> interfaces_to_query;
 
-    uint32_t nrounds; ///< Number of pinging rounds. If 0, `DEFAULT_PING_ROUNDS` will be assigned.
+    uint32_t nrounds = 0; ///< Number of pinging rounds. If 0, `DEFAULT_PING_ROUNDS` will be assigned.
+    bool use_quic = false; ///< Use QUIC version negotiation instead of TCP handshake
 };
 
 struct PingHandler {
