@@ -101,6 +101,7 @@ public:
             if (primary_service && ![primary_service isEqualToString:m_primary_service]) {
                 m_primary_service = primary_service;
                 m_last_updated_primary_service = SteadyClock::now();
+                SCDynamicStoreNotifyValue(m_store, (__bridge CFStringRef) [NSString stringWithFormat:@"State:/Network/Service/%@/DNS", primary_service]);
                 touch_prefs();
                 setup_store();
             }
