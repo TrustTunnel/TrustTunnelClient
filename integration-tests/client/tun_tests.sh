@@ -81,7 +81,7 @@ curl -6 -sS https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
-curl -O -sS https://speed.hetzner.de/100MB.bin >/dev/null
+curl -O -sS https://proof.ovh.net/files/100Mb.dat --max-time 120 >/dev/null
 check_error
 
 echo "Check ICMP - ping 1.1.1.1 ..."
