@@ -348,7 +348,7 @@ static void release_resources(TcpipCtx *ctx) {
 
     free(ctx->tun_input_buffer);
 
-    free(ctx);
+    delete ctx;
 }
 
 static void clean_up_events(TcpipCtx *ctx) {
@@ -363,7 +363,7 @@ static void clean_up_events(TcpipCtx *ctx) {
 }
 
 TcpipCtx *tcpip_init_internal(const TcpipParameters *params) {
-    auto *ctx = (TcpipCtx *) calloc(1, sizeof(TcpipCtx));
+    auto *ctx = new(std::nothrow) TcpipCtx{};
     if (nullptr == ctx) {
         errlog(ctx->logger, "init: no memory for operation");
         return nullptr;

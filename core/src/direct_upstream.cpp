@@ -205,7 +205,7 @@ void DirectUpstream::udp_socket_handler(void *arg, UdpSocketEvent what, void *da
             ssize_t r = udp_socket_recv(it->second.socket.get(), buffer, std::size(buffer));
             if (r <= 0) {
                 int err = evutil_socket_geterror(udp_socket_get_fd(it->second.socket.get()));
-                if (r != 0 && !AG_ERR_IS_EAGAIN(err)) {
+                if (err != 0 && !AG_ERR_IS_EAGAIN(err)) {
                     log_conn(upstream, ctx->conn_id, dbg, "Failed to read data from socket: {} ({})",
                             evutil_socket_error_to_string(err), err);
                 }

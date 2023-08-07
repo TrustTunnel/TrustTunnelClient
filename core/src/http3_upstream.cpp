@@ -616,7 +616,7 @@ void Http3Upstream::on_udp_packet() {
         ssize_t r = udp_socket_recv(m_socket.get(), buffer, std::size(buffer));
         if (r <= 0) {
             int err = evutil_socket_geterror(udp_socket_get_fd(m_socket.get()));
-            if (r != 0 && !AG_ERR_IS_EAGAIN(err)) {
+            if (err != 0 && !AG_ERR_IS_EAGAIN(err)) {
                 log_upstream(
                         this, dbg, "Failed to read data from socket: {} ({})", evutil_socket_error_to_string(err), err);
             }

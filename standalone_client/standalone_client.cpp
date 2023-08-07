@@ -218,6 +218,11 @@ static bool connect_to_server(Vpn *v) {
                     },
     };
 
+    if (g_config.endpoint.upstream_fallback_protocol.has_value()) {
+        parameters.upstream_config.fallback.enabled = true;
+        parameters.upstream_config.fallback.protocol.type = *g_config.endpoint.upstream_fallback_protocol;
+    }
+
     VpnError err = vpn_connect(v, &parameters);
     if (err.code != 0) {
         errlog(g_logger, "Failed to initiate endpoint connection: {} ({})", safe_to_string_view(err.text),
