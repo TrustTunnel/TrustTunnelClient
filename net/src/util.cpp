@@ -666,4 +666,11 @@ Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers() {
 
 #endif // ifdef _WIN32
 
+bool is_private_ipv4_address(const in_addr *ip_ptr) {
+    const uint32_t ip_int = ntohl(ip_ptr->s_addr);
+    return ((ip_int & 0xFF000000) == 0x0A000000)      // 10.0.0.0/8
+            || ((ip_int & 0xFFF00000) == 0xAC100000)  // 172.16.0.0/12
+            || ((ip_int & 0xFFFF0000) == 0xC0A80000); // 192.168.0.0/16
+}
+
 } // namespace ag
