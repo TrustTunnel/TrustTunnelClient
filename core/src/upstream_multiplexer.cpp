@@ -10,8 +10,12 @@
 #include "vpn/internal/vpn_client.h"
 
 #define log_mux(mux_, lvl_, fmt_, ...) lvl_##log((mux_)->m_log, "[{}] " fmt_, (mux_)->id, ##__VA_ARGS__)
+#define log_ups(mux_, ups_id_, lvl_, fmt_, ...)                                                                        \
+    lvl_##log((mux_)->m_log, "[{}] [U:{}] " fmt_, (mux_)->id, ups_id_, ##__VA_ARGS__)
 #define log_conn(mux_, cid_, lvl_, fmt_, ...)                                                                          \
-    lvl_##log((mux_)->m_log, "[{}] [R:{}] " fmt_, (mux_)->id, (uint64_t) (cid_), ##__VA_ARGS__)
+    lvl_##log((mux_)->m_log, "[{}] [R:{}] " fmt_, (mux_)->id, cid_, ##__VA_ARGS__)
+#define log_ups_conn(mux_, ups_id_, cid_, lvl_, fmt_, ...)                                                             \
+    lvl_##log((mux_)->m_log, "[{}] [U:{}] [R:{}] " fmt_, (mux_)->id, ups_id_, cid_, ##__VA_ARGS__)
 
 namespace ag {
 
@@ -73,7 +77,7 @@ bool UpstreamMultiplexer::open_session(std::optional<Millis> timeout) {
 
     int upstream_id = select_upstream_for_connection();
     if (!open_new_upstream(upstream_id, timeout)) {
-        log_mux(this, err, "Failed to open session");
+        log_mux(this, warn, "Failed to open session");
         return false;
     }
 
@@ -108,22 +112,22 @@ uint64_t UpstreamMultiplexer::open_connection(const TunnelAddressPair *addr, int
 
     auto i = m_upstreams_pool.find(upstream_id);
     if (i != m_upstreams_pool.end()) {
-        log_conn(this, conn_id, trace, "Using open upstream (id={})", upstream_id);
+        log_ups_conn(this, upstream_id, conn_id, trace, "Using open upstream");
         if (!open_connection(upstream_id, conn_id, addr, proto, app_name)) {
             conn_id = NON_ID;
         }
     } else if (open_new_upstream(upstream_id, std::nullopt)) {
-        log_conn(this, conn_id, dbg, "Opening new upstream (id={})", upstream_id);
+        log_ups_conn(this, upstream_id, conn_id, dbg, "Opening new upstream");
         m_pending_connections.emplace(conn_id, PendingConnection{{upstream_id}, *addr, proto, std::string(app_name)});
     } else if (std::optional<int> reserve_id = select_existing_upstream(upstream_id, true); reserve_id.has_value()) {
         upstream_id = reserve_id.value();
-        log_conn(this, conn_id, dbg, "Failed to create new upstream, using existing one (id={})", upstream_id);
+        log_ups_conn(this, upstream_id, conn_id, dbg, "Failed to create new upstream, using existing one");
         if (!open_connection(upstream_id, conn_id, addr, proto, app_name)) {
-            log_conn(this, conn_id, dbg, "Failed to fall back on existing upstream");
+            log_ups_conn(this, upstream_id, conn_id, dbg, "Failed to fall back on existing upstream");
             conn_id = NON_ID;
         }
     } else {
-        log_conn(this, conn_id, dbg, "Failed to create a new upstream, no upstreams available", upstream_id);
+        log_conn(this, conn_id, dbg, "Failed to create a new upstream, no upstreams available");
         conn_id = NON_ID;
     }
 
@@ -185,7 +189,8 @@ void UpstreamMultiplexer::update_flow_control(uint64_t id, TcpFlowCtrlInfo info)
 
 VpnError UpstreamMultiplexer::do_health_check() {
     if (m_health_check_upstream_id.has_value()) {
-        log_mux(this, dbg, "Another health check is already in progress, ignoring this one");
+        log_ups(this, *m_health_check_upstream_id, dbg,
+                "Another health check is already in progress, ignoring this one");
         return {};
     }
 
@@ -252,7 +257,7 @@ void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &event) {
 void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id) {
     auto it = m_upstreams_pool.find(upstream_id);
     if (it == m_upstreams_pool.end()) {
-        log_mux(this, err, "Inexistent upstream: id={}", upstream_id);
+        log_ups(this, upstream_id, warn, "Upstream not found");
         assert(0);
         return;
     }
@@ -264,12 +269,12 @@ void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, event_loop::Auto
 }
 
 void UpstreamMultiplexer::finalize_closed_upstream(int upstream_id, bool async) {
-    log_mux(this, dbg, "id={}", upstream_id);
+    log_ups(this, upstream_id, dbg, "...");
 
     if (async) {
         auto it = m_closed_upstreams.find(upstream_id);
         if (it == m_closed_upstreams.end()) {
-            log_mux(this, warn, "Inexistent upstream: id={}", upstream_id);
+            log_ups(this, upstream_id, warn, "Upstream not found");
             assert(0);
             return;
         }
@@ -316,12 +321,10 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
     auto pool_it = mux->m_upstreams_pool.find(ctx->id);
     if (pool_it == mux->m_upstreams_pool.end()) {
         if (mux->m_closed_upstreams.contains(ctx->id)) {
-            log_mux(mux, dbg, "Ignoring event on closing upstream: id={} event={}", ctx->id,
-                    magic_enum::enum_name(what));
+            log_ups(mux, ctx->id, dbg, "Ignoring event on closing upstream: {}", magic_enum::enum_name(what));
             return;
         }
-        log_mux(mux, err, "Got event on closed or non-existent upstream: id={} event={}", ctx->id,
-                magic_enum::enum_name(what));
+        log_ups(mux, ctx->id, warn, "Got event on closed or non-existent upstream: {}", magic_enum::enum_name(what));
         assert(0);
         return;
     }
@@ -405,7 +408,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
                                             if (it != mux->m_closed_upstreams.end()) {
                                                 it->second->upstream->close_session();
                                             } else {
-                                                log_mux(mux, err, "Inexistent upstream: id={}", ctx->id);
+                                                log_ups(mux, ctx->id, warn, "Upstream not found");
                                                 assert(0);
                                             }
                                             mux->finalize_closed_upstream(ctx->id, false);
@@ -424,7 +427,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
                                         if (it != mux->m_closed_upstreams.end()) {
                                             it->second->upstream->close_session();
                                         } else {
-                                            log_mux(mux, err, "Inexistent upstream: id={}", ctx->id);
+                                            log_ups(mux, ctx->id, warn, "Upstream not found");
                                             assert(0);
                                         }
                                         mux->finalize_closed_upstream(ctx->id, false);
@@ -445,7 +448,7 @@ MultiplexableUpstream *UpstreamMultiplexer::get_upstream_by_conn(uint64_t id) co
 
     auto pool_it = m_upstreams_pool.find(it_id->second.upstream_id);
     if (pool_it == m_upstreams_pool.end()) {
-        log_conn(this, id, dbg, "Upstream for connection not found: {}", it_id->second.upstream_id);
+        log_ups_conn(this, it_id->second.upstream_id, id, dbg, "Upstream for connection not found");
         return nullptr;
     }
 
@@ -502,7 +505,7 @@ bool UpstreamMultiplexer::open_new_upstream(int id, std::optional<Millis> timeou
     std::unique_ptr<UpstreamInfo> info = std::make_unique<UpstreamInfo>(
             m_make_upstream, this->PROTOCOL_CONFIG.value(), id, this->vpn, &child_upstream_handler, std::move(ctx));
     if (!info->upstream->open_session(timeout)) {
-        log_mux(this, err, "Failed to open session");
+        log_ups(this, id, warn, "Failed to open session");
         return false;
     }
 
@@ -514,7 +517,7 @@ bool UpstreamMultiplexer::open_connection(
         int upstream_id, uint64_t conn_id, const TunnelAddressPair *addr, int proto, std::string_view app_name) {
     auto i = m_upstreams_pool.find(upstream_id);
     if (i == m_upstreams_pool.end()) {
-        log_mux(this, err, "Failed to find selected upstream for connection in the list: {}", upstream_id);
+        log_ups(this, upstream_id, warn, "Failed to find selected upstream for connection in the list");
         assert(0);
         return false;
     }
@@ -523,7 +526,7 @@ bool UpstreamMultiplexer::open_connection(
     UpstreamInfo *info = i->second.get();
     switch (info->state) {
     case US_OPENING_SESSION:
-        log_conn(this, conn_id, trace, "Postpone connection until session is established");
+        log_ups_conn(this, upstream_id, conn_id, trace, "Postpone connection until session is established");
         m_pending_connections.emplace(conn_id, PendingConnection{{upstream_id}, *addr, proto, std::string(app_name)});
         break;
     case US_SESSION_OPENED:
@@ -544,12 +547,11 @@ void UpstreamMultiplexer::proceed_pending_connection(int upstream_id, uint64_t c
 
     assert(!m_upstreams_pool.empty());
     int fallback_upstream_id = m_upstreams_pool.begin()->first;
-    log_conn(this, conn_id, dbg,
-            "Failed to open connection on new upstream (id={}), falling back on existing one (id={})", upstream_id,
-            fallback_upstream_id);
+    log_ups_conn(this, upstream_id, conn_id, dbg,
+            "Failed to open connection on new upstream, falling back on existing one (id={})", fallback_upstream_id);
 
     if (!open_connection(fallback_upstream_id, conn_id, &conn->addr, conn->proto, conn->app_name)) {
-        log_conn(this, conn_id, dbg, "Failed to fall back on existing upstream");
+        log_ups_conn(this, fallback_upstream_id, conn_id, dbg, "Failed to fall back on existing upstream");
         ServerError err_event = {conn_id, {ag::utils::AG_ECONNREFUSED, "Failed to connect"}};
         this->handler.func(this->handler.arg, SERVER_EVENT_ERROR, &err_event);
     }

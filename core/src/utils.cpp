@@ -78,20 +78,18 @@ void vpn_upstream_config_destroy(VpnUpstreamConfig *config) {
 
 static void set_auth_info(HttpHeaders *headers, std::string_view creds);
 
-void log_headers(const ag::Logger &log, uint64_t stream_id, const HttpHeaders *headers, const char *msg) {
-    if (log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
-        std::string hdr_str;
-        if (headers->status_code == 0) {
-            HttpHeaders sheaders = *headers;
-            sheaders.remove_field("proxy-authorization");
-            set_auth_info(&sheaders, "__stripped__");
-            hdr_str = http_headers_to_http1_message(&sheaders, false);
-        } else {
-            hdr_str = http_headers_to_http1_message(headers, false);
-        }
-        hdr_str = http_headers_to_http1_message(headers, false);
-        dbglog(log, "[SID:{}] {}:\n{}", stream_id, msg, hdr_str);
+std::string headers_to_log_str(const HttpHeaders &headers) {
+    std::string ret;
+    if (headers.status_code == 0) {
+        HttpHeaders sheaders = headers;
+        sheaders.remove_field("proxy-authorization");
+        set_auth_info(&sheaders, "__stripped__");
+        ret = http_headers_to_http1_message(&sheaders, false);
+    } else {
+        ret = http_headers_to_http1_message(&headers, false);
     }
+
+    return ret;
 }
 
 // Connection errors

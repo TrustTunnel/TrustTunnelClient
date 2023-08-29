@@ -180,7 +180,7 @@ constexpr std::array<const char *, N> make_enum_names_array() {
     return cpp_to_cstr_array<N>(magic_enum::enum_names<E>());
 }
 
-void log_headers(const ag::Logger &log, uint64_t stream_id, const HttpHeaders *headers, const char *msg);
+std::string headers_to_log_str(const HttpHeaders &headers);
 
 ag::VpnError bad_http_response_to_connect_error(const HttpHeaders *response);
 

@@ -771,7 +771,7 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
     case QUICHE_H3_EVENT_HEADERS: {
         HttpHeaders headers{.version = HTTP_VER_3_0};
         quiche_h3_event_for_each_header(h3_event, collect_header, &headers);
-        log_headers(m_log, stream_id, &headers, "Got response from server");
+        log_upstream(this, dbg, "[SID:{}] Response: {}", stream_id, headers_to_log_str(headers));
         handle_response(stream_id, &headers);
         break;
     }
@@ -1027,7 +1027,7 @@ Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
     int64_t stream_id =
             quiche_h3_send_request(m_h3_conn.get(), m_quic_conn.get(), h3_headers.data(), h3_headers.size(), false);
     if (stream_id >= 0) {
-        log_headers(m_log, stream_id, &headers, "Sending connect request");
+        log_upstream(this, dbg, "[SID:{}] {}", stream_id, headers_to_log_str(headers));
         if (!this->flush_pending_quic_data()) {
             log_upstream(this, dbg, "Failed to send connect request");
             stream_id = -1;

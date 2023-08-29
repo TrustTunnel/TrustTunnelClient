@@ -50,7 +50,7 @@ private:
 
     DeclPtr<HttpSession, &http_session_close> m_session;
     TcpSocketPtr m_socket;
-    bool m_in_handler = false;
+    size_t m_in_handler = 0;
     bool m_closed = false;
     bool m_closing = false;
     std::optional<VpnError> m_pending_session_error;

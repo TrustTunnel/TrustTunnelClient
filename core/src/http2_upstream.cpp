@@ -1,7 +1,6 @@
 #include "http2_upstream.h"
 
 #include <cassert>
-#include <cstdio>
 #include <string_view>
 #include <vector>
 
@@ -142,7 +141,8 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
     switch (what) {
     case HTTP_EVENT_HEADERS: {
         const HttpHeadersEvent *http_event = (HttpHeadersEvent *) data;
-        log_headers(upstream->m_log, http_event->stream_id, http_event->headers, "Got response from server");
+        log_upstream(upstream, dbg, "[SID:{}] Response: {}", http_event->stream_id,
+                headers_to_log_str(*http_event->headers));
         upstream->handle_response(http_event);
         break;
     }
@@ -243,8 +243,8 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
         } else {
             auto found = upstream->get_conn_by_stream_id(stream_id);
             if (found.second == nullptr) {
-                log_upstream(upstream, dbg, "Got stream processed event on closed connection: stream={}: {} ({})", stream_id,
-                        nghttp2_http2_strerror(http_event->error_code), http_event->error_code);
+                log_upstream(upstream, dbg, "Got stream processed event on closed connection: stream={}: {} ({})",
+                        stream_id, nghttp2_http2_strerror(http_event->error_code), http_event->error_code);
                 assert(0);
                 break;
             }
@@ -338,7 +338,9 @@ int Http2Upstream::establish_http_session() {
 void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     Http2Upstream *upstream = (Http2Upstream *) arg;
 
-    upstream->m_in_handler = true;
+    // Bufferevent writes can synchronously raise flush events while writing in socket,
+    // so a boolean flag is not enough here.
+    upstream->m_in_handler += 1;
 
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED: {
@@ -432,7 +434,7 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     }
     }
 
-    upstream->m_in_handler = false;
+    upstream->m_in_handler -= 1;
 
     if (std::exchange(upstream->m_closed, false)) {
         upstream->close_session_inner(std::exchange(upstream->m_pending_session_error, std::nullopt));
@@ -487,7 +489,7 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
 }
 
 void Http2Upstream::close_session_inner(std::optional<VpnError> error) {
-    if (m_in_handler) {
+    if (m_in_handler > 0) {
         m_closed = true;
         m_pending_session_error = error;
         return;
@@ -548,7 +550,7 @@ std::optional<uint32_t> Http2Upstream::send_connect_request(const TunnelAddress 
 
     HttpHeaders headers = make_http_connect_request(HTTP_VER_2_0, dst_addr, app_name, m_credentials);
     uint32_t stream_id = m_stream_id_generator.get();
-    log_headers(m_log, stream_id, &headers, "Sending connect request");
+    log_upstream(this, dbg, "[SID:{}] {}", stream_id, headers_to_log_str(headers));
 
     int r = http_session_send_headers(m_session.get(), (int32_t) stream_id, &headers, false);
     if (r != 0) {
