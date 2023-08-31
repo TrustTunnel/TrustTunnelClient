@@ -48,12 +48,12 @@ struct VpnWinTunnelSettings {
 };
 #endif
 
-VpnOsTunnelSettings *vpn_os_tunnel_settings_clone(const VpnOsTunnelSettings *settings);
-void vpn_os_tunnel_settings_destroy(VpnOsTunnelSettings *settings);
+WIN_EXPORT VpnOsTunnelSettings *vpn_os_tunnel_settings_clone(const VpnOsTunnelSettings *settings);
+WIN_EXPORT void vpn_os_tunnel_settings_destroy(VpnOsTunnelSettings *settings);
 
 #ifdef _WIN32
-VpnWinTunnelSettings *vpn_win_tunnel_settings_clone(const VpnWinTunnelSettings *settings);
-void vpn_win_tunnel_settings_destroy(VpnWinTunnelSettings *settings);
+WIN_EXPORT VpnWinTunnelSettings *vpn_win_tunnel_settings_clone(const VpnWinTunnelSettings *settings);
+WIN_EXPORT void vpn_win_tunnel_settings_destroy(VpnWinTunnelSettings *settings);
 #endif
 
 /* Exported functions for Win32 CAPI */
