@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.92.88
+
 * [Feature] Support connecting to endpoints through a set of SNI proxies.
     * `VpnUpstreamConfig::relay_addresses` can now be specified when connecting to a location.
       The client shall try using one of the relay addresses to connect to an endpoint if it's unavailable
