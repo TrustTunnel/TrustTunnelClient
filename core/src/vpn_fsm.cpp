@@ -158,9 +158,6 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
                 ? VpnError{VPN_EC_LOCATION_UNAVAILABLE, "None of the endpoints were pinged successfully"}
                 : VpnError{VPN_EC_ERROR, "Failed to ping location"};
         log_vpn(vpn, warn, "{}", error.text);
-        if (vpn->relay_addresses.size() > 1) {
-            std::rotate(vpn->relay_addresses.begin(), vpn->relay_addresses.begin() + 1, vpn->relay_addresses.end());
-        }
         vpn->fsm.perform_transition(vpn_fsm::CE_PING_FAIL, &error);
         return;
     }
@@ -179,7 +176,7 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
     }
 
     vpn->selected_endpoint.emplace(vpn_endpoint_clone(result->endpoint),
-            result->through_relay ? std::make_optional(vpn->relay_addresses.front()) : std::nullopt);
+            result->relay_address ? std::make_optional(sockaddr_to_storage(result->relay_address)) : std::nullopt);
     log_vpn(vpn, dbg, "Using endpoint: {} (relay address={}) (ping={}ms)", *vpn->selected_endpoint->endpoint,
             vpn->selected_endpoint->relay_address.has_value()
                     ? sockaddr_to_str((sockaddr *) &*vpn->selected_endpoint->relay_address).c_str()
@@ -253,19 +250,11 @@ static void run_ping(void *ctx, void *) {
 
     vpn->stop_pinging();
 
-    VpnLocation location = vpn->upstream_config->location;
-    if (!vpn->relay_addresses.empty()) {
-        location.relay_addresses.data = &vpn->relay_addresses.front();
-        location.relay_addresses.size = 1;
-    } else {
-        location.relay_addresses.size = 0;
-    }
-
     LocationsPingerInfo pinger_info = {
             .timeout_ms = vpn->upstream_config->location_ping_timeout_ms,
-            .locations = {&location, 1},
-            .rounds = location.relay_addresses.size ? 2u : 1u,
-            .use_quic = false,
+            .locations = {&vpn->upstream_config->location, 1},
+            .rounds = 1,
+            .use_quic = vpn->upstream_config->protocol.type == VPN_UP_HTTP3,
             .anti_dpi = vpn->upstream_config->anti_dpi,
     };
     vpn->pinger.reset(locations_pinger_start(&pinger_info, {pinger_handler, vpn}, vpn->ev_loop.get()));

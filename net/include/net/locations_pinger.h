@@ -19,23 +19,29 @@ namespace ag {
 struct LocationsPinger;
 
 typedef struct {
-    uint32_t timeout_ms;                // ping operation timeout (if 0, `DEFAULT_PING_TIMEOUT_MS` will be assigned)
+    // Each connection attempt timeout (if 0, `DEFAULT_PING_TIMEOUT_MS` will be assigned).
+    // Note that there will be several connection attempts, the exact number of which depends
+    // on multiple factors, such as the number of rounds, the number of relay addresses,
+    // whether fall back from QUIC to TLS happened, etc.
+    uint32_t timeout_ms;
     AG_ARRAY_OF(const VpnLocation) locations; // list of locations to ping
-    // maximum number of times each endpoint in each location is pinged (if <= 0, `DEFAULT_PING_ROUNDS` is used)
+    // The number of times each endpoint in a location is pinged (if <= 0, `DEFAULT_PING_ROUNDS` is used).
+    // The best ping result out of all rounds will be used.
     uint32_t rounds;
 #ifdef __MACH__
-    // query all interfaces to calculate pings. Supported only on Apple platforms.
-    bool query_all_interfaces;
-#endif /* __MACH__ */
-    bool use_quic; // use QUIC version negotiation instead of a TCP handshake
-    bool anti_dpi; // enable anti-DPI measures
+    bool query_all_interfaces; // Query all interfaces to calculate pings. Supported only on Apple platforms.
+#endif
+    // Use QUIC instead of TLS to ping the endpoints.
+    // If a ping fails, the pinger will fall back to TLS for that endpoint.
+    bool use_quic;
+    bool anti_dpi; // Enable anti-DPI measures.
 } LocationsPingerInfo;
 
 typedef struct {
     const char *id; // location id
     int ping_ms;    // selected endpoint's ping (negative if none of the location endpoints successfully pinged)
-    const VpnEndpoint *endpoint; // selected endpoint
-    int through_relay;           // non-zero if the selected endpoint was pinged through a relay
+    const VpnEndpoint *endpoint;   // selected endpoint
+    const sockaddr *relay_address; // if the selected endpoint was pinged through a relay, the relay's address
 } LocationsPingerResult;
 
 struct LocationsPingerResultExtra : public LocationsPingerResult {
@@ -58,13 +64,6 @@ typedef struct {
 
 /**
  * Ping locations.
- *
- * If a location has a list of relay addresses, the first one in the list will be used to ping an endpoint
- * that is unreachable on its normal address in the next round. Note that if the number of rounds is `1`,
- * the pinger will not have a chance to use a relay address. If none of the endpoints in a location are
- * pinged successfully, the number of rounds is greater than `1`, and the location has relay addresses,
- * the first relay address of that location can be considered inoperable.
- *
  * @param info pinger info
  * @param handler pinger handler
  * @param ev_loop event loop for operation

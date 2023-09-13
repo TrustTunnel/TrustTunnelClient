@@ -47,10 +47,6 @@ Vpn::~Vpn() = default;
 void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> config) {
     this->upstream_config = std::move(config);
 
-    this->relay_addresses.assign(this->upstream_config->location.relay_addresses.data,
-            this->upstream_config->location.relay_addresses.data
-                    + this->upstream_config->location.relay_addresses.size);
-
     if (!this->upstream_config->fallback.enabled && this->upstream_config->protocol.type == VPN_UP_HTTP3) {
         log_vpn(this, info, "Forcibly setting HTTP/2 as fallback protocol");
         this->upstream_config->fallback.enabled = true;

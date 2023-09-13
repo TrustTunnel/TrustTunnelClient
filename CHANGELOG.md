@@ -1,5 +1,9 @@
 # CHANGELOG
 
+* Changes in pinging behaviour.
+    * See the updated doc comments for the fields of `LocationsPingerInfo` and `PingInfo`, `locations_pinger_start`, `ping_start` for details.
+    * The pinging timeout is now per connection attempt, NOT for the whole pinging procedure. Applications may need to adjust.
+
 ## 0.92.90
 
 * Changes in pinging and locations API.

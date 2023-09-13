@@ -21,7 +21,15 @@ namespace ag {
 struct PingedEndpoint {
     AutoVpnEndpoint endpoint;
     int ping_ms = 0;
-    bool through_relay = false;
+    sockaddr_storage relay_address{};
+
+    PingedEndpoint(AutoVpnEndpoint endpoint, int ping_ms, const sockaddr *relay_address)
+            : endpoint{std::move(endpoint)}
+            , ping_ms{ping_ms} {
+        if (relay_address) {
+            this->relay_address = sockaddr_to_storage(relay_address);
+        }
+    }
 };
 
 struct LocationsCtx {
@@ -137,10 +145,12 @@ static void finalize_location(LocationsPinger *pinger, const FinalizeLocationInf
             }
         }
         assert(result.endpoint != nullptr);
-        result.through_relay = selected->through_relay;
+        if (selected->relay_address.ss_family) {
+            result.relay_address = (sockaddr *) &selected->relay_address;
+        }
         log_location(pinger, location->info->id, dbg, "Selected endpoint: {} ({}{}) ({}ms)", result.endpoint->name,
-                result.through_relay ? "through relay " : "",
-                result.through_relay ? sockaddr_to_str((sockaddr *) &location->info->relay_addresses.data[0])
+                result.relay_address ? "through relay " : "",
+                result.relay_address ? sockaddr_to_str(result.relay_address)
                                      : sockaddr_to_str((sockaddr *) &result.endpoint->address),
                 result.ping_ms);
     } else {
@@ -173,8 +183,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
             return vpn_endpoint_equals(a.endpoint.get(), result->endpoint);
         });
         if (it == dst.end()) { // Add new result
-            dst.emplace_back(
-                    PingedEndpoint{vpn_endpoint_clone(result->endpoint), result->ms, (bool) result->through_relay});
+            dst.emplace_back(vpn_endpoint_clone(result->endpoint), result->ms, result->relay_address);
         } else {
             if (!pinger->query_all_interfaces) {
                 log_location(pinger, ping_get_id(result->ping), warn,
@@ -225,10 +234,8 @@ static void start_location_ping(LocationsPinger *pinger) {
 
     log_location(pinger, i->info->id, dbg, "Starting location ping");
     PingInfo ping_info = {pinger->loop, {i->info->endpoints.data, i->info->endpoints.size}, pinger->timeout_ms,
-            {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->use_quic, pinger->anti_dpi};
-    if (i->info->relay_addresses.size) {
-        ping_info.relay_address = (sockaddr *) &i->info->relay_addresses.data[0];
-    }
+            {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->use_quic, pinger->anti_dpi,
+            {i->info->relay_addresses.data, i->info->relay_addresses.size}};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
     pinger->locations.emplace(ping, std::move(*i));
     pinger->pending_locations.pop_front();

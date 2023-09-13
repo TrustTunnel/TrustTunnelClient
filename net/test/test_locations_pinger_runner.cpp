@@ -272,6 +272,155 @@ TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
     ASSERT_LT(test_ctx.results.size(), locations.size());
 }
 
+TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
+    std::vector<VpnEndpoint> endpoints = {
+            // Blackhole addresses
+            {sockaddr_from_str("1.2.3.4:443"), "one.one.one.one"},
+            {sockaddr_from_str("94.140.14.200:443"), "one.one.one.one"},
+            {sockaddr_from_str("[2a10:50c0::42]:443"), "one.one.one.one"},
+            {sockaddr_from_str("[2a10:50c0::43]:443"), "one.one.one.one"},
+    };
+    std::vector<sockaddr_storage> relay_addresses = {
+            sockaddr_from_str("1.2.3.5:443"),
+            sockaddr_from_str("1.1.1.1:443"),
+    };
+    VpnLocation location{
+            .id = "Cloudflare 1.1.1.1",
+            .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
+    };
+    struct TestCtx {
+        AutoVpnEndpoint endpoint{};
+        std::string relay_address;
+        int count = 0;
+    } ctx;
+    DeclPtr<LocationsPingerRunner, &locations_pinger_runner_free> runner;
+    LocationsPingerInfo info{
+            .timeout_ms = 1000,
+            .locations = {&location, 1},
+    };
+    runner.reset(locations_pinger_runner_create(&info,
+            {
+                    [](void *arg, const LocationsPingerResult *result) {
+                        auto *ctx = (TestCtx *) arg;
+                        if (result->endpoint) {
+                            ctx->endpoint = vpn_endpoint_clone(result->endpoint);
+                        }
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
+                        }
+                        ++ctx->count;
+                    },
+                    &ctx,
+            }));
+    std::thread t1 = std::thread([&runner]() {
+        locations_pinger_runner_run(runner.get());
+    });
+    t1.join();
+    ASSERT_EQ(1, ctx.count);
+    ASSERT_TRUE(vpn_endpoint_equals(ctx.endpoint.get(), &endpoints[2]));
+    ASSERT_EQ("1.1.1.1:443", ctx.relay_address);
+}
+
+TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
+    // At the time of writing, Quad9 doesn't respond to QUIC
+    std::vector<VpnEndpoint> endpoints = {
+            {sockaddr_from_str("9.9.9.9:443"), "dns.quad9.net"},
+            {sockaddr_from_str("149.112.112.112:443"), "dns.quad9.net"},
+            {sockaddr_from_str("[2620:fe::fe]:443"), "dns.quad9.net"},
+            {sockaddr_from_str("[2620:fe::9]:443"), "dns.quad9.net"},
+    };
+    VpnLocation location{
+            .id = "Quad9",
+            .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
+    };
+    struct TestCtx {
+        AutoVpnEndpoint endpoint{};
+        std::string relay_address;
+        int count = 0;
+    } ctx;
+    DeclPtr<LocationsPingerRunner, &locations_pinger_runner_free> runner;
+    LocationsPingerInfo info{
+            .timeout_ms = 1000,
+            .locations = {&location, 1},
+            .use_quic = true,
+    };
+    runner.reset(locations_pinger_runner_create(&info,
+            {
+                    [](void *arg, const LocationsPingerResult *result) {
+                        auto *ctx = (TestCtx *) arg;
+                        if (result->endpoint) {
+                            ctx->endpoint = vpn_endpoint_clone(result->endpoint);
+                        }
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
+                        }
+                        ++ctx->count;
+                    },
+                    &ctx,
+            }));
+    std::thread t1 = std::thread([&runner]() {
+        locations_pinger_runner_run(runner.get());
+    });
+    t1.join();
+    ASSERT_EQ(1, ctx.count);
+    ASSERT_TRUE(vpn_endpoint_equals(ctx.endpoint.get(), &endpoints[2]));
+    ASSERT_EQ("", ctx.relay_address);
+}
+
+TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
+    // At the time of writing, Quad9 doesn't respond to QUIC
+    std::vector<VpnEndpoint> endpoints = {
+            // Blackhole addresses
+            {sockaddr_from_str("1.2.3.4:443"), "dns.quad9.net"},
+            {sockaddr_from_str("94.140.14.200:443"), "dns.quad9.net"},
+            {sockaddr_from_str("[2a10:50c0::42]:443"), "dns.quad9.net"},
+            {sockaddr_from_str("[2a10:50c0::43]:443"), "dns.quad9.net"},
+    };
+    std::vector<sockaddr_storage> relay_addresses = {
+            sockaddr_from_str("1.2.3.4:443"),
+            sockaddr_from_str("[2a10:50c0::42]:443"),
+            sockaddr_from_str("9.9.9.9:443"),
+    };
+    VpnLocation location{
+            .id = "Quad9",
+            .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
+    };
+    struct TestCtx {
+        AutoVpnEndpoint endpoint{};
+        std::string relay_address;
+        int count = 0;
+    } ctx;
+    DeclPtr<LocationsPingerRunner, &locations_pinger_runner_free> runner;
+    LocationsPingerInfo info{
+            .timeout_ms = 1000,
+            .locations = {&location, 1},
+            .use_quic = true,
+    };
+    runner.reset(locations_pinger_runner_create(&info,
+            {
+                    [](void *arg, const LocationsPingerResult *result) {
+                        auto *ctx = (TestCtx *) arg;
+                        if (result->endpoint) {
+                            ctx->endpoint = vpn_endpoint_clone(result->endpoint);
+                        }
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
+                        }
+                        ++ctx->count;
+                    },
+                    &ctx,
+            }));
+    std::thread t1 = std::thread([&runner]() {
+        locations_pinger_runner_run(runner.get());
+    });
+    t1.join();
+    ASSERT_EQ(1, ctx.count);
+    ASSERT_TRUE(vpn_endpoint_equals(ctx.endpoint.get(), &endpoints[2]));
+    ASSERT_EQ("9.9.9.9:443", ctx.relay_address);
+}
+
 TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     std::ifstream in("locations.json");
     nlohmann::json json;
@@ -303,6 +452,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     struct Result {
         std::string id;
         std::string address;
+        std::string relay;
         int ms;
     };
     struct Ctx {
@@ -326,14 +476,16 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                                 ++ctx->num;
                                 if (result->ping_ms < 0) {
                                     ++ctx->num_errs;
-                                    ctx->results.emplace_back(Result{result->id, "error", result->ping_ms});
+                                    ctx->results.emplace_back(Result{result->id, "error", "error", result->ping_ms});
                                     return;
                                 }
                                 ctx->avg += (result->ping_ms - ctx->avg) / ctx->num;
                                 ctx->min = std::min(ctx->min, result->ping_ms);
                                 ctx->max = std::max(ctx->max, result->ping_ms);
                                 ctx->results.emplace_back(Result{result->id,
-                                        sockaddr_to_str((sockaddr *) &result->endpoint->address), result->ping_ms});
+                                        sockaddr_to_str((sockaddr *) &result->endpoint->address),
+                                        result->relay_address ? sockaddr_to_str(result->relay_address) : "none",
+                                        result->ping_ms});
                             },
                     .arg = &ctx,
             });
@@ -345,7 +497,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     });
 
     for (auto &res : ctx.results) {
-        fmt::print("{:46} {:46} {} ms\n", res.id, res.address, res.ms);
+        fmt::print("{:46} {:46} {:46} {} ms\n", res.id, res.address, res.relay, res.ms);
     }
     fmt::print("min: {} ms, avg: {} ms, max: {} ms, errors: {}\n", ctx.min, ctx.avg, ctx.max, ctx.num_errs);
 

@@ -17,34 +17,35 @@ enum PingStatus {
 };
 
 struct PingResult {
-    Ping *ping;                  // ping pointer (don't delete from callback unless PING_FINISHED is reported)
-    PingStatus status;           // ping status
-    int socket_error;            // has sense if `status` == `PING_SOCKET_ERROR`
-    const VpnEndpoint *endpoint; // pinged endpoint
-    int ms;                      // RTT value
-    int through_relay;           // endpoint was pinged through a relay
+    Ping *ping;                    // ping pointer (don't delete from callback unless PING_FINISHED is reported)
+    PingStatus status;             // ping status
+    int socket_error;              // has sense if `status` == `PING_SOCKET_ERROR`
+    const VpnEndpoint *endpoint;   // pinged endpoint
+    int ms;                        // RTT value
+    const sockaddr *relay_address; // if the endpoint was pinged through a relay, the relay's address
 };
 
 struct PingInfo {
     VpnEventLoop *loop = nullptr;           ///< Event loop
     std::span<const VpnEndpoint> endpoints; ///< List of endpoints to ping
 
-    /// The maximum amount of time the whole pinging process is allowed to take.
-    /// The effective timeout before we report that a connection to an address
-    /// has timed out will be `timeout_ms / nrounds`.
+    /// Each connection attempt timeout. Note that there might be several connection attempts.
     /// If 0, `DEFAULT_PING_TIMEOUT_MS` will be assigned.
     uint32_t timeout_ms = 0;
 
     /// The list of the network interfaces to ping the endpoint through.
     /// If empty, the operation will use the default one.
-    std::span<uint32_t> interfaces_to_query;
+    std::span<const uint32_t> interfaces_to_query;
 
-    uint32_t nrounds = 0; ///< Number of pinging rounds. If 0, `DEFAULT_PING_ROUNDS` will be assigned.
+    /// The number of times each endpoint's RTT must be measured. If 0, `DEFAULT_PING_ROUNDS` will be assigned.
+    /// The best result (lowest RTT) will be reported.
+    uint32_t nrounds = 0;
+
     bool use_quic = false; ///< Use QUIC version negotiation instead of TCP handshake
     bool anti_dpi = false; ///< Enable anti-DPI measures
 
-    /// If not NULL, the address of a relay to use when pinging fails using an endpoint's address.
-    const sockaddr *relay_address = nullptr;
+    /// The list of relay addresses to try if an endpoint is unresponsive on its normal address.
+    std::span<const sockaddr_storage> relay_addresses;
 };
 
 struct PingHandler {
@@ -54,9 +55,8 @@ struct PingHandler {
 
 /**
  * Ping the given addresses.
- * Each address will be pinged at most `info.nrounds` times (less if `info.timeout_ms`
- * expires or an error occurs) and the handler will be called once for each address.
- * After that, the handler is called one final time with status equal to `PING_FINISHED`.
+ * The handler will be called once for each address with the result of pinging that address,
+ * and then one final time with the status equal to `PING_FINISHED`.
  */
 Ping *ping_start(const PingInfo *info, PingHandler handler);
 

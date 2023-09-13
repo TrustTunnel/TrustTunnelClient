@@ -131,7 +131,8 @@ struct SystemDnsServers {
  */
 constexpr uint8_t ICMP_MT_DROP = 84;
 constexpr size_t UDP_MAX_DATAGRAM_SIZE = 65535;
-constexpr int DEFAULT_PING_TIMEOUT_MS = 10 * 1000;
+
+constexpr int DEFAULT_PING_TIMEOUT_MS = 3333;
 constexpr int DEFAULT_PING_ROUNDS = 3;
 
 constexpr std::string_view HTTP_METHOD_CONNECT = "CONNECT";
