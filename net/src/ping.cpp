@@ -301,8 +301,6 @@ static void on_timer(evutil_socket_t, short, void *arg) {
 
     assert(!self->report_task_id.has_value());
 
-    log_ping(self, dbg, "Round {}: timed out", self->rounds_started);
-
     self->pending.splice(self->pending.end(), self->inprogress);
     for (PingConn &ep : self->pending) {
         ep.fd.reset();
@@ -310,6 +308,7 @@ static void on_timer(evutil_socket_t, short, void *arg) {
         if (!self->have_round_winner) {
             ep.socket_error = ag::utils::AG_ETIMEDOUT;
         }
+        log_conn(self, &ep, dbg, "Timed out");
     }
     self->done.splice(self->done.end(), self->pending);
 
@@ -382,7 +381,7 @@ static void do_connect(void *arg) {
 error:
     conn->fd.reset();
     conn->event.reset();
-    self->report.splice(self->report.end(), self->pending, conn);
+    self->done.splice(self->done.end(), self->pending, conn);
 
 next:
     if (!self->pending.empty()) {
@@ -591,7 +590,8 @@ static void do_prepare(void *arg) {
         continue;
     error:
         conn->fd.reset();
-        self->report.splice(self->report.end(), self->pending, conn++);
+        conn->event.reset();
+        self->done.splice(self->done.end(), self->pending, conn++);
     }
 
     if (self->pending.empty()) {
