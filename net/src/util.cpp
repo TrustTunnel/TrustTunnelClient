@@ -151,6 +151,7 @@ AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
     AutoVpnEndpoint dst;
     std::memcpy(dst.get(), src, sizeof(*src));
     dst->name = safe_strdup(src->name);
+    dst->remote_id = safe_strdup(src->remote_id);
     return dst;
 }
 
@@ -160,12 +161,14 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
     }
 
     free((char *) endpoint->name);
+    free((char *) endpoint->remote_id);
     std::memset(endpoint, 0, sizeof(*endpoint));
 }
 
 bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
     return sockaddr_equals((struct sockaddr *) &lh->address, (struct sockaddr *) &rh->address)
-            && 0 == strcmp(lh->name, rh->name);
+            && ((lh->name == nullptr && rh->name == lh->name) || 0 == strcmp(lh->name, rh->name))
+            && ((lh->remote_id == nullptr && rh->remote_id == nullptr) || 0 == strcmp(lh->remote_id, rh->remote_id));
 }
 
 AutoVpnLocation vpn_location_clone(const VpnLocation *src) {

@@ -1,5 +1,7 @@
 # CHANGELOG
 
+* Added `VpnEndpoint::remote_id`. See the field's doc for details.
+
 ## 0.92.94
 
 * Changes in pinging behaviour.

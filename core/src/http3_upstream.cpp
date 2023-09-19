@@ -492,7 +492,10 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
 
 int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http3Upstream *) arg;
-    return self->vpn->parameters.cert_verify_handler.func(self->vpn->upstream_config.endpoint->name,
+    return self->vpn->parameters.cert_verify_handler.func(
+            !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
+                    ? self->vpn->upstream_config.endpoint->remote_id
+                    : self->vpn->upstream_config.endpoint->name,
             (sockaddr *) &self->vpn->upstream_config.endpoint->address, store_ctx,
             self->vpn->parameters.cert_verify_handler.arg);
 }

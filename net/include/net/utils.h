@@ -36,6 +36,7 @@ struct CertVerifyHandler {
 struct VpnEndpoint {
     sockaddr_storage address; // endpoint address
     const char *name;         // endpoint host name (used, for example, for TLS handshake)
+    const char *remote_id;    // if not NULL or empty, used for server TLS certificate verification instead of `name`
 };
 
 using VpnEndpoints = AG_ARRAY_OF(VpnEndpoint);
