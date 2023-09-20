@@ -138,6 +138,7 @@ struct Ping {
 
     bool have_round_winner;
     bool anti_dpi;
+    bool use_quic;
 };
 
 static void do_prepare(void *arg);
@@ -479,6 +480,11 @@ static void do_prepare(void *arg) {
                 // Fallback to the next relay address
                 conn->relay_address = self->relay_addresses.back();
                 relay_snis.emplace(std::move(sni));
+                // Restore QUIC after falling back to relay
+                if (self->use_quic && !conn->use_quic) {
+                    conn->use_quic = true;
+                    conn->hello.clear();
+                }
             } else {
                 goto increment_rounds;
             }
@@ -634,6 +640,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     self->loop = info->loop;
     self->handler = handler;
     self->anti_dpi = info->anti_dpi;
+    self->use_quic = info->use_quic;
     self->rounds_target = info->nrounds ? info->nrounds : DEFAULT_PING_ROUNDS;
 
     self->round_timeout_ms = info->timeout_ms ? info->timeout_ms : DEFAULT_PING_TIMEOUT_MS;
@@ -652,7 +659,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
             PingConn &conn = self->pending.emplace_back();
             conn.endpoint = vpn_endpoint_clone(&endpoint);
             conn.bound_if = bound_if;
-            conn.use_quic = info->use_quic;
+            conn.use_quic = self->use_quic;
             if (ag::utils::trim(safe_to_string_view(endpoint.name)).empty()) {
                 log_ping(self, warn, "Endpoint {} has no name", sockaddr_to_str((sockaddr *) &endpoint.address));
                 return nullptr;

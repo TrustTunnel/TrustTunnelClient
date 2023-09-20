@@ -441,6 +441,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     size_t total_endpoints = 0;
     for (auto &json_loc : json["locations"]) {
         VpnLocation &location = locations.emplace_back();
+        location = {};
         location.id = safe_strdup(fmt::format(
                 "{}/{}", json_loc["country_name"].get<std::string>(), json_loc["city_name"].get<std::string>())
                                           .c_str());
@@ -449,6 +450,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
         for (auto &ep : json_loc["endpoints"]) {
             for (const char *addr_propname : {"ipv4_address", "ipv6_address"}) {
                 auto *endpoint = &location.endpoints.data[location.endpoints.size++];
+                *endpoint = {};
                 endpoint->name = safe_strdup(ep["domain_name"].get<std::string>().c_str());
                 endpoint->address = sockaddr_from_str(ep[addr_propname].get<std::string>().c_str());
                 sockaddr_set_port((sockaddr *) &endpoint->address, 443);
