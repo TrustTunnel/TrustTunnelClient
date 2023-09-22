@@ -286,8 +286,9 @@ typedef struct {
 } VpnWaitingRecoveryInfo;
 
 typedef struct {
-    const VpnEndpoint *endpoint;  // the endpoint to which the library is connected
-    VpnUpstreamProtocol protocol; // the protocol used for this connection
+    const VpnEndpoint *endpoint;          // the endpoint to which the library is connected
+    const struct sockaddr *relay_address; // if connected through a relay, the relay's address
+    VpnUpstreamProtocol protocol;         // the protocol used for this connection
 } VpnConnectedInfo;
 
 typedef struct {

@@ -1,5 +1,7 @@
 # CHANGELOG
 
+* Added `VpnConnectedInfo::relay_address`.
+
 ## 0.92.100
 
 * Added `VpnEndpoint::remote_id`. See the field's doc for details.
