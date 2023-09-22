@@ -248,7 +248,7 @@ static void on_event(evutil_socket_t fd, short, void *arg) {
             if (error != WSAEMSGSIZE) {
 #endif
                 conn->socket_error = error;
-                log_conn(self, conn, trace, "Failed to receive response: ({}) {}", conn->socket_error,
+                log_conn(self, conn, dbg, "Failed to receive response: ({}) {}", conn->socket_error,
                         evutil_socket_error_to_string(conn->socket_error));
                 goto end_round;
 #ifdef _WIN32
@@ -257,7 +257,7 @@ static void on_event(evutil_socket_t fd, short, void *arg) {
         } else if (ret == 0) {
             // Treat this as an error for the purpose of switching to relay IPs.
             conn->socket_error = ag::utils::AG_ECONNRESET;
-            log_conn(self, conn, trace, "Failed to receive response: unexpected EOF");
+            log_conn(self, conn, dbg, "Failed to receive response: unexpected EOF");
             goto end_round;
         }
 

@@ -451,7 +451,12 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
             for (const char *addr_propname : {"ipv4_address", "ipv6_address"}) {
                 auto *endpoint = &location.endpoints.data[location.endpoints.size++];
                 *endpoint = {};
-                endpoint->name = safe_strdup(ep["domain_name"].get<std::string>().c_str());
+                if (!ep["server_name"].empty() && !ep["remote_identifier"].empty()) {
+                    endpoint->name = safe_strdup(ep["server_name"].get<std::string>().c_str());
+                    endpoint->remote_id = safe_strdup(ep["remote_identifier"].get<std::string>().c_str());
+                } else {
+                    endpoint->name = safe_strdup(ep["domain_name"].get<std::string>().c_str());
+                }
                 endpoint->address = sockaddr_from_str(ep[addr_propname].get<std::string>().c_str());
                 sockaddr_set_port((sockaddr *) &endpoint->address, 443);
                 ++total_endpoints;
@@ -460,8 +465,12 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
         auto &relays = relay_addresses.emplace_back();
         relays.reserve(json_loc["relay_endpoints"].size() + 1);
         for (auto &r : json_loc["relay_endpoints"]) {
-            relays.emplace_back(sockaddr_from_str(r.get<std::string>().c_str()));
-            sockaddr_set_port((sockaddr *) &relays.back(), 443);
+            for (const char *addr_propname : {"ipv4_address", "ipv6_address"}) {
+                if (!r[addr_propname].empty()) {
+                    relays.emplace_back(sockaddr_from_str(r[addr_propname].get<std::string>().c_str()));
+                    sockaddr_set_port((sockaddr *) &relays.back(), 443);
+                }
+            }
         }
         location.relay_addresses.data = relays.data();
         location.relay_addresses.size = relays.size();
