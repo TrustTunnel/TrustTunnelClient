@@ -33,7 +33,7 @@ class VpnLibsConan(ConanFile):
         self.requires("ldns/2021-03-29@AdguardTeam/NativeLibsCommon")
         self.requires("libevent/2.1.11@AdguardTeam/NativeLibsCommon")
         self.requires("magic_enum/0.7.3")
-        self.requires("native_libs_common/2.0.60@AdguardTeam/NativeLibsCommon")
+        self.requires("native_libs_common/2.0.71@AdguardTeam/NativeLibsCommon")
         self.requires("nghttp2/1.44.0@AdguardTeam/NativeLibsCommon")
         self.requires("openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon")
         self.requires("quiche/0.17.1@AdguardTeam/NativeLibsCommon")
