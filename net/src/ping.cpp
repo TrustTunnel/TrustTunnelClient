@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <list>
 #include <string>
@@ -430,7 +431,11 @@ static void do_report(void *arg) {
         result.endpoint = it->endpoint.get();
         if (it->best_result_ms.has_value()) {
             result.status = PING_OK;
-            result.ms = it->best_result_ms.value();
+            // https://bit.int.agrd.dev/projects/ADGUARD-CORE-LIBS/repos/vpn-libs/pull-requests/225/overview
+            // Currently, due to sending real ClientHello messages, the traffic has significantly increased, affecting ping times.
+            // As a temporary solution, the following formula is used to reduce peaks while keeping the average values in place.
+            // TODO: fix traffic jams
+            result.ms = int(pow(double(it->best_result_ms.value()), 0.85) * 1.8) + 1.0;
         } else {
             result.socket_error = it->socket_error;
             result.status = (it->socket_error == 0 || it->socket_error == ag::utils::AG_ETIMEDOUT) ? PING_TIMEDOUT
