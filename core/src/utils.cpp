@@ -165,6 +165,28 @@ std::string make_credentials(std::string_view username, std::string_view passwor
     return ag::encode_to_base64({(uint8_t *) creds.data(), creds.size()}, false);
 }
 
+static std::mutex m_session_cache_mutex;
+static ag::LruCache<std::string, bssl::UniquePtr<SSL_SESSION>> m_session_cache;
+
+static int cache_session_cb(SSL *ssl, SSL_SESSION *session) {
+    std::lock_guard l{m_session_cache_mutex};
+    if (const char *hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) {
+        m_session_cache.insert(hostname, bssl::UniquePtr<SSL_SESSION>{session});
+        return 1;
+    }
+    return 0;
+}
+
+static bssl::UniquePtr<SSL_SESSION> pop_session_from_cache(const std::string &sni) {
+    std::lock_guard l{m_session_cache_mutex};
+    if (auto it = m_session_cache.get(sni); it != nullptr && *it != nullptr) {
+        SSL_SESSION *session = const_cast<bssl::UniquePtr<SSL_SESSION> &>(*it).release();
+        m_session_cache.erase(sni);
+        return bssl::UniquePtr<SSL_SESSION>(session);
+    }
+    return nullptr;
+}
+
 std::variant<SslPtr, std::string> make_ssl(
         int (*verification_callback)(X509_STORE_CTX *, void *), void *arg, U8View alpn_protos, const char *sni) {
     DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
@@ -174,9 +196,16 @@ std::variant<SslPtr, std::string> make_ssl(
         return "Failed to set ALPN protocols";
     }
 
+    SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_CLIENT);
+    SSL_CTX_sess_set_new_cb(ctx.get(), cache_session_cb);
+
     SslPtr ssl{SSL_new(ctx.get())};
     if (0 == SSL_set_tlsext_host_name(ssl.get(), sni)) {
         return "Failed to set SNI";
+    }
+
+    if (auto session = pop_session_from_cache(sni)) {
+        SSL_set_session(ssl.get(), session.release());
     }
 
 #if 0
