@@ -100,10 +100,7 @@ void tcp_cm_sent_to_remote(TcpConnDescriptor *connection, size_t n) {
     tcp_refresh_connection_timeout(connection);
 }
 
-static void process_rejected_connection(TcpConnDescriptor *connection) {
-    // mark connection to be rejected in tcp input
-    connection->state = TCP_CONN_STATE_REJECTED;
-
+static void process_and_close(TcpConnDescriptor *connection) {
     struct netif *netif = connection->common.parent_ctx->netif;
     pbuf *buf = std::exchange(connection->buffer, nullptr);
     const err_t r = netif_input(buf, netif);
@@ -111,8 +108,13 @@ static void process_rejected_connection(TcpConnDescriptor *connection) {
         pbuf_free(buf);
         log_conn(connection, err, "netif_input failed: {} ({})", lwip_strerr(r), r);
     }
-
     tcp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id, false);
+}
+
+static void process_rejected_connection(TcpConnDescriptor *connection) {
+    // mark connection to be rejected in tcp input
+    connection->state = TCP_CONN_STATE_REJECTED;
+    process_and_close(connection);
 }
 
 static void process_dropped_connection(TcpConnDescriptor *connection) {
@@ -121,20 +123,7 @@ static void process_dropped_connection(TcpConnDescriptor *connection) {
 
 static void process_unreachable_connection(TcpConnDescriptor *connection) {
     connection->state = TCP_CONN_STATE_UNREACHABLE;
-
-    struct netif *netif = connection->common.parent_ctx->netif;
-    pbuf *buf = std::exchange(connection->buffer, nullptr);
-    const err_t r = netif_input(buf, netif);
-    if (r != ERR_OK) {
-        pbuf_free(buf);
-        log_conn(connection, err, "netif_input failed: {} ({})", lwip_strerr(r), r);
-        tcp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id, false);
-        return;
-    }
-
-    // Freed in netif_input
-    connection->buffer = nullptr;
-    tcp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id, false);
+    process_and_close(connection);
 }
 
 bool tcp_cm_init(TcpipCtx *ctx) {

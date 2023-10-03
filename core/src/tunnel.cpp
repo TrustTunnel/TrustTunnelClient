@@ -741,6 +741,7 @@ constexpr VpnConnectAction vpn_mode_to_action(VpnMode mode) {
 constexpr VpnConnectAction invert_action(VpnConnectAction action) {
     switch (action) {
     case VPN_CA_DEFAULT:
+    case VPN_CA_REJECT:
         break;
     case VPN_CA_FORCE_BYPASS:
         action = VPN_CA_FORCE_REDIRECT;
@@ -798,6 +799,9 @@ static std::shared_ptr<ServerUpstream> select_upstream(const Tunnel *self, VpnCo
         if (!is_plain_dns_connection) {
             return self->vpn->endpoint_upstream;
         }
+        break;
+    case VPN_CA_REJECT:
+        assert(0);
         break;
     }
 
@@ -1073,11 +1077,13 @@ static bool need_resolve_hostname(const Tunnel *self, VpnConnectAction action, c
         break;
     case VPN_CA_FORCE_BYPASS:
     case VPN_CA_FORCE_REDIRECT:
+    case VPN_CA_REJECT:
         break;
     }
 
     switch (action) {
     case VPN_CA_DEFAULT:
+    case VPN_CA_REJECT:
         assert(0); // should not get here
         return false;
     case VPN_CA_FORCE_BYPASS:
@@ -1135,6 +1141,9 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
                         && !conn->flags.test(CONNF_PLAIN_DNS_CONNECTION));
         action = VPN_CA_DEFAULT;
         break;
+    case VPN_CA_REJECT:
+        close_client_side_connection(this, conn, utils::AG_ECONNREFUSED, true);
+        return;
     }
 
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)

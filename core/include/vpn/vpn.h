@@ -376,6 +376,10 @@ typedef enum {
      * Route this connection through the VPN endpoint _unconditionally_
      */
     VPN_CA_FORCE_REDIRECT,
+    /**
+     * Reject this connection (i.e. simulate peer rejecting connection)
+     */
+    VPN_CA_REJECT,
 } VpnConnectAction;
 
 /**
