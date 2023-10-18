@@ -62,11 +62,15 @@ static std::atomic_bool g_stop = false;
 static HMODULE g_wintun;
 #endif
 
-static void sighandler(int /*sig*/) {
+static void sighandler(int sig) {
     signal(SIGINT, SIG_DFL);
     signal(SIGTERM, SIG_DFL);
 
     if (g_vpn != nullptr) {
+        if (sig == SIGHUP) {
+            vpn_notify_network_change(g_vpn, true);
+            return;
+        }
         g_stop = true;
         g_listener_runner_barrier.notify_one();
     } else {
@@ -475,6 +479,7 @@ static void setup_sighandler() {
 #ifdef _WIN32
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
+    signal(SIGHUP, sighandler);
 #else
     signal(SIGPIPE, SIG_IGN);
     // Block SIGINT and SIGTERM - they will be waited using sigwait().
@@ -482,11 +487,14 @@ static void setup_sighandler() {
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
+    sigaddset(&sigset, SIGHUP);
     pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
     std::thread([sigset] {
         int signum = 0;
-        sigwait(&sigset, &signum);
-        sighandler(signum);
+        while (true) {
+            sigwait(&sigset, &signum);
+            sighandler(signum);
+        }
     }).detach();
 #endif
 }
