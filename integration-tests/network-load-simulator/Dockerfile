@@ -18,8 +18,7 @@ RUN cmake .. -DCMAKE_BUILD_TYPE=Release -G "Ninja" \
     mv ./standalone_client/standalone_client /test/
 
 WORKDIR /test/
-COPY entrypoint.sh index.js package.json /test/
+COPY entrypoint.sh index.js package.json config.conf /test/
 RUN npm install
 
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["endpoint_hostname", "endpoint_ip", "protocol", "mode", "socks_port"]

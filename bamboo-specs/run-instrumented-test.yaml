@@ -50,7 +50,10 @@ Run Instrumented test:
             cp -RT client/vpn-libs/integration-tests/ ./
 
             ./integration_test.sh clean
-            ./integration_test.sh run browser ${bamboo.conanRepoUrl}; exit $?
+            ./integration_test.sh run browser ${bamboo.conanRepoUrl} ${bamboo.vpnLibsAppId} \
+            ${bamboo.vpnLibsTokenSecret} ${bamboo.adguardApiCredPath} \
+            ${bamboo.adguardApiVpnLocationPath} ${bamboo.adguardApiDomain} \
+            ${bamboo.adguardVpnRelayIp}; exit $?
         description: Run browser tests
         working-dir: test
   final-tasks:
@@ -60,10 +63,14 @@ Run Instrumented test:
           - |-
             #!/bin/bash
 
-            set -x -e
+            set -x
 
             pushd logs
-            timeout 10s gzip -f vpn_tun_http2.log || true
+            timeout 10s gzip -f vpn_tun_http2.log
+            if [ $? -eq 124 ]; then
+              truncate -s 300M vpn_tun_http2.log
+              timeout 10s gzip -f vpn_tun_http2.log || true
+            fi
             popd
 
             ./integration_test.sh clean
@@ -75,6 +82,8 @@ Run Instrumented test:
         scripts:
           - |-
             #!/bin/bash
+
+            set -x -e
 
             pushd logs
             rm -f vpn_tun_http2.log
@@ -89,10 +98,10 @@ Run Instrumented test:
       location: test/logs
       pattern: '*.gz'
       shared: false
-    - 
+    -
       name: Test result
       location: test/
-      pattern: 'output.json'
+      pattern: 'output*.json'
       shared: true
   artifact-subscriptions: [ ]
 repositories:
@@ -100,13 +109,22 @@ repositories:
       scope: global
   - core-libs/vpn-libs-endpoint:
       scope: global
-branches:
-  create: for-pull-request
-  delete:
-    after-deleted-days: 4
-    after-inactive-days: 30
-  link-to-jira: true
-notifications: [ ]
+triggers:
+  - cron:
+      expression: 0 0 9 ? * *
+notifications:
+  - events:
+      - plan-failed
+    recipients:
+      - webhook:
+          name: Build webhook
+          url: http://prod.jirahub.service.eu.consul/v1/webhook/bamboo?channel=adguard-libs
+  - events:
+      - plan-completed
+    recipients:
+      - webhook:
+          name: Build webhook
+          url: http://prod.jirahub.service.eu.consul/v1/webhook/bamboo?channel=adguard-libs-vcs
 labels: [ ]
 other:
   concurrent-build-plugin: system-default
