@@ -67,10 +67,12 @@ static void sighandler(int sig) {
     signal(SIGTERM, SIG_DFL);
 
     if (g_vpn != nullptr) {
+#ifndef _WIN32
         if (sig == SIGHUP) {
             vpn_notify_network_change(g_vpn, true);
             return;
         }
+#endif
         g_stop = true;
         g_listener_runner_barrier.notify_one();
     } else {
@@ -268,27 +270,6 @@ static VpnListener *make_tun_listener() {
     }
 #endif
 
-    uint32_t if_index = 0;
-    if (!config.bound_if.empty()) {
-        if_index = if_nametoindex(config.bound_if.c_str());
-        if (if_index == 0) {
-            errlog(g_logger, "Unknown interface name, use 'ifconfig' to see possible values");
-            return nullptr;
-        }
-    } else {
-#ifdef _WIN32
-        if_index = vpn_win_detect_active_if();
-        if (if_index == 0) {
-            errlog(g_logger, "Couldn't detect active network interface");
-            return nullptr;
-        }
-        char if_name[IF_NAMESIZE]{};
-        if_indextoname(if_index, if_name);
-        infolog(g_logger, "Using network interface: {} ({})", if_name, if_index);
-#endif
-    }
-    vpn_network_manager_set_outbound_interface(if_index);
-
     std::vector<const char *> included_routes;
     included_routes.reserve(config.included_routes.size());
     for (const auto &route : config.included_routes) {
@@ -408,6 +389,32 @@ static void vpn_runner() {
     }
 }
 
+static int set_outbound_interface() {
+    auto &config = std::get<Config::TunListener>(g_config.listener);
+    uint32_t if_index = 0;
+    if (!config.bound_if.empty()) {
+        if_index = if_nametoindex(config.bound_if.c_str());
+        dbglog(g_logger, "Interface name {} with index {}", config.bound_if, if_index);
+        if (if_index == 0) {
+            errlog(g_logger, "Unknown interface name, use 'ifconfig' to see possible values");
+            return -1;
+        }
+    } else {
+#ifdef _WIN32
+        if_index = vpn_win_detect_active_if();
+        if (if_index == 0) {
+            errlog(g_logger, "Couldn't detect active network interface");
+            return -1;
+        }
+        char if_name[IF_NAMESIZE]{};
+        if_indextoname(if_index, if_name);
+        infolog(g_logger, "Using network interface: {} ({})", if_name, if_index);
+#endif
+    }
+    vpn_network_manager_set_outbound_interface(if_index);
+    return 0;
+}
+
 static int listener_runner() {
 #ifdef _WIN32
     uint32_t if_index = vpn_win_detect_active_if();
@@ -448,6 +455,14 @@ static int listener_runner() {
             .exclusions = {g_config.exclusions.data(), (uint32_t) g_config.exclusions.size()},
             .killswitch_enabled = g_config.killswitch_enabled,
     };
+
+    if (std::holds_alternative<Config::TunListener>(g_config.listener)) {
+        if (int r = set_outbound_interface(); r < 0) {
+            errlog(g_logger, "Failed to set outbound interface");
+            return 1;
+        }
+    }
+
     g_vpn = vpn_open(&settings);
     if (g_vpn == nullptr) {
         errlog(g_logger, "Failed on create VPN instance");
@@ -479,7 +494,6 @@ static void setup_sighandler() {
 #ifdef _WIN32
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
-    signal(SIGHUP, sighandler);
 #else
     signal(SIGPIPE, SIG_IGN);
     // Block SIGINT and SIGTERM - they will be waited using sigwait().

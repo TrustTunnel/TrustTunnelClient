@@ -507,15 +507,14 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
         if (address.ss_family == AF_UNSPEC) {
             continue;
         }
-
         selected_address = address;
-        log_resolver(self, dbg, "Chosen resolver from main system servers: {}",
-                tunnel_addr_to_str(&self->m_resolver_address));
         break;
     }
 
     if (selected_address.has_value()) {
         self->m_resolver_address = selected_address.value();
+        log_resolver(self, dbg, "Chosen resolver from main system servers: {}",
+                tunnel_addr_to_str(&self->m_resolver_address));
         return;
     }
 
@@ -524,15 +523,14 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
         if (address.ss_family == AF_UNSPEC) {
             continue;
         }
-
         selected_address = address;
-        log_resolver(self, dbg, "Chosen resolver from fallback system servers: {}",
-                tunnel_addr_to_str(&self->m_resolver_address));
         break;
     }
 
     if (selected_address.has_value()) {
         self->m_resolver_address = selected_address.value();
+        log_resolver(self, dbg, "Chosen resolver from fallback system servers: {}",
+                tunnel_addr_to_str(&self->m_resolver_address));
     } else {
         self->m_resolver_address = FALLBACK_RESOLVER_ADDRESS;
         log_resolver(self, dbg, "Couldn't choose resolver from system servers, using fallback: {}",
