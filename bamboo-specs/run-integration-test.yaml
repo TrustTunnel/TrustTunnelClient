@@ -57,13 +57,18 @@ Run integration test:
           - |-
             #!/bin/bash
 
-            set -x -e
+            set -x
 
             pushd logs
-            timeout 10s gzip -f vpn_tun_http2.log || true
-            timeout 10s gzip -f vpn_tun_http3.log || true
-            timeout 10s gzip -f vpn_socks_http2.log || true
-            timeout 10s gzip -f vpn_socks_http3.log || true
+
+            for log_file in vpn_tun_http2.log vpn_tun_http3.log vpn_socks_http2.log vpn_socks_http3.log; do
+            timeout 10s gzip -f $log_file
+            if [ $? -eq 124 ]; then
+              truncate -s 100M $log_file
+              timeout 10s gzip -f $log_file || true
+            fi
+            done
+
             popd
 
             ./integration_test.sh clean
@@ -95,7 +100,7 @@ Run live test:
   key: JOB2
   description: Runs C++ live tests
   docker:
-    image: adguard/core-libs:1.16
+    image: adguard/core-libs:1.20
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}

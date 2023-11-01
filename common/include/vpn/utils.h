@@ -362,14 +362,6 @@ using DeclPtr = std::unique_ptr<T, Ftor<FUNC>>;
 
 using U8View = std::basic_string_view<uint8_t>;
 
-template <typename T>
-constexpr size_t width_of() {
-    return sizeof(T) * CHAR_BIT;
-}
-
-template <typename Enum, typename = std::enable_if_t<std::is_enum_v<Enum>>>
-using EnumSet = std::bitset<width_of<Enum>()>;
-
 std::string sockaddr_ip_to_str(const struct sockaddr *addr);
 std::string sockaddr_to_str(const struct sockaddr *addr);
 

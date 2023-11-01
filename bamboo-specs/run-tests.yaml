@@ -18,7 +18,7 @@ stages:
 Run tests on Linux:
   key: RTL
   docker:
-    image: adguard/core-libs:1.16
+    image: adguard/core-libs:1.20
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
