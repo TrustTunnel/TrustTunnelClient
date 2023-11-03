@@ -16,6 +16,7 @@
 #include "net/network_manager.h"
 #include "net/os_tunnel.h"
 #include "vpn/guid_utils.h"
+#include "vpn/utils.h"
 
 // Need to link with Iphlpapi.lib and Ws2_32.lib
 #pragma comment(lib, "iphlpapi.lib")
@@ -458,72 +459,58 @@ void ag::vpn_win_tunnel_destroy(void *win_tunnel) {
     delete (VpnWinTunnel *) win_tunnel;
 }
 
+static bool protect_with_bind(evutil_socket_t fd, const sockaddr *addr, uint32_t bound_if) {
+    SOCKADDR_INET source_best{};
+    MIB_IPFORWARD_ROW2 row{};
+    sockaddr_storage dest = ag::sockaddr_to_storage(addr);
+
+    if (int error = GetBestRoute2(nullptr, bound_if, nullptr, (const SOCKADDR_INET *) &dest, 0, &row, &source_best);
+            error != ERROR_SUCCESS) {
+        warnlog(logger, "GetBestRoute2(): {}", ag::sys::strerror(error));
+        return false;
+    }
+
+    if (0 != bind(fd, (sockaddr *) &source_best, ag::sockaddr_get_size((sockaddr *) &source_best))) {
+        warnlog(logger, "Failed to bind socket to interface: {}", ag::sys::strerror(WSAGetLastError()));
+        return false;
+    }
+
+    return true;
+}
+
+static bool protect_with_unicast_if(evutil_socket_t fd, const sockaddr *addr, uint32_t bound_if) {
+    if (addr->sa_family == AF_INET) {
+        // WinSock expects IPv4 address in network byte order
+        bound_if = htonl(bound_if);
+        if (0 != setsockopt(fd, IPPROTO_IP, IP_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
+            warnlog(logger, "setsockopt(IP_UNICAST_IF): {}", ag::sys::strerror(WSAGetLastError()));
+            return false;
+        }
+    } else if (addr->sa_family == AF_INET6) {
+        // IPV6_UNICAST_IF is 32-bit int in host byte order
+        if (0 != setsockopt(fd, IPPROTO_IPV6, IPV6_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
+            warnlog(logger, "setsockopt(IPV6_UNICAST_IF): {}", ag::sys::strerror(WSAGetLastError()));
+            return false;
+        }
+    } else {
+        warnlog(logger, "Unexpected address family: {}", addr->sa_family);
+        return false;
+    }
+    return true;
+}
+
 bool ag::vpn_win_socket_protect(evutil_socket_t fd, const sockaddr *addr) {
     uint32_t bound_if = vpn_network_manager_get_outbound_interface();
     if (bound_if == 0) {
         return true;
     }
 
-    SOCKADDR_INET source_best{};
-    MIB_IPFORWARD_ROW2 row{};
-    SOCKADDR_INET dest{};
-    dest.si_family = addr->sa_family;
-
-    if (addr->sa_family == AF_INET) {
-        sockaddr_in to_bind{
-                .sin_family = addr->sa_family,
-        };
-        const auto *sin = (const sockaddr_in *) addr;
-        dest.Ipv4.sin_addr = sin->sin_addr;
-        dest.Ipv4.sin_port = sin->sin_port;
-        if (int error = GetBestRoute2(nullptr, bound_if, nullptr, &dest, 0, &row, &source_best);
-                error != ERROR_SUCCESS) {
-            errlog(logger, "GetBestRoute2(): {}", ag::sys::strerror(error));
-            to_bind.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        } else {
-            to_bind.sin_addr = source_best.Ipv4.sin_addr;
-        }
-        // Without `bind()` it may not work or work unexpectedly.
-        // https://lists.zx2c4.com/pipermail/wireguard/2019-September/004541.html
-        if (0 != bind(fd, (SOCKADDR *) &to_bind, sizeof(to_bind))) {
-            errlog(logger, "bind(): {}", ag::sys::strerror(WSAGetLastError()));
-            return false;
-        }
-        // WinSock expects IPv4 address in network byte order
-        bound_if = htonl(bound_if);
-        if (0 != setsockopt(fd, IPPROTO_IP, IP_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
-            errlog(logger, "setsockopt(): {}", ag::sys::strerror(WSAGetLastError()));
-            return false;
-        }
-    } else if (addr->sa_family == AF_INET6) {
-        sockaddr_in6 to_bind{
-                .sin6_family = addr->sa_family,
-        };
-        const auto *sin = (const sockaddr_in6 *) addr;
-        dest.Ipv6.sin6_addr = sin->sin6_addr;
-        dest.Ipv6.sin6_port = sin->sin6_port;
-        if (int error = GetBestRoute2(nullptr, bound_if, nullptr, &dest, 0, &row, &source_best);
-                error != ERROR_SUCCESS) {
-            errlog(logger, "GetBestRoute2(): {}", ag::sys::strerror(error));
-            memcpy(&to_bind.sin6_addr, &in6addr_loopback, sizeof(in6addr_loopback));
-        } else {
-            to_bind.sin6_addr = source_best.Ipv6.sin6_addr;
-            to_bind.sin6_scope_id = source_best.Ipv6.sin6_scope_id;
-        }
-        // Without `bind()` it may not work or work unexpectedly.
-        // https://lists.zx2c4.com/pipermail/wireguard/2019-September/004541.html
-        if (0 != bind(fd, (SOCKADDR *) &to_bind, sizeof(to_bind))) {
-            errlog(logger, "bind(): {}", ag::sys::strerror(WSAGetLastError()));
-            return false;
-        }
-        // IPV6_UNICAST_IF is 32-bit int in host byte order
-        if (0 != setsockopt(fd, IPPROTO_IPV6, IPV6_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
-            errlog(logger, "setsockopt(): {}", ag::sys::strerror(WSAGetLastError()));
-            return false;
-        }
-    } else {
-        errlog(logger, "Unexpected address family: {}", addr->sa_family);
+    const bool bind_protect_success = protect_with_bind(fd, addr, bound_if);
+    const bool unicast_protect_success = protect_with_unicast_if(fd, addr, bound_if);
+    if (!bind_protect_success && !unicast_protect_success) {
+        errlog(logger, "Failed to protect socket");
         return false;
     }
+
     return true;
 }
