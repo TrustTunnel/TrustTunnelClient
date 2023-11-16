@@ -81,7 +81,7 @@ curl -6 -sS https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
-curl -O -sS 'https://speedtest-fkt-eqx.retn.net.prod.hosts.ooklaserver.net:8080/download?size=100000000' --max-time 120 >/dev/null
+curl -L -O -sS 'https://github.com/spacemeowx2/100mb/raw/master/100mb.bin' --max-time 120 >/dev/null
 check_error
 
 echo "Check ICMP - ping 1.1.1.1 ..."

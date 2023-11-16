@@ -27,15 +27,15 @@ class VpnLibsConan(ConanFile):
 
     def requirements(self):
         self.requires("brotli/1.0.9")
-        self.requires("dns-libs/2.3.6@AdguardTeam/NativeLibsCommon")
+        self.requires("dns-libs/2.4.10@AdguardTeam/NativeLibsCommon")
         self.requires("http_parser/2.9.4")
         self.requires("klib/2021-04-06@AdguardTeam/NativeLibsCommon")
         self.requires("ldns/2021-03-29@AdguardTeam/NativeLibsCommon")
         self.requires("libevent/2.1.11@AdguardTeam/NativeLibsCommon")
         self.requires("magic_enum/0.7.3")
-        self.requires("native_libs_common/3.0.4@AdguardTeam/NativeLibsCommon")
+        self.requires("native_libs_common/3.0.6@AdguardTeam/NativeLibsCommon")
         self.requires("nghttp2/1.44.0@AdguardTeam/NativeLibsCommon")
-        self.requires("openssl/boring-2021-05-11@AdguardTeam/NativeLibsCommon")
+        self.requires("openssl/boring-2023-09-01@AdguardTeam/NativeLibsCommon")
         self.requires("quiche/0.17.1@AdguardTeam/NativeLibsCommon")
         self.requires("zlib/1.2.11")
 

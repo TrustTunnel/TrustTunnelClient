@@ -91,25 +91,6 @@ endif()
 enable_testing()
 
 link_libraries(CONAN_PKG::gtest)
-
-add_library(module_vpncore_mocked STATIC EXCLUDE_FROM_ALL
-        ${SOURCE_FILES}
-        ${TEST_DIR}/test_mock_c.cpp
-        ${TEST_DIR}/test_mock_vpn_client.cpp
-    )
-
-if (MSVC)
-    target_compile_definitions(module_vpncore_mocked PRIVATE _UNICODE UNICODE)
-endif (MSVC)
-
-set(MOCKED_FUNCTIONS
-        locations_pinger_start
-    )
-
-foreach(FN ${MOCKED_FUNCTIONS})
-    target_compile_definitions(module_vpncore_mocked PRIVATE ${FN}=MOCK_${FN})
-endforeach(FN ${MOCKED_FUNCTIONS})
-
 include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
 set(TEST_EXTRA_INCLUDES ${VPNCORE_SRC_DIR} ${THIRD_PARTY_DIR}/klib)
 
@@ -121,9 +102,44 @@ target_link_libraries(test_vpn_client_live PRIVATE vpnlibs_core)
 add_unit_test(test_dns_routing "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_dns_routing PRIVATE vpnlibs_core)
 
-target_link_libraries(module_vpncore_mocked vpnlibs_core)
-target_include_directories(module_vpncore_mocked PUBLIC ${TEST_EXTRA_INCLUDES})
-link_libraries(module_vpncore_mocked)
+set(MOCKED_SOURCE_FILES
+        ${SOURCE_FILES}
+        ${TEST_DIR}/test_mock_c.cpp
+        ${TEST_DIR}/test_mock_vpn_client.cpp
+)
+list(REMOVE_ITEM MOCKED_SOURCE_FILES
+        ${VPNCORE_SRC_DIR}/vpn_client.cpp
+)
+add_library(vpnlibs_core_mocked STATIC EXCLUDE_FROM_ALL
+        ${MOCKED_SOURCE_FILES}
+    )
+
+if (MSVC)
+    target_compile_definitions(vpnlibs_core_mocked PRIVATE _UNICODE UNICODE)
+endif (MSVC)
+
+set(MOCKED_FUNCTIONS
+        locations_pinger_start
+    )
+
+foreach(FN ${MOCKED_FUNCTIONS})
+    target_compile_definitions(vpnlibs_core_mocked PRIVATE ${FN}=MOCK_${FN})
+endforeach(FN ${MOCKED_FUNCTIONS})
+
+target_link_libraries(vpnlibs_core_mocked vpnlibs_common vpnlibs_net vpnlibs_tcpip)
+target_link_libraries(vpnlibs_core_mocked CONAN_PKG::klib CONAN_PKG::magic_enum CONAN_PKG::libevent)
+target_link_libraries(vpnlibs_core_mocked CONAN_PKG::dns-libs)
+target_link_libraries(vpnlibs_core_mocked CONAN_PKG::quiche)
+if (WIN32)
+    target_link_libraries(vpnlibs_core_mocked BCrypt) # Quiche requirement
+endif()
+if (APPLE)
+    target_link_libraries(vpnlibs_core_mocked CONAN_PKG::ghc-filesystem)
+endif()
+target_include_directories(vpnlibs_core_mocked PUBLIC include)
+
+link_libraries(vpnlibs_core_mocked)
+target_include_directories(vpnlibs_core_mocked PUBLIC ${TEST_EXTRA_INCLUDES})
 
 add_unit_test(test_domain_filter "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE FALSE)
 add_unit_test(test_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE FALSE)

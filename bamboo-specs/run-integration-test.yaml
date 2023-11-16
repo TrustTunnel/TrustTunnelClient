@@ -133,6 +133,7 @@ Run live test:
             mkdir -p build_no_asan && cd build_no_asan
 
             # Using DNS proxy in VPN libs leads to false-positive address sanitizer errors
+            export LDFLAGS=-fuse-ld=lld
             cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
