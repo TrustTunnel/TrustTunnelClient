@@ -10,7 +10,7 @@ echo "nameserver 101.101.101.101" > /etc/resolv.conf
 CREDS_RESPONSE=""
 for i in {1..6}; do
   set +e
-  CREDS_RESPONSE=$(timeout 10s ~/go/bin/gocurl "${CREDS_API_URL}" -X POST \
+  CREDS_RESPONSE=$(timeout 10s ~/go/bin/gocurl --tls-split-hello=5:50 "${CREDS_API_URL}" -X POST \
                  -H "Content-Type: application/x-www-form-urlencoded" \
                  -d "app_id=${APP_ID}&token=${TOKEN}")
   set -e
