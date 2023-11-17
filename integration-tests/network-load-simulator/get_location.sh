@@ -19,8 +19,8 @@ if [[ -z "$LOCATIONS" ]]; then
   exit 1
 fi
 
-ENDPOINT_HOSTNAME=$(echo $LOCATIONS | jq -r '.locations[] | select(.city_name=="Kotlas") | .endpoints[0] | .server_name')
-ENDPOINT_IP=$(echo $LOCATIONS | jq -r '.locations[] | select(.city_name=="Kotlas") | .relay_endpoints[0] | .ipv4_address')
+ENDPOINT_HOSTNAME=$(echo $LOCATIONS | jq -r '.locations[] | select(.city_name=="Frankfurt") | .endpoints[0] | .server_name')
+ENDPOINT_IP=$(echo $LOCATIONS | jq -r '.locations[] | select(.city_name=="Frankfurt") | .relay_endpoints[0] | .ipv4_address')
 
 echo "ENDPOINT_HOSTNAME=${ENDPOINT_HOSTNAME}" >> result.txt
 echo "ENDPOINT_IP=${ENDPOINT_IP}" >> result.txt
