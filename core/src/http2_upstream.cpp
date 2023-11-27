@@ -207,10 +207,6 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
             http_event->result = std::min(http_event->result, 0);
         }
 
-        if (http_event->result >= 0 && pending != nullptr && pending->size() > 0) {
-            http_event->result = NGHTTP2_ERR_PAUSE;
-        }
-
         break;
     }
     case HTTP_EVENT_DATA_FINISHED: {

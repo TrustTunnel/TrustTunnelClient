@@ -730,8 +730,10 @@ int http_session_set_recv_window(HttpSession *session, int32_t stream_id, size_t
     static const int32_t MAX_STREAM_WINDOW_SIZE = 4 * 1024 * 1024;
 
     // don't reduce window, but don't let it be more than `MAX_STREAM_WINDOW_SIZE`
-    int32_t current_window = nghttp2_session_get_stream_local_window_size(ngsession, stream_id);
-    int32_t new_window = std::min(std::max(current_window, (int32_t) size), MAX_STREAM_WINDOW_SIZE);
+    int32_t current_window = nghttp2_session_get_stream_effective_local_window_size(ngsession, stream_id);
+    int32_t new_window = std::min(
+            std::max(current_window, size > INT32_MAX ? INT32_MAX : int32_t(size)),
+            MAX_STREAM_WINDOW_SIZE);
     log_sid(session, stream_id, trace, "Requested={} current={} new={}", size, current_window, new_window);
 
     int r = nghttp2_session_set_local_window_size(ngsession, NGHTTP2_FLAG_NONE, stream_id, new_window);
