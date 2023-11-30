@@ -35,6 +35,7 @@ typedef struct {
     // If a ping fails, the pinger will fall back to TLS for that endpoint.
     bool use_quic;
     bool anti_dpi; // Enable anti-DPI measures.
+    const sockaddr *relay_address_parallel; // Ping through this relay in parallel with normal pings.
 } LocationsPingerInfo;
 
 typedef struct {

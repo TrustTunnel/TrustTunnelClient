@@ -108,6 +108,7 @@ struct PingConn {
     int socket_error = 0;
     PingConnState state = PCS_SYN_SENT;
     bool use_quic = false;
+    bool no_relay_fallback = false;
     uint32_t rounds_done = 0;
 };
 
@@ -141,6 +142,7 @@ struct Ping {
     bool use_quic;
 };
 
+static void add_endpoint(Ping *ping, const VpnEndpoint &endpoint, uint32_t bound_if, const sockaddr *relay_address);
 static void do_prepare(void *arg);
 static void do_connect(void *arg);
 static void do_report(void *arg);
@@ -484,7 +486,8 @@ static void do_prepare(void *arg) {
             if (conn->use_quic) { // Fall back from QUIC to TLS
                 conn->use_quic = false;
                 conn->hello.clear();
-            } else if (std::string sni; !self->have_direct_result && !self->relay_addresses.empty()
+            } else if (std::string sni; !conn->no_relay_fallback && !self->have_direct_result
+                       && !self->relay_addresses.empty()
                        && !relay_snis.contains((sni = conn->endpoint->name))) { // NOLINT(*-assignment-in-if-condition)
                 // Fall back to the next relay address
                 conn->relay_address = self->relay_addresses.back();
@@ -513,6 +516,14 @@ static void do_prepare(void *arg) {
     }
 
     self->pending.splice(self->pending.end(), self->done);
+
+    // If one of the in-parallel through-relay pings succeeded, stop pinging and report that.
+    if (std::any_of(self->report.begin(), self->report.end(), [](const PingConn &conn) {
+        return conn.no_relay_fallback && conn.best_result_ms.has_value();
+    })) {
+        log_ping(self, dbg, "Have result from in-parallel through-relay ping");
+        self->pending.clear();
+    }
 
     if (self->pending.empty()) {
         log_ping(self, dbg, "Pinging done, reporting results");
@@ -633,6 +644,34 @@ static void do_prepare(void *arg) {
     }
 }
 
+void add_endpoint(Ping *self, const VpnEndpoint &endpoint, uint32_t bound_if, const sockaddr *relay_address) {
+    PingConn &conn = self->pending.emplace_back();
+    conn.endpoint = vpn_endpoint_clone(&endpoint);
+    conn.bound_if = bound_if;
+    conn.use_quic = self->use_quic;
+
+    if (relay_address) {
+        conn.relay_address = sockaddr_to_storage(relay_address);
+        conn.no_relay_fallback = true;
+    }
+
+    char buf[IF_NAMESIZE]{};
+    if (bound_if != 0) {
+        if (if_indextoname(bound_if, buf)) {
+            conn.bound_if_name = buf;
+        } else {
+#ifndef _WIN32
+            log_ping(self, dbg, "if_indextoname: ({}) {}", errno, strerror(errno));
+#else
+            log_ping(self, dbg, "if_indextoname failed");
+#endif
+            conn.bound_if_name = "(unknown)";
+        }
+    } else {
+        conn.bound_if_name = "(default)";
+    }
+}
+
 Ping *ping_start(const PingInfo *info, PingHandler handler) {
     DeclPtr<Ping, &ping_destroy> self{new Ping{}};
     log_ping(self, trace, "");
@@ -667,30 +706,14 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
         interfaces = {(uint32_t *) &DEFAULT_IF_IDX, size_t(1)};
     }
     for (const VpnEndpoint &endpoint : info->endpoints) {
+        if (ag::utils::trim(safe_to_string_view(endpoint.name)).empty()) {
+            log_ping(self, warn, "Endpoint {} has no name", sockaddr_to_str((sockaddr *) &endpoint.address));
+            return nullptr;
+        }
         for (uint32_t bound_if : interfaces) {
-            PingConn &conn = self->pending.emplace_back();
-            conn.endpoint = vpn_endpoint_clone(&endpoint);
-            conn.bound_if = bound_if;
-            conn.use_quic = self->use_quic;
-            if (ag::utils::trim(safe_to_string_view(endpoint.name)).empty()) {
-                log_ping(self, warn, "Endpoint {} has no name", sockaddr_to_str((sockaddr *) &endpoint.address));
-                return nullptr;
-            }
-
-            char buf[IF_NAMESIZE]{};
-            if (bound_if != 0) {
-                if (if_indextoname(bound_if, buf)) {
-                    conn.bound_if_name = buf;
-                } else {
-#ifndef _WIN32
-                    log_ping(self, dbg, "if_indextoname: ({}) {}", errno, strerror(errno));
-#else
-                    log_ping(self, dbg, "if_indextoname failed");
-#endif
-                    conn.bound_if_name = "(unknown)";
-                }
-            } else {
-                conn.bound_if_name = "(default)";
+            add_endpoint(self.get(), endpoint, bound_if, nullptr);
+            if (info->relay_address_parallel.ss_family) {
+                add_endpoint(self.get(), endpoint, bound_if, (sockaddr *) &info->relay_address_parallel);
             }
         }
     }

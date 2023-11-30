@@ -26,7 +26,7 @@ struct PingResult {
 };
 
 struct PingInfo {
-    const char *id; ///< An ID string for correlating log messages
+    const char *id = ""; ///< An ID string for correlating log messages
 
     VpnEventLoop *loop = nullptr;           ///< Event loop
     std::span<const VpnEndpoint> endpoints; ///< List of endpoints to ping
@@ -48,6 +48,9 @@ struct PingInfo {
 
     /// The list of relay addresses to try if an endpoint is unresponsive on its normal address.
     std::span<const sockaddr_storage> relay_addresses;
+
+    /// If not zero, ping through this relay address in parallel with normal pings.
+    sockaddr_storage relay_address_parallel;
 };
 
 struct PingHandler {

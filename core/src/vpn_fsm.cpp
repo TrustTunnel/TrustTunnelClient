@@ -257,6 +257,13 @@ static void run_ping(void *ctx, void *) {
             .use_quic = vpn->upstream_config->protocol.type == VPN_UP_HTTP3,
             .anti_dpi = vpn->upstream_config->anti_dpi,
     };
+
+    // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
+    if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay_address.has_value()
+            && vpn->recovery.start_ts != time_point<steady_clock>{}) {
+        pinger_info.relay_address_parallel = (sockaddr *) &*vpn->selected_endpoint->relay_address;
+    }
+
     vpn->pinger.reset(locations_pinger_start(&pinger_info, {pinger_handler, vpn}, vpn->ev_loop.get()));
 
     vpn->pending_error.reset();

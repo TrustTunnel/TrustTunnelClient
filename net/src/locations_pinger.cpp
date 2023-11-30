@@ -65,6 +65,7 @@ struct LocationsPinger {
     uint32_t rounds;
     bool use_quic;
     bool anti_dpi;
+    sockaddr_storage relay_address_parallel{};
 };
 
 struct FinalizeLocationInfo {
@@ -233,7 +234,8 @@ static void start_location_ping(LocationsPinger *pinger) {
     log_location(pinger, i->info->id, dbg, "Starting location ping");
     PingInfo ping_info = {i->info->id, pinger->loop, {i->info->endpoints.data, i->info->endpoints.size},
             pinger->timeout_ms, {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds,
-            pinger->use_quic, pinger->anti_dpi, {i->info->relay_addresses.data, i->info->relay_addresses.size}};
+            pinger->use_quic, pinger->anti_dpi, {i->info->relay_addresses.data, i->info->relay_addresses.size},
+            pinger->relay_address_parallel};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
     pinger->locations.emplace(ping, std::move(*i));
     pinger->pending_locations.pop_front();
@@ -272,6 +274,9 @@ LocationsPinger *locations_pinger_start(
     pinger->rounds = info->rounds;
     pinger->use_quic = info->use_quic;
     pinger->anti_dpi = info->anti_dpi;
+    if (info->relay_address_parallel) {
+        pinger->relay_address_parallel = sockaddr_to_storage(info->relay_address_parallel);
+    }
 
     for (size_t i = 0; i < info->locations.size; ++i) {
         const VpnLocation *l = &info->locations.data[i];
