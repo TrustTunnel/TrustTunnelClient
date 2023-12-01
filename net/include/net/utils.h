@@ -365,7 +365,7 @@ struct fmt::formatter<ag::SystemDnsServer> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::SystemDnsServer &s, FormatContext &ctx) {
+    auto format(const ag::SystemDnsServer &s, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "address={}, resolved_host={}", s.address,
                 s.resolved_host.has_value() ? s.resolved_host->host_str() : "<none>");
     }
@@ -379,7 +379,7 @@ struct fmt::formatter<ag::SystemDnsServers> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::SystemDnsServers &s, FormatContext &ctx) {
+    auto format(const ag::SystemDnsServers &s, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "main=[{}], fallback={}", fmt::join(s.main, "; "), s.fallback);
     }
 };

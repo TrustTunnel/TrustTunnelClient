@@ -1,7 +1,7 @@
 #include <utility>
 
 #include <event2/util.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/defs.h"
 #include "common/net_utils.h"

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.24)
 project(core C CXX)
 
 include(ExternalProject)
@@ -13,9 +13,6 @@ if (MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Zi /EHs-c- /W0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /EHs-c- /std:c++latest /W0")
 endif (MSVC)
-
-include(${VPN_LIB_DIR}/cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT "${VPN_LIB_DIR}" CONANFILE "${VPN_LIB_DIR}/conanfile.py" SCOPE_NAME agvpn)
 
 set(SOURCE_FILES
         config.cpp
@@ -32,10 +29,16 @@ target_compile_definitions(standalone_client PRIVATE TOML_EXCEPTIONS=0)
 target_compile_definitions(standalone_client PRIVATE _HAS_EXCEPTIONS=0)
 target_compile_definitions(standalone_client PRIVATE CXXOPTS_NO_RTTI)
 
-target_link_libraries(standalone_client vpnlibs_core CONAN_PKG::cxxopts)
-target_link_libraries(standalone_client CONAN_PKG::magic_enum)
-target_link_libraries(standalone_client CONAN_PKG::native_libs_common)
-target_link_libraries(standalone_client CONAN_PKG::tomlplusplus)
+find_package(cxxopts REQUIRED)
+find_package(native_libs_common REQUIRED)
+find_package(magic_enum REQUIRED)
+find_package(native_libs_common REQUIRED)
+find_package(tomlplusplus REQUIRED)
+
+target_link_libraries(standalone_client vpnlibs_core cxxopts::cxxopts)
+target_link_libraries(standalone_client magic_enum::magic_enum)
+target_link_libraries(standalone_client native_libs_common::native_libs_common)
+target_link_libraries(standalone_client tomlplusplus::tomlplusplus)
 
 if (WIN32)
     set(WIZARD_EXE_NAME setup_wizard.exe)

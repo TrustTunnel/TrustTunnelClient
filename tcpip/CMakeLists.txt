@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.24)
 project(tcpip C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -12,9 +12,6 @@ endif()
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
 set(TCPIP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-include(../cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT ".." CONANFILE "../conanfile.py" SCOPE_NAME agvpn)
 
 set(LWIP_DIR ${THIRD_PARTY_DIR}/lwip/lwip)
 set(LWIP_INCLUDE_DIRS ${LWIP_DIR}/src/include)
@@ -73,8 +70,11 @@ target_include_directories(vpnlibs_tcpip PRIVATE ${LWIP_INCLUDE_DIRS})
 target_include_directories(vpnlibs_tcpip PRIVATE src)
 target_include_directories(vpnlibs_tcpip PRIVATE ${THIRD_PARTY_DIR}/pcap_savefile/include)
 
+find_package(klib REQUIRED)
+find_package(libevent REQUIRED)
+
 target_link_libraries(vpnlibs_tcpip vpnlibs_common vpnlibs_net)
-target_link_libraries(vpnlibs_tcpip CONAN_PKG::klib CONAN_PKG::libevent)
+target_link_libraries(vpnlibs_tcpip klib::klib libevent::libevent)
 
 
 enable_testing()

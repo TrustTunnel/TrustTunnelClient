@@ -6,7 +6,7 @@
 #include <string_view>
 #include <unordered_map>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <openssl/pem.h>
 
 #include "config.h"

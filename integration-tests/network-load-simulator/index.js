@@ -77,9 +77,15 @@ OUTPUT_FILE: ${OUTPUT_FILE}`);
     });
 
     page.on('requestfailed', (request) => {
-      consola.warn(`Request failed: ${request.url()} - Error: ${request.failure().errorText}`);
+      const failureInfo = request.failure();
+      if (failureInfo) {
+        consola.warn(`Request failed: ${request.url()} - Error: ${failureInfo.errorText}`);
+      } else {
+        consola.warn(`Request failed: ${request.url()} - No error text available`);
+      }
       stats[url].errorsCount += 1;
     });
+
     // Periodically reload the page with a random delay
 
     const reloadPage = async () => {

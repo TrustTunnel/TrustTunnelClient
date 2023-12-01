@@ -29,7 +29,7 @@
 #include <vector>
 
 #include <cxxopts.hpp>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <toml++/toml.h>
 
 #include "common/logger.h"

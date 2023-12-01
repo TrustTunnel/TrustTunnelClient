@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.24)
 project(core C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -7,9 +7,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
 set(VPNCORE_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-include(../cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT ".." CONANFILE "../conanfile.py" SCOPE_NAME agvpn)
 
 set(SOURCE_FILES
         ${VPNCORE_SRC_DIR}/dns_proxy_accessor.cpp
@@ -63,15 +60,21 @@ endif()
 
 target_include_directories(vpnlibs_core PUBLIC include)
 
+find_package(klib REQUIRED)
+find_package(magic_enum REQUIRED)
+find_package(libevent REQUIRED)
+find_package(dns-libs REQUIRED)
+find_package(quiche REQUIRED)
+
 target_link_libraries(vpnlibs_core vpnlibs_common vpnlibs_net)
-target_link_libraries(vpnlibs_core CONAN_PKG::klib CONAN_PKG::magic_enum CONAN_PKG::libevent)
-target_link_libraries(vpnlibs_core CONAN_PKG::dns-libs)
-target_link_libraries(vpnlibs_core CONAN_PKG::quiche)
+target_link_libraries(vpnlibs_core klib::klib magic_enum::magic_enum libevent::libevent)
+target_link_libraries(vpnlibs_core dns-libs::dns-libs quiche::quiche)
 if (WIN32)
     target_link_libraries(vpnlibs_core BCrypt) # Quiche requirement
 endif()
 if (APPLE)
-    target_link_libraries(vpnlibs_core CONAN_PKG::ghc-filesystem)
+    find_package(ghc_filesystem REQUIRED)
+    target_link_libraries(vpnlibs_core ghcFilesystem::ghc_filesystem)
 endif()
 
 if(NOT TARGET vpnlibs_tcpip)
@@ -90,7 +93,7 @@ endif()
 
 enable_testing()
 
-link_libraries(CONAN_PKG::gtest)
+link_libraries(gtest::gtest)
 include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
 set(TEST_EXTRA_INCLUDES ${VPNCORE_SRC_DIR} ${THIRD_PARTY_DIR}/klib)
 
@@ -127,14 +130,15 @@ foreach(FN ${MOCKED_FUNCTIONS})
 endforeach(FN ${MOCKED_FUNCTIONS})
 
 target_link_libraries(vpnlibs_core_mocked vpnlibs_common vpnlibs_net vpnlibs_tcpip)
-target_link_libraries(vpnlibs_core_mocked CONAN_PKG::klib CONAN_PKG::magic_enum CONAN_PKG::libevent)
-target_link_libraries(vpnlibs_core_mocked CONAN_PKG::dns-libs)
-target_link_libraries(vpnlibs_core_mocked CONAN_PKG::quiche)
+target_link_libraries(vpnlibs_core_mocked klib::klib magic_enum::magic_enum libevent::libevent)
+target_link_libraries(vpnlibs_core_mocked dns-libs::dns-libs)
+target_link_libraries(vpnlibs_core_mocked quiche::quiche)
 if (WIN32)
     target_link_libraries(vpnlibs_core_mocked BCrypt) # Quiche requirement
 endif()
 if (APPLE)
-    target_link_libraries(vpnlibs_core_mocked CONAN_PKG::ghc-filesystem)
+    find_package(ghc_filesystem REQUIRED)
+    target_link_libraries(vpnlibs_core_mocked ghcFilesystem::ghc_filesystem)
 endif()
 target_include_directories(vpnlibs_core_mocked PUBLIC include)
 

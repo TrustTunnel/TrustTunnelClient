@@ -1,8 +1,0 @@
-include(apple.jinja)
-[settings]
-os=iOS
-os.version=11.2
-os.sdk=iphoneos
-[env]
-CONAN_CMAKE_TOOLCHAIN_FILE={{ os.path.join(profile_dir, "apple.toolchain.cmake") }}
-IPHONEOS_DEPLOYMENT_TARGET="11.2"

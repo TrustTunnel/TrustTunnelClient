@@ -1,5 +1,9 @@
-from conans import ConanFile, CMake, tools
-import os
+from conan import ConanFile
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.files import patch, copy
+from conan.tools.apple import is_apple_os
+from os.path import join
+import re
 
 
 class VpnLibsConan(ConanFile):
@@ -11,14 +15,13 @@ class VpnLibsConan(ConanFile):
     description = "A VPN client library that provides client network traffic tunnelling to an AdGuard VPN server"
     settings = "os", "compiler", "build_type", "arch"
     options = {
-        "commit_hash": "ANY",
-        "sanitize": "ANY"
+        "with_ghc": [True, False],
+        "sanitize": [None, "ANY"],
     }
     default_options = {
-        "commit_hash": None,  # None means `master`
+        "with_ghc": False,
         "sanitize": None,  # None means none
     }
-    generators = "cmake"
     # A list of paths to patches. The paths must be relative to the conanfile directory.
     # They are applied in case of the version equals 777 and mostly intended to be used
     # for testing.
@@ -26,68 +29,59 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("brotli/1.0.9")
-        self.requires("dns-libs/2.4.15@AdguardTeam/NativeLibsCommon")
-        self.requires("http_parser/2.9.4")
-        self.requires("klib/2021-04-06@AdguardTeam/NativeLibsCommon")
-        self.requires("ldns/2021-03-29@AdguardTeam/NativeLibsCommon")
-        self.requires("libevent/2.1.11@AdguardTeam/NativeLibsCommon")
-        self.requires("magic_enum/0.7.3")
-        self.requires("native_libs_common/3.0.6@AdguardTeam/NativeLibsCommon")
-        self.requires("nghttp2/1.56.0@AdguardTeam/NativeLibsCommon")
-        self.requires("openssl/boring-2023-05-17@AdguardTeam/NativeLibsCommon")
-        self.requires("quiche/0.17.1@AdguardTeam/NativeLibsCommon")
-        self.requires("zlib/1.2.11")
-
-        if tools.is_apple_os(self.settings.os):
+        self.requires("brotli/1.1.0", transitive_headers=True)
+        self.requires("dns-libs/2.4.21@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("http_parser/2.9.4", transitive_headers=True)
+        self.requires("klib/2021-04-06@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("ldns/2021-03-29@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("libevent/2.1.11@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("magic_enum/0.9.5", transitive_headers=True)
+        self.requires("native_libs_common/4.0.8@adguard_team/native_libs_common", force=True, transitive_headers=True)
+        self.requires("nghttp2/1.56.0@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("openssl/boring-2023-05-17@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("quiche/0.17.1@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("zlib/1.2.11", transitive_headers=True)
+        self.requires("cxxopts/3.1.1", transitive_headers=True)
+        self.requires("tomlplusplus/3.3.0")
+        self.requires("nlohmann_json/3.10.5")
+        if is_apple_os(self):
             self.requires("ghc-filesystem/1.5.12")
 
     def build_requirements(self):
-        self.build_requires("cxxopts/3.0.0")
-        self.build_requires("gtest/1.12.1")
-        self.build_requires("nlohmann_json/3.10.5")
-        self.build_requires("tomlplusplus/3.3.0")
+        self.test_requires("gtest/1.14.0")
 
     def configure(self):
         self.options["gtest"].build_gmock = False
-        # Commit hash should only be used with dns-libs/777
-        # self.options["dns-libs"].commit_hash = "0a218d35f64e91bd8621bad94c8ca473f3f9fd31"
-
         # Resolve conflict between pcre2 required from dns-libs and pcre2 required form native_libs_common
         self.options["pcre2"].build_pcre2grep = False
 
-        # Commit hash should only be used with native_libs_common/777
-        # self.options["native_libs_common"].commit_hash = "72731a36771d550ffae8c1223e0a129fefc2384c"
-
     def source(self):
         self.run(f"git init . && git remote add origin {self.vcs_url} && git fetch")
-
-        if self.version == "777":
-            if self.options.commit_hash:
-                self.run("git checkout -f %s" % self.options.commit_hash)
-            else:
-                self.run("git checkout -f master")
-
-            for p in self.patch_files:
-                tools.patch(patch_file=p)
-        else:
+        if re.match(r'\d+\.\d+\.\d+', self.version) is not None:
             version_hash = self.conan_data["commit_hash"][self.version]["hash"]
             self.run("git checkout -f %s" % version_hash)
+        else:
+            self.run("git checkout -f %s" % self.version)
+            for p in self.patch_files:
+                patch(self, patch_file=p)
+
+    def generate(self):
+        tc = CMakeToolchain(self)
+        tc.cache_variables["CMAKE_C_FLAGS"] = ""
+        tc.cache_variables["CMAKE_CXX_FLAGS"] = ""
+        if self.options.sanitize:
+            tc.cache_variables["CMAKE_C_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
+            tc.cache_variables["CMAKE_CXX_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
+        tc.generate()
+        deps = CMakeDeps(self)
+        deps.generate()
+
+    def layout(self):
+        cmake_layout(self)
 
     def build(self):
         cmake = CMake(self)
-        cmake.definitions["CMAKE_C_FLAGS"] = ""
-        cmake.definitions["CMAKE_CXX_FLAGS"] = ""
-        # A better way to pass these was not found :(
-        if self.settings.os == "Linux":
-            if self.settings.compiler.libcxx:
-                cmake.definitions["CMAKE_CXX_FLAGS"] = "-stdlib=%s" % self.settings.compiler.libcxx
-            if self.settings.compiler.version:
-                cmake.definitions["CMAKE_CXX_COMPILER_VERSION"] = self.settings.compiler.version
-        if self.options.sanitize:
-            cmake.definitions["CMAKE_C_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
-            cmake.definitions["CMAKE_CXX_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
-        cmake.configure(source_folder=".", build_folder="build")
+        cmake.configure()
         cmake.build(target="vpnlibs_common")
         cmake.build(target="vpnlibs_core")
         cmake.build(target="vpnlibs_net")
@@ -102,25 +96,42 @@ class VpnLibsConan(ConanFile):
         ]
 
         for m in MODULES:
-            self.copy("*.h", dst="include", src="%s/include" % m)
+            copy(self, "*.h", src=join(self.source_folder, "%s/include" % m), dst=join(self.package_folder, "include"), keep_path = True)
 
-        self.copy("*.h", dst="include", src=os.path.join("third-party", "wintun", "include"))
+        copy(self, "*.h", src=join(self.source_folder, "third-party", "wintun", "include"), dst=join(self.package_folder, "include"), keep_path = True)
 
-        self.copy("*.lib", dst="lib", keep_path=False)
-        self.copy("*.dll", dst="bin", keep_path=False)
-        self.copy("*.so", dst="lib", keep_path=False)
-        self.copy("*.dylib", dst="lib", keep_path=False)
-        self.copy("*.a", dst="lib", keep_path=False)
+        copy(self, "*.dll", src=self.build_folder, dst=join(self.package_folder, "bin"), keep_path=False)
+        copy(self, "*.lib", src=self.build_folder, dst=join(self.package_folder, "lib"), keep_path=False)
+        copy(self, "*.so", src=self.build_folder, dst=join(self.package_folder, "lib"), keep_path=False)
+        copy(self, "*.dylib", src=self.build_folder, dst=join(self.package_folder, "lib"), keep_path=False)
+        copy(self, "*.a", src=self.build_folder, dst=join(self.package_folder, "lib"), keep_path=False)
+
 
     def package_info(self):
+        self.cpp_info.name = "vpn-libs"
         self.cpp_info.libs = [
             "vpnlibs_core",
             "vpnlibs_net",
             "vpnlibs_tcpip",
             "vpnlibs_common",
         ]
-
         if self.settings.os == "Windows":
             self.cpp_info.system_libs = ["ws2_32", "crypt32", "userenv", "version"]
         elif self.settings.os != 'Android':
             self.cpp_info.system_libs = ["resolv"]
+        self.cpp_info.requires = [
+            "brotli::brotli",
+            "dns::dns",
+            "http_parser::http_parser",
+            "klib::klib",
+            "ldns::ldns",
+            "libevent::libevent",
+            "magic_enum::magic_enum",
+            "native_libs_common::native_libs_common",
+            "nghttp2::nghttp2",
+            "openssl::openssl",
+            "quiche::quiche",
+            "zlib::zlib",
+        ]
+        if self.settings.os == "Windows":
+            self.cpp_info.requires.append("detours::detours")

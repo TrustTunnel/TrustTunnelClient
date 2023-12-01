@@ -24,7 +24,8 @@ function(add_unit_test TEST_NAME TEST_DIR EXTRA_INCLUDES IS_GTEST EXPAND_GTEST)
     add_dependencies(tests ${TEST_NAME})
 
     if (${IS_GTEST})
-        target_link_libraries(${TEST_NAME} PRIVATE CONAN_PKG::gtest)
+        find_package(GTest REQUIRED)
+        target_link_libraries(${TEST_NAME} PRIVATE gtest::gtest)
     endif()
 
     if (${EXPAND_GTEST} AND NOT ${CMAKE_CROSSCOMPILING})

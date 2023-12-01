@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.24)
 project(common)
 
 set(CMAKE_C_STANDARD 11)
@@ -13,9 +13,6 @@ endif()
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(COMMON_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
-
-include(../cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT ".." CONANFILE "../conanfile.py" SCOPE_NAME agvpn)
 
 set(SOURCE_FILES
         ${COMMON_SRC_DIR}/utils.cpp
@@ -39,9 +36,14 @@ if (NOT MSVC)
 endif()
 target_include_directories(vpnlibs_common PUBLIC include)
 target_link_libraries(vpnlibs_common ${CMAKE_THREAD_LIBS_INIT})
+
+find_package(native_libs_common REQUIRED)
+find_package(libevent REQUIRED)
+find_package(magic_enum REQUIRED)
+find_package(dns-libs REQUIRED)
 target_link_libraries(vpnlibs_common
-        CONAN_PKG::native_libs_common CONAN_PKG::libevent
-        CONAN_PKG::magic_enum CONAN_PKG::dns-libs)
+        native_libs_common::native_libs_common libevent::libevent
+        magic_enum::magic_enum dns-libs::dns-libs)
 if (MSVC)
     target_link_libraries(vpnlibs_common Ws2_32 crypt32 UserEnv Version)
     # Needed as fmt headers leak through the DNS proxy headers

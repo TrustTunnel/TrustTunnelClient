@@ -1,19 +1,13 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.24)
 project(net C CXX)
 
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
-
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
 set(NET_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-
-include(../cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT ".." CONANFILE "../conanfile.py" SCOPE_NAME agvpn)
-
 
 set(SOURCE_FILES
         ${NET_SOURCE_DIR}/tcp_socket.cpp
@@ -69,10 +63,21 @@ else()
 endif()
 target_include_directories(vpnlibs_net PUBLIC include)
 
+find_package(ZLIB REQUIRED)
+find_package(brotli REQUIRED)
+find_package(http_parser REQUIRED)
+find_package(ldns REQUIRED)
+find_package(nghttp2 REQUIRED)
+find_package(klib REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(libevent REQUIRED)
+find_package(quiche REQUIRED)
+find_package(magic_enum REQUIRED)
+
 target_link_libraries(vpnlibs_net vpnlibs_common)
-target_link_libraries(vpnlibs_net CONAN_PKG::zlib CONAN_PKG::brotli CONAN_PKG::http_parser)
-target_link_libraries(vpnlibs_net CONAN_PKG::ldns CONAN_PKG::nghttp2 CONAN_PKG::klib CONAN_PKG::openssl)
-target_link_libraries(vpnlibs_net CONAN_PKG::libevent CONAN_PKG::quiche CONAN_PKG::magic_enum)
+target_link_libraries(vpnlibs_net ZLIB::ZLIB brotli::brotli http_parser::http_parser)
+target_link_libraries(vpnlibs_net ldns::ldns nghttp2::nghttp2 klib::klib openssl::openssl)
+target_link_libraries(vpnlibs_net libevent::libevent quiche::quiche magic_enum::magic_enum)
 if (WIN32)
     target_link_libraries(vpnlibs_net BCrypt) # Quiche requirement
     target_link_libraries(vpnlibs_net Fwpuclnt) # WFP firewall
@@ -86,8 +91,9 @@ endif()
 
 enable_testing()
 
+find_package(nlohmann_json REQUIRED)
 include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
-link_libraries(vpnlibs_net CONAN_PKG::nlohmann_json)
+link_libraries(vpnlibs_net nlohmann_json::nlohmann_json)
 set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 set(TEST_EXTRA_INCLUDES ${NET_SOURCE_DIR})
 

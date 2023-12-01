@@ -1,13 +1,14 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.24)
+if(NOT CMAKE_INSTALL_PREFIX MATCHES "conan2")
+    set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "cmake/conan_provider.cmake")
+endif()
 project(vpn_libs C CXX)
-
-include(cmake/conan_bootstrap.cmake)
-conan_bootstrap(SRCROOT "." CONANFILE "./conanfile.py" SCOPE_NAME agvpn)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
 if (MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
     set(CompilerFlags CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO
             CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_RELWITHDEBINFO)
     foreach (CompilerFlag ${CompilerFlags})

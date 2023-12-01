@@ -100,10 +100,11 @@ Run live test:
   key: JOB2
   description: Runs C++ live tests
   docker:
-    image: adguard/core-libs:1.20
+    image: adguard/core-libs:1.21
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+      ${system.HOME}/.ssh: /root/.ssh
     docker-run-arguments: [ ]
   tasks:
     - !include docker-clean.yaml
@@ -120,7 +121,12 @@ Run live test:
     - script:
         interpreter: SHELL
         scripts:
-          - conan remote add -i 0 art ${bamboo.conanRepoUrl} || true
+          - |-
+            set -x -e
+
+            python3 -m pip install conan --upgrade
+
+            conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
         description: conan remote
     - script:
         interpreter: SHELL
@@ -138,6 +144,7 @@ Run live test:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_CXX_FLAGS='-stdlib=libc++ -DI_DO_WANT_TO_RUN_LIVE_TESTS' \
+            -DCONAN_HOST_PROFILE="default;auto-cmake" \
             ..
 
             make -j 4 test_vpn_client_live
@@ -186,11 +193,10 @@ Run live test:
         scripts:
           - |-
             #!/bin/bash
-
-            conan user -p "${bamboo_artifactoryPassword}" -r art "${bamboo_artifactoryUser}" > upload.txt 2>&1
-            conan upload -r art --all -c '*' > upload.txt 2>&1
+            conan remote login art "${bamboo_artifactoryUser}" --password "${bamboo_artifactoryPassword}" > upload.txt 2>&1
+            conan upload -r art -c "*" >> upload.txt 2>&1
             echo conan upload finished with status $?
-            conan remove -f '*'
+            conan remove -c "*"
         description: Conan upload and cleanup
   requirements:
     - adg-privileged-docker

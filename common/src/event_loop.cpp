@@ -10,7 +10,7 @@
 #include <event2/bufferevent.h>
 #include <event2/event.h>
 #include <event2/thread.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #ifdef EVTHREAD_USE_PTHREADS_IMPLEMENTED
 #include <signal.h>

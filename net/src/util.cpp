@@ -25,6 +25,8 @@
 #include "vpn/guid_utils.h"
 #endif
 
+#include <magic_enum/magic_enum.hpp>
+
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "common/utils.h"
@@ -376,7 +378,7 @@ static std::optional<SystemDnsServers> retrieve_interface_dns_servers_with_doh(c
         }
         default:
             warnlog(g_logger, "Server has unexpected property type, assuming it's plain UDP: type={}, server={}",
-                    server_property->Type, servers.main.at(server_property->ServerIndex).address);
+                    magic_enum::enum_name(server_property->Type), servers.main.at(server_property->ServerIndex).address);
             break;
         }
     }

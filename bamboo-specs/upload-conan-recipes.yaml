@@ -13,7 +13,7 @@ stages:
 Default Job:
   key: JOB1
   docker:
-    image: adguard/core-libs:latest
+    image: adguard/core-libs:1:21
     volumes:
       ${bamboo.git.cache.directory}: ${bamboo.git.cache.directory}
       ${system.HOME}/.ssh: /root/.ssh
@@ -27,15 +27,22 @@ Default Job:
         interpreter: SHELL
         scripts:
           - |-
+            set -x
             set -e
-            git remote set-url origin ${bamboo_planRepository_repositoryUrl}
-            git pull
-            git reset
-            conan remove -f '*'
-            conan remote add -i 0 art ${bamboo.conanRepoUrl} || true
-            python3 -m pip install -r ./scripts/requirements.txt
-            ./scripts/conan_export.py
-            conan user -p "${bamboo_artifactoryPassword}" -r art "${bamboo_artifactoryUser}" > upload.txt 2>&1
+
+            python3 -m pip install conan --upgrade
+
+            # Clean up local cache
+            conan remove -c "*"
+
+            conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
+
+            cd script
+            python3 -m pip install -r requirements.txt
+            ./conan_export.py
+
+            conan remote login art "${bamboo_artifactoryUser}" --password "${bamboo_artifactoryPassword}" > upload.txt 2>&1
+
             conan upload -r art --all -c '*' >> upload.txt 2>&1
   final-tasks:
     - script:
@@ -43,8 +50,7 @@ Default Job:
         scripts:
           - |-
             # Clean up
-            conan remove -f '*'
-            conan remove --locks
+            conan remove -c "*"
         description: Clean up
   requirements:
     - adg-privileged-docker

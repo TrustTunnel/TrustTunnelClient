@@ -1,15 +1,6 @@
 include(default)
 [settings]
-arch=x86
-arch_build=x86
-compiler=Visual Studio
-compiler.version=16
-compiler.cppstd=17
-compiler.runtime=MT
-build_type=RelWithDebInfo
-[options]
-[build_requires]
-[env]
-CONAN_CMAKE_TOOLCHAIN_FILE={{ os.path.join(profile_dir, "windows.toolchain.cmake") }}
-CONAN_MAKE_PROGRAM=ninja
-CONAN_CMAKE_GENERATOR=Ninja
+compiler.runtime=static
+[conf]
+tools.cmake.cmaketoolchain:user_toolchain+={{profile_dir}}/windows.toolchain.cmake
+tools.cmake.cmaketoolchain:generator=Ninja

@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/logger.h"
 #include "net/locations_pinger.h"

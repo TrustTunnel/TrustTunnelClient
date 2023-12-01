@@ -3,7 +3,7 @@
 #include <tuple>
 
 #include <gtest/gtest.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/utils.h"
 #include "net/dns_utils.h"
@@ -363,10 +363,10 @@ public:
                         .address = "127.0.0.53",
                 }},
         });
-        
+
         vpn.parameters.handler = {&vpn_handler, this};
         vpn.parameters.network_manager = network_manager.get();
-        
+
         redirect_upstream = std::make_unique<TestUpstream>();
         ASSERT_TRUE(redirect_upstream->init(&vpn, {&redirect_upstream_handler, this}));
         vpn.endpoint_upstream = redirect_upstream;
@@ -374,12 +374,12 @@ public:
         ASSERT_TRUE(bypass_upstream->init(&vpn, {&bypass_upstream_handler, this}));
         vpn.bypass_upstream = bypass_upstream;
     }
-    
+
     void open_connection(VpnConnectAction callback_action, VpnConnectAction expected_action) {
         client_listener = std::make_unique<TestListener>();
         ASSERT_EQ(ClientListener::InitResult::SUCCESS, client_listener->init(&vpn, {&listener_handler, this}));
         vpn.client_listener = client_listener;
-        
+
         ASSERT_TRUE(tun.init(&vpn));
         tun.upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_OPENED, nullptr);
 
@@ -405,12 +405,12 @@ class DnsAddressExcluded : public CustomDnsRouting {};
 
 TEST_P(DnsAddressExcluded, CheckCreatedUpstreams) {
     auto [mode, action, exclusion, domain] = GetParam();
-    
+
     vpn.update_exclusions(mode, exclusion);
-    
+
     ASSERT_NO_FATAL_FAILURE(open_connection(action, action));
     ASSERT_NO_FATAL_FAILURE(raise_dns_request(domain));
-    
+
     switch (mode) {
     case VPN_MODE_GENERAL:
         if (exclusion.find(domain) != std::string::npos) {
@@ -445,12 +445,12 @@ class DnsRoutingCustomAction : public CustomDnsRouting {};
 
 TEST_P(DnsRoutingCustomAction, CheckCreatedUpstreams) {
     auto [mode, action, exclusion, domain] = GetParam();
-    
+
     vpn.update_exclusions(mode, exclusion);
-    
+
     ASSERT_NO_FATAL_FAILURE(open_connection(action, action));
     ASSERT_NO_FATAL_FAILURE(raise_dns_request(domain));
-    
+
     if (action == VPN_CA_FORCE_BYPASS) {
         ASSERT_EQ(bypass_upstream->connections.size(), 1);
         ASSERT_EQ(redirect_upstream->connections.size(), 0);
@@ -466,12 +466,12 @@ INSTANTIATE_TEST_SUITE_P(CustomAction, DnsRoutingCustomAction,
                 std::make_tuple(VPN_MODE_GENERAL, VPN_CA_FORCE_BYPASS, "2.2.2.2/32", "example.com"),
                 std::make_tuple(VPN_MODE_SELECTIVE, VPN_CA_FORCE_REDIRECT, "2.2.2.2/32", "example.com"),
                 std::make_tuple(VPN_MODE_SELECTIVE, VPN_CA_FORCE_BYPASS, "2.2.2.2/32", "example.com"),
-                
+
                 std::make_tuple(VPN_MODE_GENERAL, VPN_CA_FORCE_REDIRECT, "", "example.com"),
                 std::make_tuple(VPN_MODE_GENERAL, VPN_CA_FORCE_BYPASS, "", "example.com"),
                 std::make_tuple(VPN_MODE_SELECTIVE, VPN_CA_FORCE_REDIRECT, "", "example.com"),
                 std::make_tuple(VPN_MODE_SELECTIVE, VPN_CA_FORCE_BYPASS, "", "example.com"),
-                
+
                 std::make_tuple(VPN_MODE_GENERAL, VPN_CA_FORCE_REDIRECT, "example.com", "example.com"),
                 std::make_tuple(VPN_MODE_GENERAL, VPN_CA_FORCE_BYPASS, "example.com", "example.com"),
                 std::make_tuple(VPN_MODE_SELECTIVE, VPN_CA_FORCE_REDIRECT, "example.com", "example.com"),

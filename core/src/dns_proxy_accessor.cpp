@@ -1,6 +1,6 @@
 #include <algorithm>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

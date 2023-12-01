@@ -4,7 +4,7 @@
 #include <cassert>
 #include <numeric>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/net_utils.h"
 #include "vpn/internal/vpn_client.h"

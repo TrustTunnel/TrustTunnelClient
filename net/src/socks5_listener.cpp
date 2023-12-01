@@ -4,7 +4,7 @@
 #include <event2/listener.h>
 #include <event2/util.h>
 #include <khash.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/logger.h"
 #include "common/net_utils.h"

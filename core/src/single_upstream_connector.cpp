@@ -1,7 +1,7 @@
 #include "single_upstream_connector.h"
 
 #include <atomic>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <optional>
 
 #include "common/logger.h"

@@ -10,7 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/clock.h"
 #include "common/defs.h"

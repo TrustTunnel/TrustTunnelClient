@@ -1,0 +1,26 @@
+diff --git a/cmake/conan_provider.cmake b/cmake/conan_provider.cmake
+index 1e50e69..3dcc80f 100644
+--- a/cmake/conan_provider.cmake
++++ b/cmake/conan_provider.cmake
+@@ -387,8 +387,8 @@ function(conan_install)
+     set(CONAN_OUTPUT_FOLDER ${CMAKE_BINARY_DIR}/conan)
+     # Invoke "conan install" with the provided arguments
+     set(CONAN_ARGS ${CONAN_ARGS} -of=${CONAN_OUTPUT_FOLDER})
+-    message(STATUS "CMake-Conan: conan install ${CMAKE_SOURCE_DIR} ${CONAN_ARGS} ${ARGN}")
+-    execute_process(COMMAND ${CONAN_COMMAND} install ${CMAKE_SOURCE_DIR} ${CONAN_ARGS} ${ARGN} --format=json
++    message(STATUS "CMake-Conan: conan install ${CMAKE_CURRENT_LIST_DIR}/.. ${CONAN_ARGS} ${ARGN}")
++    execute_process(COMMAND ${CONAN_COMMAND} install ${CMAKE_CURRENT_LIST_DIR}/.. ${CONAN_ARGS} ${ARGN} --format=json
+                     RESULT_VARIABLE return_code
+                     OUTPUT_VARIABLE conan_stdout
+                     ERROR_VARIABLE conan_stderr
+@@ -407,8 +407,8 @@ function(conan_install)
+         set_property(GLOBAL PROPERTY CONAN_GENERATORS_FOLDER "${CONAN_GENERATORS_FOLDER}")
+         # reconfigure on conanfile changes
+         string(JSON CONANFILE GET ${conan_stdout} graph nodes 0 label)
+-        message(STATUS "CMake-Conan: CONANFILE=${CMAKE_SOURCE_DIR}/${CONANFILE}")
+-        set_property(DIRECTORY ${CMAKE_SOURCE_DIR} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/${CONANFILE}")
++        message(STATUS "CMake-Conan: CONANFILE=${CMAKE_CURRENT_LIST_DIR}/../${CONANFILE}")
++        set_property(DIRECTORY ${CMAKE_SOURCE_DIR} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/../${CONANFILE}")
+         # success
+         set_property(GLOBAL PROPERTY CONAN_INSTALL_SUCCESS TRUE)
+     endif()

@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "net/locations_pinger.h"
 #include "test_mock_vpn_client.h"

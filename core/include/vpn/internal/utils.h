@@ -8,7 +8,7 @@
 #include <vector>
 
 #include <event2/event.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "common/net_utils.h"
 #include "common/utils.h"

@@ -18,7 +18,7 @@ stages:
 Run tests on Linux:
   key: RTL
   docker:
-    image: adguard/core-libs:1.20
+    image: adguard/core-libs:1.21
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
@@ -33,8 +33,13 @@ Run tests on Linux:
     - script:
         interpreter: SHELL
         scripts:
-          - conan remote add -i 0 art ${bamboo.conanRepoUrl} || true
-        description: conan remote
+          - |-
+            set -x -e
+
+            python3 -m pip install conan --upgrade
+
+            conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
+        description: Add conan remote
     - script:
         interpreter: SHELL
         scripts:
@@ -51,6 +56,7 @@ Run tests on Linux:
             -DCMAKE_C_FLAGS='-fsanitize=address' \
             -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address ${LDFLAGS}" \
+            -DCONAN_HOST_PROFILE="default;auto-cmake" \
             ..
 
             make -j 4 tests && ctest -D ExperimentalTest --no-compress-output
@@ -65,10 +71,10 @@ Run tests on Linux:
         interpreter: SHELL
         scripts:
           - |-
-            conan user -p "${bamboo_artifactoryPassword}" -r art "${bamboo_artifactoryUser}" > upload.txt 2>&1
-            conan upload -r art --all -c '*' > upload.txt 2>&1
+            conan remote login art "${bamboo_artifactoryUser}" --password "${bamboo_artifactoryPassword}" > upload.txt 2>&1
+            conan upload -r art -c "*" >> upload.txt 2>&1
             echo conan upload finished with status $?
-            conan remove -f '*'
+            conan remove -c "*"
         description: Conan upload and cleanup
   requirements:
     - adg-privileged-docker
@@ -87,6 +93,12 @@ Run tests on Windows:
           - |-
             call vcvars32
 
+            python -m venv venv --clear
+            call .\venv\Scripts\activate
+            pip install conan --upgrade
+            conan remove -c "*"
+
+            set VPN_LIBS_ROOT=%cd%
             if exist build\ rmdir /s /q build || exit /b 1
             mkdir build || exit /b 1
             cd build || exit /b 1
@@ -94,10 +106,12 @@ Run tests on Windows:
             cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
                 -DCMAKE_C_FLAGS_DEBUG=/MT ^
                 -DCMAKE_CXX_FLAGS_DEBUG=/MT ^
-                -G "Visual Studio 17 2022" -A Win32 ^
+                -DCONAN_HOST_PROFILE="%VPN_LIBS_ROOT%/conan/profiles/windows-msvc.jinja;auto-cmake" ^
+                -G Ninja ^
                 ..
 
             cmake --build . --target tests --parallel || exit /b 1
+            deactivate
     - script:
         description: Run tests
         interpreter: BINSH_OR_CMDEXE
@@ -116,11 +130,13 @@ Run tests on Windows:
         interpreter: SHELL
         scripts:
           - |-
+            call .\venv\Scripts\activate
             REM Upload built binaries
-            conan upload -r art --all -c "*" > upload.txt 2>&1
+            conan remote login art "%bamboo_artifactoryUser%" --password "%bamboo_artifactoryPassword%"
+            conan upload -r art -c "*" 1>&2
             REM Clean up local cache
-            conan remove -f '*'
-            conan remove --locks
+            conan remove -c "*"
+            deactivate
   requirements:
     - system.builder.msbuild.MSBuild v15.0 (32bit)
   artifact-subscriptions: [ ]
@@ -138,8 +154,17 @@ Run tests on macOS:
           - |-
             set -e -x
 
+            rm -rf venv
+            python3 -m venv venv
+            source ./venv/bin/activate
+            python3 -m pip install conan
+
             # Clean up local cache
-            conan remove -f '*'
+            conan remove -c "*"
+
+            conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
+            VPN_LIBS_ROOT=$(pwd)
+            ARCH=$(uname -m)
 
             # Build tests
             mkdir -p build
@@ -151,12 +176,15 @@ Run tests on macOS:
                 -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
                 -DCMAKE_C_FLAGS="-fsanitize=address" \
                 -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
+                -DCONAN_HOST_PROFILE="${VPN_LIBS_ROOT}/conan/profiles/apple.jinja;auto-cmake" \
+                -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
                 ..
 
             # Needed to avoid a sanitizer error (likely to be false positive)
             # inside gtest
             export ASAN_OPTIONS=detect_container_overflow=0
             ninja tests
+            deactivate
     - script:
         description: Run tests
         interpreter: SHELL
@@ -178,12 +206,17 @@ Run tests on macOS:
         interpreter: SHELL
         scripts:
           - |-
+            set -x -e
+
+            source ./venv/bin/activate
+
+            conan remote login art "${bamboo_artifactoryUser}" --password "${bamboo_artifactoryPassword}"
             # Upload built
-            conan upload -r art --all -c '*' > upload.txt 2>&1
+            conan upload -r art -c "*" 1>&2
             # Clean up local cache
-            conan remove -f '*'
-            # Conan remove locks
-            conan remove --locks
+            conan remove -c "*"
+            deactivate
+            rm -rf venv
   requirements:
     - macOS 11.0 or later
   artifact-subscriptions: [ ]

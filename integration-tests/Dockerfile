@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM adguard/core-libs:1.20
+FROM adguard/core-libs:1.21
 
 # Install the required utilities
 RUN apt update --allow-releaseinfo-change && \
@@ -8,5 +8,8 @@ RUN apt update --allow-releaseinfo-change && \
 
 # Install gocurl
 RUN go install github.com/ameshkov/gocurl@latest
+
+# Update Conan
+RUN pip install conan --upgrade
 
 CMD bash

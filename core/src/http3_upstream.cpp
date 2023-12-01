@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <unordered_set>
 
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <openssl/rand.h>
 
 #include "net/http_session.h"

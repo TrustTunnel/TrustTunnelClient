@@ -4,7 +4,7 @@
 #include <set>
 
 #include <common/logger.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <openssl/aead.h>
 #include <openssl/aes.h>
 #include <openssl/digest.h>

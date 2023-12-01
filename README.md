@@ -51,9 +51,9 @@ It supports Linux, macOS, and Windows platforms.
 
 ### Prerequisites
 
-- [CMake](https://cmake.org/download/) 3.18 or higher
+- [CMake](https://cmake.org/download/) 3.24 or higher
 - [LLVM](https://releases.llvm.org/) 14 or higher
-- [Conan](https://github.com/conan-io/conan/releases) 1.51 up to 1.60
+- [Conan](https://github.com/conan-io/conan/releases) 2.0.5 or higher
 - [Rust](https://www.rust-lang.org/tools/install) 1.66 or higher
 - [Go](https://go.dev/dl/) 1.18.3 or higher
 - Windows-specific
@@ -97,7 +97,21 @@ To build the main library:
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
       -DCMAKE_C_FLAGS_DEBUG=/MT ^
       -DCMAKE_CXX_FLAGS_DEBUG=/MT ^
+      -DCONAN_HOST_PROFILE="../conan/profiles/windows-msvc.jinja;auto-cmake" ^
       -G "Visual Studio 16 2019" ^
+      ..
+    cmake --build . --target vpnlibs_core
+    ```
+
+* macOS:
+
+    ```shell
+    mkdir build && cd build
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_C_COMPILER="clang" \
+      -DCMAKE_CXX_COMPILER="clang++" \
+      -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+      -DCONAN_HOST_PROFILE="../conan/profiles/apple.jinja;auto-cmake" \
       ..
     cmake --build . --target vpnlibs_core
     ```
@@ -178,32 +192,14 @@ For detailed explanations, see the [client README](./standalone_client/README.md
 
 To test local changes in the library when used as a Conan package dependency, follow these steps:
 
-1. Create patch files by executing `git diff > 1.patch` in the project root.
-
-2. Add the paths to the patch files in `<root>/conanfile.py` using the `patch_files` field.
-
-3. If the default `vcs_url` field in `<root>/conanfile.py` is not suitable, change it accordingly.
-
-4. Export the Conan package with a special version number, for example:
-
-   ```shell
-   conan export . /777@AdguardTeam/NativeLibsCommon
-   ```
-
-5. In the project that uses `vpn-libs` as a dependency, change the version to `777`.
-   For example, `vpn-libs/1.0.0@AdguardTeam/NativeLibsCommon` ->
-   `vpn-libs/777@AdguardTeam/NativeLibsCommon`.
-
-6. Re-run the CMake command.
-
-> Notes:
->
-> - If you have already exported `vpn-libs` in this manner, you must purge the cached version
-    using `conan remove -f vpn-libs/777`.
-> - By default, patches are applied to the `master` branch. Specify the `commit_hash` option to
-    test changes against a specific commit.
-
----
+1) If the default `vcs_url` in `<root>/conanfile.py` is not suitable, change it accordingly.
+2) Commit the changes you wish to test.
+3) Execute `./script/conan_export.py local`. This script will export the package, assigning the last commit hash as its version.
+4) In the project that depends on `vpn-libs`, update the version to `<commit_hash>` (where `<commit_hash>` is the hash of the target commit):
+   Replace `vpn-libs/1.0.0@adguard_team/native_libs_common` with `vpn-libs/<commit_hash>@adguard_team/native_libs_common`.
+5) Re-run the cmake command.
+   Note:
+    * If you have already exported the library in this way, the cached version must be purged: `conan remove -c vpn-libs/<commit_hash>`.
 
 ## Companion Endpoint Repository
 

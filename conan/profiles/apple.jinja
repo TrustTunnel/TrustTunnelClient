@@ -1,11 +1,4 @@
 include(default)
-[settings]
-build_type=RelWithDebInfo
-compiler=apple-clang
-compiler.version=13.1
-compiler.libcxx=libc++
-[env]
-CONAN_CMAKE_TOOLCHAIN_FILE={{ os.path.join(profile_dir, "apple.toolchain.cmake") }}
-# Without this one cargo uses `cc` from the default toolchain which does not have system includes
-# specified, and as a result quiche cannot be built
-CC=clang
+[conf]
+tools.cmake.cmaketoolchain:user_toolchain+={{profile_dir}}/apple.toolchain.cmake
+tools.cmake.cmaketoolchain:generator=Ninja
