@@ -70,6 +70,11 @@ static void sighandler(int sig) {
 #ifndef _WIN32
         if (sig == SIGHUP) {
             vpn_notify_network_change(g_vpn, VPN_NS_NOT_CONNECTED);
+            std::thread t([](){
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                vpn_notify_network_change(g_vpn, VPN_NS_CONNECTED);
+            });
+            t.detach();
             return;
         }
 #endif
