@@ -1,8 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <span>
 #include <string_view>
 
+#include "common/cidr_range.h"
 #include "common/error.h"
 #include "vpn/utils.h"
 
@@ -42,8 +44,8 @@ public:
     WfpFirewall(WfpFirewall &&) = default;
     WfpFirewall &operator=(WfpFirewall &&) = default;
 
-    /** Block DNS traffic to/from all addresses except `allowed`. */
-    WfpFirewallError restrict_dns_to(std::basic_string_view<sockaddr *> allowed);
+    /** Block DNS traffic to/from all addresses except `allowed_v4` and `allowed_v6`. */
+    WfpFirewallError restrict_dns_to(std::span<const CidrRange> allowed_v4, std::span<const CidrRange> allowed_v6);
 
     /** Block all inbound/outbound IPv6 traffic. */
     WfpFirewallError block_ipv6();

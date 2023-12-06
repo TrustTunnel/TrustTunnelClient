@@ -308,23 +308,20 @@ static DWORD set_dns_via_registry(std::string_view dns_list, std::string_view if
     return error;
 }
 
-static bool add_adapter_route(const ag::CidrRange &route, uint32_t tun_number, bool ipv6) {
+static IP_ADDRESS_PREFIX ip_address_prefix_from_cidr_range(const ag::CidrRange &route) {
+    IP_ADDRESS_PREFIX value{};
+    sockaddr_storage addr = ag::sockaddr_from_raw(route.get_address().data(), route.get_address().size(), 0);
+    std::memcpy(&value.Prefix, &addr, sizeof(SOCKADDR_INET));
+    value.PrefixLength = route.get_prefix_len();
+    return value;
+}
+
+static bool add_adapter_route(const ag::CidrRange &route, uint32_t if_index) {
     MIB_IPFORWARD_ROW2 row{};
     InitializeIpForwardEntry(&row);
 
-    IP_ADDRESS_PREFIX prefix;
-    if (ipv6) {
-        prefix.Prefix.si_family = AF_INET6;
-        auto addr = route.get_address_as_string();
-        inet_pton(AF_INET6, addr.c_str(), &(prefix.Prefix.Ipv6.sin6_addr));
-    } else {
-        prefix.Prefix.si_family = AF_INET;
-        auto addr = route.get_address_as_string();
-        inet_pton(AF_INET, addr.c_str(), &(prefix.Prefix.Ipv4.sin_addr));
-    }
-    prefix.PrefixLength = route.get_prefix_len();
-    row.DestinationPrefix = prefix;
-    row.InterfaceIndex = tun_number;
+    row.DestinationPrefix = ip_address_prefix_from_cidr_range(route);
+    row.InterfaceIndex = if_index;
 
     DWORD error = CreateIpForwardEntry2(&row);
     if (error != ERROR_SUCCESS) {
@@ -372,7 +369,12 @@ bool ag::VpnWinTunnel::setup_dns() {
                 return (sockaddr *) &address;
             });
 
-    if (auto error = m_firewall.restrict_dns_to({dns_servers0.begin(), dns_servers0.end()})) {
+    std::vector<ag::CidrRange> ipv4_routes;
+    std::vector<ag::CidrRange> ipv6_routes;
+    ag::tunnel_utils::get_setup_routes(
+            ipv4_routes, ipv6_routes, m_settings->included_routes, m_settings->excluded_routes);
+
+    if (auto error = m_firewall.restrict_dns_to(ipv4_routes, ipv6_routes)) {
         errlog(logger, "Failed to restrict DNS traffic: {}", error->str());
         return false;
     }
@@ -380,7 +382,7 @@ bool ag::VpnWinTunnel::setup_dns() {
     for (const sockaddr *dns_server : dns_servers0) {
         ag::SocketAddress address{dns_server};
         ag::CidrRange route{address.addr(), address.addr().length()};
-        if (!add_adapter_route(route, m_if_index, address.is_ipv6())) {
+        if (!add_adapter_route(route, m_if_index)) {
             return false;
         }
     }
@@ -395,22 +397,22 @@ bool ag::VpnWinTunnel::setup_routes() {
             ipv4_routes, ipv6_routes, m_settings->included_routes, m_settings->excluded_routes);
 
     for (auto &route : ipv4_routes) {
-        if (!add_adapter_route(route, m_if_index, false)) {
+        if (!add_adapter_route(route, m_if_index)) {
             auto splitted = route.split();
             if (!splitted
-                    || !add_adapter_route(splitted->first, m_if_index, false)
-                    || !add_adapter_route(splitted->second, m_if_index, false)) {
+                    || !add_adapter_route(splitted->first, m_if_index)
+                    || !add_adapter_route(splitted->second, m_if_index)) {
                 return false;
             }
         }
     }
 
     for (auto &route : ipv6_routes) {
-        if (!add_adapter_route(route, m_if_index, true)) {
+        if (!add_adapter_route(route, m_if_index)) {
             auto splitted = route.split();
             if (!splitted
-                    || !add_adapter_route(splitted->first, m_if_index, false)
-                    || !add_adapter_route(splitted->second, m_if_index, false)) {
+                    || !add_adapter_route(splitted->first, m_if_index)
+                    || !add_adapter_route(splitted->second, m_if_index)) {
                 return false;
             }
         }

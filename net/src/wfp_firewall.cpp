@@ -103,12 +103,26 @@ ag::WfpFirewall::~WfpFirewall() {
     }
 }
 
-ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<sockaddr *> allowed) {
+static FWP_V4_ADDR_AND_MASK fwp_v4_range_from_cidr_range(const ag::CidrRange &range) {
+    FWP_V4_ADDR_AND_MASK value{};
+    value.addr = ntohl(*(uint32_t *) range.get_address().data());
+    value.mask = ntohl(*(uint32_t *) range.get_mask().data());
+    return value;
+}
+
+static FWP_V6_ADDR_AND_MASK fwp_v6_range_from_cidr_range(const ag::CidrRange &range) {
+    FWP_V6_ADDR_AND_MASK value{};
+    std::memcpy(value.addr, range.get_address().data(), ag::IPV6_ADDRESS_SIZE);
+    value.prefixLength = range.get_prefix_len();
+    return value;
+}
+
+ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::span<const CidrRange> allowed_v4, std::span<const CidrRange> allowed_v6) {
     if (m_impl->engine_handle == INVALID_HANDLE_VALUE) {
         return make_error(FE_NOT_INITIALIZED);
     }
     return run_transaction(m_impl->engine_handle, [&]() -> WfpFirewallError { // NOLINT(cppcoreguidelines-avoid-capture-default-when-capturing-this)
-        FWPM_FILTER_CONDITION0 deny_conditions[] = {
+        FWPM_FILTER_CONDITION0 dns_conditions[] = {
                 {
                         .fieldKey = FWPM_CONDITION_IP_REMOTE_PORT,
                         .matchType = FWP_MATCH_EQUAL,
@@ -151,8 +165,8 @@ ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<soc
                                 .type = FWP_UINT8,
                                 .uint8 = DNS_RESTRICT_DENY_WEIGHT,
                         },
-                .numFilterConditions = std::size(deny_conditions),
-                .filterCondition = &deny_conditions[0],
+                .numFilterConditions = std::size(dns_conditions),
+                .filterCondition = &dns_conditions[0],
                 .action =
                         {
                                 .type = FWP_ACTION_BLOCK,
@@ -174,10 +188,12 @@ ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<soc
 
         // Allow IPv4 inbound/outbound DNS traffic for specified addresses.
         std::vector<FWPM_FILTER_CONDITION0> allow_v4_conditions;
-        allow_v4_conditions.reserve(std::size(deny_conditions) + allowed.size());
-        allow_v4_conditions.insert(allow_v4_conditions.end(), std::begin(deny_conditions), std::end(deny_conditions));
-        for (const sockaddr *address : allowed) {
-            if (address->sa_family != AF_INET) {
+        allow_v4_conditions.reserve(std::size(dns_conditions) + allowed_v4.size());
+        allow_v4_conditions.insert(allow_v4_conditions.end(), std::begin(dns_conditions), std::end(dns_conditions));
+        std::vector<FWP_V4_ADDR_AND_MASK> allow_v4_ranges;
+        allow_v4_ranges.reserve(allowed_v4.size());
+        for (const CidrRange &range : allowed_v4) {
+            if (range.get_address().size() != IPV4_ADDRESS_SIZE) {
                 continue;
             }
             allow_v4_conditions.emplace_back(FWPM_FILTER_CONDITION0{
@@ -185,14 +201,12 @@ ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<soc
                     .matchType = FWP_MATCH_EQUAL,
                     .conditionValue =
                             {
-                                    .type = FWP_UINT32,
+                                    .type = FWP_V4_ADDR_MASK,
+                                    .v4AddrMask = &allow_v4_ranges.emplace_back(fwp_v4_range_from_cidr_range(range)),
                             },
             });
-            std::memcpy(&allow_v4_conditions.back().conditionValue.uint32, sockaddr_get_ip_ptr(address),
-                    sizeof(allow_v4_conditions.back().conditionValue.uint32));
-            allow_v4_conditions.back().conditionValue.uint32 = htonl(allow_v4_conditions.back().conditionValue.uint32);
         }
-        if (allow_v4_conditions.size() > std::size(deny_conditions)) {
+        if (allow_v4_conditions.size() > std::size(dns_conditions)) {
             filter.numFilterConditions = allow_v4_conditions.size();
             filter.filterCondition = allow_v4_conditions.data();
             for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4}) {
@@ -206,28 +220,25 @@ ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<soc
 
         // Allow IPv6 inbound/outbound DNS traffic for specified addresses.
         std::vector<FWPM_FILTER_CONDITION0> allow_v6_conditions;
-        allow_v6_conditions.reserve(std::size(deny_conditions) + allowed.size());
-        allow_v6_conditions.insert(allow_v6_conditions.end(), std::begin(deny_conditions), std::end(deny_conditions));
-        std::vector<FWP_BYTE_ARRAY16> allow_v6_addresses;
-        allow_v6_addresses.reserve(allowed.size());
-        for (const sockaddr *address : allowed) {
-            if (address->sa_family != AF_INET6) {
+        allow_v6_conditions.reserve(std::size(dns_conditions) + allowed_v6.size());
+        allow_v6_conditions.insert(allow_v6_conditions.end(), std::begin(dns_conditions), std::end(dns_conditions));
+        std::vector<FWP_V6_ADDR_AND_MASK> allow_v6_ranges;
+        allow_v6_ranges.reserve(allowed_v6.size());
+        for (const auto &range : allowed_v6) {
+            if (range.get_address().size() != IPV6_ADDRESS_SIZE) {
                 continue;
             }
-            allow_v6_addresses.emplace_back();
-            std::memcpy(&allow_v6_addresses.back().byteArray16[0], sockaddr_get_ip_ptr(address),
-                    sizeof(allow_v6_addresses.back().byteArray16));
             allow_v6_conditions.emplace_back(FWPM_FILTER_CONDITION0{
                     .fieldKey = FWPM_CONDITION_IP_REMOTE_ADDRESS,
                     .matchType = FWP_MATCH_EQUAL,
                     .conditionValue =
                             {
-                                    .type = FWP_BYTE_ARRAY16_TYPE,
-                                    .byteArray16 = &allow_v6_addresses.back(),
+                                    .type = FWP_V6_ADDR_MASK,
+                                    .v6AddrMask = &allow_v6_ranges.emplace_back(fwp_v6_range_from_cidr_range(range)),
                             },
             });
         }
-        if (allow_v6_conditions.size() > std::size(deny_conditions)) {
+        if (allow_v6_conditions.size() > std::size(dns_conditions)) {
             filter.numFilterConditions = allow_v6_conditions.size();
             filter.filterCondition = allow_v6_conditions.data();
             for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6}) {
@@ -252,9 +263,9 @@ ag::WfpFirewallError ag::WfpFirewall::restrict_dns_to(std::basic_string_view<soc
             FwpmFreeMemory((void **) &blob);
         });
         std::vector<FWPM_FILTER_CONDITION0> allow_self_conditions;
-        allow_self_conditions.reserve(std::size(deny_conditions) + 1);
+        allow_self_conditions.reserve(std::size(dns_conditions) + 1);
         allow_self_conditions.insert(
-                allow_self_conditions.end(), std::begin(deny_conditions), std::end(deny_conditions));
+                allow_self_conditions.end(), std::begin(dns_conditions), std::end(dns_conditions));
         allow_self_conditions.emplace_back(FWPM_FILTER_CONDITION0{
                 .fieldKey = FWPM_CONDITION_ALE_APP_ID,
                 .matchType = FWP_MATCH_EQUAL,
