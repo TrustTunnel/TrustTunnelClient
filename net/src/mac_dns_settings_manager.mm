@@ -8,6 +8,7 @@
 
 #import "net/utils.h"
 #import "common/clock.h"
+#import "common/logger.h"
 
 #import "net/network_manager.h"
 
@@ -21,6 +22,7 @@ class VpnMacDnsSettingsManagerImpl {
     SteadyClock::time_point m_last_updated_primary_service{};
     std::string m_dns_server;
     bool m_valid = false;
+    Logger m_logger{"VpnMacDnsSettingsManager"};
 
     struct ConstructorAccess {};
 
@@ -72,7 +74,15 @@ public:
     }
 
     void on_keys_changed(NSArray *changed_keys) {
-        NSLog(@"On keys changed: %@", changed_keys);
+        if (m_logger.is_enabled(LOG_LEVEL_DEBUG)) {
+            std::vector<std::string> keys;
+            for (NSObject *key in changed_keys) {
+                NSString *keyStr = [key description];
+                keys.push_back(std::string([keyStr UTF8String]));
+            }
+            dbglog(m_logger, "On keys changed: {}", ag::utils::join(keys.begin(), keys.end(), ", "));
+        }
+
         for (NSString *key in changed_keys) {
             // If DNS setup changed, check if it must be rewritten
             if ([key rangeOfString:@"^Setup:/Network/Service/.*/DNS$" options:NSRegularExpressionSearch].location != NSNotFound) {
@@ -109,8 +119,9 @@ public:
     }
 
     static void touch_prefs() {
+        static Logger logger{"S_VpnMacDnsSettingsManager"};
+        dbglog(logger, "Touching DNS preferences");
         @autoreleasepool {
-            NSLog(@"Touching DNS preferences");
             SCPreferencesRef prefs = SCPreferencesCreate(nullptr, (__bridge CFStringRef) @"MacDnsManager", nullptr);
             SCPreferencesLock(prefs, YES);
             CFPropertyListRef properties = SCPreferencesGetValue(prefs, kSCPrefNetworkServices);
@@ -122,8 +133,8 @@ public:
     }
 
     void setup_store() {
+        dbglog(m_logger, "Updating DNS servers");
         @autoreleasepool {
-            NSLog(@"Updating DNS servers");
             NSDictionary *dns_config = @{@"ServerAddresses": @[@(m_dns_server.c_str())]};
             NSDictionary *existing_config = (__bridge_transfer NSDictionary *) SCDynamicStoreCopyValue(m_store,
                     (__bridge CFStringRef) [NSString stringWithFormat:@"Setup:/Network/Service/%@/DNS", m_primary_service]);

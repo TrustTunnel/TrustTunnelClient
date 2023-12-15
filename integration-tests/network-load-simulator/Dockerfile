@@ -17,7 +17,7 @@ RUN export LDFLAGS=-fuse-ld=lld && cmake ..  \
         -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
         -DCONAN_HOST_PROFILE="default;auto-cmake" && \
     ninja standalone_client && \
-    mv ./standalone_client/standalone_client /test/
+    mv ./standalone/standalone_client /test/
 
 WORKDIR /test/
 COPY entrypoint.sh index.js package.json config.conf /test/

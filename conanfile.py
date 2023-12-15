@@ -82,6 +82,7 @@ class VpnLibsConan(ConanFile):
         cmake.build(target="vpnlibs_core")
         cmake.build(target="vpnlibs_net")
         cmake.build(target="vpnlibs_tcpip")
+        cmake.build(target="vpnlibs_standalone")
 
     def package(self):
         MODULES = [
@@ -89,6 +90,7 @@ class VpnLibsConan(ConanFile):
             "core",
             "net",
             "tcpip",
+            "standalone",
         ]
 
         for m in MODULES:
@@ -110,8 +112,11 @@ class VpnLibsConan(ConanFile):
             "vpnlibs_net",
             "vpnlibs_tcpip",
             "vpnlibs_common",
+            "vpnlibs_standalone",
         ]
         if self.settings.os == "Windows":
             self.cpp_info.system_libs = ["ws2_32", "crypt32", "userenv", "version"]
         elif self.settings.os != 'Android':
             self.cpp_info.system_libs = ["resolv"]
+        if is_apple_os(self):
+            self.cpp_info.frameworks = ['Foundation', 'SystemConfiguration']

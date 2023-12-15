@@ -12,7 +12,9 @@
 #include "vpn/utils.h"
 #include "vpn/vpn.h"
 
-struct Config {
+namespace ag {
+
+struct VpnStandaloneConfig {
     struct Endpoint {
         std::string hostname;
         std::vector<std::string> addresses;
@@ -43,6 +45,7 @@ struct Config {
     ag::LogLevel loglevel = ag::LOG_LEVEL_INFO;
     ag::VpnMode mode = ag::VPN_MODE_GENERAL;
     bool killswitch_enabled = false;
+    std::string log_file_path;
     std::string exclusions;
     std::vector<std::string> dns_upstreams;
     Endpoint endpoint = {};
@@ -52,3 +55,4 @@ struct Config {
 
     void apply_cmd_args(const cxxopts::ParseResult &result);
 };
+} // namespace ag

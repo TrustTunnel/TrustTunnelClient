@@ -9,8 +9,8 @@
 #include <magic_enum/magic_enum.hpp>
 #include <openssl/pem.h>
 
-#include "config.h"
 #include "net/tls.h"
+#include "vpn/standalone/config.h"
 
 using namespace ag; // NOLINT(google-build-using-namespace)
 
@@ -118,7 +118,7 @@ private:
     }
 };
 
-void set_loglevel(Config *self, std::string_view x) {
+void set_loglevel(VpnStandaloneConfig *self, std::string_view x) {
     if (auto it = LOG_LEVEL_MAP.find(x); it != LOG_LEVEL_MAP.end()) {
         if (self->loglevel != it->second) {
             infolog(g_logger, "Log level was overwritten: old={}, new={}", magic_enum::enum_name(self->loglevel),
@@ -151,7 +151,7 @@ DeclPtr<X509_STORE, &X509_STORE_free> load_certificate(const char *path) {
     return store;
 }
 
-static void apply_endpoint_config(Config *self, const toml::table &config) {
+static void apply_endpoint_config(VpnStandaloneConfig *self, const toml::table &config) {
     self->endpoint.hostname = Field<std::string>(config, "hostname").unwrap("Hostname is not specified");
 
     if (const auto *x = config["addresses"].as_array(); x != nullptr) {
@@ -205,26 +205,28 @@ static void apply_endpoint_config(Config *self, const toml::table &config) {
     }
 }
 
-static std::optional<Config::SocksListener> parse_socks_listener_config(Config *, const toml::table &config) {
+static std::optional<VpnStandaloneConfig::SocksListener> parse_socks_listener_config(
+        VpnStandaloneConfig *, const toml::table &config) {
     const toml::table *socks_config = config["socks"].as_table();
     if (socks_config == nullptr) {
         return std::nullopt;
     }
 
-    return Config::SocksListener{
+    return VpnStandaloneConfig::SocksListener{
             .username = (*socks_config)["username"].value_or<std::string>({}),
             .password = (*socks_config)["password"].value_or<std::string>({}),
             .address = Field<std::string>(*socks_config, "address").unwrap("SOCKS listener address is not specified"),
     };
 }
 
-static std::optional<Config::TunListener> parse_tun_listener_config(Config *, const toml::table &config) {
+static std::optional<VpnStandaloneConfig::TunListener> parse_tun_listener_config(
+        VpnStandaloneConfig *, const toml::table &config) {
     const toml::table *tun_config = config["tun"].as_table();
     if (tun_config == nullptr) {
         return std::nullopt;
     }
 
-    Config::TunListener tun = {
+    VpnStandaloneConfig::TunListener tun = {
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
             .bound_if = Field<std::string>(*tun_config, "bound_if")
 #if defined(_WIN32) || defined(__linux__)
@@ -258,7 +260,7 @@ static std::optional<Config::TunListener> parse_tun_listener_config(Config *, co
     return tun;
 }
 
-static void apply_listener_config(Config *self, const toml::table &config) {
+static void apply_listener_config(VpnStandaloneConfig *self, const toml::table &config) {
     std::optional socks = parse_socks_listener_config(self, config);
     std::optional tun = parse_tun_listener_config(self, config);
 
@@ -278,7 +280,7 @@ static void apply_listener_config(Config *self, const toml::table &config) {
     self->listener = std::move(tun.value());
 }
 
-void Config::apply_config(const toml::table &config) {
+void VpnStandaloneConfig::apply_config(const toml::table &config) {
     if (std::optional lvl = config["loglevel"].value<std::string_view>(); lvl.has_value()) {
         set_loglevel(this, lvl.value());
     }
@@ -327,7 +329,7 @@ void Config::apply_config(const toml::table &config) {
     }
 }
 
-void Config::apply_cmd_args(const cxxopts::ParseResult &args) {
+void VpnStandaloneConfig::apply_cmd_args(const cxxopts::ParseResult &args) {
     if (args.count("s") > 0) {
         bool x = args["s"].as<bool>();
         if (x != endpoint.skip_verification) {

@@ -18,7 +18,7 @@ RUN export LDFLAGS=-fuse-ld=lld && cmake ..  \
         -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
         -DCONAN_HOST_PROFILE="default;auto-cmake" && \
     ninja standalone_client && \
-    mv ./standalone_client/standalone_client /test/
+    mv ./standalone/standalone_client /test/
 
 COPY entrypoint.sh tun_tests.sh socks_tests.sh /test/
 

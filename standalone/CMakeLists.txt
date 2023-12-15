@@ -15,19 +15,12 @@ if (MSVC)
 endif (MSVC)
 
 set(SOURCE_FILES
-        config.cpp
-        standalone_client.cpp
+        src/config.cpp
+        src/client.cpp
         )
 
-add_executable(standalone_client EXCLUDE_FROM_ALL ${SOURCE_FILES})
-
-if (NOT MSVC)
-    target_compile_options(standalone_client PRIVATE "-fno-exceptions")
-endif (NOT MSVC)
-
-target_compile_definitions(standalone_client PRIVATE TOML_EXCEPTIONS=0)
-target_compile_definitions(standalone_client PRIVATE _HAS_EXCEPTIONS=0)
-target_compile_definitions(standalone_client PRIVATE CXXOPTS_NO_RTTI)
+add_library(vpnlibs_standalone EXCLUDE_FROM_ALL ${SOURCE_FILES})
+target_include_directories(vpnlibs_common PUBLIC include)
 
 find_package(cxxopts REQUIRED)
 find_package(native_libs_common REQUIRED)
@@ -35,10 +28,23 @@ find_package(magic_enum REQUIRED)
 find_package(native_libs_common REQUIRED)
 find_package(tomlplusplus REQUIRED)
 
-target_link_libraries(standalone_client vpnlibs_core cxxopts::cxxopts)
-target_link_libraries(standalone_client magic_enum::magic_enum)
-target_link_libraries(standalone_client native_libs_common::native_libs_common)
-target_link_libraries(standalone_client tomlplusplus::tomlplusplus)
+target_link_libraries(vpnlibs_standalone vpnlibs_core cxxopts::cxxopts)
+target_link_libraries(vpnlibs_standalone magic_enum::magic_enum)
+target_link_libraries(vpnlibs_standalone native_libs_common::native_libs_common)
+target_link_libraries(vpnlibs_standalone tomlplusplus::tomlplusplus)
+if (NOT MSVC)
+    target_compile_options(vpnlibs_standalone PRIVATE "-fno-exceptions")
+endif (NOT MSVC)
+
+target_compile_definitions(vpnlibs_standalone PRIVATE TOML_EXCEPTIONS=0)
+target_compile_definitions(vpnlibs_standalone PRIVATE _HAS_EXCEPTIONS=0)
+target_compile_definitions(vpnlibs_standalone PRIVATE CXXOPTS_NO_RTTI)
+
+add_executable(standalone_client EXCLUDE_FROM_ALL standalone_client.cpp)
+target_link_libraries(standalone_client vpnlibs_standalone)
+if (NOT MSVC)
+    target_compile_options(standalone_client PRIVATE "-fno-exceptions")
+endif (NOT MSVC)
 
 if (WIN32)
     set(WIZARD_EXE_NAME setup_wizard.exe)
@@ -87,5 +93,6 @@ add_dependencies(run_setup_wizard setup_wizard)
 enable_testing()
 add_dependencies(tests
         standalone_client
+        vpnlibs_standalone
         setup_wizard
         )
