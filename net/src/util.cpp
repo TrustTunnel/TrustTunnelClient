@@ -675,6 +675,10 @@ Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers() {
     return servers;
 }
 
+#elif defined(__ANDROID__)
+//
+// Android retrieves system DNS servers in Java code
+//
 #else
 
 Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers() {

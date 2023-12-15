@@ -283,7 +283,7 @@ struct ErrorCodeToString<RetrieveSystemDnsError> {
  */
 Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers();
 
-#endif // ifdef _WIN32
+#endif // ifdef __ANDROID__
 
 enum IpVersion {
     IPV4,
