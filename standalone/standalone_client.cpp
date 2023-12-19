@@ -38,6 +38,7 @@ static void sighandler(int sig) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 g_client->notify_network_change(ag::VPN_NS_CONNECTED);
             });
+            t.detach();
             return;
         }
 #endif
