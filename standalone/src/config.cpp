@@ -152,33 +152,34 @@ DeclPtr<X509_STORE, &X509_STORE_free> load_certificate(const char *path) {
 }
 
 static void apply_endpoint_config(VpnStandaloneConfig *self, const toml::table &config) {
-    self->endpoint.hostname = Field<std::string>(config, "hostname").unwrap("Hostname is not specified");
+    std::vector<VpnStandaloneConfig::Endpoint> endpoint;
+
+    auto hostname = Field<std::string>(config, "hostname").unwrap("Hostname is not specified");
 
     if (const auto *x = config["addresses"].as_array(); x != nullptr) {
-        self->endpoint.addresses.reserve(x->size());
         for (const auto &a : *x) {
             if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
-                self->endpoint.addresses.emplace_back(addr.value());
+                self->location.endpoints.emplace_back(
+                        VpnStandaloneConfig::Endpoint{.hostname = hostname, .address = std::string(addr.value())});
             }
         }
     }
 
-    if (self->endpoint.addresses.empty()) {
+    if (self->location.endpoints.empty()) {
         FAIL("Endpoint addresses are invalid or not specified");
     }
 
-    self->endpoint.hostname = Field<std::string>(config, "hostname").unwrap("Hostname is not specified");
-    self->endpoint.username = Field<std::string>(config, "username").unwrap("Username is not specified");
-    self->endpoint.password = Field<std::string>(config, "password").unwrap("Password is not specified");
-    self->endpoint.skip_verification = Field<bool>(config, "skip_verification").unwrap_or(false);
-    self->endpoint.anti_dpi = Field<bool>(config, "anti_dpi").unwrap_or(false);
+    self->location.username = Field<std::string>(config, "username").unwrap("Username is not specified");
+    self->location.password = Field<std::string>(config, "password").unwrap("Password is not specified");
+    self->location.skip_verification = Field<bool>(config, "skip_verification").unwrap_or(false);
+    self->location.anti_dpi = Field<bool>(config, "anti_dpi").unwrap_or(false);
 
     if (std::optional x = get_field<std::string>(config, "certificate");
-            !self->endpoint.skip_verification && x.has_value() && !x->empty()) {
-        self->endpoint.ca_store = load_certificate(x->c_str());
+            !self->location.skip_verification && x.has_value() && !x->empty()) {
+        self->location.ca_store = load_certificate(x->c_str());
     }
 
-    self->endpoint.upstream_protocol = Field<std::string_view>(config, "upstream_protocol")
+    self->location.upstream_protocol = Field<std::string_view>(config, "upstream_protocol")
                                                .check_value(
                                                        [](std::string_view x) -> bool {
                                                            return UPSTREAM_PROTO_MAP.contains(x);
@@ -190,7 +191,7 @@ static void apply_endpoint_config(VpnStandaloneConfig *self, const toml::table &
                                                })
                                                .unwrap("Endpoint upstream protocol is not specified");
     if (std::optional x = get_field<std::string>(config, "upstream_fallback_protocol"); x.has_value() && !x->empty()) {
-        self->endpoint.upstream_fallback_protocol =
+        self->location.upstream_fallback_protocol =
                 Field(x.value())
                         .check_value(
                                 [](std::string_view x) -> bool {
@@ -227,15 +228,15 @@ static std::optional<VpnStandaloneConfig::TunListener> parse_tun_listener_config
     }
 
     VpnStandaloneConfig::TunListener tun = {
-            .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
-            .bound_if = Field<std::string>(*tun_config, "bound_if")
+        .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
+        .bound_if = Field<std::string>(*tun_config, "bound_if")
 #if defined(_WIN32) || defined(__linux__)
-                                // will be detected automatically later
-                                .unwrap_or({}),
+                            // will be detected automatically later
+                            .unwrap_or({}),
 #elif defined(__APPLE__)
-                                .unwrap_or("en0"),
+                            .unwrap_or("en0"),
 #else
-                                .unwrap("Outbound interface is not specified"),
+                            .unwrap("Outbound interface is not specified"),
 #endif
     };
 
@@ -332,10 +333,10 @@ void VpnStandaloneConfig::apply_config(const toml::table &config) {
 void VpnStandaloneConfig::apply_cmd_args(const cxxopts::ParseResult &args) {
     if (args.count("s") > 0) {
         bool x = args["s"].as<bool>();
-        if (x != endpoint.skip_verification) {
-            infolog(g_logger, "Skip verification value was overwritten: old={}, new={}", endpoint.skip_verification, x);
+        if (x != location.skip_verification) {
+            infolog(g_logger, "Skip verification value was overwritten: old={}, new={}", location.skip_verification, x);
         }
-        endpoint.skip_verification = x;
+        location.skip_verification = x;
     }
     if (args.count("loglevel") > 0) {
         set_loglevel(this, args["loglevel"].as<std::string>());

@@ -17,9 +17,13 @@ namespace ag {
 struct VpnStandaloneConfig {
     struct Endpoint {
         std::string hostname;
-        std::vector<std::string> addresses;
+        std::string address;
+    };
+
+    struct Location {
         std::string username;
         std::string password;
+        std::vector<Endpoint> endpoints;
         bool skip_verification = false;
         ag::DeclPtr<X509_STORE, &X509_STORE_free> ca_store;
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
@@ -48,7 +52,7 @@ struct VpnStandaloneConfig {
     std::string log_file_path;
     std::string exclusions;
     std::vector<std::string> dns_upstreams;
-    Endpoint endpoint = {};
+    Location location;
     Listener listener;
 
     void apply_config(const toml::table &config);

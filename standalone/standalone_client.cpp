@@ -73,6 +73,7 @@ static void setup_sighandler() {
 }
 
 int main(int argc, char **argv) {
+    setup_sighandler();
 
     cxxopts::Options args("Standalone client", "Simple console client");
     // clang-format off
@@ -101,7 +102,6 @@ int main(int argc, char **argv) {
 
     ag::Logger::set_log_level(config.loglevel);
     g_client = new ag::VpnStandaloneClient(std::move(config));
-    setup_sighandler();
 
     auto res = g_client->connect(std::chrono::seconds(10));
     if (res) {

@@ -234,22 +234,22 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner()
 Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_server() {
     std::vector<VpnEndpoint> endpoints;
     std::vector<sockaddr_storage> relays;
-    endpoints.reserve(m_config.endpoint.addresses.size());
-    std::string hostname;
-    std::string remote_id;
-    if (auto pos = m_config.endpoint.hostname.find('|'); pos != std::string::npos) {
-        hostname = m_config.endpoint.hostname.substr(0, pos);
-        remote_id = m_config.endpoint.hostname.substr(pos + 1);
-    } else {
-        hostname = m_config.endpoint.hostname;
-    }
-    for (const std::string &address : m_config.endpoint.addresses) {
-        if (address.starts_with("|")) {
-            relays.emplace_back(sockaddr_from_str(address.substr(1).c_str()));
+    endpoints.reserve(m_config.location.endpoints.size());
+    for (const auto &endpoint : m_config.location.endpoints) {
+        std::string hostname;
+        std::string remote_id;
+        if (auto pos = endpoint.hostname.find('|'); pos != std::string::npos) {
+            hostname = endpoint.hostname.substr(0, pos);
+            remote_id = endpoint.hostname.substr(pos + 1);
+        } else {
+            hostname = endpoint.hostname;
+        }
+        if (endpoint.address.starts_with("|")) {
+            relays.emplace_back(sockaddr_from_str(endpoint.address.substr(1).c_str()));
             continue;
         }
         endpoints.emplace_back(VpnEndpoint{
-                .address = sockaddr_from_str(address.c_str()),
+                .address = sockaddr_from_str(endpoint.address.c_str()),
                 .name = hostname.c_str(),
                 .remote_id = remote_id.c_str(),
         });
@@ -257,22 +257,22 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
     VpnConnectParameters parameters = {
             .upstream_config =
                     {
-                            .protocol = {.type = m_config.endpoint.upstream_protocol},
+                            .protocol = {.type = m_config.location.upstream_protocol},
                             .location =
                                     {
                                             .id = "hello-location",
                                             .endpoints = {endpoints.data(), uint32_t(endpoints.size())},
                                             .relay_addresses = {relays.data(), uint32_t(relays.size())},
                                     },
-                            .username = m_config.endpoint.username.c_str(),
-                            .password = m_config.endpoint.password.c_str(),
-                            .anti_dpi = m_config.endpoint.anti_dpi,
+                            .username = m_config.location.username.c_str(),
+                            .password = m_config.location.password.c_str(),
+                            .anti_dpi = m_config.location.anti_dpi,
                     },
     };
 
-    if (m_config.endpoint.upstream_fallback_protocol.has_value()) {
+    if (m_config.location.upstream_fallback_protocol.has_value()) {
         parameters.upstream_config.fallback.enabled = true;
-        parameters.upstream_config.fallback.protocol.type = *m_config.endpoint.upstream_fallback_protocol;
+        parameters.upstream_config.fallback.protocol.type = *m_config.location.upstream_fallback_protocol;
     }
 
     {
@@ -328,10 +328,10 @@ VpnListener *VpnStandaloneClient::make_tun_listener() {
     }
 
     std::vector<std::string> complete_excluded_routes = config.excluded_routes;
-    for (const std::string &address : m_config.endpoint.addresses) {
-        auto result = ag::utils::split_host_port(address);
+    for (const auto &endpoint : m_config.location.endpoints) {
+        auto result = ag::utils::split_host_port(endpoint.address);
         if (result.has_error()) {
-            errlog(m_logger, "Failed to parse endpoint address: address={}, error={}", address, result.error()->str());
+            errlog(m_logger, "Failed to parse endpoint address: address={}, error={}", endpoint.address, result.error()->str());
             return nullptr;
         }
         auto [host_view, port_view] = result.value();
@@ -433,12 +433,12 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
         break;
     case VPN_EVENT_VERIFY_CERTIFICATE: {
         auto *event = (VpnVerifyCertificateEvent *) data;
-        const char *err = m_config.endpoint.skip_verification
+        const char *err = m_config.location.skip_verification
                 ? nullptr
-                : tls_verify_cert(event->ctx, m_config.endpoint.ca_store.get());
+                : tls_verify_cert(event->ctx, m_config.location.ca_store.get());
         if (err == nullptr) {
             tracelog(m_logger, "Certificate verified successfully");
-            event->result = m_config.endpoint.skip_verification ? VPN_SKIP_VERIFICATION_FLAG : 0;
+            event->result = m_config.location.skip_verification ? VPN_SKIP_VERIFICATION_FLAG : 0;
         } else {
             errlog(m_logger, "Failed to verify certificate: {}", err);
             event->result = -1;
