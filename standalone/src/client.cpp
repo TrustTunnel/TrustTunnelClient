@@ -234,15 +234,16 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner()
 Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_server() {
     std::vector<VpnEndpoint> endpoints;
     std::vector<sockaddr_storage> relays;
+    std::vector<std::string> hostnames;
+    std::vector<std::string> remote_ids;
     endpoints.reserve(m_config.location.endpoints.size());
     for (const auto &endpoint : m_config.location.endpoints) {
-        std::string hostname;
-        std::string remote_id;
         if (auto pos = endpoint.hostname.find('|'); pos != std::string::npos) {
-            hostname = endpoint.hostname.substr(0, pos);
-            remote_id = endpoint.hostname.substr(pos + 1);
+            hostnames.emplace_back(endpoint.hostname.substr(0, pos));
+            remote_ids.emplace_back(endpoint.hostname.substr(pos + 1));
         } else {
-            hostname = endpoint.hostname;
+            hostnames.emplace_back(endpoint.hostname);
+            remote_ids.emplace_back("");
         }
         if (endpoint.address.starts_with("|")) {
             relays.emplace_back(sockaddr_from_str(endpoint.address.substr(1).c_str()));
@@ -250,8 +251,8 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
         }
         endpoints.emplace_back(VpnEndpoint{
                 .address = sockaddr_from_str(endpoint.address.c_str()),
-                .name = hostname.c_str(),
-                .remote_id = remote_id.c_str(),
+                .name = hostnames.back().c_str(),
+                .remote_id = remote_ids.back().c_str(),
         });
     }
     VpnConnectParameters parameters = {
