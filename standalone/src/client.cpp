@@ -236,6 +236,8 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
     std::vector<sockaddr_storage> relays;
     std::vector<std::string> hostnames;
     std::vector<std::string> remote_ids;
+    hostnames.reserve(m_config.location.endpoints.size());
+    remote_ids.reserve(m_config.location.endpoints.size());
     endpoints.reserve(m_config.location.endpoints.size());
     for (const auto &endpoint : m_config.location.endpoints) {
         if (auto pos = endpoint.hostname.find('|'); pos != std::string::npos) {
@@ -270,7 +272,6 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
                             .anti_dpi = m_config.location.anti_dpi,
                     },
     };
-
     if (m_config.location.upstream_fallback_protocol.has_value()) {
         parameters.upstream_config.fallback.enabled = true;
         parameters.upstream_config.fallback.protocol.type = *m_config.location.upstream_fallback_protocol;
@@ -332,7 +333,8 @@ VpnListener *VpnStandaloneClient::make_tun_listener() {
     for (const auto &endpoint : m_config.location.endpoints) {
         auto result = ag::utils::split_host_port(endpoint.address);
         if (result.has_error()) {
-            errlog(m_logger, "Failed to parse endpoint address: address={}, error={}", endpoint.address, result.error()->str());
+            errlog(m_logger, "Failed to parse endpoint address: address={}, error={}", endpoint.address,
+                    result.error()->str());
             return nullptr;
         }
         auto [host_view, port_view] = result.value();
