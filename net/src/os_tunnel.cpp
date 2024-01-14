@@ -111,7 +111,7 @@ ag::CidrRange ag::tunnel_utils::get_address_for_index(const char *ipv4_address, 
     if (addr.back() == 0) {
         addr.back() = index + 2;
     }
-    return {Uint8View{addr.data(), addr.size()}, addr.size() * 8};
+    return {ag::as_u8v(addr), addr.size() * 8};
 }
 
 ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_clone(const ag::VpnOsTunnelSettings *settings) {
