@@ -170,7 +170,7 @@ public:
     ~VpnMacTunnel() override = default;
 
 protected:
-    evutil_socket_t tun_open(uint32_t num);
+    evutil_socket_t tun_open();
     void setup_if();
     void setup_routes();
 

@@ -20,17 +20,7 @@ void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
 
 ag::VpnError ag::VpnMacTunnel::init(const ag::VpnOsTunnelSettings *settings) {
     init_settings(settings);
-    bool success_tun_open = false;
-    for (uint8_t i = 0; i < 255; i++) {
-        if (int fd = tun_open(i); fd != -1) {
-            m_tun_fd = fd;
-            m_tun_name = AG_FMT("utun{}", i);
-            m_if_index = if_nametoindex(m_tun_name.c_str());
-            success_tun_open = true;
-            break;
-        }
-    }
-    if (!success_tun_open) {
+    if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }
     setup_if();
@@ -47,7 +37,7 @@ evutil_socket_t ag::VpnMacTunnel::get_fd() {
     return m_tun_fd;
 }
 
-evutil_socket_t ag::VpnMacTunnel::tun_open(uint32_t num) {
+evutil_socket_t ag::VpnMacTunnel::tun_open() {
     int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
 
     if (fd < 0) {
@@ -55,8 +45,9 @@ evutil_socket_t ag::VpnMacTunnel::tun_open(uint32_t num) {
         return -1;
     }
 
-    struct ctl_info info {};
-    strncpy(info.ctl_name, UTUN_CONTROL_NAME, std::max(std::size(info.ctl_name), strlen(UTUN_CONTROL_NAME)));
+    struct ctl_info info{
+        .ctl_name = UTUN_CONTROL_NAME
+    };
 
     if (ioctl(fd, CTLIOCGINFO, &info) < 0) {
         close(fd);
@@ -69,15 +60,26 @@ evutil_socket_t ag::VpnMacTunnel::tun_open(uint32_t num) {
     addr.sc_len = sizeof(addr);
     addr.sc_family = AF_SYSTEM;
     addr.ss_sysaddr = AF_SYS_CONTROL;
-    addr.sc_unit = num + 1;
+    addr.sc_unit = 0;
 
-    if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+    if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) != 0) {
         close(fd);
         errlog(logger, "Failed to connect: {}", strerror(errno));
         return -1;
     }
 
-    infolog(logger, "Device {} opened", info.ctl_name);
+    socklen_t addr_len = sizeof(struct sockaddr_ctl);
+    if (getpeername(fd, (sockaddr *) &addr, &addr_len) != 0) {
+        close(fd);
+        errlog(logger, "Failed to get tun number: {}", strerror(errno));
+        return -1;
+    }
+
+    m_tun_fd = fd;
+    m_tun_name = AG_FMT("utun{}", addr.sc_unit - 1);
+    m_if_index = if_nametoindex(m_tun_name.c_str());
+
+    infolog(logger, "Device {} opened", m_tun_name);
     return fd;
 }
 
@@ -85,10 +87,10 @@ void ag::VpnMacTunnel::setup_if() {
     ag::tunnel_utils::fsystem("set -x\n");
     ag::tunnel_utils::fsystem("/sbin/ifconfig {} mtu {} up", m_tun_name, m_settings->mtu);
     auto ipv4_address = tunnel_utils::get_address_for_index(m_settings->ipv4_address, m_if_index);
-    ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet add {} {} prefixlen {}\n", m_tun_name,
-            ipv4_address.get_address_as_string(), ipv4_address.get_address_as_string(), ipv4_address.get_prefix_len());
+    ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet add {} 127.1.1.1 netmask {}\n", m_tun_name,
+            ipv4_address.get_address_as_string(), fmt::join(ipv4_address.get_mask(), "."));
     auto ipv6_address = tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index);
-    ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet6 add {} prefixlen {}\n", m_tun_name,
+    ag::tunnel_utils::fsystem("/sbin/ifconfig {} inet6 add {} fe80::1 prefixlen {}\n", m_tun_name,
             ipv6_address.get_address_as_string(), ipv6_address.get_prefix_len());
 }
 
