@@ -251,6 +251,7 @@ Http1Session *http1_session_init(HttpSession *session) {
     h1s->stream.id = 0;
     h1s->stream.session = session;
 
+    static_assert(std::is_trivial_v<http_parser>);
     h1s->parser = (http_parser *) malloc(sizeof(http_parser));
     h1s->parser->data = session;
     parser_reset(session, h1s);

@@ -557,6 +557,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
         location.id = safe_strdup(fmt::format(
                 "{}/{}", json_loc["country_name"].get<std::string>(), json_loc["city_name"].get<std::string>())
                                           .c_str());
+        static_assert(std::is_trivial_v<VpnEndpoint>);
         location.endpoints.data = (VpnEndpoint *) malloc(2 * json_loc["endpoints"].size() * sizeof(VpnEndpoint));
         location.endpoints.size = 0;
         for (auto &ep : json_loc["endpoints"]) {

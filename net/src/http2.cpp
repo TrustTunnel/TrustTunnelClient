@@ -447,6 +447,7 @@ Http2Session *http2_session_init(HttpSession *ctx) {
         goto finish;
     }
 
+    static_assert(std::is_trivial_v<Http2Session>);
     session = (Http2Session *) calloc(1, sizeof(Http2Session));
     session->ngsession = ngsession;
     session->streams = kh_init(h2_streams_ht);
@@ -753,6 +754,7 @@ int http_session_set_recv_window(HttpSession *session, int32_t stream_id, size_t
 
 static DataSource *data_source_create() {
     // Create non-pull data source
+    static_assert(std::is_trivial_v<DataSource>);
     DataSource *source = (DataSource *) calloc(1, sizeof(DataSource));
     source->buf = evbuffer_new();
     return source;

@@ -381,6 +381,7 @@ VpnDnsStamp *vpn_dns_stamp_from_str(const char *stamp_str, const char **error) {
         return nullptr;
     }
     const dns::ServerStamp &stamp = res.value();
+    static_assert(std::is_trivial_v<VpnDnsStamp>);
     auto *c_result = (VpnDnsStamp *) std::calloc(1, sizeof(VpnDnsStamp));
     c_result->proto = (VpnDnsStampProtocol) stamp.proto;
     c_result->path = marshal_str(stamp.path);

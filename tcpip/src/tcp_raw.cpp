@@ -218,6 +218,7 @@ static err_t tcp_raw_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_setprio(newpcb, TCP_PRIO_MIN);
     tcp_nagle_disable(newpcb);
 
+    static_assert(std::is_trivial_v<ConnCtx>);
     auto *conn_ctx = (ConnCtx *) malloc(sizeof(ConnCtx));
     conn_ctx->tcpip = ctx;
     conn_ctx->id = entry->common.id;

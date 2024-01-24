@@ -45,6 +45,7 @@ static test_mock::LocationsPingerInfo make_deep_copy(const ag::LocationsPingerIn
 
     dst->locations = {};
     dst->locations.size = src->locations.size;
+    static_assert(std::is_trivial_v<VpnLocation>);
     dst->locations.data = (VpnLocation *) malloc(src->locations.size * sizeof(VpnLocation));
     if (src->relay_address_parallel) {
         auto *ss = (sockaddr_storage *) malloc(sizeof(sockaddr_storage));

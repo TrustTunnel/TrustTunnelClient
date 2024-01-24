@@ -209,7 +209,7 @@ void udp_cm_close_descriptor(TcpipCtx *ctx, uint64_t id) {
     log_conn(connection, trace, "Connection closed {}, {} active connections left", (void *) connection,
             kh_size(ctx->udp.connections.by_id));
 
-    free(connection);
+    delete connection;
 }
 
 void udp_cm_enqueue_incoming_packet(UdpConnDescriptor *connection, struct pbuf *buffer, u16_t header_len) {
@@ -227,7 +227,7 @@ void udp_cm_enqueue_incoming_packet(UdpConnDescriptor *connection, struct pbuf *
 
 UdpConnDescriptor *udp_cm_create_descriptor(TcpipCtx *ctx, struct pbuf *buffer, u16_t header_len,
         const ip_addr_t *src_addr, u16_t src_port, const ip_addr_t *dst_addr, u16_t dst_port) {
-    auto *connection = (UdpConnDescriptor *) calloc(1, sizeof(UdpConnDescriptor));
+    auto *connection = new UdpConnDescriptor{};
     if (nullptr == connection) {
         return nullptr;
     }

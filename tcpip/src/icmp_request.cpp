@@ -23,6 +23,7 @@ bool icmp_request_key_equals(const IcmpRequestKey *lh, const IcmpRequestKey *rh)
 
 IcmpRequestDescriptor *icmp_request_create(
         const ip_addr_t *src, const ip_addr_t *dst, u16_t id, u16_t seqno, u8_t ttl, struct pbuf *buffer) {
+    static_assert(std::is_trivial_v<IcmpRequestDescriptor>);
     IcmpRequestDescriptor *request = (IcmpRequestDescriptor *) calloc(1, sizeof(IcmpRequestDescriptor));
     if (NULL == request) {
         return NULL;

@@ -86,7 +86,7 @@ int libevent_lwip_init(TcpipCtx *ctx) {
         return ERR_ALREADY;
     }
 
-    g_lwip = (LibeventLwip *) calloc(1, sizeof(*g_lwip));
+    g_lwip = new LibeventLwip{};
 
     g_lwip->event_loop = ctx->parameters.event_loop;
 
@@ -114,7 +114,7 @@ void libevent_lwip_free() {
     lwip_timer_destroy(&g_lwip->ip6_reass_tmr_event);
     lwip_timer_destroy(&g_lwip->nd6_tmr_event);
 
-    free(g_lwip);
+    delete g_lwip;
     g_lwip = nullptr;
 }
 

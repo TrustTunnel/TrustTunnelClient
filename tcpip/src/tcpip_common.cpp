@@ -377,6 +377,7 @@ TcpipCtx *tcpip_init_internal(const TcpipParameters *params) {
     }
 
     ctx->tun_input_buffer = (uint8_t *) malloc(ctx->parameters.mtu_size);
+    static_assert(std::is_trivial_v<netif>);
     ctx->netif = (netif *) calloc(1, sizeof(struct netif));
     if ((nullptr == ctx->tun_input_buffer) || (nullptr == ctx->netif)) {
         errlog(ctx->logger, "init: no memory for operation");

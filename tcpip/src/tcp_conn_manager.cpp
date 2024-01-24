@@ -282,6 +282,7 @@ int tcp_cm_receive(TcpConnDescriptor *connection, size_t iovlen, const evbuffer_
 
 TcpConnDescriptor *tcp_cm_create_descriptor(TcpipCtx *ctx, struct pbuf *buffer, const ip_addr_t *src_addr,
         u16_t src_port, const ip_addr_t *dst_addr, u16_t dst_port) {
+    static_assert(std::is_trivial_v<TcpConnDescriptor>);
     auto *connection = (TcpConnDescriptor *) calloc(1, sizeof(TcpConnDescriptor));
     if (nullptr == connection) {
         return nullptr;

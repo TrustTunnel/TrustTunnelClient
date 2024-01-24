@@ -180,6 +180,7 @@ AutoVpnLocation vpn_location_clone(const VpnLocation *src) {
     dst->id = safe_strdup(src->id);
 
     dst->endpoints = {};
+    static_assert(std::is_trivial_v<VpnEndpoint>);
     dst->endpoints.data = (VpnEndpoint *) malloc(src->endpoints.size * sizeof(VpnEndpoint));
 
     for (size_t i = 0; i < src->endpoints.size; ++i) {

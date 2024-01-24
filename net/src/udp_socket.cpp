@@ -69,6 +69,7 @@ static void timer_callback(void *arg, struct timeval now) {
 }
 
 UdpSocket *udp_socket_create(const UdpSocketParameters *parameters) {
+    static_assert(std::is_trivial_v<UdpSocket>);
     auto sock = (UdpSocket *) calloc(1, sizeof(UdpSocket));
     if (sock == nullptr) {
         return nullptr;

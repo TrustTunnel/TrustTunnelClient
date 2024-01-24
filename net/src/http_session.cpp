@@ -13,6 +13,7 @@ static ag::Logger g_logger{"HTTP"};
 #define log_sess(s_, lvl_, fmt_, ...) lvl_##log(g_logger, "[id={}] " fmt_, (s_)->params.id, ##__VA_ARGS__)
 
 HttpSession *http_session_open(const HttpSessionParams *params) {
+    static_assert(std::is_trivial_v<HttpSession>);
     auto *session = (HttpSession *) calloc(1, sizeof(HttpSession));
     if (session == nullptr) {
         return nullptr;
