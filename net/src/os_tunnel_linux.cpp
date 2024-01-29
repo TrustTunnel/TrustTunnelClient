@@ -24,6 +24,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings) {
         return {-1, "Failed to init tunnel"};
     }
     setup_if();
+    setup_dns();
     setup_routes();
 
     return {};
@@ -81,4 +82,13 @@ void ag::VpnLinuxTunnel::setup_routes() {
     for (auto &route : ipv6_routes) {
         ag::tunnel_utils::fsystem("ip -6 ro add {} dev {}", route.to_string(), m_tun_name);
     }
+}
+
+void ag::VpnLinuxTunnel::setup_dns() {
+    if (m_settings->dns_servers.size == 0) {
+        return;
+    }
+    std::vector<std::string_view> dns_servers{
+            m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
+    ag::tunnel_utils::fsystem("resolvectl dns {} {}", m_tun_name, fmt::join(dns_servers, " "));
 }

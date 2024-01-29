@@ -157,6 +157,7 @@ public:
 private:
     evutil_socket_t tun_open();
     void setup_if();
+    void setup_dns();
     void setup_routes();
 
     evutil_socket_t m_tun_fd{-1};
