@@ -176,7 +176,9 @@ void DomainFilter::add_resolved_tag(SockAddrTag tag, std::string domain) {
     m_resolved_tags.insert(std::move(tag), std::move(domain));
 }
 
-void DomainFilter::add_exclusion_suspect(const sockaddr_storage &addr, std::chrono::seconds ttl) {
+void DomainFilter::add_exclusion_suspect(const sockaddr_storage &addr_, std::chrono::seconds ttl) {
+    sockaddr_storage addr = addr_;
+    sockaddr_set_port((sockaddr *) &addr, 0);
     log_filter(this, dbg, "{} / {}", sockaddr_ip_to_str((sockaddr *) &addr), ttl);
 
     // @todo: fix TTL reduction caused by overwriting it by an entry with a smaller TTL

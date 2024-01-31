@@ -252,9 +252,16 @@ VpnClient::VpnClient(vpn_client::Parameters parameters)
         , id(g_next_id++) {
 }
 
+static const std::shared_ptr<WithMtx<LruTimeoutCache<TunnelAddressPair, DomainLookuperResult>>> g_udp_close_wait_hostname_cache{
+    new WithMtx<LruTimeoutCache<TunnelAddressPair, DomainLookuperResult>>{
+        .val {300, Secs (300)}
+    }
+};
+
 VpnError VpnClient::init(const VpnSettings *settings) {
     log_client(this, dbg, "...");
 
+    this->tunnel->udp_close_wait_hostname_cache = g_udp_close_wait_hostname_cache;
     this->kill_switch_on = settings->killswitch_enabled;
     update_exclusions(settings->mode, {settings->exclusions.data, settings->exclusions.size});
 

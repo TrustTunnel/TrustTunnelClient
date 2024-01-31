@@ -50,6 +50,8 @@ static constexpr QuicInitialSalt QUIC_INITIAL_SALTS[] = {
         },
 };
 
+static uint64_t get_varint(size_t *length, const uint8_t *buf);
+
 static bool create_hp_mask(uint8_t *hp_mask, const uint8_t *key, const uint8_t *sample) {
     AES_KEY aes_key{};
     static const size_t AES_KEY_SIZE = 128;
@@ -136,7 +138,7 @@ std::optional<std::vector<uint8_t>> quic_utils::decrypt_initial(
     // Parse length offset
     size_t payload_length_offset = token_length_offset + token_length_size + hd.token_len;
     size_t payload_length_size = 1 << (initial_packet[payload_length_offset] >> 6);
-    // get package number offset
+    // get packet number offset
     size_t pn_offset = 7 + hd.dcid_len + hd.scid_len + payload_length_size + token_length_size + hd.token_len;
     // get sample offset
     size_t sample_offset = pn_offset + 4;
@@ -161,7 +163,10 @@ std::optional<std::vector<uint8_t>> quic_utils::decrypt_initial(
         payload_iv[QUIC_INITIAL_IVLEN - pn_length + i] ^= decrypted_packet[pn_offset + i];
     }
     size_t payload_offset = pn_offset + pn_length;
-    size_t payload_len = decrypted_packet.size() - payload_offset;
+    size_t payload_len = get_varint(&payload_length_size, &decrypted_packet[payload_length_offset]) - pn_length;
+    if (payload_len > decrypted_packet.size() - payload_offset) {
+        return std::nullopt;
+    }
     size_t max_overhead = 0;
     if (!decrypt_quic_payload(decrypted_packet.data() + payload_offset, payload_key.data(),
                 initial_packet.data() + payload_offset, payload_len, payload_iv.data(), decrypted_packet.data(),

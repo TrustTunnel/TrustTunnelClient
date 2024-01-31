@@ -26,6 +26,9 @@
     lvl_##log((tun_)->log, "[{}] [L:{}-R:{}] " fmt_, (tun_)->id, (int64_t) (conn_)->client_id,                         \
             (int64_t) (conn_)->server_id, ##__VA_ARGS__)
 
+// TODO: either remove quic blocking code or fix it to correctly tell QUIC libraries that connection is unreachable.
+#define BLOCK_OLD_QUIC_CONNS 0
+
 namespace ag {
 
 static std::atomic_int g_next_tunnel_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -116,6 +119,11 @@ static void destroy_connection(Tunnel *tunnel, uint64_t client_id, uint64_t serv
 
         vpn_connection_remove(tunnel->connections.by_client_id, conn->client_id);
         vpn_connection_remove(tunnel->connections.by_server_id, conn->server_id);
+
+        if (conn->proto == IPPROTO_UDP && tunnel->udp_close_wait_hostname_cache) {
+            std::scoped_lock l(tunnel->udp_close_wait_hostname_cache->mtx);
+            tunnel->udp_close_wait_hostname_cache->val.insert(conn->addr, conn->domain_lookuper_result);
+        }
 
         log_conn(tunnel, conn, dbg, "Destroyed (download={}, upload={})", conn->incoming_bytes, conn->outgoing_bytes);
 
@@ -264,10 +272,54 @@ static void close_client_side(Tunnel *tunnel, ServerUpstream *upstream) {
 enum AfterLookuperAction {
     ALUA_DONE,      // lookuper has nothing more to do
     ALUA_PASS,      // lookuper wants to process the next packet, the current one can be sent
+    ALUA_DROP,      // lookuper wants to process the next packet, the current one can be dropped
     ALUA_SHUTDOWN,  // lookuper realized that connection should've been routed to another upstream
     ALUA_BLOCK,     // lookuper realized that connection shouldn't be processed
     ALUA_WANT_MORE, // the same as `ALUA_PASS`, but waiting for a packet divided by AntiDpi
 };
+
+static std::variant<AfterLookuperAction, DomainLookuperResult> lookup_udp(
+        Tunnel *tunnel, VpnConnection *conn, DomainLookuperPacketDirection dir, const uint8_t *data, size_t length) {
+    // parse quic header
+    auto quic_header = ag::quic_utils::parse_quic_header({data, length});
+    if (quic_header.has_value()) {
+        if (quic_header->type == ag::quic_utils::ZERO_RTT) {
+            return ALUA_DROP;
+        }
+        if (quic_header->type == ag::quic_utils::INITIAL) {
+            // quic traffic
+            auto quic_data =
+                    ag::quic_utils::prepare_for_domain_lookup({data, length}, quic_header.value());
+            if (!quic_data.has_value()) {
+                // no data for domain lookup
+                return ALUA_DONE;
+            }
+            return conn->domain_lookuper.proceed(dir, conn->proto, quic_data->data(), quic_data->size());
+        }
+    }
+
+    if (tunnel->udp_close_wait_hostname_cache) {
+        std::scoped_lock l(tunnel->udp_close_wait_hostname_cache->mtx);
+        if (auto value = tunnel->udp_close_wait_hostname_cache->val.get(conn->addr); value) {
+            log_conn(tunnel, conn, dbg, "Found cached result for pass_through_lookuper");
+            return DomainLookuperResult{*value};
+        }
+    }
+
+#if BLOCK_OLD_QUIC_CONNS
+    // get destination port
+    const sockaddr *dst = (sockaddr *) std::get_if<sockaddr_storage>(&conn->addr.dst);
+    assert(dst != nullptr);
+    auto dst_port = sockaddr_get_port(dst);
+    // Check if destination is default quic port
+    if (dst_port == ag::quic_utils::DEFAULT_QUIC_PORT) {
+        // expected to get quic initial, but got wrong data, block it
+        return ALUA_BLOCK;
+    }
+#endif
+    // simple udp traffic
+    return ALUA_DONE;
+}
 
 static AfterLookuperAction pass_through_lookuper(
         Tunnel *tunnel, VpnConnection *conn, DomainLookuperPacketDirection dir, const uint8_t *data, size_t length) {
@@ -276,34 +328,16 @@ static AfterLookuperAction pass_through_lookuper(
     AfterLookuperAction action = ALUA_DONE;
     DomainFilter *filter = &tunnel->vpn->domain_filter;
     if (conn->proto == IPPROTO_UDP) {
-        // parse quic header
-        auto quic_header = ag::quic_utils::parse_quic_header({data, length});
-        if (quic_header.has_value() && quic_header->type == ag::quic_utils::INITIAL) {
-            // quic traffic
-            auto quic_data =
-                    ag::quic_utils::prepare_for_domain_lookup({data, length}, quic_header.value());
-            if (!quic_data.has_value()) {
-                // no data for domain lookup
-                return ALUA_DONE;
-            }
-            r = lookuper->proceed(dir, conn->proto, quic_data->data(), quic_data->size());
-        } else {
-            // get destination port
-            const sockaddr *dst = (sockaddr *) std::get_if<sockaddr_storage>(&conn->addr.dst);
-            assert(dst != nullptr);
-            auto dst_port = sockaddr_get_port(dst);
-            // Check if destination is default quic port
-            if (dst_port == ag::quic_utils::DEFAULT_QUIC_PORT) {
-                // expected to get quic initial, but got wrong data, block it
-                return ALUA_BLOCK;
-            }
-            // simple udp traffic
-            return ALUA_DONE;
+        auto result = lookup_udp(tunnel, conn, dir, data, length);
+        if (auto *result_action = std::get_if<AfterLookuperAction>(&result)) {
+            return *result_action;
         }
+        r = std::get<DomainLookuperResult>(result);
     } else {
         // tcp traffic
         r = lookuper->proceed(dir, conn->proto, data, length);
     }
+    conn->domain_lookuper_result = r;
 
     switch (r.status) {
     case DLUS_NOTFOUND:
@@ -554,6 +588,7 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
                 break;
             case ALUA_PASS:
             case ALUA_WANT_MORE:
+            case ALUA_DROP:
                 break;
             case ALUA_SHUTDOWN:
                 log_conn(this, conn, dbg, "Connection had been routed {} while should've been routed {}",
@@ -759,7 +794,7 @@ static std::shared_ptr<ServerUpstream> select_upstream(const Tunnel *self, VpnCo
     switch (action) {
     case VPN_CA_DEFAULT:
         if (const sockaddr_storage * dst; // NOLINT(cppcoreguidelines-init-variables)
-                conn != nullptr && conn->proto == IPPROTO_TCP && conn->flags.test(CONNF_LOOKINGUP_DOMAIN)
+                conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN)
                 && conn->flags.test(CONNF_SUSPECT_EXCLUSION)
                 && nullptr != (dst = std::get_if<sockaddr_storage>(&conn->addr.dst))
                 && is_domain_scannable_port(sockaddr_get_port((sockaddr *) dst))) {
@@ -1506,6 +1541,11 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 break;
             case ALUA_PASS:
                 break;
+            case ALUA_DROP: {
+                log_conn(this, conn, trace, "Dropping packet without closing connection, length: {}", event->length);
+                event->result = event->length;
+                return;
+            }
             case ALUA_WANT_MORE: {
                 // If tunnel faced with Anti-Dpi which can split ClientHello into parts, it needs to wait other parts
                 // of ClientHello message (max - 3 parts)

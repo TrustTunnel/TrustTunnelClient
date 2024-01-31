@@ -69,6 +69,7 @@ struct VpnConnection {
     std::bitset<width_of<VpnConnectionFlags>()> flags;
     int uid = 0;
     DomainLookuper domain_lookuper;
+    DomainLookuperResult domain_lookuper_result;
     uint64_t migrating_client_id = NON_ID;
     std::string app_name;
     event_loop::AutoTaskId complete_connect_request_task;

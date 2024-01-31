@@ -8,6 +8,7 @@
 #include <event2/event.h>
 #include <khash.h>
 
+#include "common/cache.h"
 #include "common/logger.h"
 #include "vpn/internal/client_listener.h"
 #include "vpn/internal/icmp_manager.h"
@@ -49,6 +50,7 @@ struct Tunnel {
     std::shared_ptr<ServerUpstream> fake_upstream;
     std::shared_ptr<PlainDnsManager> plain_dns_manager;
     std::unique_ptr<ConnectionStatisticsMonitor> statistics_monitor;
+    std::shared_ptr<WithMtx<LruTimeoutCache<TunnelAddressPair, DomainLookuperResult>>> udp_close_wait_hostname_cache;
 
     Tunnel();
     ~Tunnel();
