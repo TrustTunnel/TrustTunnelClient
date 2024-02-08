@@ -49,11 +49,13 @@ Run Instrumented test:
 
             cp -RT client/vpn-libs/integration-tests/ ./
 
+            # Download agvpn_helper from artifactory
+            curl -O https://art.int.agrd.dev/artifactory/adguard-pods/binaries/agvpn_helper/agvpn_helper-linux.tar.gz
+            tar -xvf agvpn_helper-linux.tar.gz            
+
             ./integration_test.sh clean
             ./integration_test.sh run browser ${bamboo.conanRepoUrl} ${bamboo.vpnLibsAppId} \
-            ${bamboo.vpnLibsTokenSecret} ${bamboo.adguardApiCredPath} \
-            ${bamboo.adguardApiVpnLocationPath} ${bamboo.adguardApiDomain} \
-            ${bamboo.adguardVpnRelayIp}; exit $?
+            ${bamboo.vpnLibsTokenSecret}; exit $?
         description: Run browser tests
         working-dir: test
   final-tasks:

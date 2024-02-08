@@ -4,28 +4,6 @@ set -e -x
 
 source config.conf
 
-cp /etc/resolv.conf resolv.conf
-echo "nameserver 101.101.101.101" > /etc/resolv.conf
-
-CREDS_RESPONSE=""
-for i in {1..10}; do
-  echo "Attempt $i"
-  set +e
-  CREDS_RESPONSE=$(timeout 10s ~/go/bin/gocurl --tls-split-hello=5:50 "${CREDS_API_URL}" -X POST \
-                 -H "Content-Type: application/x-www-form-urlencoded" \
-                 -d "app_id=${APP_ID}&token=${TOKEN}")
-  set -e
-
-  if [[ ! -z "$CREDS_RESPONSE" ]]; then
-    break
-  fi
-  sleep 1
-done
-cp -f resolv.conf /etc/resolv.conf
-
-USERNAME=$(echo ${CREDS_RESPONSE} | jq -r '.result.username')
-CREDS=$(echo ${CREDS_RESPONSE} | jq -r '.result.credentials')
-
 COMMON_CONFIG=$(
   cat <<-END
 loglevel = "trace"
@@ -39,8 +17,8 @@ exclusions = [
 [endpoint]
 hostname = "$ENDPOINT_HOSTNAME"
 addresses = ["$ENDPOINT_IP:443"]
-username = "$USERNAME"
-password = "$CREDS"
+username = "$ENDPOINT_USERNAME"
+password = "$ENDPOINT_PASSWORD"
 skip_verification = true
 upstream_protocol = "$PROTOCOL"
 upstream_fallback_protocol = "$PROTOCOL"
