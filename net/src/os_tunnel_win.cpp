@@ -203,8 +203,7 @@ static WINTUN_SESSION_HANDLE create_wintun_session(
         last_error = CreateUnicastIpAddressEntry(&address_v6_row);
         if (last_error != ERROR_SUCCESS && last_error != ERROR_OBJECT_ALREADY_EXISTS) {
             SetLastError(last_error);
-            errlog(logger, "Set ipv6: {}", ag::sys::strerror(ag::sys::last_error()));
-            return nullptr;
+            warnlog(logger, "Set ipv6: {}", ag::sys::strerror(ag::sys::last_error()));
         }
     }
     WINTUN_SESSION_HANDLE session = WintunStartSession(adapter, WINTUN_MAX_RING_CAPACITY);
@@ -274,18 +273,25 @@ bool ag::VpnWinTunnel::setup_mtu() {
     row.InterfaceIndex = m_if_index;
     // set mtu for ipv4 and ipv6
     row.Family = AF_INET;
-    DWORD error = GetIpInterfaceEntry(&row);
+    if (DWORD error = GetIpInterfaceEntry(&row); error != ERROR_SUCCESS) {
+        SetLastError(error);
+        return false;
+    }
     // needed on ipv4 for correct work
     row.SitePrefixLength = 0;
     row.NlMtu = m_settings->mtu;
-    error |= SetIpInterfaceEntry(&row);
-    row.Family = AF_INET6;
-    error |= GetIpInterfaceEntry(&row);
-    row.NlMtu = m_settings->mtu;
-    error |= SetIpInterfaceEntry(&row);
-    if (error != ERROR_SUCCESS) {
+    if (DWORD error = SetIpInterfaceEntry(&row); error != ERROR_SUCCESS) {
         SetLastError(error);
         return false;
+    }
+    row.Family = AF_INET6;
+    if (DWORD error = GetIpInterfaceEntry(&row); error == ERROR_SUCCESS) {
+        row.NlMtu = m_settings->mtu;
+        error = SetIpInterfaceEntry(&row);
+        if (error != ERROR_SUCCESS) {
+            SetLastError(error);
+            return false;
+        }
     }
     return true;
 }
@@ -399,13 +405,16 @@ bool ag::VpnWinTunnel::setup_routes() {
         }
     }
 
-    for (auto &route : ipv6_routes) {
-        if (!add_adapter_route(route, m_if_index)) {
-            auto splitted = route.split();
-            if (!splitted
-                    || !add_adapter_route(splitted->first, m_if_index)
-                    || !add_adapter_route(splitted->second, m_if_index)) {
-                return false;
+    if (MIB_IPINTERFACE_ROW row{.Family = AF_INET6, .InterfaceIndex = m_if_index};
+            ERROR_SUCCESS == GetIpInterfaceEntry(&row)) {
+        for (auto &route : ipv6_routes) {
+            if (!add_adapter_route(route, m_if_index)) {
+                auto splitted = route.split();
+                if (!splitted
+                        || !add_adapter_route(splitted->first, m_if_index)
+                        || !add_adapter_route(splitted->second, m_if_index)) {
+                    return false;
+                }
             }
         }
     }
