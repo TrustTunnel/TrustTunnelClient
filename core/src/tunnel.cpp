@@ -219,16 +219,20 @@ static void close_client_side_connection(Tunnel *self, VpnConnection *conn, int 
     case CONNS_WAITING_ACCEPT:
     case CONNS_CONNECTED:
     case CONNS_CONNECTED_MIGRATING:
+    case CONNS_REJECTED:
         // will be deleted in connection closed event
         listener->close_connection(conn->client_id, err_code == 0, async);
         break;
-    case CONNS_REJECTED:
     case CONNS_WAITING_RESOLVE:
     case CONNS_WAITING_RESPONSE:
     case CONNS_WAITING_ACTION:
         err_code = (err_code == 0) ? ag::utils::AG_ECONNREFUSED : err_code;
         if (!async) {
-            listener->complete_connect_request(conn->client_id, server_error_to_connect_result(err_code));
+            auto result = server_error_to_connect_result(err_code);
+            listener->complete_connect_request(conn->client_id, result);
+            if (result != CCR_PASS) {
+                conn->state = CONNS_REJECTED;
+            }
             break;
         }
 
