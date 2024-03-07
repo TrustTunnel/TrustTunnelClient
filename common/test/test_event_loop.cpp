@@ -57,7 +57,9 @@ protected:
     }
 
     void TearDown() override {
-        vpn_event_loop_stop(m_ev_loop.get());
+        if (m_ev_loop) {
+            vpn_event_loop_stop(m_ev_loop.get());
+        }
 
         if (m_loop_thread.joinable()) {
             m_loop_thread.join();
@@ -197,4 +199,70 @@ TEST_F(EventLoopTest, DISABLED_CancelAfterStopDoesntCrash) {
             });
     m_ev_loop.reset(vpn_event_loop_create());
     task_id.reset();
+}
+
+TEST_F(EventLoopTest, StopSubmitDestroy) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), []{});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        bool ran;
+        bool finalized;
+    };
+    Ctx ctx{};
+    vpn_event_loop_stop(m_ev_loop.get());
+    event_loop::AutoTaskId id = event_loop::submit(m_ev_loop.get(), {
+            .arg = &ctx,
+            .action = [](void *arg, TaskId) {
+                ((Ctx *) arg)->ran = true;
+            },
+            .finalize = [](void *arg) {
+                ((Ctx *) arg)->finalized = true;
+            },
+    });
+    ASSERT_TRUE(id.has_value());
+    ASSERT_FALSE(ctx.finalized);
+
+    id.reset();
+    m_ev_loop.reset();
+    ASSERT_FALSE(ctx.ran);
+    ASSERT_TRUE(ctx.finalized);
+}
+
+TEST_F(EventLoopTest, StopSubmitRun) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), []{});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        bool ran;
+        bool finalized;
+    };
+    Ctx ctx{};
+    vpn_event_loop_stop(m_ev_loop.get());
+    event_loop::AutoTaskId id = event_loop::submit(m_ev_loop.get(), {
+            .arg = &ctx,
+            .action = [](void *arg, TaskId) {
+                ((Ctx *) arg)->ran = true;
+            },
+            .finalize = [](void *arg) {
+                ((Ctx *) arg)->finalized = true;
+            },
+    });
+    ASSERT_TRUE(id.has_value());
+    ASSERT_FALSE(ctx.finalized);
+
+    m_loop_thread.join();
+    m_loop_thread = std::thread([&] {
+        vpn_event_loop_run(m_ev_loop.get());
+    });
+    event_loop::dispatch_sync(m_ev_loop.get(), []{});
+    vpn_event_loop_stop(m_ev_loop.get());
+    m_loop_thread.join();
+
+    id.reset();
+    m_ev_loop.reset();
+    ASSERT_TRUE(ctx.ran);
+    ASSERT_TRUE(ctx.finalized);
 }
