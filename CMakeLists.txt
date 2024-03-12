@@ -7,7 +7,8 @@ project(vpn_libs C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "mips.*")
+find_package(quiche)
+if (NOT quiche_DIR)
     set(DISABLE_HTTP3 ON)
 endif()
 
