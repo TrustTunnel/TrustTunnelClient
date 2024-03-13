@@ -42,7 +42,7 @@ void SocksListener::socks_handler(void *arg, Socks5ListenerEvent what, void *dat
     switch (what) {
     case SOCKS5L_EVENT_GENERATE_CONN_ID: {
         size_t id = client->vpn->listener_conn_id_generator.get();
-        memcpy(data, &id, sizeof(id));
+        *(uint64_t *) data = id;
         break;
     }
     case SOCKS5L_EVENT_CONNECT_REQUEST: {

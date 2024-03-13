@@ -148,7 +148,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
     switch (what) {
     case TCPIP_EVENT_GENERATE_CONN_ID: {
         size_t id = listener->vpn->listener_conn_id_generator.get();
-        memcpy(data, &id, sizeof(id));
+        *(uint64_t *) data = id;
         break;
     }
     case TCPIP_EVENT_CONNECT_REQUEST: {
