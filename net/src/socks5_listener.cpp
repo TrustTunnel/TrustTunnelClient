@@ -483,7 +483,7 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     }
 
     sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
-    int port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
+    uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
     memcpy(reply->bnd_addr + offset, &port, 2);
 
     log_conn(listener, conn->id, conn->proto, dbg, "Sending reply");
@@ -633,7 +633,7 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
             break;
         }
 
-        int port = htons(sockaddr_get_port((struct sockaddr *) &dst->ip));
+        uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &dst->ip));
         memcpy(reply->dst_addr + offset, &port, 2);
         offset += 2;
 
@@ -979,7 +979,7 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
     reply->rsv = 0;
     reply->atyp = atyp;
 
-    int port = htons(sockaddr_get_port((struct sockaddr *) &bound_addr));
+    uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &bound_addr));
     switch (bound_addr.ss_family) {
     case AF_UNSPEC:
         if (atyp == S5AT_IPV4) {
@@ -1458,7 +1458,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             reply->atyp = req->atyp;
             memcpy(reply->bnd_addr, req->dst_addr, addr_len);
             sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
-            int port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
+            uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
             memcpy(reply->bnd_addr + addr_len, &port, 2);
 
             error = tcp_socket_write(conn->socket.get(), (uint8_t *) reply_data, reply_size);
