@@ -324,7 +324,7 @@ ssize_t Http3Upstream::send(uint64_t id, const uint8_t *data, size_t length) {
                                 [](void *arg, TaskId) {
                                     auto *self = (Http3Upstream *) arg;
                                     self->m_notify_sent_task_id.release();
-                                    self->poll_tcp_connections();
+                                    self->poll_connections();
                                 },
                         });
             }
@@ -714,7 +714,7 @@ void Http3Upstream::on_udp_packet() {
                                         auto *self = (Http3Upstream *) arg;
                                         self->m_post_receive_task_id.release();
                                         self->retry_connect_requests();
-                                        self->poll_tcp_connections();
+                                        self->poll_connections();
                                         if (std::optional stream_id = self->m_udp_mux.get_stream_id();
                                                 stream_id.has_value()
                                                 && 0 < quiche_conn_stream_capacity(
@@ -1180,7 +1180,18 @@ void Http3Upstream::poll_tcp_connections() {
 
         i = next;
     }
+}
 
+void Http3Upstream::poll_connections() {
+    poll_tcp_connections();
+    if (auto stream_id = m_udp_mux.get_stream_id();
+            stream_id && quiche_conn_stream_readable(m_quic_conn.get(), *stream_id)) {
+        this->process_pending_data(*stream_id);
+    }
+    if (auto stream_id = m_icmp_mux.get_stream_id();
+            stream_id && quiche_conn_stream_readable(m_quic_conn.get(), *stream_id)) {
+        this->process_pending_data(*stream_id);
+    }
     this->flush_pending_quic_data();
 }
 

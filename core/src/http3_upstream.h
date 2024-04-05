@@ -146,6 +146,7 @@ private:
     int read_out_pending_data(uint64_t conn_id, TcpConnection *conn);
     int raise_read_event(uint64_t conn_id, U8View data);
     void poll_tcp_connections();
+    void poll_connections();
     void retry_connect_requests();
     static void complete_read(void *arg, TaskId task_id);
     static std::optional<uint64_t> mux_send_connect_request_callback(
