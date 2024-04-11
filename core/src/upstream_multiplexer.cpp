@@ -423,6 +423,9 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
     case SERVER_EVENT_ERROR: {
         const ServerError *event = (ServerError *) data;
         if (event->id != NON_ID) {
+            // An error on connection also means that some data was received.
+            timeval tv = ms_to_timeval(mux->vpn->upstream_config.timeout.count());
+            evtimer_add(mux->m_timeout_timer.get(), &tv);
             mux->m_connections.erase(event->id);
             log_mux(mux, dbg, "Remaining upstreams={} connections={} pending connections={}",
                     mux->m_upstreams_pool.size(), mux->m_connections.size(), mux->m_pending_connections.size());

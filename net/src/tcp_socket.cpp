@@ -57,7 +57,6 @@ struct TcpSocket {
     int id;
     TaskId complete_read_task_id;
     int flags; // see `SocketFlags`
-    struct timeval timeouts_set_ts;
     SSL *ssl;
     VpnError pending_connect_error; // buffer for synchronously raised error (see `SF_CONNECT_CALLED`)
 };
@@ -297,19 +296,9 @@ static void on_event(struct bufferevent *bev, short what, void *ctx) {
         bufferevent_enable(bev, (what & BEV_EVENT_WRITING) ? EV_WRITE : 0);
         bufferevent_enable(bev, (what & BEV_EVENT_READING) ? EV_READ : 0);
 
-        struct timeval timeout_tv = ms_to_timeval(uint32_t(socket->parameters.timeout.count()));
-        struct timeval expected_timeout_ts;
-        evutil_timeradd(&socket->timeouts_set_ts, &timeout_tv, &expected_timeout_ts);
-        struct timeval now;
-        event_base_gettimeofday_cached(bufferevent_get_base(bev), &now);
-        if (evutil_timercmp(&expected_timeout_ts, &now, >)) {
-            // timeout event could be scheduled just before `bufferevent_set_timeouts` call
-            log_sock(socket, dbg, "Ignoring timeout event raised just after refreshed time outs");
-        } else {
-            log_sock(socket, dbg, "Timeout event");
-            VpnError e = {utils::AG_ETIMEDOUT, evutil_socket_error_to_string(utils::AG_ETIMEDOUT)};
-            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_ERROR, &e);
-        }
+        log_sock(socket, dbg, "Timeout event");
+        VpnError e = {utils::AG_ETIMEDOUT, evutil_socket_error_to_string(utils::AG_ETIMEDOUT)};
+        callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_ERROR, &e);
     } else if (what & BEV_EVENT_ERROR) {
         log_sock(socket, dbg, "Error event");
         VpnError e = get_error(socket);
@@ -402,8 +391,6 @@ static struct bufferevent *wrap_fd(TcpSocket *socket, evutil_socket_t fd) {
         bufferevent_setfd(bev, -1);
         goto fail;
     }
-
-    event_base_gettimeofday_cached(base, &socket->timeouts_set_ts);
 
     return bev;
 
@@ -504,7 +491,6 @@ static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sock
         goto fail;
     }
 
-    event_base_gettimeofday_cached(base, &sock->timeouts_set_ts);
     bufferevent_setcb(bev, nullptr, nullptr, (bufferevent_event_cb) &on_connect_event, sock);
     evbuffer_add_cb(bufferevent_get_output(bev), &on_sent_event, (void *) sock);
 
@@ -599,7 +585,6 @@ void tcp_socket_set_timeout(TcpSocket *socket, Millis x) {
     socket->parameters.timeout = x;
     const timeval tv = ms_to_timeval(uint32_t(x.count()));
     int r = bufferevent_set_timeouts(socket->bev, &tv, nullptr);
-    event_base_gettimeofday_cached(bufferevent_get_base(socket->bev), &socket->timeouts_set_ts);
     (void) r;
     assert(r == 0);
 }
