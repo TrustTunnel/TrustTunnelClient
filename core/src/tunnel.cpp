@@ -233,9 +233,13 @@ static void close_client_side_connection(Tunnel *self, VpnConnection *conn, int 
         err_code = (err_code == 0) ? ag::utils::AG_ECONNREFUSED : err_code;
         if (!async) {
             auto result = server_error_to_connect_result(err_code);
+            uint64_t conn_client_id = conn->client_id;
             listener->complete_connect_request(conn->client_id, result);
             if (result != CCR_PASS) {
-                conn->state = CONNS_REJECTED;
+                conn = vpn_connection_get_by_id(self->connections.by_client_id, conn_client_id);
+                if (conn != nullptr) {
+                    conn->state = CONNS_REJECTED;
+                }
             }
             break;
         }
