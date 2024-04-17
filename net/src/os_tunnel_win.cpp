@@ -38,6 +38,7 @@ static WINTUN_ALLOCATE_SEND_PACKET_FUNC *WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC *WintunSendPacket;
 
 static const ag::Logger logger("OS_TUNNEL_WIN");
+static const ag::Logger wintun_logger("WINTUN");
 
 static constexpr std::string_view WINREG_INTERFACES_PATH_V4 =
         R"(SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces)";
@@ -67,6 +68,23 @@ void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
     }
 }
 
+static void CALLBACK log_wintun(WINTUN_LOGGER_LEVEL level, DWORD64 /*timestamp*/, LPCWSTR log_line)
+{
+    switch (level) {
+    case WINTUN_LOG_INFO:
+        infolog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
+        break;
+    case WINTUN_LOG_WARN:
+        warnlog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
+        break;
+    case WINTUN_LOG_ERR:
+        errlog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
+        break;
+    default:
+        return;
+    }
+}
+
 static bool initialize_wintun(HMODULE wintun) {
     if (!wintun) {
         return false;
@@ -83,6 +101,7 @@ static bool initialize_wintun(HMODULE wintun) {
         SetLastError(last_error);
         return false;
     }
+    WintunSetLogger(log_wintun);
     return true;
 }
 
