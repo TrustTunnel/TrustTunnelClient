@@ -1217,10 +1217,11 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
         return;
     }
 
-    Connection *conn = [](auto *connections, uint32_t conn_id) {
+    auto find_connection = [](auto *connections, uint32_t conn_id) {
         khiter_t i = kh_get(connections_by_id, connections, conn_id);
         return (i != kh_end(connections)) ? kh_value(connections, i) : nullptr;
-    }(listener->connections.get(), conn_id);
+    };
+    Connection *conn = find_connection(listener->connections.get(), conn_id);
     if (conn == nullptr) {
         return;
     }
@@ -1613,12 +1614,14 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
     return;
 
 close:
-    assert(!is_udp_association_tcp_connection(listener, conn));
     if (conn->state >= S5CONNS_WAITING_CONNECT_RESULT) {
         Socks5ConnectionClosedEvent event = {conn->id, error};
         listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECTION_CLOSED, &event);
+        conn = find_connection(listener->connections.get(), conn_id);
     }
-    destroy_connection(listener, conn);
+    if (conn != nullptr) {
+        destroy_connection(listener, conn);
+    }
 }
 
 static void on_accept(evconnlistener *, evutil_socket_t fd, sockaddr *sa, int, void *data) {
