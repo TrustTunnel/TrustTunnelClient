@@ -718,20 +718,21 @@ static void raise_connect_request(Socks5Listener *listener, const Connection *co
     listener->handler.func(listener->handler.arg, SOCKS5L_EVENT_CONNECT_REQUEST, &event);
 }
 
-static size_t addr_length_from_request(Socks5AddressType type, const uint8_t *data) {
+// Return negative value if more data is needed
+static int64_t addr_length_from_request(Socks5AddressType type, const uint8_t *data, size_t length) {
     switch (type) {
     case S5AT_IPV4:
         return 4;
     case S5AT_DOMAINNAME:
-        return 1 + data[0];
+        return (length == 0) ? -1 : 1 + data[0];
     case S5AT_IPV6:
         return 16;
     case S5AT_IPV4_APPNAME:
-        return 1 + data[0] + 4;
+        return (length == 0) ? -1 : 1 + data[0] + 4;
     case S5AT_DOMAINNAME_APPNAME:
-        return 1 + data[0] + 1 + data[data[0]];
+        return (length == 0 || length < data[0] + 2) ? -1 : 1 + data[0] + 1 + data[data[0] + 1];
     case S5AT_IPV6_APPNAME:
-        return 1 + data[0] + 16;
+        return (length == 0) ? -1 : 1 + data[0] + 16;
     }
     return 0;
 }
@@ -753,13 +754,13 @@ static Socks5ConnectionAddress dst_addr_from_request(Socks5AddressType type, con
         type = (Socks5AddressType) (type ^ 0xf0); // Remove the _APP part
     }
 
-    size_t addr_len = addr_length_from_request(type, data);
     if (type == S5AT_DOMAINNAME) {
         addr.type = S5CAT_DOMAIN_NAME;
-        addr.domain.name.assign((char *) &data[1], addr_len - 1);
-        addr.domain.port = ntohs(*(uint16_t *) &data[addr_len]);
+        addr.domain.name.assign((char *) &data[1], data[0]);
+        addr.domain.port = ntohs(*(uint16_t *) &data[data[0] + 1]);
     } else {
         addr.type = S5CAT_SOCKADDR;
+        size_t addr_len = (type == S5AT_IPV4) ? 4 : 16;
         addr.ip = sockaddr_from_raw(data, addr_len, *(uint16_t *) (data + addr_len));
     }
 
@@ -1035,9 +1036,9 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
     }
 
     const Socks5UdpHeader *req = (Socks5UdpHeader *) data;
-
-    size_t addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
-    if (length < sizeof(Socks5UdpHeader) + addr_len + 2) {
+    const int64_t addr_len =
+            addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr, length - sizeof(Socks5UdpHeader));
+    if (addr_len < 0 || length < sizeof(Socks5UdpHeader) + addr_len + 2) {
         return 0;
     }
 
@@ -1370,10 +1371,11 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
 
             log_conn(listener, conn->id, conn->proto, dbg, "Processing request...");
 
-            size_t addr_len;
+            const Socks5Request *req = (Socks5Request *) chunk.data();
+            const int64_t addr_len = addr_length_from_request(
+                    (Socks5AddressType) req->atyp, req->dst_addr, chunk.size() - sizeof(Socks5UdpHeader));
             Socks5ReplyStatus reply_status;
 
-            const Socks5Request *req = (Socks5Request *) chunk.data();
             if (req->ver != SOCKS5_VER) {
                 log_conn(listener, conn->id, conn->proto, dbg, "Got wrong protocol version: {}", (int) req->ver);
                 reply_status = S5RS_SOCKS_SERVER_FAILURE;
@@ -1416,8 +1418,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
                 goto invalid_request;
             }
 
-            addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
-            if (sizeof(Socks5Request) + addr_len + 2 > chunk.size()) {
+            if (addr_len < 0 || sizeof(Socks5Request) + addr_len + 2 > chunk.size()) {
                 // wait full address
                 break;
             }
@@ -1448,7 +1449,6 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             to_drain = chunk.size();
             conn->state = S5CONNS_FAILED;
 
-            addr_len = addr_length_from_request((Socks5AddressType) req->atyp, req->dst_addr);
             size_t reply_size = sizeof(Socks5Reply) + addr_len + 2;
             constexpr size_t REPLY_BUFFER_SIZE = sizeof(Socks5Reply) + 1024;
             uint8_t reply_data[REPLY_BUFFER_SIZE];

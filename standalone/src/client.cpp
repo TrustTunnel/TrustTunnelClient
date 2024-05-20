@@ -465,7 +465,7 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
         const VpnConnectRequestEvent *event = (VpnConnectRequestEvent *) data;
         auto *info = new VpnConnectionInfo{event->id};
         info->action = VPN_CA_DEFAULT;
-        info->appname = "standalone_client";
+        info->appname = safe_to_string_view(event->app_name).empty() ? "standalone_client" : event->app_name;
         task_context->info = info;
         task_context->vpn = m_vpn;
         vpn_event_loop_submit(m_extra_loop.get(),
