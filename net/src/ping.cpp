@@ -555,7 +555,7 @@ static void do_prepare(void *arg) {
         conn->fd = AutoFd(socket(dest->sa_family, conn->use_quic ? SOCK_DGRAM : SOCK_STREAM, 0));
         if (!conn->fd.valid()) {
             conn->socket_error = evutil_socket_geterror(conn->fd.get());
-            log_conn(self, conn, dbg, "Failed to create socket: ({})", conn->socket_error,
+            log_conn(self, conn, dbg, "Failed to create socket: ({}) {}", conn->socket_error,
                     evutil_socket_error_to_string(conn->socket_error));
             goto error;
         }

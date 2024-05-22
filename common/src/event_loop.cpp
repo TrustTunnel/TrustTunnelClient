@@ -140,7 +140,7 @@ int vpn_event_loop_run(VpnEventLoop *loop) {
     static auto ensure_sigpipe_ignored [[maybe_unused]] = signal(SIGPIPE, SIG_IGN);
 #if !TARGET_OS_IPHONE
     if (0 != pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0)) {
-        log_loop(loop, warn, "Failed to set qos class to user-initiated: %s", strerror(errno));
+        log_loop(loop, warn, "Failed to set qos class to user-initiated: {}", strerror(errno));
     }
 #endif // TARGET_OS_IPHONE
 
