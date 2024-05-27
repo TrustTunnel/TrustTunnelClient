@@ -477,7 +477,7 @@ Result<SystemDnsServers, RetrieveInterfaceDnsError> retrieve_interface_dns_serve
     return servers;
 }
 
-static DWORD get_physical_interfaces(std::unordered_set<NET_IFINDEX> &physical_ifs) {
+DWORD get_physical_interfaces(std::unordered_set<NET_IFINDEX> &physical_ifs) {
     static constexpr const char *WINREG_NETWORK_CARDS_PATH =
             R"(SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkCards)";
 
@@ -485,6 +485,7 @@ static DWORD get_physical_interfaces(std::unordered_set<NET_IFINDEX> &physical_i
     if (DWORD error = RegOpenKeyExA(
                 HKEY_LOCAL_MACHINE, WINREG_NETWORK_CARDS_PATH, 0, KEY_READ | KEY_ENUMERATE_SUB_KEYS, &current_key);
             error != ERROR_SUCCESS) {
+        dbglog(g_logger, "RegOpenKeyExA failed with result: {}", error);
         return error;
     }
 
@@ -537,13 +538,13 @@ static DWORD get_default_route_ifs(
     }
     for (size_t i = 0; i < table_v4->NumEntries; i++) {
         if (sockaddr_is_any((sockaddr *) &table_v4->Table[i].DestinationPrefix.Prefix.Ipv4)
-                && table_v4->Table[i].SitePrefixLength == 0) {
+                && table_v4->Table[i].DestinationPrefix.PrefixLength == 0) {
             net_ifs_v4.insert(table_v4->Table[i].InterfaceIndex);
         }
     }
     for (size_t i = 0; i < table_v6->NumEntries; i++) {
         if (sockaddr_is_any((sockaddr *) &table_v6->Table[i].DestinationPrefix.Prefix.Ipv6)
-                && table_v6->Table[i].SitePrefixLength == 0) {
+                && table_v6->Table[i].DestinationPrefix.PrefixLength == 0) {
             net_ifs_v6.insert(table_v6->Table[i].InterfaceIndex);
         }
     }

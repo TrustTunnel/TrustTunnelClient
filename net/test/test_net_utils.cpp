@@ -20,11 +20,16 @@
 #ifdef _WIN32
 
 TEST(NetUtils, RetrieveSystemDnsServers) {
+    WSADATA wsa_data;
+    ASSERT_EQ(0, WSAStartup(MAKEWORD(2, 2), &wsa_data));
+
     uint32_t iface = ag::vpn_win_detect_active_if();
     ASSERT_NE(iface, 0);
 
     auto result = ag::retrieve_interface_dns_servers(iface);
     ASSERT_FALSE(result.has_error()) << result.error()->str();
+    ASSERT_FALSE(result.value().main.empty());
+    ASSERT_TRUE(ag::SocketAddress{result.value().main.front().address}.valid());
 }
 
 #endif // _WIN32

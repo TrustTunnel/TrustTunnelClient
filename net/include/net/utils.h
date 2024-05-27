@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include "vpn/platform.h" // Unbreak Windows build
@@ -260,6 +261,12 @@ struct ErrorCodeToString<RetrieveInterfaceDnsError> {
  * Retrieve DNS servers of the specified interface
  */
 Result<SystemDnsServers, RetrieveInterfaceDnsError> retrieve_interface_dns_servers(uint32_t if_index);
+
+/**
+ * Populate `physical_ifs` with the interface indices of physical network adapters.
+ * @return An error code, or `ERROR_SUCCESS`.
+ */
+DWORD get_physical_interfaces(std::unordered_set<NET_IFINDEX> &physical_ifs);
 
 /**
  * Return the network interface which is currently active.
