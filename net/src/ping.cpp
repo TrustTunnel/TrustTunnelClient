@@ -7,11 +7,13 @@
 #include <sys/socket.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <list>
 #include <string>
 #include <unordered_set>
@@ -24,6 +26,7 @@
 #include "common/net_utils.h"
 #include "net/os_tunnel.h"
 #include "net/utils.h"
+#include "vpn/event_loop.h"
 #include "vpn/utils.h"
 
 // These includes must be here in order to compile
@@ -52,6 +55,8 @@ using std::chrono::milliseconds;
 
 static constexpr int MIN_SHORT_TIMEOUT_MS = 50;
 static constexpr int MAX_SHORT_TIMEOUT_MS = 400;
+
+static constexpr int RELAY_SHORTCUT_DELAY_MS = 500;
 
 class AutoFd {
 private:
@@ -127,12 +132,23 @@ struct Ping {
 
     DeclPtr<event, &event_free> timer;
 
+    // Immediately after starting the first round of connections, start a timer for `RELAY_SHORTCUT_DELAY_MS`.
+    // Cancel this timer when the round finishes. Don't start it again for the next rounds.
+    // If it fires during the first round, for each connection still in progress at that time, start a connection
+    // to the same endpoint through a relay. The delayed connection behaves exactly the same as other connections,
+    // except that it goes into a separate list when done. Further processing is done in `do_prepare`.
+    DeclPtr<event, &event_free> relay_shortcut_timer;
+    std::list<PingConn> pending_shortcut;
+    std::list<PingConn> inprogress_shortcut;
+    std::list<PingConn> done_shortcut;
+
     uint32_t rounds_target;
     uint32_t rounds_started;
     uint32_t round_timeout_ms;
 
     event_loop::AutoTaskId prepare_task_id;
     event_loop::AutoTaskId connect_task_id;
+    event_loop::AutoTaskId connect_shortcut_task_id;
     event_loop::AutoTaskId hello_task_id;
     event_loop::AutoTaskId report_task_id;
 
@@ -144,22 +160,33 @@ struct Ping {
     bool use_quic;
 };
 
-static void add_endpoint(Ping *ping, const VpnEndpoint &endpoint, uint32_t bound_if, const sockaddr *relay_address);
+// clang-format off
+static void add_endpoint(Ping *ping, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if, const sockaddr *relay_address);
+static bool conn_prepare(Ping *ping, PingConn *conn);
 static void do_prepare(void *arg);
-static void do_connect(void *arg);
+static void do_connect(void *arg, bool shortcut);
 static void do_report(void *arg);
 static void on_event(evutil_socket_t fd, short, void *arg);
 static void on_timer(evutil_socket_t fd, short, void *arg);
 static std::vector<uint8_t> prepare_quic_initial(const char *sni);
 static std::vector<uint8_t> prepare_client_hello(const char *sni);
+// clang-format on
 
 static void on_event(evutil_socket_t fd, short, void *arg) {
     auto *self = (Ping *) arg;
 
+    bool shortcut = false;
     auto conn = std::find_if(self->inprogress.begin(), self->inprogress.end(), [&](const PingConn &ep) {
         return ep.fd.get() == fd;
     });
-    assert(conn != self->inprogress.end());
+    if (conn == self->inprogress.end()) {
+        shortcut = true;
+        conn = std::find_if(
+                self->inprogress_shortcut.begin(), self->inprogress_shortcut.end(), [&](const PingConn &ep) {
+                    return ep.fd.get() == fd;
+                });
+        assert(conn != self->inprogress_shortcut.end());
+    }
 
     event_del(conn->event.get());
 
@@ -283,10 +310,15 @@ end_round:
     conn->fd.reset();
     conn->event.reset();
 
-    self->done.splice(self->done.end(), self->inprogress, conn);
+    if (!shortcut) {
+        self->done.splice(self->done.end(), self->inprogress, conn);
+    } else {
+        self->done_shortcut.splice(self->done_shortcut.end(), self->inprogress_shortcut, conn);
+    }
 
     // All done or errors.
-    if (self->inprogress.empty() && self->pending.empty()) {
+    if (self->inprogress.empty() && self->pending.empty()
+            && self->inprogress_shortcut.empty() && self->pending_shortcut.empty()) {
         log_ping(self, dbg, "Round {}: complete", self->rounds_started);
         evtimer_del(self->timer.get());
         self->prepare_task_id = event_loop::submit(self->loop,
@@ -306,24 +338,64 @@ static void on_timer(evutil_socket_t, short, void *arg) {
 
     assert(!self->report_task_id.has_value());
 
-    self->pending.splice(self->pending.end(), self->inprogress);
-    for (PingConn &ep : self->pending) {
-        ep.fd.reset();
-        ep.event.reset();
-        if (!self->have_round_winner) {
-            ep.socket_error = ag::utils::AG_ETIMEDOUT;
+    using P = std::tuple<std::list<PingConn> &, std::list<PingConn> &, std::list<PingConn> &>;
+    for (auto &[pending, inprogress, done] : {
+                 P{self->pending, self->inprogress, self->done},
+                 P{self->pending_shortcut, self->inprogress_shortcut, self->done_shortcut},
+         }) {
+        pending.splice(pending.end(), inprogress);
+        for (PingConn &ep : pending) {
+            ep.fd.reset();
+            ep.event.reset();
+            if (!self->have_round_winner) {
+                ep.socket_error = ag::utils::AG_ETIMEDOUT;
+            }
+            log_conn(self, &ep, dbg, "Timed out");
         }
-        log_conn(self, &ep, dbg, "Timed out");
+        done.splice(done.end(), pending);
     }
-    self->done.splice(self->done.end(), self->pending);
 
     self->connect_task_id.reset();
+    self->connect_shortcut_task_id.reset();
     self->prepare_task_id = event_loop::submit(self->loop,
             {
                     .arg = self,
                     .action =
                             [](void *arg, TaskId) {
                                 do_prepare(arg);
+                            },
+            });
+}
+
+// Relay shortcut.
+static void on_shortcut_timer(evutil_socket_t, short, void *arg) {
+    auto *self = (Ping *) arg;
+
+    assert(!self->report_task_id.has_value());
+    assert(!self->relay_addresses.empty());
+
+    self->relay_shortcut_timer.reset();
+
+    for (const PingConn &conn : self->inprogress) {
+        if (conn.relay_address.ss_family != 0) {
+            continue;
+        }
+        add_endpoint(self, self->pending_shortcut, *conn.endpoint, conn.bound_if, nullptr);
+
+        PingConn &sc_conn = self->pending_shortcut.back();
+        sc_conn.relay_address = self->relay_addresses.back();
+
+        if (!conn_prepare(self, &sc_conn)) {
+            self->pending_shortcut.pop_back();
+        }
+    }
+
+    self->connect_shortcut_task_id = event_loop::submit(self->loop,
+            {
+                    .arg = self,
+                    .action =
+                            [](void *arg, TaskId) {
+                                do_connect(arg, /*shortcut*/ true);
                             },
             });
 }
@@ -355,13 +427,18 @@ static int send_quic_initial(const PingConn &conn) {
     return 0;
 }
 
-static void do_connect(void *arg) {
+static void do_connect(void *arg, bool shortcut) {
     auto *self = (Ping *) arg;
-    self->connect_task_id.release();
 
-    assert(!self->pending.empty());
+    std::list<PingConn> &pending = shortcut ? self->pending_shortcut : self->pending;
+    std::list<PingConn> &inprogress = shortcut ? self->inprogress_shortcut : self->inprogress;
+    std::list<PingConn> &done = shortcut ? self->done_shortcut : self->done;
+    event_loop::AutoTaskId &task = shortcut ? self->connect_shortcut_task_id : self->connect_task_id;
 
-    auto conn = self->pending.begin();
+    task.release();
+    assert(!pending.empty());
+
+    auto conn = pending.begin();
     assert(conn->fd.valid());
 
     log_conn(self, conn, dbg, "Connecting");
@@ -380,27 +457,24 @@ static void do_connect(void *arg) {
     }
 
     conn->state = conn->use_quic ? PCS_HELLO_SENT : PCS_SYN_SENT;
-    self->inprogress.splice(self->inprogress.end(), self->pending, conn);
+    inprogress.splice(inprogress.end(), pending, conn);
     goto next;
 
 error:
     conn->fd.reset();
     conn->event.reset();
-    self->done.splice(self->done.end(), self->pending, conn);
+    done.splice(done.end(), pending, conn);
 
 next:
-    if (!self->pending.empty()) {
+    if (!pending.empty()) {
         // Schedule next connect. Don't connect all in one go to avoid stalling the loop.
-        self->connect_task_id = event_loop::schedule(self->loop,
-                {
-                        .arg = self,
-                        .action =
-                                [](void *arg, TaskId) {
-                                    do_connect(arg);
-                                },
-                },
+        // clang-format off
+        auto action = shortcut ? [](void *arg, TaskId) { do_connect(arg, /*shortcut*/true); }
+                               : [](void *arg, TaskId) { do_connect(arg, /*shortcut*/false); };
+        // clang-format on
+        task = event_loop::schedule(self->loop, {.arg = self, .action = action},
                 Millis{1} /*force libevent to poll/select between connect calls*/);
-    } else if (self->inprogress.empty()) {
+    } else if (inprogress.empty() && !shortcut) {
         // All failed (some may have started and already finished). Run `do_prepare` to decide what to do next.
         evtimer_del(self->timer.get());
         self->prepare_task_id = event_loop::submit(self->loop,
@@ -419,7 +493,10 @@ static void do_report(void *arg) {
     self->report_task_id.release();
 
     assert(self->inprogress.empty());
+    assert(self->inprogress_shortcut.empty());
     assert(self->pending.empty());
+    assert(self->pending_shortcut.empty());
+    assert(self->done_shortcut.empty());
     assert(!self->connect_task_id.has_value());
     assert(!self->prepare_task_id.has_value());
 
@@ -433,8 +510,9 @@ static void do_report(void *arg) {
         result.endpoint = it->endpoint.get();
         if (it->best_result_ms.has_value()) {
             result.status = PING_OK;
-            // Currently, due to sending real ClientHello messages, the traffic has significantly increased, affecting ping times.
-            // As a temporary solution, the following formula is used to reduce peaks while keeping the average values in place.
+            // Currently, due to sending real ClientHello messages, the traffic has significantly increased, affecting
+            // ping times. As a temporary solution, the following formula is used to reduce peaks while keeping the
+            // average values in place.
             // TODO: fix traffic jams
             result.ms = int(pow(double(it->best_result_ms.value()), 0.85) * 1.8) + 1;
         } else {
@@ -472,16 +550,43 @@ static void do_prepare(void *arg) {
     assert(!self->connect_task_id.has_value());
     assert(!self->report_task_id.has_value());
     assert(self->inprogress.empty());
+    assert(self->inprogress_shortcut.empty());
     assert(!self->pending.empty() ? (self->done.empty() && self->report.empty())
                                   : (!self->done.empty() || !self->report.empty()));
+
+    // Don't try to connect through a relay with the same SNI more than once.
+    std::unordered_set<std::string> relay_snis;
+
+    // Process relay shortcut connection results.
+    for (auto it = self->done_shortcut.begin(); it != self->done_shortcut.end();) {
+        auto next = std::next(it);
+        if (!it->best_result_ms.has_value()) {
+            self->done_shortcut.erase(it);
+            it = next;
+            continue;
+        }
+        auto orig_it = std::find_if(self->done.begin(), self->done.end(), [&](const PingConn &conn) {
+            return vpn_endpoint_equals(conn.endpoint.get(), it->endpoint.get());
+        });
+        if (orig_it == self->done.end() || orig_it->best_result_ms.has_value()) {
+            self->done_shortcut.erase(it);
+            it = next;
+            continue;
+        }
+        // If we got here, a shortcut relay connection succeeded, while the corresponding
+        // direct connection did not. Replace the direct connection with the shortcut one.
+        self->done.splice(orig_it, self->done_shortcut, it);
+        self->done.erase(orig_it);
+        relay_snis.emplace(it->endpoint->name);
+        it = next;
+    }
+    assert(self->done_shortcut.empty());
 
     // Don't try to fall back to a relay if we ever received a response from at least one endpoint directly.
     self->have_direct_result =
             self->have_direct_result || std::any_of(self->done.begin(), self->done.end(), [](const PingConn &conn) {
                 return conn.best_result_ms.has_value() && conn.relay_address.ss_family == 0;
             });
-    // Don't try to connect through a relay with the same SNI more than once.
-    std::unordered_set<std::string> relay_snis;
 
     for (auto conn = self->done.begin(); conn != self->done.end();) {
         if (conn->socket_error && conn->rounds_done == 0) {
@@ -521,8 +626,8 @@ static void do_prepare(void *arg) {
 
     // If one of the in-parallel through-relay pings succeeded, stop pinging and report that.
     if (std::any_of(self->report.begin(), self->report.end(), [](const PingConn &conn) {
-        return conn.no_relay_fallback && conn.best_result_ms.has_value();
-    })) {
+            return conn.no_relay_fallback && conn.best_result_ms.has_value();
+        })) {
         log_ping(self, dbg, "Have result from in-parallel through-relay ping");
         self->pending.clear();
     }
@@ -548,78 +653,13 @@ static void do_prepare(void *arg) {
     evtimer_add(self->timer.get(), &tv);
 
     for (auto conn = self->pending.begin(); conn != self->pending.end();) {
-        conn->socket_error = 0;
-        const auto *dest =
-                (sockaddr *) (conn->relay_address.ss_family ? &conn->relay_address : &conn->endpoint->address);
-        // NOLINTNEXTLINE(*-narrowing-conversions)
-        conn->fd = AutoFd(socket(dest->sa_family, conn->use_quic ? SOCK_DGRAM : SOCK_STREAM, 0));
-        if (!conn->fd.valid()) {
-            conn->socket_error = evutil_socket_geterror(conn->fd.get());
-            log_conn(self, conn, dbg, "Failed to create socket: ({}) {}", conn->socket_error,
-                    evutil_socket_error_to_string(conn->socket_error));
-            goto error;
+        if (conn_prepare(self, &*conn)) {
+            ++conn;
+        } else {
+            conn->fd.reset();
+            conn->event.reset();
+            self->done.splice(self->done.end(), self->pending, conn++);
         }
-        if (0 != evutil_make_socket_nonblocking(conn->fd.get())) {
-            conn->socket_error = evutil_socket_geterror(conn->fd.get());
-            log_conn(self, conn, dbg, "Failed to make socket non-blocking: ({}) {}", conn->socket_error,
-                    evutil_socket_error_to_string(conn->socket_error));
-            goto error;
-        }
-#ifndef _WIN32
-        if (conn->bound_if != 0) {
-#ifdef __MACH__
-            const sockaddr *dest =
-                    (sockaddr *) (conn->relay_address.ss_family ? &conn->relay_address : &conn->endpoint->address);
-            int option = (dest->sa_family == AF_INET) ? IP_BOUND_IF : IPV6_BOUND_IF;
-            int level = (dest->sa_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
-            int error = setsockopt(conn->fd.get(), level, option, &conn->bound_if, sizeof(conn->bound_if));
-#else  // #ifdef __MACH__
-            int error = setsockopt(conn->fd.get(), SOL_SOCKET, SO_BINDTODEVICE, conn->bound_if_name.data(),
-                    conn->bound_if_name.size());
-#endif // #ifdef __MACH__
-            if (error) {
-                log_conn(self, conn, dbg, "Failed to bind socket to interface: ({}) {}", errno, strerror(errno));
-                conn->socket_error = error;
-                goto error;
-            }
-        }
-#else  // #ifndef _WIN32
-        if (!vpn_win_socket_protect(conn->fd.get(), dest)) {
-            log_conn(self, conn, dbg, "Failed to protect socket");
-            conn->socket_error = -1;
-            goto error;
-        }
-#endif // #ifndef _WIN32
-        if (!conn->use_quic) {
-            // Send RST as soon as socket is closed. Ignore error, this is not essential.
-            linger linger_0 = {.l_onoff = 1, .l_linger = 0};
-            setsockopt(conn->fd.get(), SOL_SOCKET, SO_LINGER, (char *) &linger_0, (int) sizeof(linger_0));
-            // Send data after each send() call.
-            int nodelay = 1;
-            if (0 != setsockopt(conn->fd.get(), IPPROTO_TCP, TCP_NODELAY, (char *) &nodelay, (int) sizeof(nodelay))) {
-                conn->socket_error = evutil_socket_geterror(conn->fd.get());
-                log_conn(self, conn, dbg, "Failed to set TCP_NODELAY: ({}) {}", conn->socket_error,
-                        evutil_socket_error_to_string(conn->socket_error));
-                goto error;
-            }
-        }
-        conn->event.reset(event_new(vpn_event_loop_get_base(self->loop), conn->fd.get(),
-                conn->use_quic ? EV_READ : EV_WRITE, on_event, self));
-        if (conn->event == nullptr) {
-            log_conn(self, conn, dbg, "Failed to create event");
-            conn->socket_error = -1;
-            goto error;
-        }
-        if (conn->hello.empty()) {
-            conn->hello = conn->use_quic ? prepare_quic_initial(conn->endpoint->name)
-                                         : prepare_client_hello(conn->endpoint->name);
-        }
-        ++conn;
-        continue;
-    error:
-        conn->fd.reset();
-        conn->event.reset();
-        self->done.splice(self->done.end(), self->pending, conn++);
     }
 
     if (self->pending.empty()) {
@@ -640,14 +680,15 @@ static void do_prepare(void *arg) {
                         .arg = self,
                         .action =
                                 [](void *arg, TaskId) {
-                                    do_connect(arg);
+                                    do_connect(arg, /*shortcut*/ false);
                                 },
                 });
     }
 }
 
-void add_endpoint(Ping *self, const VpnEndpoint &endpoint, uint32_t bound_if, const sockaddr *relay_address) {
-    PingConn &conn = self->pending.emplace_back();
+void add_endpoint(Ping *self, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if,
+        const sockaddr *relay_address) {
+    PingConn &conn = list.emplace_back();
     conn.endpoint = vpn_endpoint_clone(&endpoint);
     conn.bound_if = bound_if;
     conn.use_quic = self->use_quic;
@@ -717,9 +758,9 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
             return nullptr;
         }
         for (uint32_t bound_if : interfaces) {
-            add_endpoint(self.get(), endpoint, bound_if, nullptr);
+            add_endpoint(self.get(), self->pending, endpoint, bound_if, nullptr);
             if (info->relay_address_parallel.ss_family) {
-                add_endpoint(self.get(), endpoint, bound_if, (sockaddr *) &info->relay_address_parallel);
+                add_endpoint(self.get(), self->pending, endpoint, bound_if, (sockaddr *) &info->relay_address_parallel);
             }
         }
     }
@@ -734,6 +775,13 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
                                 },
                 });
     } else {
+        if (!self->relay_addresses.empty()) {
+            self->relay_shortcut_timer.reset(
+                    evtimer_new(vpn_event_loop_get_base(self->loop), on_shortcut_timer, self.get()));
+            timeval tv = ms_to_timeval(RELAY_SHORTCUT_DELAY_MS);
+            evtimer_add(self->relay_shortcut_timer.get(), &tv);
+        }
+
         self->prepare_task_id = event_loop::submit(self->loop,
                 {
                         .arg = self.get(),
@@ -806,6 +854,76 @@ std::vector<uint8_t> prepare_client_hello(const char *sni) {
     initial.resize(ret);
 
     return initial;
+}
+
+bool conn_prepare(Ping *ping, PingConn *conn) {
+    conn->socket_error = 0;
+    const auto *dest =
+            (sockaddr *) (conn->relay_address.ss_family ? &conn->relay_address : &conn->endpoint->address);
+    // NOLINTNEXTLINE(*-narrowing-conversions)
+    conn->fd = AutoFd(socket(dest->sa_family, conn->use_quic ? SOCK_DGRAM : SOCK_STREAM, 0));
+    if (!conn->fd.valid()) {
+        conn->socket_error = evutil_socket_geterror(conn->fd.get());
+        log_conn(ping, conn, dbg, "Failed to create socket: ({}) {}", conn->socket_error,
+                evutil_socket_error_to_string(conn->socket_error));
+        return false;
+    }
+    if (0 != evutil_make_socket_nonblocking(conn->fd.get())) {
+        conn->socket_error = evutil_socket_geterror(conn->fd.get());
+        log_conn(ping, conn, dbg, "Failed to make socket non-blocking: ({}) {}", conn->socket_error,
+                evutil_socket_error_to_string(conn->socket_error));
+        return false;
+    }
+#ifndef _WIN32
+    if (conn->bound_if != 0) {
+#ifdef __MACH__
+        const sockaddr *dest =
+                (sockaddr *) (conn->relay_address.ss_family ? &conn->relay_address : &conn->endpoint->address);
+        int option = (dest->sa_family == AF_INET) ? IP_BOUND_IF : IPV6_BOUND_IF;
+        int level = (dest->sa_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
+        int error = setsockopt(conn->fd.get(), level, option, &conn->bound_if, sizeof(conn->bound_if));
+#else  // #ifdef __MACH__
+        int error = setsockopt(conn->fd.get(), SOL_SOCKET, SO_BINDTODEVICE, conn->bound_if_name.data(),
+                conn->bound_if_name.size());
+#endif // #ifdef __MACH__
+        if (error) {
+            log_conn(ping, conn, dbg, "Failed to bind socket to interface: ({}) {}", errno, strerror(errno));
+            conn->socket_error = error;
+            return false;
+        }
+    }
+#else  // #ifndef _WIN32
+    if (!vpn_win_socket_protect(conn->fd.get(), dest)) {
+        log_conn(ping, conn, dbg, "Failed to protect socket");
+        conn->socket_error = -1;
+        return false;
+    }
+#endif // #ifndef _WIN32
+    if (!conn->use_quic) {
+        // Send RST as soon as socket is closed. Ignore error, this is not essential.
+        linger linger_0 = {.l_onoff = 1, .l_linger = 0};
+        setsockopt(conn->fd.get(), SOL_SOCKET, SO_LINGER, (char *) &linger_0, (int) sizeof(linger_0));
+        // Send data after each send() call.
+        int nodelay = 1;
+        if (0 != setsockopt(conn->fd.get(), IPPROTO_TCP, TCP_NODELAY, (char *) &nodelay, (int) sizeof(nodelay))) {
+            conn->socket_error = evutil_socket_geterror(conn->fd.get());
+            log_conn(ping, conn, dbg, "Failed to set TCP_NODELAY: ({}) {}", conn->socket_error,
+                    evutil_socket_error_to_string(conn->socket_error));
+            return false;
+        }
+    }
+    conn->event.reset(event_new(vpn_event_loop_get_base(ping->loop), conn->fd.get(),
+            conn->use_quic ? EV_READ : EV_WRITE, on_event, ping));
+    if (conn->event == nullptr) {
+        log_conn(ping, conn, dbg, "Failed to create event");
+        conn->socket_error = -1;
+        return false;
+    }
+    if (conn->hello.empty()) {
+        conn->hello = conn->use_quic ? prepare_quic_initial(conn->endpoint->name)
+                                     : prepare_client_hello(conn->endpoint->name);
+    }
+    return true;
 }
 
 } // namespace ag
