@@ -182,7 +182,7 @@ To quickly configure and launch the VPN client, follow these steps:
    sudo ./standalone_client --config standalone_client.toml
    ```
 
-For detailed explanations, see the [client README](./standalone_client/README.md).
+For detailed explanations, see the [client README](./standalone/README.md).
 
 ---
 
