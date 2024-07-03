@@ -19,6 +19,7 @@
 #include <lwip/netif.h>
 #include <lwip/pbuf.h>
 #include <lwip/tcp.h>
+#include <lwip/ip_addr.h>
 
 #include "libevent_lwip.h"
 #include "tcp_conn_manager.h"
@@ -392,6 +393,9 @@ TcpipCtx *tcpip_init_internal(const TcpipParameters *params) {
     netif_add_noaddr(ctx->netif, ctx, &netif_init_cb, netif_input);
     netif_set_default(ctx->netif);
     netif_set_up(ctx->netif);
+
+    // Zeroes in `netif::ip_addr` break routing: anything but `ip_addr_any` should do.
+    ctx->netif->ip_addr = IPADDR4_INIT_BYTES(1, 2, 3, 4);
 
     if (!tcp_cm_init(ctx) || !udp_cm_init(ctx) || !icmp_rm_init(ctx)) {
         goto error;

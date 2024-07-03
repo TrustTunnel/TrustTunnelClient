@@ -33,6 +33,9 @@ int ip4_input_hook(struct pbuf *p, struct netif *inp) {
     ip_addr_t src_addr;
     // Identify the IP header
     iphdr = (struct ip_hdr *) p->payload;
+    if (ip4_addr_isany_val(iphdr->dest) || ip4_addr_isany_val(iphdr->src)) {
+        return DROP_PACKET(p);
+    }
     // Get source and dest address (dest address is set to interface)
     ip_addr_copy_from_ip4(src_addr, iphdr->src);
     ip_addr_copy_from_ip4(inp->ip_addr, iphdr->dest);
@@ -67,6 +70,9 @@ int ip6_input_hook(struct pbuf *p, struct netif *inp) {
     u16_t hlen;
     // Identify the IP header
     ip6hdr = (struct ip6_hdr *) p->payload;
+    if (ip6_addr_isany_val(ip6hdr->dest) || ip6_addr_isany_val(ip6hdr->src)) {
+        return DROP_PACKET(p);
+    }
     // Get source and dest address (dest address is set to interface)
     ip_addr_copy_from_ip6(src_addr, ip6hdr->src);
     ip_addr_copy_from_ip6(inp->ip6_addr[1], ip6hdr->dest);
