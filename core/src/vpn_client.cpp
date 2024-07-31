@@ -78,7 +78,6 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {S_CONNECTED,           E_HEALTH_CHECK_READY,   Fsm::OTHERWISE, submit_disconnect,     S_DISCONNECTING,        Fsm::DO_NOTHING},
 
         {S_DISCONNECTING,       E_SESSION_CLOSED,       Fsm::ANYWAY,    Fsm::DO_NOTHING,       S_DISCONNECTED,         raise_disconnected},
-        {S_DISCONNECTING,       E_DISCONNECT,           Fsm::ANYWAY,    Fsm::DO_NOTHING,       Fsm::SAME_TARGET_STATE, Fsm::DO_NOTHING},
         {S_DISCONNECTING,       E_DEFERRED_DISCONNECT,  Fsm::ANYWAY,    run_disconnect,        S_DISCONNECTED,         raise_disconnected},
 
         {Fsm::ANY_SOURCE_STATE, E_DISCONNECT,           Fsm::ANYWAY,    run_disconnect,        S_DISCONNECTED,         Fsm::DO_NOTHING},
