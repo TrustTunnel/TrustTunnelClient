@@ -51,6 +51,11 @@ struct VpnWinTunnelSettings {
     HMODULE wintun_lib;
     /** Block all inbound/outbound IPv6 traffic */
     bool block_ipv6;
+    /**
+     * Defer releasing Wintun packet's memory until the packet is processed.
+     * If enabled, Wintun's ring buffer will be larger.
+     */
+    bool zerocopy;
 };
 #endif
 

@@ -46,11 +46,15 @@ static constexpr std::string_view WINREG_INTERFACES_PATH_V4 =
 static constexpr std::string_view WINREG_INTERFACES_PATH_V6 =
         R"(SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces)";
 
+static constexpr DWORD WINTUN_RING_CAPACITY = 0x1000000; // 16 MiB
+static constexpr DWORD WINTUN_RING_CAPACITY_ZEROCOPY = WINTUN_MAX_RING_CAPACITY;
+
 struct WintunThreadParams {
     WINTUN_SESSION_HANDLE session_ptr;
     HANDLE quit_event;
     void (*read_callback)(void *arg, const ag::VpnPackets *packets);
     void *read_callback_arg;
+    bool zerocopy;
 };
 
 void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
@@ -157,17 +161,34 @@ static DWORD WINAPI receive_wintun_packets(std::unique_ptr<WintunThreadParams> p
     HANDLE quit_event = params->quit_event;
     HANDLE wait_handles[] = {WintunGetReadWaitEvent(session), quit_event};
     std::vector<ag::VpnPacket> packets;
+    bool zerocopy = params->zerocopy;
     while (true) {
         DWORD packet_size = 0;
         BYTE *packet = WintunReceivePacket(session, &packet_size);
         if (packet) {
-            packets.push_back(ag::VpnPacket{.data = packet,
-                    .size = packet_size,
-                    .destructor =
-                            [](void *arg, uint8_t *data) {
-                                WintunReleaseReceivePacket((WINTUN_SESSION_HANDLE) arg, data);
-                            },
-                    .destructor_arg = session});
+            if (zerocopy) {
+                packets.push_back(ag::VpnPacket{
+                        .data = packet,
+                        .size = (size_t) packet_size,
+                        .destructor =
+                                [](void *arg, uint8_t *data) {
+                                    WintunReleaseReceivePacket((WINTUN_SESSION_HANDLE) arg, data);
+                                },
+                        .destructor_arg = session,
+                });
+            } else {
+                packets.push_back({
+                        .data = (uint8_t *) std::malloc(packet_size),
+                        .size = (size_t) packet_size,
+                        .destructor =
+                                [](void *, uint8_t *data) {
+                                    std::free(data);
+                                },
+                        .destructor_arg = nullptr,
+                });
+                std::memcpy(packets.back().data, packet, packet_size);
+                WintunReleaseReceivePacket(session, packet);
+            }
         } else {
             DWORD last_error = GetLastError();
             // Process accumulated packets before error processing
@@ -194,8 +215,8 @@ static uint32_t get_wintun_adapter_index(WINTUN_ADAPTER_HANDLE Adapter) {
     return if_idx;
 }
 
-static WINTUN_SESSION_HANDLE create_wintun_session(
-        std::string_view ipv4Address, std::string_view ipv6Address, WINTUN_ADAPTER_HANDLE adapter) {
+static WINTUN_SESSION_HANDLE create_wintun_session(std::string_view ipv4Address, std::string_view ipv6Address,
+        WINTUN_ADAPTER_HANDLE adapter, DWORD ring_capacity) {
     MIB_UNICASTIPADDRESS_ROW address_v4_row;
     InitializeUnicastIpAddressEntry(&address_v4_row);
     WintunGetAdapterLUID(adapter, &address_v4_row.InterfaceLuid);
@@ -227,7 +248,7 @@ static WINTUN_SESSION_HANDLE create_wintun_session(
             warnlog(logger, "Set ipv6: {}", ag::sys::strerror(ag::sys::last_error()));
         }
     }
-    WINTUN_SESSION_HANDLE session = WintunStartSession(adapter, 0x1000000 /*16 MiB*/);
+    WINTUN_SESSION_HANDLE session = WintunStartSession(adapter, ring_capacity);
     if (!session) {
         errlog(logger, "Init session: {}", ag::sys::strerror(ag::sys::last_error()));
         return nullptr;
@@ -264,7 +285,8 @@ ag::VpnError ag::VpnWinTunnel::init(
     m_if_index = get_wintun_adapter_index(m_wintun_adapter);
     std::string ipv4_address = tunnel_utils::get_address_for_index(settings->ipv4_address, m_if_index).to_string();
     std::string ipv6_address = tunnel_utils::get_address_for_index(settings->ipv6_address, m_if_index).to_string();
-    m_wintun_session = create_wintun_session(ipv4_address, ipv6_address, m_wintun_adapter);
+    m_wintun_session = create_wintun_session(ipv4_address, ipv6_address, m_wintun_adapter,
+            win_settings->zerocopy ? WINTUN_RING_CAPACITY_ZEROCOPY : WINTUN_RING_CAPACITY);
     if (m_wintun_session == nullptr) {
         return {-1, "Unable to create wintun session"};
     }
@@ -462,8 +484,8 @@ std::string ag::VpnWinTunnel::get_name() {
 void ag::VpnWinTunnel::start_recv_packets(
         void (*read_callback)(void *arg, const VpnPackets *packets), void *read_callback_arg) {
     ResetEvent(m_wintun_quit_event);
-    std::unique_ptr<WintunThreadParams> pass_params(
-            new WintunThreadParams{m_wintun_session, m_wintun_quit_event, read_callback, read_callback_arg});
+    std::unique_ptr<WintunThreadParams> pass_params(new WintunThreadParams{
+            m_wintun_session, m_wintun_quit_event, read_callback, read_callback_arg, m_win_settings->zerocopy});
     m_recv_thread_handle = std::make_unique<std::thread>(receive_wintun_packets, std::move(pass_params));
 }
 

@@ -436,7 +436,6 @@ void TunListener::recv_packets_task(void *arg, ag::TaskId) {
     static constexpr size_t BATCH_SIZE = 64;
     for (size_t i = 0; i < BATCH_SIZE && !packets.empty(); ++i) {
         listener->vpn->process_client_packets({&packets.front(), 1});
-        packets.front().destructor(packets.front().destructor_arg, packets.front().data);
         packets.pop_front();
     }
     if (!packets.empty()) {

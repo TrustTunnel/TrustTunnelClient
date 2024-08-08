@@ -29,7 +29,10 @@ void VpnClient::finalize_disconnect() {
 }
 void VpnClient::deinit() {
 }
-void VpnClient::process_client_packets(VpnPackets) {
+void VpnClient::process_client_packets(VpnPackets ps) {
+    for (VpnPacket *p = ps.data; p != ps.data + ps.size; ++p) {
+        p->destructor(p->destructor_arg, p->data);
+    }
 }
 std::optional<VpnConnectAction> VpnClient::finalize_connect_action(ConnectRequestResult request_result) const {
     return request_result.action;

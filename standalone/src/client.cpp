@@ -363,10 +363,8 @@ VpnListener *VpnStandaloneClient::make_tun_listener() {
         errlog(m_logger, "Failed to load wintun: {}", ag::sys::strerror(GetLastError()));
         return nullptr;
     }
-    VpnWinTunnelSettings win_settings{};
-    const auto *win_defaults = vpn_win_tunnel_settings_defaults();
+    VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
     win_settings.wintun_lib = m_wintun;
-    win_settings.adapter_name = win_defaults->adapter_name;
     VpnError res = m_tunnel->init(&tunnel_settings, &win_settings);
 #else
     VpnError res = m_tunnel->init(&tunnel_settings);
