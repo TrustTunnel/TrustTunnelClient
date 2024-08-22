@@ -170,11 +170,13 @@ private:
     evutil_socket_t tun_open();
     void setup_if();
     void setup_dns();
+    bool check_sport_rule_support();
     void setup_routes(int16_t table_id);
     void teardown_routes(int16_t table_id);
 
     evutil_socket_t m_tun_fd{-1};
     std::string m_tun_name{};
+    bool m_sport_supported{false};
 };
 #elif __APPLE__ && !TARGET_OS_IPHONE
 class VpnMacTunnel : public VpnOsTunnel {
