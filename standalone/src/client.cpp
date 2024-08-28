@@ -181,6 +181,10 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_impl
             .killswitch_enabled = m_config.killswitch_enabled,
     };
 
+    if (m_config.ssl_session_storage_path.has_value()) {
+        settings.ssl_sessions_storage_path = m_config.ssl_session_storage_path->c_str();
+    }
+
     if (std::holds_alternative<VpnStandaloneConfig::TunListener>(m_config.listener)) {
         if (int r = set_outbound_interface(); r < 0) {
             return make_error(ConnectResultError{}, "Failed to set outbound interface");

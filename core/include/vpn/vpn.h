@@ -497,6 +497,13 @@ typedef struct {
      * an endpoint will not be routed directly in that case.
      */
     bool killswitch_enabled;
+
+    /**
+     * Path to a directory where SSL sessions would be cached to persist
+     * between vpn startups. Directory should be already created.
+     * If null, SSL sessions will not be cached on disk.
+     */
+    const char *ssl_sessions_storage_path;
 } VpnSettings;
 
 /**

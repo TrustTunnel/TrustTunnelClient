@@ -51,6 +51,7 @@ struct VpnStandaloneConfig {
     bool killswitch_enabled = false;
     std::string log_file_path;
     std::string exclusions;
+    std::optional<std::string> ssl_session_storage_path;
     std::vector<std::string> dns_upstreams;
     Location location;
     Listener listener;

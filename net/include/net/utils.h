@@ -218,6 +218,18 @@ static inline size_t varint_len(uint64_t varint_value) {
 
 using SslPtr = ag::DeclPtr<SSL, SSL_free>;
 
+/**
+ * Dumps SSL sessions cache on disk
+ * @param path Path to a directory where cache should be dumped
+ */
+void dump_session_cache(const std::string &path);
+
+/**
+ * Loads SSL sessions cache from disk
+ * @param path Path to a directory where cache was dumped
+ */
+void load_session_cache(const std::string &path);
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, bool quic);
 

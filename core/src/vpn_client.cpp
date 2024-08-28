@@ -280,6 +280,10 @@ VpnError VpnClient::init(const VpnSettings *settings) {
             this->max_conn_buffer_file_size = VPN_DEFAULT_MAX_CONN_BUFFER_FILE_SIZE;
         }
     }
+    if (settings->ssl_sessions_storage_path != nullptr) {
+        this->ssl_session_storage_path = settings->ssl_sessions_storage_path;
+        load_session_cache(*this->ssl_session_storage_path);
+    }
 
     VpnError error = {};
 
@@ -564,6 +568,10 @@ void VpnClient::finalize_disconnect() {
 
 void VpnClient::deinit() {
     log_client(this, dbg, "...");
+
+    if (this->ssl_session_storage_path.has_value()) {
+        dump_session_cache(*this->ssl_session_storage_path);
+    }
 
     if (this->bypass_upstream != nullptr) {
         this->bypass_upstream->deinit();

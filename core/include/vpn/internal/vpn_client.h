@@ -158,6 +158,7 @@ public:
     std::set<event_loop::AutoTaskId> deferred_tasks;
     std::unique_ptr<EndpointConnector> endpoint_connector; // connects to endpoint using given upstream(s)
     std::optional<std::string> tmp_files_base_path;        // directory where some temporary files will be stored
+    std::optional<std::string> ssl_session_storage_path;   // directory where SSL sessions will be cached
     size_t conn_memory_buffer_threshold =
             0; // connection in-memory buffer size exceeding which causes storing incoming data in a file
     size_t max_conn_buffer_file_size = 0; // maximum size of file of a connection data buffer
