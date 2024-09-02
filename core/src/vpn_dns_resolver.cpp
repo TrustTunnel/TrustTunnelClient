@@ -360,10 +360,6 @@ void VpnDnsResolver::resolve_pending_domains() {
 
     this->state.connection_timeout_task = event_loop::schedule(
             this->vpn->parameters.ev_loop, {this, on_connection_timeout}, this->vpn->upstream_config.timeout);
-    if (!this->state.periodic_queries_check_task.has_value()) {
-        this->state.periodic_queries_check_task =
-                event_loop::schedule(this->vpn->parameters.ev_loop, {this, on_periodic_queries_check}, g_query_timeout);
-    }
 }
 
 void VpnDnsResolver::resolve_queue(VpnDnsResolverQueue queue_type) {
@@ -412,7 +408,10 @@ void VpnDnsResolver::resolve_queue(VpnDnsResolverQueue queue_type) {
             entry.record_types.set(record_type);
             entry.queries[record_type] = query_id;
 
-            this->state.deadlines.emplace(now, query_id);
+            this->state.deadlines.emplace(now + g_query_timeout, query_id);
+            auto timeout = std::chrono::duration_cast<Millis>(this->state.deadlines.begin()->first - now);
+            this->state.periodic_queries_check_task = event_loop::schedule(
+                    this->vpn->parameters.ev_loop, {this, on_periodic_queries_check}, timeout);
 
             log_resolver(this, dbg,
                     "Sent query for resolution: query id={}, resolution id={}, name={}, rtype={}, queue={}", query_id,

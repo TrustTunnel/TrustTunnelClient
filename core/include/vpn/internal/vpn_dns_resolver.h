@@ -141,7 +141,6 @@ private:
         std::unordered_map<uint16_t, Query> queries;
         // The whole fake connection timeout
         event_loop::AutoTaskId connection_timeout_task;
-        // The ticks with the period of `QUERY_TIMEOUT` cancelling expired queries
         event_loop::AutoTaskId periodic_queries_check_task;
         std::multimap<SteadyClock::time_point, uint16_t> deadlines;
     };
