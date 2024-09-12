@@ -198,6 +198,10 @@ size_t UpstreamMultiplexer::connections_num_by_upstream(int) const {
 }
 void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &) {
 }
+void UpstreamMultiplexer::handle_sleep() {
+}
+void UpstreamMultiplexer::handle_wake() {
+}
 
 SocksListener::SocksListener(const VpnSocksListenerConfig *) {
 }

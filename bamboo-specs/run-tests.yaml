@@ -49,16 +49,16 @@ Run tests on Linux:
             mkdir -p build
             cd build
 
-            export LDFLAGS=-fuse-ld=lld
             cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_FLAGS='-fsanitize=address' \
             -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address ${LDFLAGS}" \
+            -GNinja \
             ..
 
-            make -j 4 tests && ctest -D ExperimentalTest --no-compress-output
+            ninja tests && ctest -D ExperimentalTest --no-compress-output
         description: Compile and run tests
         working-dir: vpn-libs
   final-tasks:

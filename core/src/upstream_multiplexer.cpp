@@ -84,8 +84,7 @@ bool UpstreamMultiplexer::open_session(std::optional<Millis> timeout) {
     // Here, we simply timeout if there's no read activity or health check results within the specified time window,
     // since no read activity on the socket should trigger a health check in an underlying upstream.
     m_timeout_timer.reset(evtimer_new(vpn_event_loop_get_base(this->vpn->parameters.ev_loop), timer_callback, this));
-    timeval tv = ms_to_timeval(this->vpn->upstream_config.timeout.count());
-    evtimer_add(m_timeout_timer.get(), &tv);
+    timer_update();
 
     return true;
 }
@@ -330,14 +329,7 @@ void UpstreamMultiplexer::finalize_closed_upstream(int upstream_id, bool async) 
 void UpstreamMultiplexer::timer_callback(evutil_socket_t, short, void *arg) {
     auto *mux = (UpstreamMultiplexer *) arg;
     log_mux(mux, dbg, "Timed out");
-    mux->close_session();
-    if (mux->m_pending_error.has_value()) {
-        ServerError error = {NON_ID, std::exchange(mux->m_pending_error, std::nullopt).value()};
-        mux->handler.func(mux->handler.arg, SERVER_EVENT_ERROR, &error);
-    } else {
-        VpnError error{.code = VPN_EC_ERROR, .text = "No read activity within upstream timeout"};
-        mux->handler.func(mux->handler.arg, SERVER_EVENT_SESSION_CLOSED, &error);
-    }
+    mux->do_health_check();
 }
 
 static bool is_fatal_error(const VpnError &error) {
@@ -403,8 +395,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
         break;
     }
     case SERVER_EVENT_READ: {
-        timeval tv = ms_to_timeval(mux->vpn->upstream_config.timeout.count());
-        evtimer_add(mux->m_timeout_timer.get(), &tv);
+        mux->timer_update();
         mux->handler.func(mux->handler.arg, what, data);
         break;
     }
@@ -415,18 +406,19 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
         mux->handler.func(mux->handler.arg, what, data);
         break;
     case SERVER_EVENT_HEALTH_CHECK_RESULT: {
-        timeval tv = ms_to_timeval(mux->vpn->upstream_config.timeout.count());
-        evtimer_add(mux->m_timeout_timer.get(), &tv);
-        mux->handler.func(mux->handler.arg, what, data);
-        mux->m_health_check_upstream_id.reset();
+        mux->timer_update();
+        // Ignore health check results from upstream
+        if (mux->m_health_check_upstream_id == ctx->id) {
+            mux->handler.func(mux->handler.arg, what, data);
+            mux->m_health_check_upstream_id.reset();
+        }
         break;
     }
     case SERVER_EVENT_ERROR: {
         const ServerError *event = (ServerError *) data;
         if (event->id != NON_ID) {
             // An error on connection also means that some data was received.
-            timeval tv = ms_to_timeval(mux->vpn->upstream_config.timeout.count());
-            evtimer_add(mux->m_timeout_timer.get(), &tv);
+            mux->timer_update();
             mux->m_connections.erase(event->id);
             log_mux(mux, dbg, "Remaining upstreams={} connections={} pending connections={}",
                     mux->m_upstreams_pool.size(), mux->m_connections.size(), mux->m_pending_connections.size());
@@ -607,6 +599,37 @@ size_t UpstreamMultiplexer::connections_num_by_upstream(int id) const {
                     [id](size_t acc, const auto &i) -> size_t {
                         return acc + ((id == i.second.upstream_id) ? 1 : 0);
                     });
+}
+
+void UpstreamMultiplexer::handle_sleep() {
+    log_mux(this, dbg, "...");
+
+    this->timer_stop();
+    this->m_health_check_upstream_id.reset();
+
+    log_mux(this, dbg, "Done");
+}
+
+void UpstreamMultiplexer::handle_wake() {
+    log_mux(this, dbg, "...");
+
+    this->timer_update();
+    this->do_health_check();
+
+    log_mux(this, dbg, "Done");
+}
+
+void UpstreamMultiplexer::timer_update() {
+    if (m_timeout_timer) {
+        timeval tv = ms_to_timeval((this->vpn->upstream_config.timeout - this->vpn->upstream_config.health_check_timeout).count());
+        evtimer_add(m_timeout_timer.get(), &tv);
+    }
+}
+
+void UpstreamMultiplexer::timer_stop() {
+    if (m_timeout_timer) {
+        evtimer_del(m_timeout_timer.get());
+    }
 }
 
 } // namespace ag

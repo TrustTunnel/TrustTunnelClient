@@ -83,7 +83,11 @@ private:
     [[nodiscard]] size_t connections_num_by_upstream(int upstream_id) const;
     void mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id);
     void finalize_closed_upstream(int upstream_id, bool async);
+    void handle_sleep() override;
+    void handle_wake() override;
 
+    void timer_update();
+    void timer_stop();
     static void timer_callback(evutil_socket_t, short, void *);
 };
 
