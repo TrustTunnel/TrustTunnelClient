@@ -104,11 +104,11 @@ void ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
 
     if (m_sport_supported) {
         if (!ipv4_routes.empty()) {
-            ag::tunnel_utils::fsystem("ip rule add prio 30800 sport 22 lookup main");
+            ag::tunnel_utils::fsystem("ip rule add prio 30800 sport 1-1024 lookup main");
             ag::tunnel_utils::fsystem("ip rule add prio 30801 lookup {}", table_id);
         }
         if (!ipv6_routes.empty()) {
-            ag::tunnel_utils::fsystem("ip -6 rule add prio 30800 sport 22 lookup main");
+            ag::tunnel_utils::fsystem("ip -6 rule add prio 30800 sport 1-1024 lookup main");
             ag::tunnel_utils::fsystem("ip -6 rule add prio 30801 lookup {}", table_id);
         }
     }
@@ -128,8 +128,8 @@ void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
     if (m_sport_supported) {
         // It is safe to leave these rules but it is better to remove them.
         ag::tunnel_utils::fsystem("ip rule del prio 30801 lookup {}", table_id);
-        ag::tunnel_utils::fsystem("ip rule del prio 30800 sport 22 lookup main");
+        ag::tunnel_utils::fsystem("ip rule del prio 30800 sport 1-1024 lookup main");
         ag::tunnel_utils::fsystem("ip -6 rule del prio 30801 lookup {}", table_id);
-        ag::tunnel_utils::fsystem("ip -6 rule del prio 30800 sport 22 lookup main");
+        ag::tunnel_utils::fsystem("ip -6 rule del prio 30800 sport 1-1024 lookup main");
     }
 }
