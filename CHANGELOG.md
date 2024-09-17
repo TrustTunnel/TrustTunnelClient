@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.93.18
+
 * [Feature] Add an option to profile VPN handler execution: if enabled, a warning will be written to the log
   whenever a handler call is taking too long. Profiling is enabled by default. Applications might want to disable
   it when running in production.
