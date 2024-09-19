@@ -796,9 +796,17 @@ static void vpn_client::run_disconnect(void *ctx, void *data) {
         vpn->dns_proxy = nullptr;
     }
 
+    // There may be state when endpoint_connector has already set endpoint_upstream
+    // But it is not cleared yet. Deferred task is scheduled to complete setting and reset
+    // endpoint connector. So, we should cancel it.
+    // All deferred tasks (health check, connector finalizer, deferred disconnect)
+    // may be safely cancelled here.
+    vpn->deferred_tasks.clear();
     if (vpn->endpoint_connector != nullptr) {
         vpn->endpoint_connector->disconnect();
-    } else {
+        vpn->endpoint_connector.reset();
+    }
+    if (vpn->endpoint_upstream) {
         vpn->endpoint_upstream->close_session();
     }
     // @note: this is kind of ad hoc solution just to be sure that tunnel will not try to close
