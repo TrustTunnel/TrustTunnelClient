@@ -179,3 +179,31 @@ static const TagsTestParam TAGS_TEST_SAMPLES[] = {
         {"[abcd::feed]:13", "test"},
 };
 INSTANTIATE_TEST_SUITE_P(Tags, Tags, testing::ValuesIn(TAGS_TEST_SAMPLES));
+
+TEST(DomainFilterTest, ValidateEntry) {
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("google.com"));
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("google123.com"));
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("gOOgle.com"));
+    ASSERT_EQ(DFVS_OK_ADDR, DomainFilter::validate_entry("1.1.1.1:1"));
+    ASSERT_EQ(DFVS_OK_ADDR, DomainFilter::validate_entry("1.2.3.4"));
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("1.2.3.257"));
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("1.2.3.4.5"));
+    ASSERT_EQ(DFVS_OK_CIDR, DomainFilter::validate_entry("1.2.3.0/24"));
+    ASSERT_EQ(DFVS_OK_ADDR, DomainFilter::validate_entry("[fd::]:80"));
+    ASSERT_EQ(DFVS_OK_ADDR, DomainFilter::validate_entry("[fd::]"));
+    ASSERT_EQ(DFVS_OK_ADDR, DomainFilter::validate_entry("fd::"));
+    ASSERT_EQ(DFVS_OK_CIDR, DomainFilter::validate_entry("fd::/64"));
+    ASSERT_EQ(DFVS_OK_DOMAIN, DomainFilter::validate_entry("*.google"));
+
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("1.1.1.1:0"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("1.2.3.0/33"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("google.*"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("*.google.*"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("1.2.3.4:65536"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("goo\"gle.com"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(" "));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(""));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(" example.org"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("."));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(".."));
+}

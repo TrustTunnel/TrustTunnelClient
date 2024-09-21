@@ -658,7 +658,9 @@ void vpn_notify_wake(Vpn *vpn) {
 
 VpnExclusionValidationStatus vpn_validate_exclusion(const char *text) {
     switch (DomainFilter::validate_entry(text)) {
-    case DFVS_OK:
+    case DFVS_OK_ADDR:
+    case DFVS_OK_CIDR:
+    case DFVS_OK_DOMAIN:
         return VPN_EVS_OK;
     case DFVS_MALFORMED:
         return VPN_EVS_MALFORMED;

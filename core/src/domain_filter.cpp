@@ -20,43 +20,56 @@ DomainFilter::DomainFilter() = default;
 
 DomainFilter::~DomainFilter() = default;
 
-DomainFilterValidationStatus DomainFilter::validate_entry(const std::string &entry) {
+DomainFilterValidationStatus DomainFilter::validate_entry(std::string_view entry) {
     ParseResult result = parse_entry(entry);
-    if (const auto *status = std::get_if<DomainFilterValidationStatus>(&result);
-            status != nullptr && *status != DFVS_OK) {
-        return *status;
-    }
+    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_ADDR, ParseResult>::type, sockaddr_storage>);
+    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_CIDR, ParseResult>::type, CidrRange>);
+    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_DOMAIN, ParseResult>::type, DomainEntryInfo>);
+    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_MALFORMED, ParseResult>::type, DomainEntryMalformed>);
+    static_assert(std::variant_size<ParseResult>::value == 4);
 
-    return DFVS_OK;
+    return DomainFilterValidationStatus(result.index());
 }
 
-DomainFilter::ParseResult DomainFilter::parse_entry(const std::string &entry) {
-    if (sockaddr_storage addr = sockaddr_from_str(entry.c_str()); addr.ss_family != AF_UNSPEC) {
+DomainFilter::ParseResult DomainFilter::parse_entry(std::string_view entry) {
+    if (sockaddr_storage addr = sockaddr_from_str(std::string{entry}.c_str()); addr.ss_family != AF_UNSPEC) {
         return addr;
     }
-    
+
     if (auto range = ag::CidrRange(entry); range.valid()) {
         return range;
     }
 
-    if (entry.npos == entry.find_first_of(":/")) {
-        MatchFlagsSet match_flags;
-
-        std::string_view prepared_entry = entry;
-        if (starts_with(prepared_entry, WILDCARD_PREFIX)) {
-            prepared_entry.remove_prefix(WILDCARD_PREFIX.length());
-            match_flags.set(DFMM_SUBDOMAINS);
-        } else {
-            match_flags.set(DFMM_EXACT);
-            if (starts_with(prepared_entry, WWW_PREFIX)) {
-                prepared_entry.remove_prefix(WWW_PREFIX.length());
-            }
+    std::string_view domain = entry;
+    if (domain.starts_with("*.")) {
+        domain.remove_prefix(2);
+    }
+    if (domain.empty()) {
+        return DomainEntryMalformed{};
+    }
+    for (char last_ch = '.'; char ch : domain) {
+        if (!isalnum(ch) && ch != '-' && ch != '_' && ch != '.') {
+            return DomainEntryMalformed{};
         }
-
-        return DomainEntryInfo{std::string(prepared_entry), match_flags};
+        if (ch == '.' && last_ch == '.') {
+            return DomainEntryMalformed{};
+        }
+        last_ch = ch;
     }
 
-    return DFVS_MALFORMED;
+    MatchFlagsSet match_flags;
+
+    if (starts_with(entry, WILDCARD_PREFIX)) {
+        entry.remove_prefix(WILDCARD_PREFIX.length());
+        match_flags.set(DFMM_SUBDOMAINS);
+    } else {
+        match_flags.set(DFMM_EXACT);
+        if (starts_with(entry, WWW_PREFIX)) {
+            entry.remove_prefix(WWW_PREFIX.length());
+        }
+    }
+
+    return DomainEntryInfo{std::string(entry), match_flags};
 }
 
 bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions) {
@@ -78,9 +91,9 @@ bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions)
             log_filter(this, trace, "Entry added in CIDR ranges table: {}", range->to_string());
             m_cidr_ranges.insert(*range);
         } else {
-            auto status = std::get<DomainFilterValidationStatus>(result);
-            log_filter(this, warn, "Malformed entry detected in exceptions list: {} ({})", entry,
-                    magic_enum::enum_name(status));
+            auto status = std::get<DomainEntryMalformed>(result);
+            (void) status;
+            log_filter(this, warn, "Malformed entry detected in exceptions list: {}", entry);
         }
     };
 

@@ -17,7 +17,9 @@
 namespace ag {
 
 enum DomainFilterValidationStatus {
-    DFVS_OK,
+    DFVS_OK_ADDR,
+    DFVS_OK_CIDR,
+    DFVS_OK_DOMAIN,
     DFVS_MALFORMED,
 };
 
@@ -48,7 +50,7 @@ public:
     DomainFilter(DomainFilter &&) = delete;
     DomainFilter &operator=(DomainFilter &&) = delete;
 
-    static DomainFilterValidationStatus validate_entry(const std::string &entry);
+    static DomainFilterValidationStatus validate_entry(std::string_view entry);
 
     /**
      * Update current filtering settings
@@ -105,7 +107,8 @@ private:
         std::string text;
         MatchFlagsSet flags;
     };
-    using ParseResult = std::variant<sockaddr_storage, DomainEntryInfo, DomainFilterValidationStatus, CidrRange>;
+    struct DomainEntryMalformed{};
+    using ParseResult = std::variant<sockaddr_storage, CidrRange, DomainEntryInfo, DomainEntryMalformed>;
 
     VpnMode m_mode = VPN_MODE_GENERAL;
     std::unordered_map<std::string, MatchFlagsSet> m_domains; // key - domain name / value - set of `MatchFlags`
@@ -115,7 +118,7 @@ private:
     ag::LruTimeoutCache<sockaddr_storage, uint8_t> m_exclusion_suspects{DEFAULT_CACHE_SIZE, DEFAULT_TAG_TTL};
     ag::Logger m_log{"DOMAIN_FILTER"};
 
-    static ParseResult parse_entry(const std::string &entry);
+    static ParseResult parse_entry(std::string_view entry);
 };
 
 } // namespace ag
