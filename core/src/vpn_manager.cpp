@@ -27,7 +27,7 @@ static std::atomic_int g_next_id = 0;
 
 static constexpr uint32_t DEFAULT_HANDLER_PROFILING_THRESHOLD_NS = 5'000'000; // 5 milliseconds
 
-static std::atomic_bool g_handler_profiling_enabled = true;
+static std::atomic_bool g_handler_profiling_enabled = false;
 
 struct ProfilingVpnHandlerCtx {
     VpnHandler handler;
