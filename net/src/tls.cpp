@@ -68,11 +68,80 @@ X509_STORE *tls_create_ca_store() {
     return store;
 }
 
-#else
+#elif defined _WIN32
 
 X509_STORE *tls_create_ca_store() {
     X509_STORE *store = X509_STORE_new();
     X509_STORE_set_default_paths(store);
+    return store;
+}
+
+#else
+
+#include <dirent.h>
+
+#include <cstdlib>
+#include <string_view>
+
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+
+static bool dir_exists_and_not_empty(const char *path) {
+    bool ret = false;
+    if (auto *dir = opendir(path)) {
+        while (auto *ent = readdir(dir)) {
+#ifdef __linux__
+            std::string_view name{ent->d_name};
+#else
+            std::string_view name{ent->d_name, ent->d_namlen};
+#endif
+            if (name == "." || name == "..") {
+                continue;
+            }
+            ret = true;
+            break;
+        }
+        closedir(dir);
+    }
+    return ret;
+}
+
+static int add_lookup_dir(X509_LOOKUP *lookup, const char *name, int type) {
+    return dir_exists_and_not_empty(name) && X509_LOOKUP_add_dir(lookup, name, type);
+}
+
+X509_STORE *tls_create_ca_store() {
+    X509_STORE *store = X509_STORE_new();
+
+    X509_LOOKUP *lookup_f = X509_STORE_add_lookup(store, X509_LOOKUP_file());
+    X509_LOOKUP *lookup_d = X509_STORE_add_lookup(store, X509_LOOKUP_hash_dir());
+    const char *ssl_cert_file = getenv("SSL_CERT_FILE");
+    const char *ssl_cert_dir = getenv("SSL_CERT_DIR");
+
+    // Prefer file/directory locations from environment:
+    if (ssl_cert_file || ssl_cert_dir) {
+        if (lookup_f && ssl_cert_file) {
+            X509_LOOKUP_load_file(lookup_f, ssl_cert_file, X509_FILETYPE_PEM);
+        }
+        if (lookup_d && ssl_cert_dir) {
+            X509_LOOKUP_add_dir(lookup_d, ssl_cert_dir, X509_FILETYPE_PEM);
+        }
+        // Otherwise, load the first non-empty, valid file:
+    } else if (!lookup_f
+            || (!X509_LOOKUP_load_file(lookup_f, "/etc/ssl/cert.pem", X509_FILETYPE_PEM)
+                    && !X509_LOOKUP_load_file(lookup_f, "/etc/pki/tls/cert.pem", X509_FILETYPE_PEM)
+                    && !X509_LOOKUP_load_file(lookup_f, "/opt/etc/ssl/cert.pem", X509_FILETYPE_PEM)
+                    && !X509_LOOKUP_load_file(lookup_f, "/opt/etc/ssl/certs/ca-certificates.crt", X509_FILETYPE_PEM))) {
+        // Otherwise, add the first non-empty dir:
+        if (!lookup_d
+                || (!add_lookup_dir(lookup_d, "/etc/ssl/certs/", X509_FILETYPE_PEM)
+                        && !add_lookup_dir(lookup_d, "/etc/pki/tls/certs/", X509_FILETYPE_PEM)
+                        && !add_lookup_dir(lookup_d, "/opt/etc/ssl/certs/", X509_FILETYPE_PEM))) {
+            // Finally, use the defaults.
+            X509_STORE_set_default_paths(store);
+        }
+    }
+
     return store;
 }
 
