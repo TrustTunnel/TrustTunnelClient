@@ -764,11 +764,14 @@ void Http2Upstream::complete_read(void *arg, TaskId) {
 
 int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http2Upstream *) arg;
+    auto *cert = X509_STORE_CTX_get0_cert(store_ctx);
+    auto *chain = X509_STORE_CTX_get0_untrusted(store_ctx);
+    auto *ssl = (SSL *) X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
     return self->vpn->parameters.cert_verify_handler.func(
             !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
                     ? self->vpn->upstream_config.endpoint->remote_id
                     : self->vpn->upstream_config.endpoint->name,
-            (sockaddr *) &self->vpn->upstream_config.endpoint->address, store_ctx,
+            (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl},
             self->vpn->parameters.cert_verify_handler.arg);
 }
 

@@ -95,11 +95,12 @@ bool tls_verify_cert_ip(X509 *cert, const char *ip);
 
 /**
  * Verify given certificate via OpenSSL API
- * @param ctx certificate context to verify
+ * @param cert certificate to verify
+ * @param chain certificates chain
  * @param store trusted CA store (if NULL, `tls_create_ca_store` will be used)
  * @return NULL if verified successfully, error message otherwise
  */
-const char *tls_verify_cert(X509_STORE_CTX *ctx, X509_STORE *store);
+const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *store);
 
 /**
  * Create trusted CA store from system's one

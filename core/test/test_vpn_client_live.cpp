@@ -77,7 +77,7 @@ struct VpnClientLive : public ::testing::Test {
             .cert_verify_handler =
                     {
                             .func =
-                                    [](const char *, const sockaddr *, X509_STORE_CTX *, void *) {
+                                    [](auto...) {
                                         return 1;
                                     },
                     },

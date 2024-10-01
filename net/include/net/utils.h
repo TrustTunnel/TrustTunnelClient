@@ -29,9 +29,15 @@ struct SocketProtectEvent {
     int result;           // FILLED BY HANDLER: operation result (0 in case of success)
 };
 
+struct CertVerifyCtx {
+    X509 *cert = nullptr;
+    STACK_OF(X509) *chain = nullptr;
+    SSL *ssl = nullptr;
+};
+
 struct CertVerifyHandler {
     // server certificate verify callback
-    int (*func)(const char *host_name, const sockaddr *host_ip, X509_STORE_CTX *ctx, void *arg);
+    int (*func)(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
     void *arg; // will be set to SSL object as app data (like `SSL_set_app_data(ssl, cert_verify_arg)`)
 };
 

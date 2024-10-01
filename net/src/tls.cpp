@@ -223,7 +223,7 @@ bool tls_verify_cert_ip(X509 *cert, const char *ip) {
     return 1 == X509_check_ip_asc(cert, ip, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
 }
 
-const char *tls_verify_cert(X509_STORE_CTX *ctx_template, X509_STORE *orig_store) {
+const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *orig_store) {
     const char *err = nullptr;
 
     X509_STORE *store = orig_store;
@@ -234,7 +234,7 @@ const char *tls_verify_cert(X509_STORE_CTX *ctx_template, X509_STORE *orig_store
 
     if (0
             == X509_STORE_CTX_init(
-                    ctx, store, X509_STORE_CTX_get0_cert(ctx_template), X509_STORE_CTX_get0_untrusted(ctx_template))) {
+                    ctx, store, cert, chain)) {
         err = "Can't verify certificate chain: can't initialize STORE_CTX";
         goto finish;
     }

@@ -249,7 +249,8 @@ typedef enum {
 } VpnEvent;
 
 typedef struct {
-    X509_STORE_CTX *ctx; // SSL context to verify
+    X509 *cert; // Certificate to verify
+    STACK_OF(X509) *chain; // Untrusted chain
     /**
      * SET BY HANDLER: Outcome of the operation (0 if successful, `VPN_SKIP_VERIFICATION_FLAG` to indicate that
      * hostname verification should be skipped)

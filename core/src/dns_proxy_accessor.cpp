@@ -99,21 +99,18 @@ bool DnsProxyAccessor::start() {
                     .on_certificate_verification =
                             [this](dns::CertificateVerificationEvent e) -> std::optional<std::string> {
                         const unsigned char *d = e.certificate.data();
-                        DeclPtr<X509_STORE_CTX, &X509_STORE_CTX_free> store{X509_STORE_CTX_new()};
                         DeclPtr<X509, &X509_free> cert{
                                 d2i_X509(nullptr, (const unsigned char **) &d, (long) e.certificate.size())};
-                        X509_STORE_CTX_set_cert(store.get(), cert.get());
 
                         STACK_OF(X509) *chain = sk_X509_new_null();
                         for (const std::vector<uint8_t> &c : e.chain) {
                             d = c.data();
                             sk_X509_push(chain, d2i_X509(nullptr, (const unsigned char **) &d, (long) c.size()));
                         }
-                        X509_STORE_CTX_set_chain(store.get(), chain);
 
                         int verify_result = m_parameters.cert_verify_handler.func(
                                 // server name and ip are already verified by the DNS proxy
-                                nullptr, nullptr, store.get(), m_parameters.cert_verify_handler.arg);
+                                nullptr, nullptr, {cert.get(), chain}, m_parameters.cert_verify_handler.arg);
 
                         sk_X509_pop_free(chain, &X509_free);
                         return (verify_result > 0) ? std::nullopt : std::make_optional("Verification failed");

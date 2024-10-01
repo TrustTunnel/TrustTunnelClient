@@ -34,7 +34,7 @@ struct ProfilingVpnHandlerCtx {
     Vpn *vpn;
 };
 
-static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, X509_STORE_CTX *ctx, void *arg);
+static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
 static void client_handler(void *arg, vpn_client::Event what, void *data);
 static void shutdown_cb(Vpn *vpn);
 static const char *check_address(const sockaddr_storage *addr);
@@ -701,11 +701,11 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
     return true;
 }
 
-static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, X509_STORE_CTX *ctx, void *arg) {
+static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg) {
     const Vpn *vpn = (Vpn *) arg;
 
     int result = 0;
-    VpnVerifyCertificateEvent event = {ctx, 0};
+    VpnVerifyCertificateEvent event = {ctx.cert, ctx.chain, 0};
     vpn->handler.func(vpn->handler.arg, VPN_EVENT_VERIFY_CERTIFICATE, &event);
     if (event.result == 0) {
         result = 1;
@@ -715,21 +715,20 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, X
     } else {
         log_vpn(vpn, err, "Failed to verify certificate");
 #ifdef OPENSSL_IS_BORINGSSL
-        if (SSL *ssl = (SSL *) X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx())) {
-            SSL_send_fatal_alert(ssl, SSL_AD_UNKNOWN_CA);
+        if (ctx.ssl) {
+            SSL_send_fatal_alert(ctx.ssl, SSL_AD_UNKNOWN_CA);
         }
 #endif
     }
 
-    X509 *cert = X509_STORE_CTX_get0_cert(ctx);
     if ((host_name != nullptr || (host_ip != nullptr && host_ip->sa_family != AF_UNSPEC))
-            && (host_name == nullptr || !tls_verify_cert_host_name(cert, host_name))
+            && (host_name == nullptr || !tls_verify_cert_host_name(ctx.cert, host_name))
             && (host_ip == nullptr || host_ip->sa_family == AF_UNSPEC
-                    || !tls_verify_cert_ip(cert, sockaddr_to_str(host_ip).c_str()))) {
+                    || !tls_verify_cert_ip(ctx.cert, sockaddr_to_str(host_ip).c_str()))) {
         log_vpn(vpn, err, "Server host name or IP doesn't match certificate");
 #ifdef OPENSSL_IS_BORINGSSL
-        if (SSL *ssl = (SSL *) X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx())) {
-            SSL_send_fatal_alert(ssl, SSL_AD_CERTIFICATE_UNKNOWN);
+        if (ctx.ssl) {
+            SSL_send_fatal_alert(ctx.ssl, SSL_AD_CERTIFICATE_UNKNOWN);
         }
 #endif
         return 0;
