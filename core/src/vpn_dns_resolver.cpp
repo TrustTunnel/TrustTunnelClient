@@ -187,6 +187,7 @@ void VpnDnsResolver::complete_connect_request(uint64_t id, ClientConnectResult r
 }
 
 void VpnDnsResolver::accept_connection() {
+    this->state.connection_accepted = true;
     this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECTION_ACCEPTED, &this->state.connection_id);
     this->resolve_pending_domains();
 }
@@ -352,7 +353,7 @@ void VpnDnsResolver::resolve_pending_domains() {
                 CUSTOM_APP_NAME,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
-    } else {
+    } else if (this->state.connection_accepted) {
         for (VpnDnsResolverQueue q : magic_enum::enum_values<VpnDnsResolverQueue>()) {
             this->resolve_queue(q);
         }

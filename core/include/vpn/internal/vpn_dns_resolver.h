@@ -138,6 +138,7 @@ private:
         };
 
         uint64_t connection_id = NON_ID;
+        bool connection_accepted = false;
         std::unordered_map<uint16_t, Query> queries;
         // The whole fake connection timeout
         event_loop::AutoTaskId connection_timeout_task;

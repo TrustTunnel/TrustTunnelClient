@@ -119,7 +119,7 @@ TEST_F(LocationsPingerTest, Single) {
 TEST_F(LocationsPingerTest, WholeLocationFailed) {
     std::vector<VpnEndpoint> addresses = {
             {sockaddr_from_str("[::42]:12"), "nullptr"},
-            {sockaddr_from_str("1.2.3.4:12"), "nullptr"},
+            {sockaddr_from_str("94.140.14.222:12"), "nullptr"},
             {sockaddr_from_str("[::]:12"), "nullptr"},
             {sockaddr_from_str("0.0.0.0:12"), "nullptr"},
     };
@@ -217,7 +217,7 @@ TEST_F(LocationsPingerTest, DISABLED_Timeout) {
 #endif
     std::vector<VpnEndpoint> addresses = {
             {sockaddr_from_str("94.140.14.200:443"), "nullptr"},
-            {sockaddr_from_str("1.2.3.4:443"), "nullptr"},
+            {sockaddr_from_str("94.140.14.222:443"), "nullptr"},
             {sockaddr_from_str("[2a10:50c0::42]:443"), "nullptr"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "nullptr"},
     };
@@ -263,7 +263,7 @@ TEST_F(LocationsPingerTest, StopFromCallback) {
             {sockaddr_from_str("1.0.0.1:443"), "nullptr"},
             {sockaddr_from_str("[2606:4700:4700::1111]:443"), "nullptr"},
             {sockaddr_from_str("[2606:4700:4700::1001]:443"), "nullptr"},
-            {sockaddr_from_str("1.2.3.4:443"), "nullptr"},
+            {sockaddr_from_str("94.140.14.222:443"), "nullptr"},
     };
     std::vector<std::string> ids = make_ids(addresses.size());
     std::vector<VpnLocation> locations;

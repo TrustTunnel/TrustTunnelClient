@@ -112,7 +112,7 @@ TEST_F(LocationsPingerRunnerTest, Single) {
 
 TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("1.2.3.4:12"), "nullptr"},
+            {sockaddr_from_str("94.140.14.222:12"), "nullptr"},
             {sockaddr_from_str("0.0.0.0:123"), "nullptr"},
             {sockaddr_from_str("[::42]:123"), "nullptr"},
             {sockaddr_from_str("[::]:123"), "nullptr"},
@@ -193,7 +193,7 @@ TEST_F(LocationsPingerRunnerTest, Multiple) {
 
 TEST_F(LocationsPingerRunnerTest, Timeout) {
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("1.2.3.4:443"), "nullptr"},
+            {sockaddr_from_str("94.140.14.222:443"), "nullptr"},
             {sockaddr_from_str("94.140.14.200:443"), "nullptr"},
             {sockaddr_from_str("[2a10:50c0::42]:443"), "nullptr"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "nullptr"},
@@ -278,7 +278,7 @@ TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
 TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("1.2.3.4:443"), "one.one.one.one"},
+            {sockaddr_from_str("94.140.14.222:443"), "one.one.one.one"},
             {sockaddr_from_str("94.140.14.200:443"), "one.one.one.one"},
             {sockaddr_from_str("[2a10:50c0::42]:443"), "one.one.one.one"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "one.one.one.one"},
@@ -377,13 +377,13 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
     // At the time of writing, Quad9 doesn't respond to QUIC
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("1.2.3.4:443"), "dns.quad9.net"},
+            {sockaddr_from_str("94.140.14.222:443"), "dns.quad9.net"},
             {sockaddr_from_str("94.140.14.200:443"), "dns.quad9.net"},
             {sockaddr_from_str("[2a10:50c0::42]:443"), "dns.quad9.net"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "dns.quad9.net"},
     };
     std::vector<sockaddr_storage> relay_addresses = {
-            sockaddr_from_str("1.2.3.4:443"),
+            sockaddr_from_str("94.140.14.222:443"),
             sockaddr_from_str("[2a10:50c0::42]:443"),
             sockaddr_from_str("9.9.9.9:443"),
     };
