@@ -10,7 +10,8 @@ static const ag::Logger logger("OS_TUNNEL_LINUX");
 
 static constexpr auto TABLE_ID = 880;
 
-void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
+void ag::tunnel_utils::sys_cmd(std::string cmd) {
+    cmd += " 2>&1";
     dbglog(logger, "{} {}", (geteuid() == 0) ? '#' : '$', cmd);
     auto result = exec_with_output(cmd.c_str());
     if (result.has_value()) {

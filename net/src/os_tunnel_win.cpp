@@ -57,7 +57,8 @@ struct WintunThreadParams {
     void *read_callback_arg;
 };
 
-void ag::tunnel_utils::sys_cmd(const std::string &cmd) {
+void ag::tunnel_utils::sys_cmd(std::string cmd) {
+    cmd += " 2>&1";
     char buffer[UNLEN + 1] = {0};
     DWORD buffer_len = UNLEN + 1;
     if (::GetUserNameA(buffer, &buffer_len)) {

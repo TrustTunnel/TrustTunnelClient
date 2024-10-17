@@ -230,7 +230,7 @@ Result<std::string, ExecError> exec_with_output(const char *cmd);
  * Needed because using `__func__` (which is used in `tracelog()`) inside variadic
  * template function causes a compiler error inside fmtlib's headers
  */
-void sys_cmd(const std::string &cmd);
+void sys_cmd(std::string cmd);
 template <typename... Ts>
 void fsystem(std::string_view fmt, Ts &&...args) { // NOLINT(*-missing-std-forward)
     sys_cmd(fmt::vformat(fmt, fmt::make_format_args(args...)));
