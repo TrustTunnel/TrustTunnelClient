@@ -103,7 +103,6 @@ void UpstreamMultiplexer::close_session() {
         info->upstream->close_session();
     }
     clear_upstreams_map(m_upstreams_pool);
-    clear_upstreams_map(m_closed_upstreams);
     m_connections.clear();
 
     for (const auto &[conn_id, _] : std::exchange(m_pending_connections, {})) {
@@ -269,7 +268,9 @@ void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &event) {
     it->second->upstream->on_icmp_request(event);
 }
 
-void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id) {
+void UpstreamMultiplexer::close_upstream(int upstream_id) {
+    log_ups(this, upstream_id, dbg, "...");
+
     auto it = m_upstreams_pool.find(upstream_id);
     if (it == m_upstreams_pool.end()) {
         log_ups(this, upstream_id, warn, "Upstream not found");
@@ -277,42 +278,11 @@ void UpstreamMultiplexer::mark_closed_upstream(int upstream_id, event_loop::Auto
         return;
     }
 
-    it->second->deferred_task_id = std::move(task_id);
-
-    auto node = m_upstreams_pool.extract(it);
-    m_closed_upstreams.emplace(node.key(), std::move(node.mapped()));
-}
-
-void UpstreamMultiplexer::finalize_closed_upstream(int upstream_id, bool async) {
-    log_ups(this, upstream_id, dbg, "...");
-
-    if (async) {
-        auto it = m_closed_upstreams.find(upstream_id);
-        if (it == m_closed_upstreams.end()) {
-            log_ups(this, upstream_id, warn, "Upstream not found");
-            assert(0);
-            return;
-        }
-
-        UpstreamCtx *ctx = it->second->ctx.get();
-        it->second->deferred_task_id = event_loop::submit(vpn->parameters.ev_loop,
-                {
-                        ctx,
-                        [](void *arg, TaskId) {
-                            auto *ctx = (UpstreamCtx *) arg;
-                            ctx->mux->finalize_closed_upstream(ctx->id, false);
-                        },
-                });
-        return;
-    }
-
-    if (auto node = m_closed_upstreams.extract(upstream_id); !node.empty()) {
-        node.mapped()->deferred_task_id.release();
-    }
+    m_upstreams_pool.erase(it);
 
     log_mux(this, dbg, "Remaining upstreams={}, connections={}, pending connections={}", m_upstreams_pool.size(),
             m_connections.size(), m_pending_connections.size());
-    if (!m_upstreams_pool.empty() || !m_closed_upstreams.empty()) {
+    if (!m_upstreams_pool.empty()) {
         return;
     }
 
@@ -342,10 +312,6 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
 
     auto pool_it = mux->m_upstreams_pool.find(ctx->id);
     if (pool_it == mux->m_upstreams_pool.end()) {
-        if (mux->m_closed_upstreams.contains(ctx->id)) {
-            log_ups(mux, ctx->id, dbg, "Ignoring event on closing upstream: {}", magic_enum::enum_name(what));
-            return;
-        }
         log_ups(mux, ctx->id, warn, "Got event on closed or non-existent upstream: {}", magic_enum::enum_name(what));
         assert(0);
         return;
@@ -381,8 +347,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
             }
         }
 
-        mux->mark_closed_upstream(ctx->id, {});
-        mux->finalize_closed_upstream(ctx->id, true);
+        mux->close_upstream(ctx->id);
         break;
     }
     case SERVER_EVENT_CONNECTION_CLOSED: {
@@ -426,47 +391,23 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
         } else if (is_fatal_error(event->error)
                 // do not ignore errors on a health checking upstream
                 || mux->m_health_check_upstream_id == ctx->id) {
+            log_mux(mux, info, "Error on upstream id={}{} is fatal, closing all upstreams: ({}) {}", ctx->id,
+                    (mux->m_health_check_upstream_id == ctx->id) ? " (healthcheck upstream)" : "", event->error.code,
+                    event->error.text);
             if (event->error.code != 0) {
                 mux->m_pending_error = event->error;
             }
             while (!mux->m_upstreams_pool.empty()) {
-                const auto &[upstream_id, info] = *mux->m_upstreams_pool.begin();
-                mux->mark_closed_upstream(upstream_id,
-                        event_loop::submit(mux->vpn->parameters.ev_loop,
-                                {
-                                        info->ctx.get(),
-                                        [](void *arg, TaskId) {
-                                            auto *ctx = (UpstreamCtx *) arg;
-                                            UpstreamMultiplexer *mux = ctx->mux;
-                                            auto it = mux->m_closed_upstreams.find(ctx->id);
-                                            if (it != mux->m_closed_upstreams.end()) {
-                                                it->second->upstream->close_session();
-                                            } else {
-                                                log_ups(mux, ctx->id, warn, "Upstream not found");
-                                                assert(0);
-                                            }
-                                            mux->finalize_closed_upstream(ctx->id, false);
-                                        },
-                                }));
+                const auto it = mux->m_upstreams_pool.begin();
+                it->second->upstream->close_session();
+                auto upstream_id = it->first;
+                mux->close_upstream(upstream_id);
             }
         } else {
-            mux->mark_closed_upstream(ctx->id,
-                    event_loop::submit(mux->vpn->parameters.ev_loop,
-                            {
-                                    ctx,
-                                    [](void *arg, TaskId) {
-                                        auto *ctx = (UpstreamCtx *) arg;
-                                        UpstreamMultiplexer *mux = ctx->mux;
-                                        auto it = mux->m_closed_upstreams.find(ctx->id);
-                                        if (it != mux->m_closed_upstreams.end()) {
-                                            it->second->upstream->close_session();
-                                        } else {
-                                            log_ups(mux, ctx->id, warn, "Upstream not found");
-                                            assert(0);
-                                        }
-                                        mux->finalize_closed_upstream(ctx->id, false);
-                                    },
-                            }));
+            log_mux(mux, info, "Error on upstream id={} is non-fatal, closing upstream: ({}) {}", ctx->id,
+                    event->error.code, event->error.text);
+            pool_it->second->upstream->close_session();
+            mux->close_upstream(ctx->id);
         }
         break;
     }

@@ -200,16 +200,18 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
     event_base_gettimeofday_cached(ctx->base, &now);
 
     const TimerInfo &timer = ctx->manager->timer.value();
-    std::vector<TimerSubscriber> subscribers;
+    std::vector<int> subscribers;
     subscribers.reserve(timer.subscribers.size());
 
     std::transform(timer.subscribers.begin(), timer.subscribers.end(), std::back_inserter(subscribers),
-            [](const auto &i) -> TimerSubscriber {
-                return i.second;
+            [](const auto &i) -> int {
+                return i.first;
             });
 
-    for (const TimerSubscriber &s : subscribers) {
-        s.tick_handler(s.arg, now);
+    for (int subscriber_id : subscribers) {
+        if (auto it = timer.subscribers.find(subscriber_id); it != timer.subscribers.end()) {
+            it->second.tick_handler(it->second.arg, now);
+        }
     }
 }
 

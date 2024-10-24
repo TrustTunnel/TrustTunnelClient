@@ -790,16 +790,9 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
             need_close_client_side = false;
             break;
         }
-        case CONNS_WAITING_ACCEPT:
-        case CONNS_CONNECTED_MIGRATING:
-        case CONNS_CONNECTED:
-            log_conn(this, conn, dbg, "Server closed connection: {} ({})", safe_to_string_view(event->error.text),
-                    event->error.code);
-            break;
         default:
-            log_conn(this, conn, err, "Wrong connection state: {} (event={})", magic_enum::enum_name(conn->state),
-                    magic_enum::enum_name(what));
-            assert(0);
+            log_conn(this, conn, dbg, "Server closed connection in state: {}, with error: {} ({})",
+                    magic_enum::enum_name(conn->state), safe_to_string_view(event->error.text), event->error.code);
             break;
         }
 

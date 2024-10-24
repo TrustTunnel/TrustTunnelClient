@@ -48,7 +48,6 @@ private:
     std::unordered_map<int, std::unique_ptr<UpstreamInfo>> m_upstreams_pool;
     size_t m_max_upstreams_num = DEFAULT_UPSTREAMS_NUM;
     std::unordered_map<uint64_t, PendingConnection> m_pending_connections;
-    std::unordered_map<int, std::unique_ptr<UpstreamInfo>> m_closed_upstreams; // Upstreams waiting to be deleted
     std::optional<int> m_health_check_upstream_id; // id of an upstream which performs health check
     MakeUpstream m_make_upstream;
     std::optional<VpnError> m_pending_error;
@@ -81,8 +80,7 @@ private:
             int upstream_id, uint64_t conn_id, const TunnelAddressPair *addr, int proto, std::string_view app_name);
     void proceed_pending_connection(int upstream_id, uint64_t conn_id, const PendingConnection *conn);
     [[nodiscard]] size_t connections_num_by_upstream(int upstream_id) const;
-    void mark_closed_upstream(int upstream_id, event_loop::AutoTaskId task_id);
-    void finalize_closed_upstream(int upstream_id, bool async);
+    void close_upstream(int upstream_id);
     void handle_sleep() override;
     void handle_wake() override;
 
