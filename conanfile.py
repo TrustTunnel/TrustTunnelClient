@@ -30,7 +30,7 @@ class VpnLibsConan(ConanFile):
 
     def requirements(self):
         self.requires("dns-libs/2.5.51@adguard_team/native_libs_common", transitive_headers=True)
-        self.requires("native_libs_common/6.1.20@adguard_team/native_libs_common", force=True, transitive_headers=True)
+        self.requires("native_libs_common/6.1.21@adguard_team/native_libs_common", force=True, transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
