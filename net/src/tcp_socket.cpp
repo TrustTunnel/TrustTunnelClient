@@ -71,17 +71,17 @@ struct SslBuf {
 };
 
 struct TcpSocket {
-    struct bufferevent *bev;
-    TcpSocketParameters parameters;
-    char log_id[11 + SOCKADDR_STR_BUF_SIZE];
-    int id;
-    TaskId complete_read_task_id;
+    bufferevent *bev = nullptr;
+    TcpSocketParameters parameters{};
+    char log_id[11 + SOCKADDR_STR_BUF_SIZE]{};
+    int id = 0;
+    event_loop::AutoTaskId complete_read_task_id;
     uint32_t flags; // see `SocketFlags`
-    ag::DeclPtr<SSL, &SSL_free> ssl;
+    DeclPtr<SSL, &SSL_free> ssl;
     std::list<SslBuf> ssl_pending;
-    VpnError pending_connect_error; // buffer for synchronously raised error (see `SF_CONNECT_CALLED`)
-    struct timeval timeout_ts;
-    int subscribe_id;
+    VpnError pending_connect_error{}; // buffer for synchronously raised error (see `SF_CONNECT_CALLED`)
+    timeval timeout_ts{};
+    std::optional<int> subscribe_id;
 };
 
 extern "C" bool socket_manager_complete_write(SocketManager *manager, struct bufferevent *bev);
@@ -117,17 +117,13 @@ TcpSocket *tcp_socket_create(const TcpSocketParameters *parameters) {
     socket->parameters = *parameters;
 
     socket->id = g_next_id.fetch_add(1);
-    socket->complete_read_task_id = -1;
     snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT UNKNOWN_ADDR_STR, socket->id);
 
     return socket.release();
 }
 
 static void socket_clean_up(TcpSocket *socket) {
-    if (socket->complete_read_task_id >= 0) {
-        vpn_event_loop_cancel(socket->parameters.ev_loop, socket->complete_read_task_id);
-        socket->complete_read_task_id = -1;
-    }
+    socket->complete_read_task_id.reset();
 
     if (socket->bev != nullptr) {
         shutdown(bufferevent_getfd(socket->bev), AG_SHUT_RDWR);
@@ -147,8 +143,8 @@ void tcp_socket_destroy(TcpSocket *socket) {
 
     log_sock(socket, trace, "Destroying socket...");
 
-    if (socket->parameters.socket_manager != nullptr) {
-        socket_manager_timer_unsubscribe(socket->parameters.socket_manager, socket->subscribe_id);
+    if (socket->parameters.socket_manager != nullptr && socket->subscribe_id.has_value()) {
+        socket_manager_timer_unsubscribe(socket->parameters.socket_manager, *socket->subscribe_id);
     }
 
     if (socket->bev == nullptr) {
@@ -221,23 +217,16 @@ void tcp_socket_set_read_enabled(TcpSocket *socket, bool flag) {
         // Doing it manually, because bufferevent will not trigger read events, unless
         // new data was received.
         const struct evbuffer *buffer = bufferevent_get_input(bev);
-        if (socket->complete_read_task_id < 0
+        if (!socket->complete_read_task_id.has_value()
                 && (evbuffer_get_length(buffer) > 0 || (socket->flags & SF_GOT_EOF)
                         || socket->ssl // Reuse the complete_read task for driving the handshake.
                         || !socket->ssl_pending.empty())) {
             socket->complete_read_task_id =
-                    vpn_event_loop_submit(socket->parameters.ev_loop, {socket, complete_read, nullptr});
-            if (0 > socket->complete_read_task_id) {
-                log_sock(socket, err, "Failed to schedule manual read complete event");
-                socket->complete_read_task_id = -1;
-            }
+                    event_loop::submit(socket->parameters.ev_loop, {socket, complete_read, nullptr});
         }
     } else {
         bufferevent_disable(bev, EV_READ);
-        if (socket->complete_read_task_id >= 0) {
-            vpn_event_loop_cancel(socket->parameters.ev_loop, socket->complete_read_task_id);
-            socket->complete_read_task_id = -1;
-        }
+        socket->complete_read_task_id.reset();
     }
 }
 
@@ -266,10 +255,7 @@ size_t tcp_socket_available_to_write(const TcpSocket *socket) {
 static void on_read(struct bufferevent *bev, void *ctx) {
     auto *socket = (TcpSocket *) ctx;
 
-    if (socket->complete_read_task_id >= 0) {
-        vpn_event_loop_cancel(socket->parameters.ev_loop, socket->complete_read_task_id);
-        socket->complete_read_task_id = -1;
-    }
+    socket->complete_read_task_id.reset();
 
     tcp_socket_set_timeout(socket, socket->parameters.timeout);
 
@@ -478,18 +464,12 @@ static struct bufferevent *wrap_fd(TcpSocket *socket, evutil_socket_t fd) {
 
     if (bev == nullptr) {
         log_sock(socket, err, "Failed to create bufferevent");
-        goto fail;
+        return nullptr;
     }
 
     tcp_socket_set_timeout(socket, socket->parameters.timeout);
 
     return bev;
-
-fail:
-    if (bev != nullptr) {
-        bufferevent_free(bev);
-    }
-    return nullptr;
 }
 
 static const std::unique_ptr<ev_token_bucket_cfg, ag::Ftor<&ev_token_bucket_cfg_free>> RATE_LIMIT_ANTIDPI{
@@ -678,11 +658,15 @@ static void timer_callback(void *arg, struct timeval now) {
 }
 
 void tcp_socket_set_timeout(TcpSocket *sock, std::optional<Millis> x) {
-    socket_manager_timer_unsubscribe(sock->parameters.socket_manager, sock->subscribe_id);
+    if (!sock->parameters.socket_manager) {
+        return;
+    }
+    if (sock->subscribe_id.has_value()) {
+        socket_manager_timer_unsubscribe(sock->parameters.socket_manager, *sock->subscribe_id);
+    }
     if (x) {
         log_sock(sock, trace, "{}", *x);
         sock->parameters.timeout = *x;
-        socket_manager_timer_unsubscribe(sock->parameters.socket_manager, sock->subscribe_id);
         sock->timeout_ts = get_next_timeout_ts(sock);
         sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
                 uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
@@ -1134,6 +1118,11 @@ VpnError do_handshake(TcpSocket *socket) {
 
     if ((socket->flags & SF_PAUSE_TLS) && bio_written) {
         socket->flags &= ~SF_PAUSE_TLS;
+
+        if (socket->parameters.socket_manager && socket->subscribe_id.has_value()) {
+            socket_manager_timer_unsubscribe(socket->parameters.socket_manager, *socket->subscribe_id);
+        }
+        socket->parameters.socket_manager = nullptr;
 
         tcp_socket_set_read_enabled(socket, false);
         bufferevent_setcb(socket->bev, nullptr, nullptr, nullptr, nullptr);
