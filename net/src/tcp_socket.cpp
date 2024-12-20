@@ -82,6 +82,7 @@ struct TcpSocket {
     VpnError pending_connect_error{}; // buffer for synchronously raised error (see `SF_CONNECT_CALLED`)
     timeval timeout_ts{};
     std::optional<int> subscribe_id;
+    std::string_view alpn;
 };
 
 extern "C" bool socket_manager_complete_write(SocketManager *manager, struct bufferevent *bev);
@@ -293,6 +294,10 @@ static void on_read(struct bufferevent *bev, void *ctx) {
             buf.size = ret;
         }
 
+        const uint8_t *out = nullptr;
+        uint32_t out_len;
+        SSL_get0_alpn_selected(socket->ssl.get(), &out, &out_len);
+        socket->alpn = {(const char *) out, out_len};
         bufferevent *bev_ssl =
                 bufferevent_openssl_filter_new(vpn_event_loop_get_base(socket->parameters.ev_loop), socket->bev,
                         socket->ssl.release(), BUFFEREVENT_SSL_OPEN, BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE);
@@ -1199,13 +1204,7 @@ SSL *tcp_socket_get_ssl(TcpSocket *socket) {
 }
 
 std::string_view tcp_socket_get_selected_alpn(TcpSocket *socket) {
-    if (socket->ssl) {
-        const uint8_t *out = nullptr;
-        uint32_t out_len;
-        SSL_get0_alpn_selected(socket->ssl.get(), &out, &out_len);
-        return {(const char *) out, out_len};
-    }
-    return {};
+    return socket->alpn;
 }
 
 } // namespace ag
