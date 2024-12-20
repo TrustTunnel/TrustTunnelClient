@@ -1031,6 +1031,19 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_CLIENT);
     SSL_CTX_sess_set_new_cb(ctx.get(), cache_session_cb);
 
+// Mimic Chrome's ClientHello if we are using BoringSSL.
+#ifdef OPENSSL_IS_BORINGSSL
+    if (SSL_CTX_add_cert_compression_alg(ctx.get(), TLSEXT_cert_compression_brotli, nullptr, DecompressBrotliCert) != 1) {
+        return "Failed to add certificate compression algorithm";
+    }
+
+    SSL_CTX_set_permute_extensions(ctx.get(), true);
+
+    if (!quic) {
+        SSL_CTX_set_grease_enabled(ctx.get(), 1);
+    }
+#endif // OPENSSL_IS_BORINGSSL
+
     SslPtr ssl{SSL_new(ctx.get())};
     if (!SocketAddress{sni}.valid()) {
         if (0 == SSL_set_tlsext_host_name(ssl.get(), sni)) {
@@ -1040,12 +1053,6 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
 // Mimic Chrome's ClientHello if we are using BoringSSL.
 #ifdef OPENSSL_IS_BORINGSSL
-    if (SSL_CTX_add_cert_compression_alg(ctx.get(), TLSEXT_cert_compression_brotli, nullptr, DecompressBrotliCert) != 1) {
-        return "Failed to add certificate compression algorithm";
-    }
-
-    SSL_CTX_set_permute_extensions(ctx.get(), true);
-
     SSL_set_enable_ech_grease(ssl.get(), 1);
 
     if (SSL_add_application_settings(ssl.get(), (uint8_t *)"h2", 2, nullptr, 0) != 1) {
@@ -1063,8 +1070,6 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     }
 
     if (!quic) {
-        SSL_CTX_set_grease_enabled(ctx.get(), 1);
-
         SSL_enable_signed_cert_timestamps(ssl.get());
 
         // Request OCSP stapling.
