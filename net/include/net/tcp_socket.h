@@ -211,4 +211,10 @@ tcp_socket::PeekResult tcp_socket_peek(TcpSocket *socket);
  */
 bool tcp_socket_drain(TcpSocket *socket, size_t n);
 
+/**
+ * Get the selected ALPN protocol
+ * @return nullptr if no alpn is selected
+ */
+std::string_view tcp_socket_get_selected_alpn(TcpSocket *socket);
+
 } // namespace ag

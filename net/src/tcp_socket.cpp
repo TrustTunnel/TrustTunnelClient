@@ -1198,4 +1198,14 @@ SSL *tcp_socket_get_ssl(TcpSocket *socket) {
     return bufferevent_openssl_get_ssl(socket->bev);
 }
 
+std::string_view tcp_socket_get_selected_alpn(TcpSocket *socket) {
+    if (socket->ssl) {
+        const uint8_t *out = nullptr;
+        uint32_t out_len;
+        SSL_get0_alpn_selected(socket->ssl.get(), &out, &out_len);
+        return {(const char *) out, out_len};
+    }
+    return {};
+}
+
 } // namespace ag
