@@ -341,6 +341,11 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
 
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED: {
+        if (auto alpn = tcp_socket_get_selected_alpn(upstream->m_socket.get()); alpn != "h2") {
+            log_upstream(upstream, dbg, "Unexpected protocol is selected by server: {}", alpn);
+            upstream->close_session_inner(VpnError{VPN_EC_ERROR, "Unexpected protocol"});
+            break;
+        }
         tcp_socket_set_read_enabled(upstream->m_socket.get(), true);
         log_upstream(upstream, dbg, "Established TCP connection to endpoint successfully");
         if (upstream->establish_http_session()) {
