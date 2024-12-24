@@ -93,8 +93,12 @@ static dns_utils::DecodeResult decode_reply(dns_utils::LdnsPktPtr pkt) {
             // ignoring TTL of CNAMEs for simplicity
             add_name_to_answer(decoded_answer, ldns_rr_rdf(a, 0));
             break;
+        case LDNS_RR_TYPE_HTTPS:
+        case LDNS_RR_TYPE_SVCB:
+            add_name_to_answer(decoded_answer, ldns_rr_owner(a));
+            break;
         default:
-            continue;
+            break;
         }
     }
     decoded_answer.pkt = std::move(pkt);
@@ -152,6 +156,59 @@ dns_utils::LdnsBufferPtr dns_utils::encode_pkt(const ldns_pkt *pkt) {
         return buffer;
     }
     return nullptr;
+}
+
+bool dns_utils::remove_svcparam_echconfig(ldns_pkt *response) {
+    bool modified = false;
+    for (size_t i = 0; i < ldns_pkt_ancount(response); ++i) {
+        ldns_rr *rr = ldns_rr_list_rr(ldns_pkt_answer(response), i);
+
+        if (auto type = ldns_rr_get_type(rr);
+                (type != LDNS_RR_TYPE_SVCB && type != LDNS_RR_TYPE_HTTPS) || (ldns_rr_rd_count(rr) != 3)) {
+            continue;
+        }
+
+        ldns_rdf *params = ldns_rr_rdf(rr, 2);
+
+        if (ldns_rdf_get_type(params) != LDNS_RDF_TYPE_SVCPARAMS) {
+            continue;
+        }
+
+        uint8_t *current_param_start = nullptr;
+        uint16_t key; // NOLINT(*-init-variables)
+        uint16_t len; // NOLINT(*-init-variables)
+        U8View params_tail = {ldns_rdf_data(params), ldns_rdf_size(params)};
+        while (params_tail.size() >= sizeof(key)) {
+            current_param_start = (uint8_t *) params_tail.data();
+
+            std::memcpy(&key, params_tail.data(), sizeof(key));
+            params_tail.remove_prefix(sizeof(key));
+
+            if (params_tail.size() < sizeof(len)) {
+                break;
+            }
+
+            std::memcpy(&len, params_tail.data(), sizeof(len));
+            params_tail.remove_prefix(sizeof(len));
+
+            key = ntohs(key);
+            len = ntohs(len);
+
+            if (params_tail.size() < len) {
+                break;
+            }
+
+            params_tail.remove_prefix(len);
+
+            if (key == LDNS_SVCPARAM_KEY_ECHCONFIG) {
+                std::memmove(current_param_start, params_tail.data(), params_tail.size());
+                ldns_rdf_set_size(params, ldns_rdf_size(params) - sizeof(key) - sizeof(len) - len);
+                modified = true;
+                break;
+            }
+        }
+    }
+    return modified;
 }
 
 } // namespace ag

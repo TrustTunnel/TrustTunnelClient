@@ -1014,3 +1014,118 @@ TEST_F(DnsRoutingAllProxies, ExclusionSuspectsSelective) {
     auto ret = vpn.domain_filter.match_tag({.addr = sockaddr_from_str("1.2.3.4"), .appname = "TestAppName"});
     ASSERT_EQ(DFMS_SUSPECT_EXCLUSION, ret.status);
 }
+
+TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
+    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
+    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
+
+    // Without exclusion.
+    ClientConnectRequest udp_event{
+            .id = this->vpn.listener_conn_id_generator.get(),
+            .protocol = IPPROTO_UDP,
+            .src = (sockaddr *) &src,
+            .dst = &dst,
+            .app_name = "TestAppName",
+    };
+    ASSERT_NO_FATAL_FAILURE(raise_and_complete(udp_event));
+    ASSERT_NO_FATAL_FAILURE(accept_and_send(udp_event, "tls-ech.dev.", LDNS_RR_TYPE_HTTPS));
+    user_server->expect({
+            .request = MockDnsServer::Request{.tcp = false, .qtype = LDNS_RR_TYPE_HTTPS, .qname = "tls-ech.dev."},
+            .response =
+                    MockDnsServer::Response{
+                            .rcode = LDNS_RCODE_NOERROR,
+                            .answer = {"tls-ech.dev.\t60\tIN\tHTTPS\t1 . echconfig=AEn+DQBFKwAgACABWIHUGj4u+"
+                                       "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA\n"},
+                    },
+    });
+    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_run(this->ev_loop.get());
+    vpn_event_loop_finalize_exit(this->ev_loop.get());
+    ASSERT_EQ(0, this->system_unexpected);
+    ASSERT_EQ(0, this->system_ipv6_unexpected);
+    ASSERT_EQ(0, this->user_unexpected);
+    ASSERT_EQ(1, this->user_complete);
+    dns_utils::LdnsPktPtr pkt =
+            dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
+                    this->client_listener->connections[udp_event.id].last_send->size()});
+    ASSERT_TRUE(pkt);
+    ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
+    DeclPtr<char, &free> str{ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0))};
+    ASSERT_STREQ("tls-ech.dev.\t60\tIN\tHTTPS\t1 . echconfig=AEn+DQBFKwAgACABWIHUGj4u+"
+                 "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA\n",
+            str.get());
+
+    // With exclusion in GENERAL mode.
+    vpn.update_exclusions(VPN_MODE_GENERAL, "tls-ech.dev");
+    udp_event = {
+            .id = this->vpn.listener_conn_id_generator.get(),
+            .protocol = IPPROTO_UDP,
+            .src = (sockaddr *) &src,
+            .dst = &dst,
+            .app_name = "TestAppName",
+    };
+    ASSERT_NO_FATAL_FAILURE(raise_and_complete(udp_event));
+    ASSERT_NO_FATAL_FAILURE(accept_and_send(udp_event, "tls-ech.dev.", LDNS_RR_TYPE_HTTPS));
+    system_server->expect({
+            .request = MockDnsServer::Request{.tcp = false, .qtype = LDNS_RR_TYPE_HTTPS, .qname = "tls-ech.dev."},
+            .response =
+                    MockDnsServer::Response{
+                            .rcode = LDNS_RCODE_NOERROR,
+                            .answer = {"tls-ech.dev. 60 IN HTTPS 1 . "
+                                       "echconfig=AEn+DQBFKwAgACABWIHUGj4u+"
+                                       "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA"},
+                    },
+    });
+    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_run(this->ev_loop.get());
+    vpn_event_loop_finalize_exit(this->ev_loop.get());
+    ASSERT_EQ(0, this->system_unexpected);
+    ASSERT_EQ(0, this->system_ipv6_unexpected);
+    ASSERT_EQ(0, this->user_unexpected);
+    ASSERT_EQ(1, this->system_complete);
+    ASSERT_TRUE(this->client_listener->connections.contains(udp_event.id));
+    ASSERT_TRUE(this->client_listener->connections[udp_event.id].last_send);
+    pkt = dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
+            this->client_listener->connections[udp_event.id].last_send->size()});
+    ASSERT_TRUE(pkt);
+    ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
+    str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));
+    ASSERT_STREQ("tls-ech.dev.\t60\tIN\tHTTPS\t1 .\n", str.get());
+
+    // With exclusion in SELECTIVE mode.
+    vpn.update_exclusions(VPN_MODE_SELECTIVE, "1.tls-ech.dev");
+    udp_event = {
+            .id = this->vpn.listener_conn_id_generator.get(),
+            .protocol = IPPROTO_UDP,
+            .src = (sockaddr *) &src,
+            .dst = &dst,
+            .app_name = "TestAppName",
+    };
+    ASSERT_NO_FATAL_FAILURE(raise_and_complete(udp_event));
+    ASSERT_NO_FATAL_FAILURE(accept_and_send(udp_event, "1.tls-ech.dev.", LDNS_RR_TYPE_HTTPS));
+    user_server->expect({
+            .request = MockDnsServer::Request{.tcp = false, .qtype = LDNS_RR_TYPE_HTTPS, .qname = "1.tls-ech.dev."},
+            .response =
+                    MockDnsServer::Response{
+                            .rcode = LDNS_RCODE_NOERROR,
+                            .answer = {"1.tls-ech.dev. 60 IN HTTPS 1 . "
+                                       "echconfig=AEn+DQBFKwAgACABWIHUGj4u+"
+                                       "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA"},
+                    },
+    });
+    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_run(this->ev_loop.get());
+    vpn_event_loop_finalize_exit(this->ev_loop.get());
+    ASSERT_EQ(0, this->system_unexpected);
+    ASSERT_EQ(0, this->system_ipv6_unexpected);
+    ASSERT_EQ(0, this->user_unexpected);
+    ASSERT_EQ(2, this->user_complete);
+    ASSERT_TRUE(this->client_listener->connections.contains(udp_event.id));
+    ASSERT_TRUE(this->client_listener->connections[udp_event.id].last_send);
+    pkt = dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
+            this->client_listener->connections[udp_event.id].last_send->size()});
+    ASSERT_TRUE(pkt);
+    ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
+    str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));
+    ASSERT_STREQ("1.tls-ech.dev.\t60\tIN\tHTTPS\t1 .\n", str.get());
+}

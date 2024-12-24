@@ -864,16 +864,24 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
 }
 
 void ag::DnsHandler::on_dns_response(uint64_t upstream_conn_id, U8View message) {
+    dns_utils::LdnsBufferPtr pkt_buffer;
     auto decode_result = dns_utils::decode_packet(message);
     if (auto *response = std::get_if<dns_utils::DecodedReply>(&decode_result)) {
         if (std::ranges::any_of(response->names, [&](const std::string &name) {
                 return DFMS_EXCLUSION == ServerUpstream::vpn->domain_filter.match_domain(name);
             })) {
-            bool resolver_connection = is_vpn_resolver_connection(upstream_conn_id);
+            // Add exclusion suspects.
             for (const auto &addr : response->addresses) {
                 ServerUpstream::vpn->domain_filter.add_exclusion_suspect(
                         sockaddr_from_raw(addr.ip.data(), addr.ip.size(), 0),
-                        resolver_connection ? std::max(addr.ttl, Tunnel::EXCLUSIONS_RESOLVE_PERIOD) : addr.ttl);
+                        is_vpn_resolver_connection(upstream_conn_id) ? std::max(addr.ttl, Tunnel::EXCLUSIONS_RESOLVE_PERIOD) : addr.ttl);
+            }
+            // Remove ECH parameters.
+            if (dns_utils::remove_svcparam_echconfig(response->pkt.get())) {
+                pkt_buffer = dns_utils::encode_pkt(response->pkt.get());
+                if (pkt_buffer) {
+                    message = {ldns_buffer_at(pkt_buffer.get(), 0), ldns_buffer_position(pkt_buffer.get())};
+                }
             }
         }
     }

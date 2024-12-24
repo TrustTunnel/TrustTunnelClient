@@ -100,5 +100,8 @@ LdnsPktPtr decode_pkt(U8View message);
 /** Convert DNS message from an object model to wire format. Return nullptr on error. */
 LdnsBufferPtr encode_pkt(const ldns_pkt *pkt);
 
+/** Remove the "ech" parameter from the SvcParams part of any SVCB/HTTPS record contained in `pkt`. */
+bool remove_svcparam_echconfig(ldns_pkt *pkt);
+
 } // namespace dns_utils
 } // namespace ag

@@ -164,7 +164,7 @@ struct VpnClientLive : public ::testing::Test {
         std::unique_lock lock(log_guard);
         ASSERT_TRUE(log_waker.wait_for(lock, wait_for, [&]() {
             return log_storage.find(needle) != log_storage.npos;
-        }));
+        })) << needle;
     }
 
     template <class Result>
