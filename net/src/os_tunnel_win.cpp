@@ -251,7 +251,8 @@ ag::VpnError ag::VpnWinTunnel::init(
         errlog(logger, "{}", ag::sys::strerror(ag::sys::last_error()));
         return {-1, "Unable to set mtu for wintun session"};
     }
-    if (!setup_dns()) {
+    m_system_dns_setup_success = setup_dns();
+    if (!m_system_dns_setup_success) {
         errlog(logger, "{}", ag::sys::strerror(ag::sys::last_error()));
         return {-1, "Unable to set dns for wintun session"};
     }
@@ -442,6 +443,7 @@ void ag::VpnWinTunnel::deinit() {
     close_wintun(m_wintun_session, m_wintun_adapter);
     m_wintun_session = nullptr;
     m_wintun_adapter = nullptr;
+    m_system_dns_setup_success = false;
 }
 
 evutil_socket_t ag::VpnWinTunnel::get_fd() {
@@ -452,6 +454,10 @@ std::string ag::VpnWinTunnel::get_name() {
     char buf[IF_NAMESIZE + 1] = "";
     char *res = if_indextoname(m_if_index, buf);
     return res ? res : "";
+}
+
+bool ag::VpnWinTunnel::get_system_dns_setup_success() const {
+    return m_system_dns_setup_success;
 }
 
 std::optional<ag::VpnPacket> ag::VpnWinTunnel::recv_packet() {

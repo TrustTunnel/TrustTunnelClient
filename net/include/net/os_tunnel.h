@@ -126,6 +126,9 @@ public:
     /** Get interface name */
     virtual std::string get_name() = 0;
 
+    /** Get result of setup system DNS */
+    virtual bool get_system_dns_setup_success() const = 0;
+
 #ifdef _WIN32
 
     /** Start notifying about more packets available to receive. */
@@ -158,6 +161,7 @@ protected:
     DeclPtr<VpnOsTunnelSettings, &vpn_os_tunnel_settings_destroy> m_settings;
     // Interface index
     uint32_t m_if_index = 0;
+    bool m_system_dns_setup_success = false;
 };
 
 #ifdef __linux__
@@ -171,6 +175,8 @@ public:
     std::string get_name() override;
     /** Stop and deinit tunnel */
     void deinit() override;
+    /** Get result of setup system DNS */
+    bool get_system_dns_setup_success() const override;
     ~VpnLinuxTunnel() override = default;
 
 private:
@@ -196,6 +202,8 @@ public:
     std::string get_name() override;
     /** Stop and deinit tunnel */
     void deinit() override;
+    /** Get result of setup system DNS */
+    bool get_system_dns_setup_success() const override;
     ~VpnMacTunnel() override = default;
 
 protected:

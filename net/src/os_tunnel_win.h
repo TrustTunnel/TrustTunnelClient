@@ -22,6 +22,7 @@ public:
     /** Return EVUTIL_INVALID_SOCKET */
     evutil_socket_t get_fd() override;
     std::string get_name() override;
+    bool get_system_dns_setup_success() const override;
 
     VpnWinTunnel() = default;
     ~VpnWinTunnel() override;

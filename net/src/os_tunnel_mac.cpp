@@ -50,6 +50,7 @@ ag::VpnError ag::VpnMacTunnel::init(const ag::VpnOsTunnelSettings *settings) {
 
 void ag::VpnMacTunnel::deinit() {
     close(m_tun_fd);
+    m_system_dns_setup_success = false;
 }
 
 std::string ag::VpnMacTunnel::get_name() {
@@ -58,6 +59,10 @@ std::string ag::VpnMacTunnel::get_name() {
 
 evutil_socket_t ag::VpnMacTunnel::get_fd() {
     return m_tun_fd;
+}
+
+bool ag::VpnMacTunnel::get_system_dns_setup_success() const {
+    return m_system_dns_setup_success;
 }
 
 evutil_socket_t ag::VpnMacTunnel::tun_open() {
@@ -148,6 +153,8 @@ bool ag::VpnMacTunnel::setup_routes() {
 
 [[clang::optnone]]
 void ag::VpnMacTunnel::setup_dns() {
+    m_system_dns_setup_success = false;
     std::vector<std::string_view> dns_servers{m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
     m_dns_manager = VpnMacDnsSettingsManager::create(dns_servers);
+    m_system_dns_setup_success = (m_dns_manager != nullptr);
 }

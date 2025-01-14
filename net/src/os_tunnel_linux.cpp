@@ -53,6 +53,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings) {
 void ag::VpnLinuxTunnel::deinit() {
     close(m_tun_fd);
     teardown_routes(TABLE_ID);
+    m_system_dns_setup_success = false;
 }
 
 evutil_socket_t ag::VpnLinuxTunnel::get_fd() {
@@ -61,6 +62,10 @@ evutil_socket_t ag::VpnLinuxTunnel::get_fd() {
 
 std::string ag::VpnLinuxTunnel::get_name() {
     return m_tun_name;
+}
+
+bool ag::VpnLinuxTunnel::get_system_dns_setup_success() const {
+    return m_system_dns_setup_success;
 }
 
 evutil_socket_t ag::VpnLinuxTunnel::tun_open() {
@@ -156,13 +161,16 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
 }
 
 void ag::VpnLinuxTunnel::setup_dns() {
+    m_system_dns_setup_success = false;
     if (m_settings->dns_servers.size == 0) {
+        m_system_dns_setup_success = true;
         return;
     }
     std::vector<std::string_view> dns_servers{
             m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
-    ag::tunnel_utils::fsystem("resolvectl dns {} {}", m_tun_name, fmt::join(dns_servers, " "));
-    ag::tunnel_utils::fsystem("resolvectl domain {} '~.'", m_tun_name);
+
+    m_system_dns_setup_success = sys_cmd(AG_FMT("resolvectl dns {} {}", m_tun_name, fmt::join(dns_servers, " ")))
+                    && sys_cmd(AG_FMT("resolvectl domain {} '~.'", m_tun_name));
 }
 
 void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
