@@ -64,7 +64,7 @@ static constexpr size_t TCP_READ_THRESHOLD = 0;
 #ifdef _WIN32
 static constexpr bool TCP_RECORD_ESTATS = true;
 #endif
-static constexpr uint8_t TCP_TLS_ALPN_PROTOS[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1', 2, 'h', '2'};
+static constexpr uint8_t TCP_TLS_ALPN_PROTOS[] = {2, 'h', '2', 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
 
 typedef enum {
     VDSP_PLAIN,
