@@ -18,6 +18,11 @@ static void vpn_handler(void *, vpn_client::Event what, void *) {
     last_raised_vpn_event = what;
 }
 
+static int cert_verify_handler(
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+    return 1;
+}
+
 class VpnClientTest : public testing::Test {
 public:
     static constexpr auto HEALTH_CHECK_PERIOD = Millis{500};
@@ -38,6 +43,7 @@ public:
                 .ev_loop = this->ev_loop.get(),
                 .network_manager = this->network_manager.get(),
                 .handler = {&vpn_handler, this},
+                .cert_verify_handler = {&cert_verify_handler, this},
         };
 
         VpnSettings settings = {};

@@ -544,6 +544,11 @@ bool ag::DnsHandler::initialize(VpnClient *vpn, ServerHandler upstream_handler, 
         assert(0);
     }
 
+    if (m_parameters.cert_verify_handler.func == nullptr) {
+        log_handler(this, err, "Cert verify handler is not set");
+        return false;
+    }
+
     if (!start_dns_proxy()) {
         shutdown();
         return false;
@@ -560,6 +565,10 @@ bool ag::DnsHandler::initialize(VpnClient *vpn, ServerHandler upstream_handler, 
 }
 
 bool ag::DnsHandler::update_parameters(DnsHandlerParameters parameters) {
+    if (parameters.cert_verify_handler.func == nullptr) {
+        log_handler(this, err, "Cert verify handler is not set");
+        return false;
+    }
     this->m_parameters = std::move(parameters);
     return start_dns_proxy();
 }
@@ -580,11 +589,6 @@ bool ag::DnsHandler::start_dns_proxy() {
             || !sockaddr_is_loopback((sockaddr *) &m_parameters.dns_proxy_listener_address)) {
         log_handler(this, warn, "DNS proxy listener address is invalid: {}",
                 sockaddr_to_str((sockaddr *) &m_parameters.dns_proxy_listener_address));
-        return false;
-    }
-
-    if (m_parameters.cert_verify_handler.func == nullptr) {
-        log_handler(this, warn, "DNS proxy cert verify handler is not set");
         return false;
     }
 

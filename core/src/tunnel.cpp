@@ -497,7 +497,7 @@ static void report_connection_info(const Tunnel *self, VpnConnection *conn, cons
 }
 
 static std::optional<DnsHandlerParameters> make_dns_handler_parameters(Tunnel *self) {
-    DnsHandlerParameters parameters{};
+    DnsHandlerParameters parameters{.cert_verify_handler = self->vpn->parameters.cert_verify_handler};
     if (self->vpn->listener_config.dns_upstreams.size) {
         if (!self->vpn->dns_proxy_listener) {
             log_tun(self, warn, "There are user-provided DNS upstreams, but the DNS proxy listener is not initialized");
@@ -509,7 +509,6 @@ static std::optional<DnsHandlerParameters> make_dns_handler_parameters(Tunnel *s
         }
         parameters.dns_proxy_listener_address =
                 ((SocksListener *) self->vpn->dns_proxy_listener.get())->get_listen_address();
-        parameters.cert_verify_handler = self->vpn->parameters.cert_verify_handler;
     }
     return parameters;
 }

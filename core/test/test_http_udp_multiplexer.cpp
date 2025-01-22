@@ -9,6 +9,11 @@
 #include "vpn/internal/server_upstream.h"
 #include "vpn/internal/vpn_client.h"
 
+static int cert_verify_handler(
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const ag::CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+    return 1;
+}
+
 class HttpUdpMultiplexer : public ::testing::Test, public ag::ServerUpstream {
 public:
     HttpUdpMultiplexer()
@@ -20,6 +25,7 @@ protected:
     ag::UniquePtr<ag::VpnEventLoop, ag::vpn_event_loop_destroy> ev_loop{ag::vpn_event_loop_create()};
     ag::VpnClient vpn{ag::vpn_client::Parameters{
             .ev_loop = ev_loop.get(),
+            .cert_verify_handler = {&cert_verify_handler, this},
     }};
     ag::HttpUdpMultiplexer mux{ag::HttpUdpMultiplexerParameters{
             .parent = this,

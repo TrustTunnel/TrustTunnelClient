@@ -214,7 +214,7 @@ struct DnsHandlerParameters {
     sockaddr_storage dns_proxy_listener_address;
     /** User-provided DNS server addresses specified in `ag::VpnListenerConfig::dns_upstreams`. */
     std::vector<DnsProxyAccessor::Upstream> dns_upstreams;
-    /** Cert verify callback for the DNS proxy. */
+    /** Cert verify callback for the DNS proxies. */
     CertVerifyHandler cert_verify_handler;
 };
 

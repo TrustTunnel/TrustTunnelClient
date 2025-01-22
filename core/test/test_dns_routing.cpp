@@ -19,6 +19,11 @@
 
 using namespace ag; // NOLINT(google-build-using-namespace)
 
+static int cert_verify_handler(
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+    return 1;
+}
+
 class TestUpstream : public ServerUpstream {
 public:
     static inline int g_next_upstream_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -193,6 +198,7 @@ public:
     }
 
     void SetUp() override {
+        vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         vpn.parameters.handler = {&vpn_handler, this};
         vpn.parameters.network_manager = network_manager.get();
 
@@ -352,6 +358,7 @@ TEST_F(AppInitiatedDnsRouting, NonMatchingDomain) {
 class CustomDnsRouting : public DnsRouting {
 public:
     void SetUp() override {
+        vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         vpn.parameters.handler = {&vpn_handler, this};
         vpn.parameters.network_manager = network_manager.get();
 

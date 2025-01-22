@@ -8,6 +8,11 @@
 
 using namespace ag;
 
+static int cert_verify_handler(
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+    return 1;
+}
+
 struct TestUpstreamInfo {
     ServerHandler handler;
     std::unordered_set<uint64_t> connections;
@@ -67,6 +72,7 @@ public:
     void SetUp() override {
         g_open_session_result = true;
 
+        this->vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         this->vpn.endpoint_upstream = std::make_unique<UpstreamMultiplexer>(0, VpnUpstreamProtocolConfig{}, 0,
                 [](const VpnUpstreamProtocolConfig &, int id, VpnClient *vpn,
                         ServerHandler handler) -> std::unique_ptr<MultiplexableUpstream> {

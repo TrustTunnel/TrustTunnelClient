@@ -201,6 +201,11 @@ int TestUpstream::g_next_upstream_id = 0;
 size_t TestListener::g_next_connection_id = 1000000;
 static vpn_client::Event g_last_raised_vpn_event;
 
+static int cert_verify_handler(
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+    return 1;
+}
+
 static void vpn_handler(void *, vpn_client::Event what, void *) {
     g_last_raised_vpn_event = what;
 }
@@ -247,6 +252,7 @@ public:
         src = sockaddr_from_str("1.1.1.1:1000");
         dst = sockaddr_from_str("1.1.1.2:443");
 
+        vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         vpn.parameters.handler = {&vpn_handler, this};
         vpn.parameters.network_manager = network_manager.get();
 
