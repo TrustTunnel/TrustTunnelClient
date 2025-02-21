@@ -186,8 +186,11 @@ std::optional<std::vector<uint8_t>> quic_utils::decrypt_initial(
                 payload_offset, &max_overhead)) {
         return std::nullopt;
     }
+    if (max_overhead > payload_len + payload_offset) {
+        return std::nullopt;
+    }
     // decrypted packet size
-    size_t decrypted_size = decrypted_packet.size() - max_overhead;
+    size_t decrypted_size = payload_len + payload_offset - max_overhead;
     // remove info before payload start position
     decrypted_packet.resize(decrypted_size);
     decrypted_packet.erase(decrypted_packet.begin(), decrypted_packet.begin() + payload_offset);
@@ -342,11 +345,7 @@ std::optional<std::vector<uint8_t>> quic_utils::prepare_for_domain_lookup(
     if (!payload.has_value()) {
         return std::nullopt;
     }
-    auto crypto_frames = ag::quic_utils::reassemble_initial_crypto_frames({payload->data(), payload->size()});
-    if (!crypto_frames.has_value()) {
-        dbglog(log, "QUIC unable to reassemble crypto frames");
-    }
-    return crypto_frames;
+    return payload;
 }
 
 } // namespace ag

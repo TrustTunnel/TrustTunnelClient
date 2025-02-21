@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "net/quic_utils.h"
 #include "net/tls.h"
 #include "vpn/internal/utils.h"
 
@@ -16,40 +17,35 @@ struct Parser { // NOLINT(cppcoreguidelines-special-member-functions,hicpp-speci
 };
 
 struct QuicParser : public Parser {
-
     TlsReader reader = {};
 
     ~QuicParser() override = default;
 
     DomainLookuperResult parse(DomainLookuperPacketDirection dir, std::vector<uint8_t> *buffer) override {
-
         if (dir != DLUPD_OUTGOING) {
             return {DLUS_NOTFOUND}; // not TLS
         }
 
-        tls_input_hshake(&this->reader, buffer->data(), buffer->size());
+        auto reassembled_crypto = ag::quic_utils::reassemble_initial_crypto_frames({buffer->data(), buffer->size()});
+        if (!reassembled_crypto.has_value()) {
+            return {DLUS_NOTFOUND};
+        }
+        tls_input_hshake(&this->reader, reassembled_crypto->data(), reassembled_crypto->size());
 
-        bool got_sni = false;
-        bool stop = false;
-        while (!stop) {
+        for (;;) {
             TlsParseResult r = tls_parse(&this->reader);
             switch (r) {
-            case TlsParseResult::TLS_RCLIENT_HELLO_SNI:
-                got_sni = true;
-                [[fallthrough]];
-            case TlsParseResult::TLS_RERR:
-            case TlsParseResult::TLS_RMORE:
-            case TlsParseResult::TLS_RDONE:
-                stop = true;
-                break;
+            case TLS_RCLIENT_HELLO_SNI:
+                return {DLUS_FOUND, {this->reader.tls_hostname.data(), this->reader.tls_hostname.size()}};
+            case TLS_RERR:
+            case TLS_RMORE:
+                return {DLUS_WANT_MORE};
+            case TLS_RDONE:
+                return {DLUS_NOTFOUND};
             default:
                 continue;
             }
         }
-        if (got_sni) {
-            return {DLUS_FOUND, {this->reader.tls_hostname.data(), this->reader.tls_hostname.size()}};
-        }
-        return {DLUS_NOTFOUND};
     }
 };
 

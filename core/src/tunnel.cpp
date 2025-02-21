@@ -1694,6 +1694,10 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             conn->flags.reset(CONNF_SUSPECT_EXCLUSION);
             event->result = initiate_connection_migration(
                     this, conn, select_upstream(this, VPN_CA_DEFAULT, conn), {event->data, event->length});
+            if (event->result < 0) {
+                close_client_side_connection(this, conn, utils::AG_ECONNREFUSED, /*async*/ true);
+                listener->turn_read(conn->client_id, false);
+            }
             break;
         }
 
