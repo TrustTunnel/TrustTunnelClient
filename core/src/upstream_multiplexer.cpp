@@ -274,6 +274,10 @@ void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &event) {
 void UpstreamMultiplexer::close_upstream(int upstream_id) {
     log_ups(this, upstream_id, dbg, "...");
 
+    if (m_health_check_upstream_id == upstream_id) {
+        m_health_check_upstream_id.reset();
+    }
+
     auto it = m_upstreams_pool.find(upstream_id);
     if (it == m_upstreams_pool.end()) {
         log_ups(this, upstream_id, warn, "Upstream not found");

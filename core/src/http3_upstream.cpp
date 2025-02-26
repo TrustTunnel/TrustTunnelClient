@@ -865,9 +865,8 @@ void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *heade
 
     auto found = get_tcp_conn_by_stream_id(stream_id);
     if (found.second == nullptr) {
-        log_stream(this, stream_id, dbg, "Got response on nonexistent connection");
+        log_stream(this, stream_id, dbg, "No connection for stream id={}", stream_id);
         close_stream(stream_id, H3_REQUEST_CANCELLED);
-        assert(0);
         return;
     }
 
@@ -1298,6 +1297,7 @@ void Http3Upstream::handle_sleep() {
     if (m_state != H3US_IDLE) {
         this->flush_pending_quic_data();
     }
+    m_health_check_info.reset();
 
     log_upstream(this, dbg, "Done");
 }

@@ -101,8 +101,8 @@ void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
         auto found = get_conn_by_stream_id(stream_id);
 
         if (found.second == nullptr) {
-            log_upstream(this, dbg, "Got response on closed connection: stream={}", stream_id);
-            assert(0);
+            log_upstream(this, dbg, "No connection for stream id={}", stream_id);
+            http_session_reset_stream(m_session.get(), stream_id, NGHTTP2_CANCEL);
             return;
         }
 
