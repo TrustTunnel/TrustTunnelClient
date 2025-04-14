@@ -40,11 +40,25 @@ target_compile_definitions(vpnlibs_standalone PUBLIC TOML_EXCEPTIONS=0)
 target_compile_definitions(vpnlibs_standalone PUBLIC _HAS_EXCEPTIONS=0)
 target_compile_definitions(vpnlibs_standalone PUBLIC CXXOPTS_NO_RTTI=1 CXXOPTS_NO_EXCEPTIONS=1)
 
-add_executable(standalone_client EXCLUDE_FROM_ALL standalone_client.cpp)
+set(EXE_SOURCE_FILES
+        src/standalone_client.cpp
+)
+
+if (APPLE)
+    list(APPEND EXE_SOURCE_FILES
+            src/AppleSleepNotifier.mm
+    )
+endif ()
+
+add_executable(standalone_client EXCLUDE_FROM_ALL ${EXE_SOURCE_FILES})
 target_link_libraries(standalone_client vpnlibs_standalone)
 if (NOT MSVC)
     target_compile_options(standalone_client PRIVATE "-fno-exceptions")
 endif (NOT MSVC)
+
+if (APPLE)
+    target_link_libraries(standalone_client "-framework IOKit")
+endif ()
 
 if (WIN32)
     set(WIZARD_EXE_NAME setup_wizard.exe)

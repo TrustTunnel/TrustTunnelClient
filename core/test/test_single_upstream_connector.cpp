@@ -6,7 +6,6 @@ using namespace ag;
 
 struct UpstreamReturnValues {
     bool open_session = true;
-    VpnError do_health_check = {};
 };
 
 struct UpstreamCalledMethods {
@@ -45,9 +44,10 @@ public:
     }
     void update_flow_control(uint64_t, TcpFlowCtrlInfo) override {
     }
-    VpnError do_health_check() override {
+    void do_health_check() override {
         this->called_methods.do_health_check = true;
-        return this->return_values.do_health_check;
+    }
+    void cancel_health_check() override {
     }
     [[nodiscard]] VpnConnectionStats get_connection_stats() const override {
         return {};

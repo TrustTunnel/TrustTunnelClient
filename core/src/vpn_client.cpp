@@ -54,8 +54,6 @@ enum SessionEvent {
 static constexpr auto STATE_NAMES = make_enum_names_array<State>();
 static constexpr auto EVENT_NAMES = make_enum_names_array<SessionEvent>();
 
-static bool is_successful(const void *ctx, void *data);
-
 static void run_connect(void *ctx, void *data);
 static void raise_connected(void *ctx, void *data);
 static void raise_disconnected(void *ctx, void *data);
@@ -74,7 +72,6 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {S_CONNECTED,           E_SESSION_CLOSED,       Fsm::ANYWAY,    Fsm::DO_NOTHING,       S_DISCONNECTED,         raise_disconnected},
         {S_CONNECTED,           E_SESSION_ERROR,        Fsm::ANYWAY,    submit_disconnect,     S_DISCONNECTING,        Fsm::DO_NOTHING},
         {S_CONNECTED,           E_RUN_PREPARATION_FAIL, Fsm::ANYWAY,    submit_disconnect,     S_DISCONNECTING,        Fsm::DO_NOTHING},
-        {S_CONNECTED,           E_HEALTH_CHECK_READY,   is_successful,  Fsm::DO_NOTHING,       Fsm::SAME_TARGET_STATE, Fsm::DO_NOTHING},
         {S_CONNECTED,           E_HEALTH_CHECK_READY,   Fsm::OTHERWISE, submit_disconnect,     S_DISCONNECTING,        Fsm::DO_NOTHING},
 
         {S_DISCONNECTING,       E_SESSION_CLOSED,       Fsm::ANYWAY,    Fsm::DO_NOTHING,       S_DISCONNECTED,         raise_disconnected},
@@ -166,11 +163,8 @@ static void vpn_upstream_handler(void *arg, ServerEvent what, void *data) {
     }
     case SERVER_EVENT_HEALTH_CHECK_RESULT: {
         const VpnError *error = (VpnError *) data;
-        if (error == nullptr || error->code == VPN_EC_NOERROR) {
-            log_client(vpn, dbg, "Health check succeeded");
-        } else {
-            log_client(vpn, dbg, "Health check error: {} ({})", error->text, error->code);
-        }
+        assert(error);
+        log_client(vpn, info, "Health check error: {} ({})", error->text, error->code);
         vpn->fsm.perform_transition(vpn_client::E_HEALTH_CHECK_READY, data);
         break;
     }
@@ -336,10 +330,7 @@ static void submit_health_check(VpnClient *vpn, milliseconds postpone) {
                             return;
                         }
 
-                        VpnError error = vpn->endpoint_upstream->do_health_check();
-                        if (error.code != VPN_EC_NOERROR) {
-                            vpn->fsm.perform_transition(vpn_client::E_HEALTH_CHECK_READY, &error);
-                        }
+                        vpn->endpoint_upstream->do_health_check();
                     },
             },
             postpone));
@@ -665,6 +656,7 @@ void VpnClient::handle_sleep() {
         [[fallthrough]];
     case vpn_client::S_CONNECTED:
         this->endpoint_upstream->handle_sleep();
+        this->tunnel->handle_sleep();
         break;
     case vpn_client::S_DISCONNECTED:
     case vpn_client::S_DISCONNECTING:
@@ -689,6 +681,7 @@ void VpnClient::handle_wake() {
         [[fallthrough]];
     case vpn_client::S_CONNECTED:
         this->endpoint_upstream->handle_wake();
+        this->tunnel->handle_wake();
         break;
     case vpn_client::S_DISCONNECTED:
     case vpn_client::S_DISCONNECTING:
@@ -713,13 +706,6 @@ void VpnClient::reject_connect_request(uint64_t id) { // NOLINT(readability-make
 
 void VpnClient::reset_connection(uint64_t id) { // NOLINT(readability-make-member-function-const)
     this->tunnel->reset_connection(id);
-}
-
-static bool vpn_client::is_successful(const void *ctx, void *data) {
-    const VpnError *error = (VpnError *) data;
-    const VpnClient *vpn = (VpnClient *) ctx;
-    return (error == nullptr || error->code == VPN_EC_NOERROR)
-            && (!vpn->pending_error.has_value() || vpn->pending_error->code == VPN_EC_NOERROR);
 }
 
 static void vpn_client::run_connect(void *ctx, void *data) {

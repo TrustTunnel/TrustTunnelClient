@@ -80,6 +80,14 @@ void VpnStandaloneClient::notify_network_change(VpnNetworkState state) {
     vpn_notify_network_change(m_vpn, state);
 }
 
+void VpnStandaloneClient::notify_sleep() {
+    vpn_notify_sleep(m_vpn, [](void *){}, nullptr);
+}
+
+void VpnStandaloneClient::notify_wake() {
+    vpn_notify_wake(m_vpn);
+}
+
 void VpnStandaloneClient::vpn_protect_socket(SocketProtectEvent *event) {
     const auto *tun = std::get_if<VpnStandaloneConfig::TunListener>(&m_config.listener);
     if (tun == nullptr) {
@@ -413,7 +421,7 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
             errlog(m_logger, "Error: {} {}", event->error.code, safe_to_string_view(event->error.text));
             break;
         case VPN_SS_WAITING_RECOVERY:
-            warnlog(m_logger, "Waiting recovery: to next={}ms error={} {}",
+            infolog(m_logger, "Waiting recovery: to next={}ms error={} {}",
                     event->waiting_recovery_info.time_to_next_ms, event->waiting_recovery_info.error.code,
                     safe_to_string_view(event->waiting_recovery_info.error.text));
             break;

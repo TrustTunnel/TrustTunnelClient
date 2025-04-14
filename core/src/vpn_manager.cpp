@@ -607,7 +607,7 @@ void vpn_request_endpoint_connection_stats(Vpn *vpn) {
 }
 
 void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
-    log_vpn(vpn, dbg, "...");
+    log_vpn(vpn, info, "System is going to sleep");
 
     std::unique_lock l(vpn->stop_guard);
 
@@ -629,15 +629,12 @@ void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
         }).release();
     }).release();
 
-
-    log_vpn(vpn, dbg, "Done");
-
     l.unlock();
     // completion handler may be ran here unlocked
 }
 
 void vpn_notify_wake(Vpn *vpn) {
-    log_vpn(vpn, dbg, "...");
+    log_vpn(vpn, info, "System has woken up");
     std::unique_lock l(vpn->stop_guard);
 
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
@@ -650,7 +647,6 @@ void vpn_notify_wake(Vpn *vpn) {
     vpn->submit([vpn] {
         vpn->client.handle_wake();
     });
-    log_vpn(vpn, dbg, "Done");
 }
 
 VpnExclusionValidationStatus vpn_validate_exclusion(const char *text) {

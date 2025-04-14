@@ -36,8 +36,9 @@ public:
     }
     void update_flow_control(uint64_t, TcpFlowCtrlInfo) override {
     }
-    VpnError do_health_check() override {
-        return {};
+    void do_health_check() override {
+    }
+    void cancel_health_check() override {
     }
     VpnConnectionStats get_connection_stats() const override {
         return {};

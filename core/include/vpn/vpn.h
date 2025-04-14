@@ -198,15 +198,20 @@ typedef struct {
      */
     uint32_t location_ping_timeout_ms;
     /**
-     * If the library doesn't receive any data from the upstream within the specified
-     * amount of time since the last data was received, the connection is closed.
-     * If 0, `VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS` will be assigned.
+     * This setting controls how long the library waits for a response when
+     * establishing a connection with a VPN endpoint, and also affects how
+     * often connection health checks are performed (see `health_check_timeout_ms`).
+     * If 0, the default value of `VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS` will be used.
      */
     uint32_t timeout_ms;
     /**
-     * The library will send a "health check" request to the upstream `health_check_timeout_ms`
-     * milliseconds before the connection times out due to `timeout_ms`. This value should not be greater
-     * than `timeout_ms`. Values greater than `timeout_ms` will be clamped to `timeout_ms`.
+     * The library checks if the connection to the VPN endpoint is healthy at various
+     * points in time, but not more frequently than every `timeout_ms` milliseconds.
+     * If the healthiness of the connection can not be confirmed within `health_check_timeout_ms`,
+     * recovery is started. Setting the value of this option too low will incur spurious reconnects
+     * if the network is slow or unreliable. Setting it too high will worsen the user experience
+     * in case of a NAT rebinding or a similar issue.
+     * If 0, the default value of `VPN_DEFAULT_HEALTH_CHECK_TIMEOUT_MS` will be used.
      */
     uint32_t health_check_timeout_ms;
     /** Username for authorization */

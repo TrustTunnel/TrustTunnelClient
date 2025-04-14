@@ -44,6 +44,24 @@ struct Tunnel {
     ag::Logger log{"TUNNEL"};
     int id;
     bool endpoint_upstream_connected = false;
+
+    /**
+     * This flag is set by `handle_sleep()` and reset by `handle_wake()`.
+     * While this flag is set, no health checks are issued.
+     */
+    bool sleeping = false;
+
+    /**
+     * The time at which the most recent health check was issued,
+     * as reported by `event_base_gettimeofday_cached()`.
+     *
+     * A health check is always issued by `handle_wake()` (after resetting the `sleeping` flag),
+     * regardless of this value. Otherwise, a health check is issued after opening a connection
+     * or sending data on the endpoint upstream if and only if the time since `last_health_check_at`
+     * is greater than or equal to `ag::VpnUpstreamConfig::timeout_ms` and the `sleeping` flag is not set.
+     */
+    timeval last_health_check_at = {};
+
     std::shared_ptr<VpnDnsResolver> dns_resolver;
     std::unordered_map<VpnDnsResolveId, DnsResolveWaiter> dns_resolve_waiters;
     event_loop::AutoTaskId repeat_exclusions_resolve_task;
@@ -96,6 +114,20 @@ struct Tunnel {
     bool update_dns_handler_parameters();
 
     void on_network_change();
+
+    /**
+     * If a health check can be issued at this time or `force` is `true`,
+     * issue a health check on `upstream`. Otherwise, do nothing.
+     *
+     * If `sleeping` is `true`, a health check will not be issued, regardless of `force`.
+     */
+    void do_health_check(const std::shared_ptr<ServerUpstream> &upstream, bool force = false);
+
+    /** Must be called before the system goes to sleep. */
+    void handle_sleep();
+
+    /** Must be called after the system has woken from sleep. */
+    void handle_wake();
 };
 
 } // namespace ag

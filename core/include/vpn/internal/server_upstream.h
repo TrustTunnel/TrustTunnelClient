@@ -23,7 +23,7 @@ enum ServerEvent {
                                      */
     SERVER_EVENT_READ, /**< Called when some data needs to be sent via connection (raised with `ServerReadEvent`) */
     SERVER_EVENT_DATA_SENT, /**< Called when some data was sent to client (raised with `ServerDataSentEvent`) */
-    SERVER_EVENT_HEALTH_CHECK_RESULT,   /**< Called when a health check result is ready (raised with `VpnError`) */
+    SERVER_EVENT_HEALTH_CHECK_RESULT,   /**< Called when a health check result has failed (raised with `VpnError`) */
     SERVER_EVENT_GET_AVAILABLE_TO_SEND, /**< Called when the upstream wants to know available size for sending (raised
                                            with `ServerAvailableToSendEvent`) */
     SERVER_EVENT_ERROR,      /**< Called when some error happened on server side (raised with `ServerError`) */
@@ -168,10 +168,17 @@ public:
     virtual void update_flow_control(uint64_t id, TcpFlowCtrlInfo info) = 0;
 
     /**
-     * Perform health check procedure
-     * @return VPN_EC_NOERROR in case of success, some error code otherwise
+     * Perform a connection health check. If the connection is healthy,
+     * nothing is reported. If the connection is determined to be unhealthy,
+     * a `SERVER_EVENT_HEALTH_CHECK_RESULT` is raised with an error description.
      */
-    virtual VpnError do_health_check() = 0;
+    virtual void do_health_check() = 0;
+
+    /**
+     * Cancel an in-progress connection health check. No result will be reported.
+     * If no connection health check is currently in progress, do nothing.
+     */
+    virtual void cancel_health_check() = 0;
 
     /**
      * Get statistics of the connection to endpoint

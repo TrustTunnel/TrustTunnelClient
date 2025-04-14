@@ -1020,7 +1020,7 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
                 safe_to_string_view(error.text), error.code);
         terminate_udp_association(listener, conn, error);
     } else if (has_event) {
-        tcp_socket_set_timeout(conn->socket.get(), Millis::max());
+        tcp_socket_set_timeout(conn->socket.get(), Millis{});
         tcp_socket_set_read_enabled(conn->socket.get(), true);
         log_conn(listener, conn->id, 0, dbg, "UDP association started on port {}...",
                 sockaddr_get_port((struct sockaddr *) &bound_addr));

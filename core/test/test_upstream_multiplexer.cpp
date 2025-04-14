@@ -42,7 +42,8 @@ public:
     size_t available_to_send(uint64_t id) override;
     void update_flow_control(uint64_t id, TcpFlowCtrlInfo info) override;
     [[nodiscard]] size_t connections_num() const override;
-    VpnError do_health_check() override;
+    void do_health_check() override;
+    void cancel_health_check() override;
     [[nodiscard]] VpnConnectionStats get_connection_stats() const override;
     void on_icmp_request(IcmpEchoRequestEvent &event) override;
 };
@@ -230,9 +231,10 @@ void TestUpstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
 size_t TestUpstream::connections_num() const {
     return UpstreamMuxTest::g_upstreams[m_id].connections.size();
 }
-VpnError TestUpstream::do_health_check() {
+void TestUpstream::do_health_check() {
     UpstreamMuxTest::g_health_checking_upstream_id = m_id;
-    return {};
+}
+void TestUpstream::cancel_health_check() {
 }
 VpnConnectionStats TestUpstream::get_connection_stats() const {
     return {};
@@ -367,24 +369,6 @@ TEST_F(UpstreamMuxTest, FatalErrorOnSomeUpstream) {
 
     int id = g_upstreams.begin()->first;
     ASSERT_NO_FATAL_FAILURE(notify_session_error(id, VPN_EC_AUTH_REQUIRED));
-    run_event_loop_once();
-    ASSERT_TRUE(g_upstreams.empty());
-    ASSERT_TRUE(is_raised(SERVER_EVENT_ERROR)) << std::hex << events;
-}
-
-// Check that the session error event is raised after an error on a health checking upstream
-TEST_F(UpstreamMuxTest, ErrorOnHealthCheckingUpstream) {
-    for (size_t i = 0; i
-            < UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD * UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM;
-            ++i) {
-        ASSERT_NO_FATAL_FAILURE(open_connection());
-    }
-
-    VpnError error = this->vpn.endpoint_upstream->do_health_check();
-    ASSERT_EQ(error.code, VPN_EC_NOERROR) << error.text;
-    ASSERT_TRUE(g_health_checking_upstream_id.has_value());
-
-    ASSERT_NO_FATAL_FAILURE(notify_session_error(g_health_checking_upstream_id.value(), VPN_EC_ERROR));
     run_event_loop_once();
     ASSERT_TRUE(g_upstreams.empty());
     ASSERT_TRUE(is_raised(SERVER_EVENT_ERROR)) << std::hex << events;

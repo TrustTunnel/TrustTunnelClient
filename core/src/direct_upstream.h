@@ -65,7 +65,8 @@ private:
     void consume(uint64_t id, size_t length) override;
     size_t available_to_send(uint64_t id) override;
     void update_flow_control(uint64_t id, TcpFlowCtrlInfo info) override;
-    VpnError do_health_check() override;
+    void do_health_check() override;
+    void cancel_health_check() override;
     [[nodiscard]] VpnConnectionStats get_connection_stats() const override;
     void on_icmp_request(IcmpEchoRequestEvent &event) override;
 

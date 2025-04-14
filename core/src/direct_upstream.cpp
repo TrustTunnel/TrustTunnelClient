@@ -396,9 +396,12 @@ void DirectUpstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
     }
 }
 
-VpnError DirectUpstream::do_health_check() {
+void DirectUpstream::do_health_check() {
     assert(0);
-    return {VPN_EC_ERROR, "Not implemented"};
+}
+
+void DirectUpstream::cancel_health_check() {
+    assert(0);
 }
 
 VpnConnectionStats DirectUpstream::get_connection_stats() const {

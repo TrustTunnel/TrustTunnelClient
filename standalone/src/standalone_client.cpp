@@ -16,6 +16,10 @@
 #include "vpn/standalone/client.h"
 #include "vpn/standalone/config.h"
 
+#ifdef __APPLE__
+#include "AppleSleepNotifier.h"
+#endif
+
 static constexpr std::string_view DEFAULT_CONFIG_FILE = "standalone_client.toml";
 
 using namespace ag;
@@ -111,10 +115,22 @@ int main(int argc, char **argv) {
         errlog(g_logger, "{}", res->str());
         return -1;
     }
+
+#ifdef __APPLE__
+    auto sleep_notifier = std::make_unique<AppleSleepNotifier>(
+            [] { g_client->notify_sleep(); },
+            [] { g_client->notify_wake(); });
+#endif
+
     std::unique_lock<std::mutex> lock(g_waiter_mutex);
     g_waiter.wait(lock, []() {
         return !keep_running.load();
     });
+
+#ifdef __APPLE__
+    sleep_notifier.reset();
+#endif
+
     g_client->disconnect();
     delete g_client;
     return 0;

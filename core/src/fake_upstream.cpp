@@ -86,9 +86,12 @@ void FakeUpstream::update_flow_control(uint64_t, TcpFlowCtrlInfo) {
     // can be called from tunnel
 }
 
-VpnError FakeUpstream::do_health_check() {
+void FakeUpstream::do_health_check() {
     assert(0);
-    return {VPN_EC_ERROR, "Internal error"};
+}
+
+void FakeUpstream::cancel_health_check() {
+    assert(0);
 }
 
 VpnConnectionStats FakeUpstream::get_connection_stats() const {

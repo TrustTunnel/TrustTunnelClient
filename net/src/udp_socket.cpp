@@ -1,6 +1,7 @@
 #include "net/udp_socket.h"
 
 #include <atomic>
+#include <optional>
 #include <utility>
 
 #include <event2/event.h>
@@ -24,7 +25,7 @@ struct UdpSocket {
     struct event *event;
     struct timeval timeout_ts;
     UdpSocketParameters parameters;
-    int subscribe_id;
+    std::optional<int> subscribe_id;
     char log_id[11 + SOCKADDR_STR_BUF_SIZE];
 };
 
@@ -36,6 +37,9 @@ void socket_manager_timer_unsubscribe(SocketManager *manager, int id);
 }
 
 static struct timeval get_next_timeout_ts(const UdpSocket *sock) {
+    if (!sock->parameters.timeout.count()) {
+        return {};
+    }
     struct timeval now;
     event_base_gettimeofday_cached(vpn_event_loop_get_base(sock->parameters.ev_loop), &now);
     struct timeval timeout_tv = ms_to_timeval(uint32_t(sock->parameters.timeout.count()));
@@ -83,11 +87,7 @@ static int get_sock_type(evutil_socket_t fd) {
 }
 
 static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters, evutil_socket_t fd, bool create_fd) {
-    static_assert(std::is_trivial_v<UdpSocket>);
-    auto sock = (UdpSocket *) calloc(1, sizeof(UdpSocket));
-    if (sock == nullptr) {
-        return nullptr;
-    }
+    auto sock = new UdpSocket{};
 
     sock->parameters = *parameters;
 
@@ -156,14 +156,15 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
             goto fail;
         }
 
-        sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
-                uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
-        if (sock->subscribe_id < 0) {
-            log_sock(sock, err, "Failed to subscribe for timer events");
-            goto fail;
-        }
-
         sock->timeout_ts = get_next_timeout_ts(sock);
+        if (sock->parameters.timeout.count()) {
+            sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
+                uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
+            if (sock->subscribe_id < 0) {
+                log_sock(sock, err, "Failed to subscribe for timer events");
+                goto fail;
+            }
+        }
     }
     goto exit;
 
@@ -195,8 +196,10 @@ void udp_socket_destroy(UdpSocket *socket) {
         evutil_closesocket(event_get_fd(socket->event));
         event_free(socket->event);
     }
-    socket_manager_timer_unsubscribe(socket->parameters.socket_manager, socket->subscribe_id);
-    free(socket);
+    if (socket->subscribe_id) {
+        socket_manager_timer_unsubscribe(socket->parameters.socket_manager, *socket->subscribe_id);
+    }
+    delete socket;
 }
 
 VpnError udp_socket_write(UdpSocket *socket, const uint8_t *data, size_t length) {
@@ -270,11 +273,21 @@ ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap) {
 }
 
 void udp_socket_set_timeout(UdpSocket *socket, Millis timeout) {
-    socket->parameters.timeout = timeout;
-    socket->timeout_ts = get_next_timeout_ts(socket);
-    socket_manager_timer_unsubscribe(socket->parameters.socket_manager, socket->subscribe_id);
-    socket->subscribe_id = socket_manager_timer_subscribe(socket->parameters.socket_manager, socket->parameters.ev_loop,
-            uint32_t(socket->parameters.timeout.count()), timer_callback, socket);
+    if (!socket->parameters.socket_manager) {
+        return;
+    }
+    if (socket->subscribe_id.has_value()) {
+        socket_manager_timer_unsubscribe(socket->parameters.socket_manager, *socket->subscribe_id);
+    }
+    if (timeout.count()) {
+        log_sock(socket, dbg, "{}", timeout);
+        socket->parameters.timeout = timeout;
+        socket->timeout_ts = get_next_timeout_ts(socket);
+        socket->subscribe_id = socket_manager_timer_subscribe(socket->parameters.socket_manager, socket->parameters.ev_loop,
+                uint32_t(socket->parameters.timeout.count()), timer_callback, socket);
+    } else {
+        log_sock(socket, dbg, "Timeout disabled");
+    }
 }
 
 evutil_socket_t udp_socket_release_fd(UdpSocket *socket) {

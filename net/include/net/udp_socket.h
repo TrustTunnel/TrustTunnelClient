@@ -10,7 +10,7 @@
 
 namespace ag {
 
-typedef struct UdpSocket UdpSocket;
+struct UdpSocket;
 
 typedef enum {
     UDP_SOCKET_EVENT_PROTECT,  /**< Raised when socket needs to be protected (raised with `SocketProtectEvent`) */
@@ -26,8 +26,8 @@ typedef struct {
 typedef struct {
     VpnEventLoop *ev_loop; // event loop for operation
     UdpSocketCallbacks handler;
-    Millis timeout;                // operation time out value
-    struct sockaddr_storage peer;  // destination peer (must be set)
+    Millis timeout;                // socket timeout, set 0 to disable
+    sockaddr_storage peer;         // destination peer (must be set)
     SocketManager *socket_manager; // socket manager
 } UdpSocketParameters;
 
@@ -76,7 +76,7 @@ UdpSocket *udp_socket_acquire_fd(const UdpSocketParameters *parameters, evutil_s
 ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap);
 
 /**
- * Set the read timeout.
+ * Set the socket timeout. 0 disables timeout.
  */
 void udp_socket_set_timeout(UdpSocket *socket, Millis timeout);
 

@@ -81,11 +81,6 @@ bool UpstreamMultiplexer::open_session(std::optional<Millis> timeout) {
         return false;
     }
 
-    // Here, we simply timeout if there's no read activity or health check results within the specified time window,
-    // since no read activity on the socket should trigger a health check in an underlying upstream.
-    m_timeout_timer.reset(evtimer_new(vpn_event_loop_get_base(this->vpn->parameters.ev_loop), timer_callback, this));
-    timer_update();
-
     return true;
 }
 
@@ -110,9 +105,7 @@ void UpstreamMultiplexer::close_session() {
         this->handler.func(this->handler.arg, SERVER_EVENT_ERROR, &err_event);
     }
 
-    m_health_check_upstream_id.reset();
     m_pending_error.reset();
-    m_timeout_timer.reset();
 }
 
 uint64_t UpstreamMultiplexer::open_connection(const TunnelAddressPair *addr, int proto, std::string_view app_name) {
@@ -201,36 +194,29 @@ void UpstreamMultiplexer::update_flow_control(uint64_t id, TcpFlowCtrlInfo info)
     }
 }
 
-VpnError UpstreamMultiplexer::do_health_check() {
-    if (m_health_check_upstream_id.has_value()) {
-        log_ups(this, *m_health_check_upstream_id, info, "Another health check is already in progress");
-        return {};
-    }
+void UpstreamMultiplexer::do_health_check() {
+    cancel_health_check();
 
-    std::optional<int> upstream_id;
     UpstreamInfo *info = nullptr;
     for (auto &[id, i] : m_upstreams_pool) {
         if (i->state == US_SESSION_OPENED) {
-            upstream_id = id;
             info = i.get();
             break;
         }
     }
 
     if (info == nullptr) {
-        log_ups(this, *m_health_check_upstream_id, info, "There are no open sessions");
-        return {VPN_EC_ERROR, "There are no open sessions"};
+        log_mux(this, warn, "No health check has been started: there are no open sessions");
+        return;
     }
 
-    VpnError error = info->upstream->do_health_check();
-    if (error.code != VPN_EC_NOERROR) {
-        log_ups(this, *m_health_check_upstream_id, warn, "Failed to start health check: ({}) {}", error.code,
-                error.text);
-    } else {
-        m_health_check_upstream_id = upstream_id;
-    }
+    info->upstream->do_health_check();
+}
 
-    return error;
+void UpstreamMultiplexer::cancel_health_check() {
+    for (auto &[_, info] : m_upstreams_pool) {
+        info->upstream->cancel_health_check();
+    }
 }
 
 VpnConnectionStats UpstreamMultiplexer::get_connection_stats() const {
@@ -274,10 +260,6 @@ void UpstreamMultiplexer::on_icmp_request(IcmpEchoRequestEvent &event) {
 void UpstreamMultiplexer::close_upstream(int upstream_id) {
     log_ups(this, upstream_id, dbg, "...");
 
-    if (m_health_check_upstream_id == upstream_id) {
-        m_health_check_upstream_id.reset();
-    }
-
     auto it = m_upstreams_pool.find(upstream_id);
     if (it == m_upstreams_pool.end()) {
         log_ups(this, upstream_id, warn, "Upstream not found");
@@ -294,19 +276,13 @@ void UpstreamMultiplexer::close_upstream(int upstream_id) {
     }
 
     log_mux(this, dbg, "All child upstreams are closed");
-    m_timeout_timer.reset();
+    m_session_open = false;
     if (m_pending_error.has_value()) {
         ServerError error = {NON_ID, std::exchange(m_pending_error, std::nullopt).value()};
         this->handler.func(this->handler.arg, SERVER_EVENT_ERROR, &error);
     } else {
         this->handler.func(this->handler.arg, SERVER_EVENT_SESSION_CLOSED, nullptr);
     }
-}
-
-void UpstreamMultiplexer::timer_callback(evutil_socket_t, short, void *arg) {
-    auto *mux = (UpstreamMultiplexer *) arg;
-    log_mux(mux, dbg, "Timed out");
-    mux->do_health_check();
 }
 
 static bool is_fatal_error(const VpnError &error) {
@@ -326,7 +302,7 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
 
     switch (what) {
     case SERVER_EVENT_SESSION_OPENED:
-        if (mux->m_upstreams_pool.size() == 1) {
+        if (!std::exchange(mux->m_session_open, true)) {
             mux->handler.func(mux->handler.arg, SERVER_EVENT_SESSION_OPENED, data);
         }
 
@@ -367,7 +343,6 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
         break;
     }
     case SERVER_EVENT_READ: {
-        mux->timer_update();
         mux->handler.func(mux->handler.arg, what, data);
         break;
     }
@@ -375,32 +350,20 @@ void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, vo
     case SERVER_EVENT_DATA_SENT:
     case SERVER_EVENT_GET_AVAILABLE_TO_SEND:
     case SERVER_EVENT_ECHO_REPLY:
+    case SERVER_EVENT_HEALTH_CHECK_RESULT:
         mux->handler.func(mux->handler.arg, what, data);
         break;
-    case SERVER_EVENT_HEALTH_CHECK_RESULT: {
-        mux->timer_update();
-        // Ignore health check results from upstream
-        if (mux->m_health_check_upstream_id == ctx->id) {
-            mux->handler.func(mux->handler.arg, what, data);
-            mux->m_health_check_upstream_id.reset();
-        }
-        break;
-    }
     case SERVER_EVENT_ERROR: {
         const ServerError *event = (ServerError *) data;
         if (event->id != NON_ID) {
             // An error on connection also means that some data was received.
-            mux->timer_update();
             mux->m_connections.erase(event->id);
             log_mux(mux, dbg, "Remaining upstreams={} connections={} pending connections={}",
                     mux->m_upstreams_pool.size(), mux->m_connections.size(), mux->m_pending_connections.size());
             mux->handler.func(mux->handler.arg, SERVER_EVENT_ERROR, data);
-        } else if (is_fatal_error(event->error)
-                // do not ignore errors on a health checking upstream
-                || mux->m_health_check_upstream_id == ctx->id) {
-            log_mux(mux, info, "Error on upstream id={}{} is fatal, closing all upstreams: ({}) {}", ctx->id,
-                    (mux->m_health_check_upstream_id == ctx->id) ? " (healthcheck upstream)" : "", event->error.code,
-                    event->error.text);
+        } else if (is_fatal_error(event->error)) {
+            log_mux(mux, info, "Error on upstream id={} is fatal, closing all upstreams: ({}) {}", ctx->id,
+                    event->error.code, event->error.text);
             if (event->error.code != 0) {
                 mux->m_pending_error = event->error;
             }
@@ -552,8 +515,6 @@ size_t UpstreamMultiplexer::connections_num_by_upstream(int id) const {
 void UpstreamMultiplexer::handle_sleep() {
     log_mux(this, dbg, "...");
 
-    this->timer_stop();
-    this->m_health_check_upstream_id.reset();
     for (auto &[_, info] : m_upstreams_pool) {
         info->upstream->handle_sleep();
     }
@@ -567,24 +528,8 @@ void UpstreamMultiplexer::handle_wake() {
     for (auto &[_, info] : m_upstreams_pool) {
         info->upstream->handle_wake();
     }
-    this->timer_update();
-    this->do_health_check();
 
     log_mux(this, dbg, "Done");
-}
-
-void UpstreamMultiplexer::timer_update() {
-    if (m_timeout_timer) {
-        timeval tv = ms_to_timeval((this->vpn->upstream_config.timeout - this->vpn->upstream_config.health_check_timeout).count());
-        tracelog(m_log, "Updating timer: {}.{:06}", tv.tv_sec, tv.tv_usec);
-        evtimer_add(m_timeout_timer.get(), &tv);
-    }
-}
-
-void UpstreamMultiplexer::timer_stop() {
-    if (m_timeout_timer) {
-        evtimer_del(m_timeout_timer.get());
-    }
 }
 
 int UpstreamMultiplexer::kex_group_nid() const {

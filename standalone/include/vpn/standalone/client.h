@@ -56,6 +56,9 @@ public:
 
     void notify_network_change(VpnNetworkState state);
 
+    void notify_sleep();
+    void notify_wake();
+
     ~VpnStandaloneClient();
 
 private:

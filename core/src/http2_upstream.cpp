@@ -231,22 +231,27 @@ void Http2Upstream::http_handler(void *arg, HttpEventId what, void *data) {
             upstream->m_icmp_mux.close();
         } else if (upstream->m_health_check_info.has_value() && upstream->m_health_check_info->stream_id == stream_id) {
             if (upstream->m_closing) {
+                upstream->m_health_check_info.reset();
                 log_upstream(upstream, dbg, "Drop health check result while closing session");
                 break;
             }
-            if (upstream->m_health_check_info->error.code == 0 && http_event->error_code != NGHTTP2_NO_ERROR) {
-                upstream->m_health_check_info->error = {VPN_EC_ERROR, nghttp2_http2_strerror(http_event->error_code)};
+
+            // Save the error and reset health_check_info now: handler may request a new health check.
+            VpnError hc_error = upstream->m_health_check_info->error;
+            upstream->m_health_check_info.reset(); // Also resets the health check timeout task.
+
+            if (hc_error.code == 0 && http_event->error_code != NGHTTP2_NO_ERROR) {
+                hc_error = {VPN_EC_ERROR, nghttp2_http2_strerror(http_event->error_code)};
             }
-            upstream->handler.func(
-                    upstream->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &upstream->m_health_check_info->error);
-            upstream->m_health_check_info.reset();
-            upstream->timer_update();
+
+            if (hc_error.code != 0) {
+                upstream->handler.func(upstream->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &hc_error);
+            }
         } else {
             auto found = upstream->get_conn_by_stream_id(stream_id);
             if (found.second == nullptr) {
                 log_upstream(upstream, dbg, "Got stream processed event on closed connection: stream={}: {} ({})",
                         stream_id, nghttp2_http2_strerror(http_event->error_code), http_event->error_code);
-                assert(0);
                 break;
             }
 
@@ -344,15 +349,17 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
 
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED: {
+        tcp_socket_set_timeout(upstream->m_socket.get(), Millis{});
+
         if (auto alpn = tcp_socket_get_selected_alpn(upstream->m_socket.get()); alpn != "h2") {
             log_upstream(upstream, dbg, "Unexpected protocol is selected by server: {}", alpn);
             upstream->close_session_inner(VpnError{VPN_EC_ERROR, "Unexpected protocol"});
             break;
         }
-        tcp_socket_set_read_enabled(upstream->m_socket.get(), true);
+
         log_upstream(upstream, dbg, "Established TCP connection to endpoint successfully");
         if (upstream->establish_http_session()) {
-            upstream->timer_update();
+            tcp_socket_set_read_enabled(upstream->m_socket.get(), true);
             upstream->handler.func(upstream->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
         } else {
             upstream->close_session_inner(VpnError{VPN_EC_ERROR, "Failed to initiate HTTP2 session"});
@@ -395,13 +402,6 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     }
     case TCP_SOCKET_EVENT_ERROR: {
         const VpnError *sock_event = (VpnError *) data;
-
-        if (sock_event->code == utils::AG_ETIMEDOUT && upstream->m_session != nullptr
-                && !upstream->m_health_check_info.has_value()) {
-            log_upstream(upstream, dbg, "Timeout on HTTP session socket, starting health check");
-            upstream->do_health_check();
-            break;
-        }
 
         log_upstream(upstream, dbg, "Error on HTTP session socket: {} ({})", sock_event->text, sock_event->code);
         upstream->close_session_inner(VpnError{VPN_EC_ERROR, sock_event->text});
@@ -829,24 +829,46 @@ size_t Http2Upstream::connections_num() const {
     return m_tcp_connections.size() + m_udp_mux.connections_num();
 }
 
-VpnError Http2Upstream::do_health_check() {
-    if (m_health_check_info.has_value()) {
-        log_upstream(this, dbg, "Ignoring as another health check is already in progress");
-        return {};
-    }
-
-    tcp_socket_set_timeout(m_socket.get(), this->vpn->upstream_config.health_check_timeout);
+void Http2Upstream::do_health_check() {
+    m_health_check_info.reset(); // Forget about the current health check.
 
     std::optional<uint32_t> stream_id = send_connect_request(NON_ID, &HEALTH_CHECK_HOST, "");
     if (!stream_id.has_value()) {
-        return {VPN_EC_ERROR, "Failed to send health check request"};
+        m_health_check_info = HealthCheckInfo{
+                .stream_id = UINT32_MAX,
+                .timeout_task_id = event_loop::schedule(this->vpn->parameters.ev_loop,
+                        {
+                                this,
+                                [](void *arg, TaskId) {
+                                    auto *self = (Http2Upstream *) arg;
+                                    self->m_health_check_info.reset();
+                                    VpnError e = {VPN_EC_ERROR, "Failed to send health check request"};
+                                    self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &e);
+                                },
+                        },
+                        {}),
+        };
+        return;
     }
 
     m_health_check_info = HealthCheckInfo{
             .stream_id = stream_id.value(),
+            .timeout_task_id = event_loop::schedule(this->vpn->parameters.ev_loop,
+                    {
+                            this,
+                            [](void *arg, TaskId) {
+                                auto *self = (Http2Upstream *) arg;
+                                self->m_health_check_info.reset();
+                                VpnError e = {VPN_EC_ERROR, "Health check has timed out"};
+                                self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &e);
+                            },
+                    },
+                    this->vpn->upstream_config.health_check_timeout),
     };
+}
 
-    return {};
+void Http2Upstream::cancel_health_check() {
+    m_health_check_info.reset();
 }
 
 VpnConnectionStats Http2Upstream::get_connection_stats() const {
@@ -877,22 +899,11 @@ void Http2Upstream::consume_callback(ServerUpstream *upstream, uint64_t stream_i
 }
 
 void Http2Upstream::handle_sleep() {
-    log_upstream(this, dbg, "...");
-    tcp_socket_set_timeout(m_socket.get(), std::nullopt);
-    m_health_check_info.reset();
-    log_upstream(this, dbg, "Done");
+    // noop
 }
 
 void Http2Upstream::handle_wake() {
-    log_upstream(this, dbg, "...");
-    timer_update();
-    log_upstream(this, dbg, "Done");
-}
-
-void Http2Upstream::timer_update() {
-    assert(vpn->upstream_config.timeout >= vpn->upstream_config.health_check_timeout);
-    tcp_socket_set_timeout(m_socket.get(),
-            this->vpn->upstream_config.timeout - this->vpn->upstream_config.health_check_timeout);
+    // noop
 }
 
 int Http2Upstream::kex_group_nid() const {

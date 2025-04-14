@@ -48,10 +48,9 @@ private:
     std::unordered_map<int, std::unique_ptr<UpstreamInfo>> m_upstreams_pool;
     size_t m_max_upstreams_num = DEFAULT_UPSTREAMS_NUM;
     std::unordered_map<uint64_t, PendingConnection> m_pending_connections;
-    std::optional<int> m_health_check_upstream_id; // id of an upstream which performs health check
     MakeUpstream m_make_upstream;
     std::optional<VpnError> m_pending_error;
-    DeclPtr<event, &event_free> m_timeout_timer;
+    bool m_session_open = false; // True if session has been opened at least once.
 
     ag::Logger m_log{"UPSTREAM_MUX"};
 
@@ -65,7 +64,8 @@ private:
     void consume(uint64_t id, size_t length) override;
     size_t available_to_send(uint64_t id) override;
     void update_flow_control(uint64_t id, TcpFlowCtrlInfo info) override;
-    VpnError do_health_check() override;
+    void do_health_check() override;
+    void cancel_health_check() override;
     [[nodiscard]] VpnConnectionStats get_connection_stats() const override;
     void on_icmp_request(IcmpEchoRequestEvent &event) override;
 
@@ -84,10 +84,6 @@ private:
     void handle_sleep() override;
     void handle_wake() override;
     int kex_group_nid() const override;
-
-    void timer_update();
-    void timer_stop();
-    static void timer_callback(evutil_socket_t, short, void *);
 };
 
 } // namespace ag

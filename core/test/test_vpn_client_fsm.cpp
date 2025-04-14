@@ -56,9 +56,6 @@ public:
         this->redirect_upstream->handler.func(
                 this->redirect_upstream->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
         run_event_loop_once();
-        this->redirect_upstream->handler.func(
-                this->redirect_upstream->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, nullptr);
-        run_event_loop_once();
         ASSERT_EQ(last_raised_vpn_event, vpn_client::EVENT_CONNECTED);
 
         VpnListenerConfig listener_config = {};
@@ -116,8 +113,9 @@ size_t DirectUpstream::available_to_send(uint64_t) {
 }
 void DirectUpstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
 }
-VpnError DirectUpstream::do_health_check() {
-    return {};
+void DirectUpstream::do_health_check() {
+}
+void DirectUpstream::cancel_health_check() {
 }
 VpnConnectionStats DirectUpstream::get_connection_stats() const {
     return {};
@@ -173,8 +171,9 @@ size_t UpstreamMultiplexer::available_to_send(uint64_t) {
 }
 void UpstreamMultiplexer::update_flow_control(uint64_t, TcpFlowCtrlInfo) {
 }
-VpnError UpstreamMultiplexer::do_health_check() {
-    return {};
+void UpstreamMultiplexer::do_health_check() {
+}
+void UpstreamMultiplexer::cancel_health_check() {
 }
 VpnConnectionStats UpstreamMultiplexer::get_connection_stats() const {
     return {};
@@ -278,6 +277,10 @@ void Tunnel::on_exclusions_updated() {
 bool Tunnel::should_complete_immediately(uint64_t) const { return false; }
 bool Tunnel::update_dns_handler_parameters() { return true; }
 void Tunnel::on_network_change() {
+}
+void Tunnel::handle_sleep() {
+}
+void Tunnel::handle_wake() {
 }
 } // namespace ag
 

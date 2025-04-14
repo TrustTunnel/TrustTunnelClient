@@ -97,8 +97,9 @@ protected:
     }
     void update_flow_control(uint64_t, ag::TcpFlowCtrlInfo) override {
     }
-    ag::VpnError do_health_check() override {
-        return {};
+    void do_health_check() override {
+    }
+    void cancel_health_check() override {
     }
     ag::VpnConnectionStats get_connection_stats() const override {
         return {};

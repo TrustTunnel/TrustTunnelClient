@@ -94,6 +94,7 @@ static void on_event(struct bufferevent *, short, void *);
 static void on_sent_event(struct evbuffer *buf, const struct evbuffer_cb_info *info, void *arg);
 static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sockaddr *dst, bool anti_dpi);
 static VpnError do_handshake(TcpSocket *socket);
+static void tcp_socket_update_timeout(TcpSocket *sock);
 
 #ifdef _WIN32
 
@@ -267,7 +268,7 @@ VpnError tcp_socket_write(TcpSocket *socket, const uint8_t *data, size_t length)
 
     VpnError error = {bufferevent_write(bev, data, length), ""};
     if (error.code == 0) {
-        tcp_socket_set_timeout(socket, socket->parameters.timeout);
+        tcp_socket_update_timeout(socket);
     } else {
         error = make_vpn_error_from_fd(bufferevent_getfd(bev));
     }
@@ -285,7 +286,7 @@ static void on_read(struct bufferevent *bev, void *ctx) {
 
     socket->complete_read_task_id.reset();
 
-    tcp_socket_set_timeout(socket, socket->parameters.timeout);
+    tcp_socket_update_timeout(socket);
 
     const TcpSocketHandler &handler = socket->parameters.handler;
     if (socket->ssl) {
@@ -510,7 +511,7 @@ static struct bufferevent *wrap_fd(TcpSocket *socket, evutil_socket_t fd) {
         return nullptr;
     }
 
-    tcp_socket_set_timeout(socket, socket->parameters.timeout);
+    tcp_socket_update_timeout(socket);
 
     return bev;
 }
@@ -584,7 +585,7 @@ static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sock
         evbuffer_add_cb(bufferevent_get_output(bev), on_rate_limited_write, (void *) bev);
     }
 
-    tcp_socket_set_timeout(sock, sock->parameters.timeout);
+    tcp_socket_update_timeout(sock);
 
     bufferevent_setcb(bev, nullptr, nullptr, (bufferevent_event_cb) &on_connect_event, sock);
     evbuffer_add_cb(bufferevent_get_output(bev), &on_sent_event, (void *) sock);
@@ -700,22 +701,10 @@ static void timer_callback(void *arg, struct timeval now) {
     }
 }
 
-void tcp_socket_set_timeout(TcpSocket *sock, std::optional<Millis> x) {
-    if (!sock->parameters.socket_manager) {
-        return;
-    }
-    if (sock->subscribe_id.has_value()) {
-        socket_manager_timer_unsubscribe(sock->parameters.socket_manager, *sock->subscribe_id);
-    }
-    if (x) {
-        log_sock(sock, trace, "{}", *x);
-        sock->parameters.timeout = *x;
-        sock->timeout_ts = get_next_timeout_ts(sock);
-        sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
-                uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
-    } else {
-        log_sock(sock, trace, "nullopt");
-    }
+void tcp_socket_set_timeout(TcpSocket *sock, Millis x) {
+    log_sock(sock, dbg, "Timeout set to {} ms", x.count() ? AG_FMT("{}", x.count()) : "Timeout disabled");
+    sock->parameters.timeout = x;
+    tcp_socket_update_timeout(sock);
 }
 
 int make_fd_dual_stack(evutil_socket_t fd) {
@@ -1211,6 +1200,20 @@ VpnError do_handshake(TcpSocket *socket) {
     }
 
     return err_log_wrapper(0, "");
+}
+
+void tcp_socket_update_timeout(TcpSocket *sock) {
+    if (!sock->parameters.socket_manager) {
+        return;
+    }
+    if (sock->subscribe_id.has_value()) {
+        socket_manager_timer_unsubscribe(sock->parameters.socket_manager, *sock->subscribe_id);
+    }
+    if (sock->parameters.timeout.count()) {
+        sock->timeout_ts = get_next_timeout_ts(sock);
+        sock->subscribe_id = socket_manager_timer_subscribe(sock->parameters.socket_manager, sock->parameters.ev_loop,
+                                                            uint32_t(sock->parameters.timeout.count()), timer_callback, sock);
+    }
 }
 
 VpnError tcp_socket_connect_continue(TcpSocket *socket, const TcpSocketParameters *params) {

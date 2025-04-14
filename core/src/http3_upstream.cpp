@@ -368,18 +368,29 @@ void Http3Upstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
     }
 }
 
-VpnError Http3Upstream::do_health_check() {
-    if (m_health_check_info.has_value()) {
-        log_upstream(this, dbg, "Ignoring as another health check is already in progress");
-        return {};
-    }
+void Http3Upstream::do_health_check() {
+    m_health_check_info.reset(); // Forget about the current health check.
+
     // FIXME: AG-8909
     if (m_h3_conn == nullptr) {
-        log_upstream(this, dbg, "No HTTP3 session");
-        return {VPN_EC_ERROR, "No HTTP3 session"};
+        log_upstream(this, warn, "No HTTP3 session");
+        m_health_check_info = {
+                .stream_id = std::nullopt,
+                .timeout_task_id = event_loop::schedule(this->vpn->parameters.ev_loop,
+                        {
+                                this,
+                                [](void *arg, TaskId) {
+                                    auto *self = (Http3Upstream *) arg;
+                                    self->close_stream(*self->m_health_check_info->stream_id, H3_REQUEST_CANCELLED);
+                                    self->m_health_check_info.reset();
+                                    VpnError e = {VPN_EC_ERROR, "No HTTP3 session"};
+                                    self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &e);
+                                },
+                        },
+                        {}),
+        };
+        return;
     }
-
-    udp_socket_set_timeout(m_socket.get(), this->vpn->upstream_config.health_check_timeout);
 
     auto [stream_id, is_retriable] = this->send_connect_request(&HEALTH_CHECK_HOST, "");
     if (stream_id.has_value()) {
@@ -396,9 +407,9 @@ VpnError Http3Upstream::do_health_check() {
                                     self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &e);
                                 },
                         },
-                        this->vpn->upstream_config.timeout),
+                        this->vpn->upstream_config.health_check_timeout),
         };
-        return {};
+        return;
     }
 
     if (is_retriable) {
@@ -413,10 +424,28 @@ VpnError Http3Upstream::do_health_check() {
                         },
                 },
                 this->vpn->upstream_config.health_check_timeout / 10);
-        return {};
+        return;
     }
 
-    return {VPN_EC_ERROR, "Failed to send health check request"};
+    m_health_check_info = {
+            .stream_id = std::nullopt,
+            .timeout_task_id = event_loop::schedule(this->vpn->parameters.ev_loop,
+                    {
+                            this,
+                            [](void *arg, TaskId) {
+                                auto *self = (Http3Upstream *) arg;
+                                self->close_stream(*self->m_health_check_info->stream_id, H3_REQUEST_CANCELLED);
+                                self->m_health_check_info.reset();
+                                VpnError e = {VPN_EC_ERROR, "Failed to send health check request"};
+                                self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &e);
+                            },
+                    },
+                    {}),
+    };
+}
+
+void Http3Upstream::cancel_health_check() {
+    m_health_check_info.reset();
 }
 
 VpnConnectionStats Http3Upstream::get_connection_stats() const {
@@ -481,13 +510,10 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
         break;
 
     case UDP_SOCKET_EVENT_TIMEOUT:
-        if (!upstream->m_quic_conn || !quiche_conn_is_established(upstream->m_quic_conn.get()) || !upstream->m_h3_conn
-                || upstream->m_health_check_info.has_value()) {
+        if (!upstream->m_quic_conn || !quiche_conn_is_established(upstream->m_quic_conn.get())
+                || !upstream->m_h3_conn) {
             log_upstream(upstream, dbg, "UDP socket timed out, closing session");
             upstream->close_session_inner();
-        } else {
-            log_upstream(upstream, dbg, "UDP socket timed out, doing health check");
-            upstream->do_health_check();
         }
         break;
     }
@@ -675,8 +701,7 @@ void Http3Upstream::on_udp_packet() {
 
         m_state = H3US_ESTABLISHED;
         assert(this->vpn->upstream_config.timeout >= this->vpn->upstream_config.health_check_timeout);
-        udp_socket_set_timeout(
-                m_socket.get(), this->vpn->upstream_config.timeout - this->vpn->upstream_config.health_check_timeout);
+        udp_socket_set_timeout(m_socket.get(), Millis{}); // Disable timeout after connecting.
         if (m_ssl_for_kex_group_nid) {
             m_kex_group_nid = SSL_get_negotiated_group((SSL *) std::exchange(m_ssl_for_kex_group_nid, nullptr));
         }
@@ -806,11 +831,12 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
             m_icmp_mux.close();
         } else if (is_health_check_stream(stream_id)) {
             assert(this->vpn->upstream_config.timeout >= this->vpn->upstream_config.health_check_timeout);
-            udp_socket_set_timeout(m_socket.get(),
-                    this->vpn->upstream_config.timeout - this->vpn->upstream_config.health_check_timeout);
-            this->handler.func(this->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &m_health_check_info->error);
-            stream_close_code =
-                    (m_health_check_info->error.code == VPN_EC_NOERROR) ? H3_NO_ERROR : H3_REQUEST_CANCELLED;
+            if (m_health_check_info->error.code == VPN_EC_NOERROR) {
+                stream_close_code = H3_NO_ERROR;
+            } else {
+                stream_close_code = H3_REQUEST_CANCELLED;
+                this->handler.func(this->handler.arg, SERVER_EVENT_HEALTH_CHECK_RESULT, &m_health_check_info->error);
+            }
             m_health_check_info.reset();
         } else if (auto [conn_id, conn] = this->get_tcp_conn_by_stream_id(stream_id); conn == nullptr) {
             log_stream(this, stream_id, dbg, "Got stream processed event on closed connection");
@@ -910,7 +936,7 @@ ssize_t Http3Upstream::read_out_h3_data(uint64_t stream_id, uint8_t *buf, size_t
             buffer.remove_prefix(r);
         } else if (r == QUICHE_H3_ERR_DONE) {
             break;
-        } else if (r < 0) {
+        } else {
             log_stream(this, stream_id, dbg, "Failed to read stream data: err={}",
                     magic_enum::enum_name((quiche_h3_error) r));
             return r;
@@ -1298,7 +1324,6 @@ void Http3Upstream::handle_sleep() {
     if (m_state != H3US_IDLE) {
         this->flush_pending_quic_data();
     }
-    m_health_check_info.reset();
 
     log_upstream(this, dbg, "Done");
 }
@@ -1308,7 +1333,6 @@ void Http3Upstream::handle_wake() {
 
     if (m_state != H3US_IDLE) {
         this->flush_pending_quic_data(); // Force timeout check
-        this->do_health_check();
     }
 
     log_upstream(this, dbg, "Done");

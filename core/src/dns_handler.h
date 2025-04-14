@@ -124,7 +124,8 @@ private:
     void consume(uint64_t upstream_conn_id, size_t length) final;
     size_t available_to_send(uint64_t upstream_conn_id) final;
     void update_flow_control(uint64_t upstream_conn_id, TcpFlowCtrlInfo info) final;
-    VpnError do_health_check() final;
+    void do_health_check() final;
+    void cancel_health_check() override;
     VpnConnectionStats get_connection_stats() const final;
     void on_icmp_request(IcmpEchoRequestEvent &event) final;
 

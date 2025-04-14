@@ -214,9 +214,12 @@ size_t ag::DnsHandlerServerUpstreamBase::available_to_send(uint64_t /*upstream_c
 void ag::DnsHandlerServerUpstreamBase::update_flow_control(uint64_t upstream_conn_id, TcpFlowCtrlInfo info) {
 }
 
-ag::VpnError ag::DnsHandlerServerUpstreamBase::do_health_check() {
+void ag::DnsHandlerServerUpstreamBase::do_health_check() {
     assert(0);
-    return {.code = -1, .text = "Health checks must not be performed on this upstream."};
+}
+
+void ag::DnsHandlerServerUpstreamBase::cancel_health_check() {
+    assert(0);
 }
 
 ag::VpnConnectionStats ag::DnsHandlerServerUpstreamBase::get_connection_stats() const {

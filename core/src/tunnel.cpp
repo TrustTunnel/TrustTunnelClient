@@ -522,7 +522,7 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
         }
         break;
     case SERVER_EVENT_HEALTH_CHECK_RESULT:
-        // do nothing
+        // Health check results are handled by `VpnClient`.
         break;
     case SERVER_EVENT_SESSION_CLOSED:
         close_client_side(this, upstream.get());
@@ -962,6 +962,8 @@ static std::shared_ptr<ServerUpstream> select_upstream(
         conn_upstream->update_flow_control(conn->server_id, {});
     }
 
+    self->do_health_check(upstream);
+
     log_conn(self, sw_conn, trace, "Connecting...");
     return processed;
 }
@@ -1151,6 +1153,7 @@ static void on_destination_resolve_result(void *arg, VpnDnsResolveId id, VpnDnsR
         conn->state = CONNS_WAITING_RESPONSE;
         log_conn(self, conn, trace, "Connecting...");
         add_connection(self, conn);
+        self->do_health_check(upstream);
     } else {
         close_client_side_connection(self, conn, 0, false);
     }
@@ -1322,6 +1325,7 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
                 this->dns_handler->notify_vpn_resolver_connection(conn->server_id);
             }
         }
+        do_health_check(upstream);
     } else {
         close_client_side_connection(this, conn, 0, true);
     }
@@ -1741,6 +1745,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 log_conn(this, conn, dbg, "Failed to send data from client");
                 // connection will be closed inside listener
             }
+            do_health_check(upstream);
             break;
         }
         case CONNS_CONNECTED_MIGRATING: {
@@ -1781,6 +1786,10 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
         TcpFlowCtrlInfo info = listener->flow_control_info(conn->client_id);
         upstream->update_flow_control(conn->server_id, info);
 
+        // Issue a health check, if possible. If client is waiting for more data from
+        // upstream, and the connection is dead, client might end up waiting indefinitely.
+        do_health_check(upstream);
+
         if (event->length > 0) {
             log_conn(this, conn, trace, "{} bytes sent to client (client side can send {} bytes)", event->length,
                     info.send_buffer_size);
@@ -1814,6 +1823,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             if (std::shared_ptr<ServerUpstream> upstream = select_upstream(this, action, nullptr);
                     upstream != nullptr) {
                 upstream->on_icmp_request(*event);
+                do_health_check(upstream);
             }
             break;
         }
@@ -1844,6 +1854,45 @@ void Tunnel::on_network_change() {
     if (this->dns_handler) {
         this->dns_handler->on_network_change();
     }
+}
+
+void Tunnel::do_health_check(const std::shared_ptr<ServerUpstream> &upstream, bool force) {
+    // Health checks on non-endpoint upstreams are noops: don't waste time on `event_base_gettimeofday_cached`.
+    if (this->sleeping || upstream != this->vpn->endpoint_upstream) {
+        return;
+    }
+
+    timeval now_tv{};
+    if (int ret = event_base_gettimeofday_cached(vpn_event_loop_get_base(this->vpn->parameters.ev_loop), &now_tv);
+            ret < 0) {
+        log_tun(this, warn, "Failed to event_base_gettimeofday_cached: {}", ret);
+        return;
+    }
+
+    // Check the time constraint.
+    if (!force) {
+        auto now_ms = timeval_to_ms(now_tv);
+        auto last_ms = timeval_to_ms(this->last_health_check_at);
+        if (now_ms < last_ms
+                || int64_t(now_ms - last_ms)
+                        < std::chrono::duration_cast<Millis>(this->vpn->upstream_config.timeout).count()) {
+            return;
+        }
+    }
+
+    upstream->do_health_check();
+    this->last_health_check_at = now_tv;
+    log_tun(this, dbg, "Health check issued");
+}
+
+void Tunnel::handle_sleep() {
+    this->sleeping = true;
+    this->vpn->endpoint_upstream->cancel_health_check();
+}
+
+void Tunnel::handle_wake() {
+    this->sleeping = false;
+    do_health_check(this->vpn->endpoint_upstream, /*force*/ true);
 }
 
 static void fake_upstream_handler(void *arg, ServerEvent what, void *data) {
