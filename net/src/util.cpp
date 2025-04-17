@@ -1094,6 +1094,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     if (SSL_add_application_settings(ssl.get(), (uint8_t *)"h2", 2, nullptr, 0) != 1) {
         return "Failed to add ALPS extension";
     }
+    SSL_set_alps_use_new_codepoint(ssl.get(), 1);
 
     // Use the BoringSSL defaults, but disable 3DES and SHA1 HMAC
     if (!SSL_set_strict_cipher_list(ssl.get(), "ALL:!aPSK:!ECDSA+SHA1:!3DES")) {

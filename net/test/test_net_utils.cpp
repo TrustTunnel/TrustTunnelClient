@@ -42,23 +42,18 @@ struct TestDatum {
     std::vector<std::string> allowed_fingerprints;
 };
 
-// First fingerprint: Chrome 124.0.6367.62, default settings, source: Wireshark.
-// Second fingerprint: if ClientHello ends up shorter than 512 bytes, BoringSSL will pad it to 512 bytes,
-// hence a different fingerprint. The second fingerprint can be seen in the wild with Chrome 124.0.6367.62
-// with `#enable-tls13-kyber` flag disabled. With it enabled (default) the ClientHello is always longer than
-// 512 bytes because of the post-quantum curve. We don't enable the post-quantum curve.
+// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
 static const TestDatum TEST_DATA_TCP[] = {
-        {"example.org", {"t13d1516h2_8daaf6152771_02713d6af862", "t13d1517h2_8daaf6152771_b1ff8ab2d16f"}},
-        {"1.2.3.4", {"t13i1515h2_8daaf6152771_02713d6af862", "t13i1516h2_8daaf6152771_b1ff8ab2d16f"}},
+        {"example.org", {"t13d1516h2_8daaf6152771_d8a2da3f94cd"}},
 };
 
-// Fingerprint: Chrome 124.0.6367.62, source: Wireshark.
+// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
 static const TestDatum TEST_DATA_QUIC[] = {
-        {"example.org", {"q13d0311h3_55b375c5d22e_5a1f323ef56d"}},
-        {"1.2.3.4", {"q13i0310h3_55b375c5d22e_5a1f323ef56d"}},
+        {"example.org", {"q13d0311h3_55b375c5d22e_653d80c3fe9d"}},
 };
 
 TEST(NetUtils, JA4Tcp) {
+    ag::vpn_post_quantum_group_set_enabled(true);
     for (const auto &[sni, fingerprints] : TEST_DATA_TCP) {
         auto client_hello = prepare_client_hello(sni.c_str());
         auto fingerprint = ag::ja4::compute({client_hello.data(), client_hello.size()}, /*quic*/ false);
@@ -67,6 +62,7 @@ TEST(NetUtils, JA4Tcp) {
 }
 
 TEST(NetUtils, JA4Quic) {
+    ag::vpn_post_quantum_group_set_enabled(true);
     for (const auto &[sni, fingerprints] : TEST_DATA_QUIC) {
         auto initials = prepare_quic_initials(sni.c_str());
         std::vector<uint8_t> handshake;

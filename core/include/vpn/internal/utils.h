@@ -195,9 +195,6 @@ std::string make_credentials(std::string_view username, std::string_view passwor
 
 using SslPtr = ag::DeclPtr<SSL, SSL_free>;
 
-std::variant<SslPtr, std::string> make_ssl(
-        int (*verification_callback)(X509_STORE_CTX *, void *), void *arg, ag::U8View alpn_protos, const char *sni);
-
 constexpr std::optional<utils::TransportProtocol> ipproto_to_transport_protocol(int ipproto) {
     switch (ipproto) {
     case IPPROTO_UDP:
