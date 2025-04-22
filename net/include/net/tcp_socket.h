@@ -99,7 +99,9 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
 
 /**
  * If there is a paused TLS handshake, replace socket parameters with `params` and continue
- * the handshake, otherwise, return an error.
+ * the handshake.
+ * If there is a completed TLS handshake, replace socket parameters with `params` and do nothing.
+ * Otherwise, return an error.
  *
  * Windows note: the value of `params->record_estats` is ignored, the state of the extended
  * statistics remains as it was at socket creation.

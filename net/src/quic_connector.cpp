@@ -45,11 +45,17 @@ std::optional<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConnect
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 
+static ag::Logger g_logger{"QUIC_CONNECTOR"};
+
+#define log_quic(lvl_, fmt_, ...) lvl_##log(g_logger, fmt_, ##__VA_ARGS__)
+
 static void socket_handler(void *arg, ag::UdpSocketEvent what, void *data);
 static void drive_connection(ag::QuicConnector *self);
 static void on_timer(evutil_socket_t, short, void *);
 static void report_error(ag::QuicConnector *self, ag::VpnError error);
 static void report_ready(ag::QuicConnector *self);
+static ag::VpnError transfer_data_to_quiche_conn(ag::QuicConnector *self, ag::Uint8Span buf);
+static ag::VpnError process_incoming_quic_packets(ag::QuicConnector *self, ag::Uint8Span buf);
 
 struct ag::QuicConnector {
     ag::DeclPtr<UdpSocket, &udp_socket_destroy> socket;
@@ -61,6 +67,11 @@ struct ag::QuicConnector {
     ag::TaskId report_task = -1;
     uint8_t server_payload[QUIC_MAX_UDP_PAYLOAD_SIZE]{};
     size_t server_payload_size = 0;
+    enum ConnectionState {
+        IDLE,
+        ESTABLISHING,
+        ESTABLISHED
+    } connection_state = IDLE; // is used only when parameters.handoff is off
     std::optional<ag::VpnError> error;
     std::optional<ag::QuicConnectorResult> result;
 };
@@ -192,6 +203,48 @@ void on_timer(evutil_socket_t, short, void *arg) {
     drive_connection(self);
 }
 
+ag::VpnError transfer_data_to_quiche_conn(ag::QuicConnector *self, ag::Uint8Span buf) {
+    auto *peer = ag::udp_socket_get_peer(self->socket.get());
+    sockaddr_storage local_address = ag::local_sockaddr_from_fd(ag::udp_socket_get_fd(self->socket.get()));
+    quiche_recv_info info{
+            .from = (sockaddr *) peer,
+            .from_len = socklen_t(ag::sockaddr_get_size((sockaddr *) peer)),
+            .to = (sockaddr *) &local_address,
+            .to_len = socklen_t(ag::sockaddr_get_size((sockaddr *) &local_address)),
+    };
+
+    auto read = quiche_conn_recv(self->conn.get(), buf.data(), buf.size(), &info);
+    if (read < 0) {
+        auto error = magic_enum::enum_name((quiche_error) read);
+        return {.code = static_cast<int>(read), .text = error.data()};
+    }
+    return {};
+}
+
+ag::VpnError process_incoming_quic_packets(ag::QuicConnector *self, ag::Uint8Span buf) {
+    for (;;) {
+        // read data from socket
+        ssize_t read = udp_socket_recv(self->socket.get(), buf.data(), std::size(buf));
+        if (read <= 0) {
+            int err = evutil_socket_geterror(ag::udp_socket_get_fd(self->socket.get()));
+            if (err != 0 && !AG_ERR_IS_EAGAIN(err)) {
+                auto err_string = evutil_socket_error_to_string(err);
+                log_quic(warn, "Failed to read data from socket: {} ({})", err_string, err);
+                return {.code = err, .text = err_string};
+            }
+            break;
+        }
+
+        // feed it to quiche
+        if (const auto err = transfer_data_to_quiche_conn(self, {buf.data(), static_cast<size_t>(read)});
+                err.code != 0) {
+            return err;
+        }
+    }
+
+    return {};
+}
+
 void socket_handler(void *arg, ag::UdpSocketEvent what, void *data) {
     auto *self = (ag::QuicConnector *) arg;
     switch (what) {
@@ -199,6 +252,29 @@ void socket_handler(void *arg, ag::UdpSocketEvent what, void *data) {
         self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_PROTECT, data);
         break;
     case ag::UDP_SOCKET_EVENT_READABLE: {
+        // In case we want to establish TLS connection in QuicConnector
+        if (self->parameters.verify_certificate && self->connection_state == ag::QuicConnector::ESTABLISHING) {
+            if (const auto err = process_incoming_quic_packets(
+                        self, {self->server_payload, std::size(self->server_payload)});
+                    err.code != 0) {
+                report_error(self, err);
+                break;
+            }
+
+            drive_connection(self);
+
+            if (quiche_conn_is_established(self->conn.get())) {
+                log_quic(dbg, "QUIC connection is now established");
+                self->connection_state = ag::QuicConnector::ESTABLISHED;
+                report_ready(self);
+            } else {
+                log_quic(warn, "QUIC connection error occurs, state = {}",
+                        magic_enum::enum_name(self->connection_state));
+            }
+
+            break;
+        }
+
         ssize_t ret = ag::udp_socket_recv(self->socket.get(), self->server_payload, sizeof(self->server_payload));
         if (ret < 0) {
             int error = evutil_socket_geterror(ag::udp_socket_get_fd(self->socket.get()));
@@ -206,7 +282,23 @@ void socket_handler(void *arg, ag::UdpSocketEvent what, void *data) {
             break;
         }
         self->server_payload_size = ret;
-        report_ready(self);
+
+        // Just return and do nothing
+        if (!self->parameters.verify_certificate) {
+            log_quic(dbg, "Hand-off QUIC connection");
+            report_ready(self);
+            break;
+        }
+
+        if (const auto err = transfer_data_to_quiche_conn(self, {self->server_payload, self->server_payload_size});
+                err.code != 0) {
+            report_error(self, err);
+        }
+
+        // Continue handshake
+        drive_connection(self);
+
+        self->connection_state = ag::QuicConnector::ESTABLISHING;
         break;
     }
     case ag::UDP_SOCKET_EVENT_TIMEOUT:

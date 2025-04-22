@@ -28,7 +28,9 @@
 #include "net/utils.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
+#include "vpn/vpn.h"
 
+#include <net/tls.h>
 #include <openssl/ssl.h>
 
 #ifndef _WIN32
@@ -205,6 +207,51 @@ static void on_shortcut_timer(evutil_socket_t, short, void *arg) {
     }
 }
 
+static int ssl_verify_certificate_callback(X509_STORE_CTX *store_ctx, void *arg) {
+    auto *self = (PingConn *) arg;
+    auto *cert = X509_STORE_CTX_get0_cert(store_ctx);
+    auto *chain = X509_STORE_CTX_get0_untrusted(store_ctx);
+    auto *ssl = (SSL *) X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+
+    const char *host_name =
+            safe_to_string_view(self->endpoint->remote_id).empty() ? self->endpoint->name : self->endpoint->remote_id;
+    const sockaddr *host_ip = (sockaddr *) &self->endpoint->address;
+
+    int result = 0;
+    VpnVerifyCertificateEvent event = {.cert = cert, .chain = chain, .result = 0};
+    self->ping->handler.func(self->ping->handler.arg, PING_EVENT_VERIFY_CERTIFICATE, &event);
+    if (event.result == 0) {
+        log_ping(self->ping, dbg, "Certificate verified successfully");
+        result = 1;
+    } else if (event.result == VPN_SKIP_VERIFICATION_FLAG) {
+        log_ping(self->ping, dbg, "Certificate verification skipped");
+        result = 1;
+        return result;
+    } else {
+        log_ping(self->ping, warn, "Failed to verify certificate");
+#ifdef OPENSSL_IS_BORINGSSL
+        if (ssl) {
+            SSL_send_fatal_alert(ssl, SSL_AD_UNKNOWN_CA);
+        }
+#endif
+    }
+
+    if ((host_name != nullptr || (host_ip != nullptr && host_ip->sa_family != AF_UNSPEC))
+            && (host_name == nullptr || !tls_verify_cert_host_name(cert, host_name))
+            && (host_ip == nullptr || host_ip->sa_family == AF_UNSPEC
+                    || !tls_verify_cert_ip(cert, sockaddr_to_str(host_ip).c_str()))) {
+        log_ping(self->ping, warn, "Server host name or IP doesn't match certificate");
+#ifdef OPENSSL_IS_BORINGSSL
+        if (ssl) {
+            SSL_send_fatal_alert(ssl, SSL_AD_CERTIFICATE_UNKNOWN);
+        }
+#endif
+        result = 0;
+    }
+
+    return result;
+}
+
 static void do_connect(void *arg, bool shortcut) {
     auto *self = (Ping *) arg;
 
@@ -244,7 +291,7 @@ static void do_connect(void *arg, bool shortcut) {
                 .peer = dest,
                 .ssl = conn->ssl.get(),
                 .anti_dpi = self->anti_dpi,
-                .pause_tls = true,
+                .pause_tls = !self->handoff,
         };
         error = tcp_socket_connect(conn->tcp_socket.get(), &parameters);
         if (error.code == 0) {
@@ -329,13 +376,13 @@ static void do_report(void *arg) {
                                                                                                    : PING_SOCKET_ERROR;
             result.ms = -1;
         }
-        self->handler.func(self->handler.arg, &result);
+        self->handler.func(self->handler.arg, PING_EVENT_RESULT, &result);
         self->report.pop_front();
         goto schedule_next;
     }
 
     result.status = PING_FINISHED;
-    self->handler.func(self->handler.arg, &result);
+    self->handler.func(self->handler.arg, PING_EVENT_RESULT, &result);
     return;
 
 schedule_next:
@@ -652,6 +699,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
                 .ev_loop = ping->loop,
                 .handler = {quic_connector_handler, conn},
                 .socket_manager = ping->network_manager->socket,
+                .verify_certificate = ping->handoff,
         };
         conn->quic_connector.reset(quic_connector_create(&parameters));
         if (!conn->quic_connector) {
@@ -663,7 +711,8 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     Uint8View alpn_protos = conn->use_quic ? Uint8View{QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)}
                                            : Uint8View{TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)};
     U8View endpoint_data{conn->endpoint->additional_data.data, conn->endpoint->additional_data.size};
-    auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name, conn->use_quic, endpoint_data);
+    auto ssl_result = make_ssl(
+            ssl_verify_certificate_callback, conn, alpn_protos, conn->endpoint->name, conn->use_quic, endpoint_data);
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));
         log_conn(ping, conn, dbg, "Failed to create am SSL object: {}", std::get<std::string>(ssl_result));

@@ -87,8 +87,9 @@ TEST_F(PingTest, Single) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtx *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         if (result->status == PING_FINISHED) {
                             test_ctx->finished = true;
@@ -149,8 +150,9 @@ TEST_F(PingTest, Timeout) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtx *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         if (result->status == PING_FINISHED) {
                             test_ctx->finished = true;
@@ -200,8 +202,9 @@ TEST_F(PingTest, Multiple) {
         };
         test_ctx.ping.reset(ping_start(&info,
                 {
-                        [](void *ctx, const PingResult *result) {
+                        [](void *ctx, PingEventType, void *data) {
                             auto *contexts = (std::vector<TestCtx> *) ctx;
+                            const auto *result = (PingResult *) data;
 
                             auto i = std::find_if(
                                     contexts->begin(), contexts->end(), [ping = result->ping](const TestCtx &i) {
@@ -262,8 +265,9 @@ TEST_F(PingTest, AllAddressesInvalid) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtx *) ctx;
+                        auto *result = (PingResult *) data;
 
                         if (result->status == PING_FINISHED) {
                             test_ctx->finished = true;
@@ -309,8 +313,9 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtx *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         if (!test_ctx->cancelled) {
                             event_loop::submit(test_ctx->loop,
@@ -380,8 +385,9 @@ TEST_F(PingTest, DestroyInProgressPing) {
 
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtx *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         // This means "callback called" for this test
                         if (!test_ctx->cancelled) {
@@ -428,8 +434,9 @@ TEST_F(PingTest, MultipleRounds) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtxRounds *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         if (result->status == PING_FINISHED) {
                             test_ctx->finished = true;
@@ -492,8 +499,9 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingEventType, void *data) {
                         auto *test_ctx = (TestCtxRounds *) ctx;
+                        const auto *result = (PingResult *) data;
 
                         if (result->status == PING_FINISHED) {
                             test_ctx->finished = true;

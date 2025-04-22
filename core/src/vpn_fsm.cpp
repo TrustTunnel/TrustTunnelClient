@@ -154,13 +154,12 @@ static void initiate_recovery(Vpn *vpn) {
     vpn->recovery.to_next = time_to_next;
 }
 
-static void pinger_handler(void *arg, const LocationsPingerResult *result) {
+static void process_pinger_result(Vpn *vpn, LocationsPingerResult *result) {
     if (result == nullptr) {
         // ignore ping finished event
         return;
     }
 
-    auto *vpn = (Vpn *) arg;
     assert(!vpn->selected_endpoint.has_value());
     vpn->selected_endpoint.reset();
     vpn->client.tcp_socket.reset();
@@ -206,6 +205,20 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
     vpn->client.update_bypass_ip_availability(extra_result->ip_availability);
 
     vpn->fsm.perform_transition(vpn_fsm::CE_PING_READY, nullptr);
+}
+
+static void pinger_handler(void *arg, LocationsPingerEventType type, void *data) {
+    auto *vpn = (Vpn *) arg;
+    switch (type) {
+    case LOCATIONS_PINGER_EVENT_VERIFY_CERTIFICATE: {
+        vpn->handler.func(vpn->handler.arg, VPN_EVENT_VERIFY_CERTIFICATE, data);
+        break;
+    }
+    case LOCATIONS_PINGER_EVENT_RESULT: {
+        process_pinger_result(vpn, static_cast<LocationsPingerResult *>(data));
+        break;
+    }
+    }
 }
 
 static bool is_fatal_error_code(int code) {

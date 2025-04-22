@@ -35,12 +35,12 @@ typedef struct {
     // Use QUIC instead of TLS to ping the endpoints.
     // If a ping fails, the pinger will fall back to TLS for that endpoint.
     bool use_quic;
-    bool anti_dpi;                          // Enable anti-DPI measures.
-    bool handoff;                           // For internal use. Applications should set this parameter to `false`.
-                                            // If `true`, pass the connection state with the ping result.
-    const sockaddr *relay_address_parallel; // Ping through this relay in parallel with normal pings.
-    uint32_t quic_max_idle_timeout_ms;      // QUIC connection max idle timeout. Set `0` to use the default.
-    uint32_t quic_version;                  // QUIC version. Set `0` to use the default.
+    bool anti_dpi;                             // Enable anti-DPI measures.
+    bool handoff;                              // For internal use. Applications should set this parameter to `false`.
+                                               // If `true`, pass the connection state with the ping result.
+    const sockaddr *relay_address_parallel;    // Ping through this relay in parallel with normal pings.
+    uint32_t quic_max_idle_timeout_ms;         // QUIC connection max idle timeout. Set `0` to use the default.
+    uint32_t quic_version;                     // QUIC version. Set `0` to use the default.
 } LocationsPingerInfo;
 
 typedef struct {
@@ -61,13 +61,19 @@ struct LocationsPingerResultExtra : public LocationsPingerResult {
     IpVersionSet ip_availability;
 };
 
+enum LocationsPingerEventType {
+    LOCATIONS_PINGER_EVENT_RESULT,             ///< Argument type is LocationPingerResult
+    LOCATIONS_PINGER_EVENT_VERIFY_CERTIFICATE, ///< Argument type is VpnVerifyCertificate
+};
+
 typedef struct {
     /**
      * Ping result handler
      * @param arg User argument
-     * @param result Contains ping result or nullptr if pinging was finished
+     * @param type Event type
+     * @param data Contains ping result or VpnVerifyCertificate
      */
-    void (*func)(void *arg, const LocationsPingerResult *result);
+    void (*func)(void *arg, LocationsPingerEventType type, void *data);
     void *arg; // user argument
 } LocationsPingerHandler;
 

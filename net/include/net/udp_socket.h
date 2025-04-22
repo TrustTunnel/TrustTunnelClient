@@ -80,4 +80,11 @@ ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap);
  */
 void udp_socket_set_timeout(UdpSocket *socket, Millis timeout);
 
+/**
+ * Get peer of the socket
+ * @param socket the UDP socket
+ * @return peer as sockaddr_storage
+ */
+sockaddr_storage *udp_socket_get_peer(UdpSocket *socket);
+
 } // namespace ag

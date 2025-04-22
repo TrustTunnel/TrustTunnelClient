@@ -34,10 +34,10 @@ extern "C" VpnEventLoop *locations_pinger_runner_get_loop(LocationsPingerRunner 
     return runner->ev_loop.get();
 }
 
-static void runner_handler(void *arg, const LocationsPingerResult *result) {
+static void runner_handler(void *arg, LocationsPingerEventType type, void *result) {
     auto *runner = (LocationsPingerRunner *) arg;
     if (result) {
-        runner->handler.func(runner->handler.arg, result);
+        runner->handler.func(runner->handler.arg, type, result);
     } else {
         vpn_event_loop_exit(runner->ev_loop.get(), Millis{0});
     }

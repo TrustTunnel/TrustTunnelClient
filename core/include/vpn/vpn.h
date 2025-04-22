@@ -29,10 +29,9 @@ static constexpr int VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_CONNECT_ATTEMPTS_NUM = 5;
 static constexpr int VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_POSTPONEMENT_WINDOW_MS = 3 * 1000; // how long after recovery starts connections are postponed instead of bypassed
+static constexpr float VPN_DEFAULT_RECOVERY_BACKOFF_RATE = 1.3f;
+static constexpr int VPN_SKIP_VERIFICATION_FLAG = 100;
 // clang-format on
-
-static const float VPN_DEFAULT_RECOVERY_BACKOFF_RATE = 1.3f;
-static const int VPN_SKIP_VERIFICATION_FLAG = 100;
 
 typedef enum {
     VPN_EC_NOERROR, // Depending on context may mean successful operation status (if returned from `vpn_connect`)
@@ -254,12 +253,8 @@ typedef enum {
 } VpnEvent;
 
 typedef struct {
-    X509 *cert; // Certificate to verify
-    STACK_OF(X509) *chain; // Untrusted chain
-    /**
-     * SET BY HANDLER: Outcome of the operation (0 if successful, `VPN_SKIP_VERIFICATION_FLAG` to indicate that
-     * hostname verification should be skipped)
-     */
+    X509 *cert;             // Certificate to verify
+    STACK_OF(X509) * chain; // Untrusted chain
     int result;
 } VpnVerifyCertificateEvent;
 
