@@ -93,9 +93,8 @@ TEST_F(LocationsPingerRunnerTest, Single) {
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
@@ -126,9 +125,8 @@ TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
@@ -165,9 +163,8 @@ TEST_F(LocationsPingerRunnerTest, Multiple) {
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         assert(ctx->results.count(result->id) == 0);
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
@@ -213,9 +210,8 @@ TEST_F(LocationsPingerRunnerTest, Timeout) {
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
@@ -250,9 +246,8 @@ TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
@@ -310,9 +305,8 @@ TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
@@ -358,9 +352,8 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
@@ -413,9 +406,8 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
@@ -469,9 +461,8 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
@@ -526,9 +517,8 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerEventType, void *data) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
-                        const auto *result = (LocationsPingerResult *) data;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
@@ -626,9 +616,8 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
     auto *runner = locations_pinger_runner_create(&info,
             {
                     .func =
-                            [](void *arg, LocationsPingerEventType, void *data) {
+                            [](void *arg, const LocationsPingerResult *result) {
                                 auto *ctx = (Ctx *) arg;
-                                const auto *result = (LocationsPingerResult *) data;
                                 std::scoped_lock l(ctx->mtx);
                                 ++ctx->num;
 

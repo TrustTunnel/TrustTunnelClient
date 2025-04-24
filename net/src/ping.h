@@ -47,9 +47,9 @@ struct PingInfo {
     /// The best result (lowest RTT) will be reported.
     uint32_t nrounds = 0;
 
-    bool use_quic = false;           ///< Use QUIC version negotiation instead of TCP handshake
-    bool anti_dpi = false;           ///< Enable anti-DPI measures
-    bool handoff = false;            ///< Enable connection hand-off.
+    bool use_quic = false; ///< Use QUIC version negotiation instead of TCP handshake
+    bool anti_dpi = false; ///< Enable anti-DPI measures
+    bool handoff = false;  ///< Enable connection hand-off.
 
     /// The list of relay addresses to try if an endpoint is unresponsive on its normal address.
     std::span<const sockaddr_storage> relay_addresses;
@@ -62,13 +62,8 @@ struct PingInfo {
     uint32_t quic_version = 0;
 };
 
-enum PingEventType {
-    PING_EVENT_RESULT,
-    PING_EVENT_VERIFY_CERTIFICATE,
-};
-
 struct PingHandler {
-    void (*func)(void *arg, PingEventType type, void *data);
+    void (*func)(void *arg, const PingResult *result);
     void *arg;
 };
 

@@ -297,8 +297,4 @@ evutil_socket_t udp_socket_release_fd(UdpSocket *socket) {
     return fd;
 }
 
-sockaddr_storage *udp_socket_get_peer(UdpSocket *socket) {
-    return &socket->parameters.peer;
-}
-
 } // namespace ag

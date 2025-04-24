@@ -156,11 +156,6 @@ static void socket_clean_up(TcpSocket *socket) {
 
     if (socket->bev != nullptr) {
         shutdown(bufferevent_getfd(socket->bev), AG_SHUT_RDWR);
-        // We should free resources because BEV_OPT_CLOSE_ON_FREE is not set
-        evutil_closesocket(bufferevent_getfd(socket->bev));
-        if (auto *ssl = bufferevent_openssl_get_ssl(socket->bev); ssl) {
-            SSL_free(ssl);
-        }
         bufferevent_free(socket->bev);
         socket->bev = nullptr;
     }
@@ -335,8 +330,9 @@ static void on_read(struct bufferevent *bev, void *ctx) {
 
         socket->kex_group_nid = SSL_get_negotiated_group(socket->ssl.get());
 
-        bufferevent *bev_ssl = bufferevent_openssl_filter_new(vpn_event_loop_get_base(socket->parameters.ev_loop),
-                socket->bev, socket->ssl.release(), BUFFEREVENT_SSL_OPEN, BEV_OPT_DEFER_CALLBACKS);
+        bufferevent *bev_ssl =
+                bufferevent_openssl_filter_new(vpn_event_loop_get_base(socket->parameters.ev_loop), socket->bev,
+                        socket->ssl.release(), BUFFEREVENT_SSL_OPEN, BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE);
         if (!bev_ssl) {
             error = {.code = -1, .text = "bufferevent_openssl_filter_new failed"};
             handler.handler(handler.arg, TCP_SOCKET_EVENT_ERROR, &error);
@@ -506,8 +502,9 @@ static void on_sent_event(struct evbuffer *, const struct evbuffer_cb_info *info
 static struct bufferevent *wrap_fd(TcpSocket *socket, evutil_socket_t fd) {
     struct bufferevent *bev = nullptr;
 
+    int options = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE;
     struct event_base *base = vpn_event_loop_get_base(socket->parameters.ev_loop);
-    bev = bufferevent_socket_new(base, fd, BEV_OPT_DEFER_CALLBACKS);
+    bev = bufferevent_socket_new(base, fd, options);
 
     if (bev == nullptr) {
         log_sock(socket, err, "Failed to create bufferevent");
@@ -544,6 +541,7 @@ static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sock
     struct bufferevent *bev = nullptr;
     SocketProtectEvent event;
     const TcpSocketHandler *callbacks = &sock->parameters.handler;
+    int options;
     struct event_base *base;
     int err;
 
@@ -575,7 +573,8 @@ static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sock
     }
 
     base = vpn_event_loop_get_base(sock->parameters.ev_loop);
-    bev = bufferevent_socket_new(base, fd, BEV_OPT_DEFER_CALLBACKS);
+    options = BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE;
+    bev = bufferevent_socket_new(base, fd, options);
     if (bev == nullptr) {
         log_sock(sock, err, "Failed to create bufferevent");
         goto fail;
@@ -637,9 +636,6 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
 
 fail:
     if (socket->bev != nullptr) {
-        if (evutil_socket_t fd = bufferevent_getfd(socket->bev); fd >= 0) {
-            evutil_closesocket(fd);
-        }
         bufferevent_free(socket->bev);
         socket->bev = nullptr;
     }
@@ -1221,16 +1217,8 @@ void tcp_socket_update_timeout(TcpSocket *sock) {
 }
 
 VpnError tcp_socket_connect_continue(TcpSocket *socket, const TcpSocketParameters *params) {
-    // In case when TLS handshake completed socket->ssl object is transferred to bev->ssl.
-    // Here we want to reuse this SSL connection.
-    // SSL_do_handshake will early return and no handshake will be done.
-    if (!socket->ssl && bufferevent_openssl_get_ssl(socket->bev)) {
-        log_sock(socket, dbg, "Reuse TLS connection");
-        socket->ssl.reset(bufferevent_openssl_get_ssl(socket->bev));
-    }
-
     if (!socket->ssl) {
-        return {.code = -1, .text = "Wrong socket state: no SSL object"};
+        return {.code = -1, .text = "Wrong socket state"};
     }
 
     TcpSocketParameters old_params = socket->parameters;

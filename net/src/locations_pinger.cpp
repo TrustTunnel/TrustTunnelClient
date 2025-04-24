@@ -76,7 +76,6 @@ struct LocationsPinger {
     bool use_quic;
     bool anti_dpi;
     bool handoff;
-    bool verify_certificate;
     sockaddr_storage relay_address_parallel{};
     uint32_t quic_max_idle_timeout_ms;
     uint32_t quic_version;
@@ -191,9 +190,9 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
     }
 
     LocationsPingerHandler handler = pinger->handler;
-    handler.func(handler.arg, LOCATIONS_PINGER_EVENT_RESULT, &result);
+    handler.func(handler.arg, &result);
     if (info.is_last_location) {
-        handler.func(handler.arg, LOCATIONS_PINGER_EVENT_RESULT, nullptr);
+        handler.func(handler.arg, nullptr);
     }
 }
 
@@ -253,20 +252,11 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
     return std::nullopt;
 }
 
-static void ping_handler(void *arg, PingEventType type, void *data) {
-    auto *pinger = static_cast<LocationsPinger *>(arg);
-    switch (type) {
-    case PING_EVENT_VERIFY_CERTIFICATE: {
-        pinger->handler.func(pinger->handler.arg, LOCATIONS_PINGER_EVENT_VERIFY_CERTIFICATE, data);
-        break;
-    }
-    case PING_EVENT_RESULT: {
-        const auto *result = static_cast<PingResult *>(data);
-        if (auto finalize_info = process_ping_result(pinger, result); finalize_info.has_value()) {
-            finalize_location(pinger, std::move(finalize_info.value()));
-        }
-        break;
-    }
+static void ping_handler(void *arg, const PingResult *result) {
+    auto *pinger = (LocationsPinger *) arg;
+
+    if (auto finalize_info = process_ping_result(pinger, result); finalize_info.has_value()) {
+        finalize_location(pinger, std::move(finalize_info.value()));
     }
 }
 
@@ -277,11 +267,11 @@ static void start_location_ping(LocationsPinger *pinger) {
     auto i = pinger->pending_locations.begin();
 
     log_location(pinger, i->info->id, dbg, "Starting location ping");
-    PingInfo ping_info = {i->info->id, pinger->loop, pinger->network_manager,
-            {i->info->endpoints.data, i->info->endpoints.size}, pinger->timeout_ms,
-            {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->use_quic, pinger->anti_dpi,
-            pinger->handoff, {i->info->relay_addresses.data, i->info->relay_addresses.size},
-            pinger->relay_address_parallel, pinger->quic_max_idle_timeout_ms, pinger->quic_version};
+    PingInfo ping_info = {i->info->id, pinger->loop, pinger->network_manager, {i->info->endpoints.data, i->info->endpoints.size},
+            pinger->timeout_ms, {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds,
+            pinger->use_quic, pinger->anti_dpi, pinger->handoff,
+            {i->info->relay_addresses.data, i->info->relay_addresses.size}, pinger->relay_address_parallel,
+            pinger->quic_max_idle_timeout_ms, pinger->quic_version};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
     if (!ping) {
         FinalizeLocationInfo info{std::move(*i), pinger->pending_locations.size() == 1 && pinger->locations.empty()};
@@ -356,7 +346,7 @@ LocationsPinger *locations_pinger_start(
                                 [](void *arg, TaskId) {
                                     auto *pinger = (LocationsPinger *) arg;
                                     LocationsPingerHandler handler = pinger->handler;
-                                    handler.func(handler.arg, LOCATIONS_PINGER_EVENT_RESULT, nullptr);
+                                    handler.func(handler.arg, nullptr);
                                 },
                 });
     }

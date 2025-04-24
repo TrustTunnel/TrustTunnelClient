@@ -74,11 +74,7 @@ if(NOT TARGET vpnlibs_common)
     add_subdirectory(${VPN_LIB_DIR}/common ${CMAKE_BINARY_DIR}/common)
 endif(NOT TARGET vpnlibs_common)
 
-if (NOT TARGET vpnlibs_core)
-    add_subdirectory(${VPN_LIB_DIR}/core ${CMAKE_BINARY_DIR}/core)
-endif (NOT TARGET vpnlibs_core)
-
-target_link_libraries(vpnlibs_net vpnlibs_common vpnlibs_core)
+target_link_libraries(vpnlibs_net vpnlibs_common)
 target_link_libraries(vpnlibs_net ZLIB::ZLIB brotli::brotli http_parser::http_parser)
 target_link_libraries(vpnlibs_net ldns::ldns nghttp2::nghttp2 klib::klib openssl::openssl)
 target_link_libraries(vpnlibs_net libevent::libevent magic_enum::magic_enum ngtcp2::ngtcp2)

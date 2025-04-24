@@ -158,8 +158,8 @@ protected:
         LocationsPingerResultExtra result = result_.value_or(LocationsPingerResultExtra{
                 {this->vpn->upstream_config->location.id, 10, this->vpn->upstream_config->location.endpoints.data}});
         auto pinger_handler = pinger_start_info.get_arg<LocationsPingerHandler>(1);
-        this->vpn->submit([pinger_handler, result]() mutable {
-            pinger_handler.func(pinger_handler.arg, LOCATIONS_PINGER_EVENT_RESULT, &result);
+        this->vpn->submit([pinger_handler, result]() {
+            pinger_handler.func(pinger_handler.arg, &result);
         });
     }
 

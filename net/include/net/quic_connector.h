@@ -23,15 +23,10 @@ namespace ag {
 
 /**
  * A QUIC connector sets up a QUIC connection object and starts establishing the connection.
- *
- * If `verify_certificate` flag is set to true, the connector establishes the connection,
- * and no further continuation is required. Otherwise:
- *
  * When it receives the first UDP payload from the server, it pauses and raises a "ready" event.
  * The connection state can then be retrieved and the connection process can be continued elsewhere.
  * This way, a half-open connection can be handed off from the locations pinger to the upstream
  * to save some network round trips.
- *
  * If the connector encounters an error, it aborts the connection and raises an event.
  */
 struct QuicConnector;
@@ -51,7 +46,6 @@ struct QuicConnectorParameters {
     VpnEventLoop *ev_loop;         // event loop
     QuicConnectorHandler handler;  // events handler
     SocketManager *socket_manager; // socket manager
-    bool verify_certificate;       // Enable TLS certificate verification
 };
 
 struct QuicConnectorConnectParameters {

@@ -1346,6 +1346,10 @@ bool ag::Http3Upstream::continue_connecting() {
 
     m_quic_conn = std::move(result->conn);
 
+    SSL_CTX_set_verify(SSL_get_SSL_CTX(result->ssl), SSL_VERIFY_PEER, nullptr);
+    SSL_CTX_set_cert_verify_callback(SSL_get_SSL_CTX(result->ssl), verify_callback, this);
+    m_ssl_for_kex_group_nid = result->ssl;
+
     UdpSocketParameters params = {
             .ev_loop = this->vpn->parameters.ev_loop,
             .handler = {socket_handler, this},
@@ -1358,19 +1362,6 @@ bool ag::Http3Upstream::continue_connecting() {
         log_upstream(this, err, "Failed to acquire UDP socket fd");
         return false;
     }
-
-    m_ssl_for_kex_group_nid = result->ssl;
-
-    // In case when handoff is on and TLS established by locations_pinger
-    if (SSL_is_init_finished(result->ssl)) {
-        log_upstream(this, dbg, "TLS connection established");
-        m_quic_connector.reset();
-
-        return true;
-    }
-
-    SSL_CTX_set_verify(SSL_get_SSL_CTX(result->ssl), SSL_VERIFY_PEER, nullptr);
-    SSL_CTX_set_cert_verify_callback(SSL_get_SSL_CTX(result->ssl), verify_callback, this);
 
     sockaddr_storage local_address = local_sockaddr_from_fd(udp_socket_get_fd(m_socket.get()));
     quiche_recv_info info{
