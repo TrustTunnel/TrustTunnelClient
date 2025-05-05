@@ -915,3 +915,5 @@ commit_hash:
     hash: "5758721bfbd8acf35e547ed836226daadd692700"
   "0.95.10":
     hash: "5b34d0a2f2664a19b60fe8e3afc8bcf54a31635e"
+  "0.95.11":
+    hash: "7339e638164ed18f44d5b40b3e50fb7b4d0bcef4"
