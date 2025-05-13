@@ -399,9 +399,10 @@ static void on_event(struct bufferevent *bev, short what, void *ctx) {
     if (what & BEV_EVENT_EOF) {
         log_sock(socket, trace, "Eof event");
         socket->flags |= SF_GOT_EOF;
-        if (bufferevent_get_enabled(bev) & EV_READ) {
-            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READABLE, nullptr);
-        }
+
+        // We don't need to check for EV_READ here because it is unset inside libevent
+        // just before firing this callback, and BEV_EVENT_EOF can only be raised when EV_READ is set.
+        callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_READABLE, nullptr);
     } else if (what & BEV_EVENT_TIMEOUT) {
         // We do not expect that timeout disables reads or writes
         bufferevent_enable(bev, (what & BEV_EVENT_WRITING) ? EV_WRITE : 0);
