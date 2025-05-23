@@ -1091,7 +1091,8 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 #ifdef OPENSSL_IS_BORINGSSL
     SSL_set_enable_ech_grease(ssl.get(), 1);
 
-    if (SSL_add_application_settings(ssl.get(), (uint8_t *)"h2", 2, nullptr, 0) != 1) {
+    const char *alps = quic ? "h3": "h2";
+    if (SSL_add_application_settings(ssl.get(), (uint8_t *)alps, 2, nullptr, 0) != 1) {
         return "Failed to add ALPS extension";
     }
     SSL_set_alps_use_new_codepoint(ssl.get(), 1);
