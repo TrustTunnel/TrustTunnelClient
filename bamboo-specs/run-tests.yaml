@@ -31,6 +31,10 @@ Run tests on Linux:
         path: vpn-libs
         description: Checkout Default Repository
     - script:
+        - |-
+          set -x -e
+          ! grep -rnE "SSL(_CTX)?_new" | grep -v "net/src/util.cpp"
+    - script:
         interpreter: SHELL
         scripts:
           - |-
