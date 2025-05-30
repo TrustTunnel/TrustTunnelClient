@@ -35,6 +35,7 @@ std::atomic_int g_next_loop_id = 0;
 static event_base *make_event_base();
 static void run_task_queue(evutil_socket_t, short, void *arg);
 static void run_deferred_task(evutil_socket_t, short, void *arg);
+static void vpn_timer_event_free_finalize(event *ev);
 
 struct TaskInfo {
     TaskId id;
@@ -48,9 +49,21 @@ struct DeferredTaskCtx {
 
 struct DeferredTaskInfo {
     TaskInfo basic;
-    std::unique_ptr<DeferredTaskCtx> ctx;
-    DeclPtr<event, &event_free> timer_event;
+    DeclPtr<event, &vpn_timer_event_free_finalize> timer_event;
 };
+
+/**
+ * timer_event is required to be finalized because it is created with EV_FINALIZE flag.
+ * If it is created without this flag, event_del may block while the event's callback is running.
+ * This can lead to deadlocks in multithreaded applications, so we use EV_FINALIZE
+ */
+static void vpn_timer_event_free_finalize(event *ev) {
+    if (ev) {
+        event_free_finalize(0, ev, [](event *, void *arg) {
+            delete (DeferredTaskCtx *) arg;
+        });
+    }
+}
 
 enum EventLoopState {
     ELS_STOPPED,
@@ -278,9 +291,12 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
     }
 
     DeferredTaskInfo &info = loop->deferred_task_queue.emplace_back(
-            DeferredTaskInfo{{task_id, task}, std::make_unique<DeferredTaskCtx>(DeferredTaskCtx{loop, task_id})});
+            DeferredTaskInfo{{task_id, task}});
 
-    info.timer_event.reset(event_new(loop->ev_base.get(), -1, 0, &run_deferred_task, info.ctx.get()));
+    // Will be freed by `vpn_timer_event_free_finalize`
+    auto *task_ctx = new DeferredTaskCtx{loop, task_id};
+
+    info.timer_event.reset(event_new(loop->ev_base.get(), -1, EV_FINALIZE, &run_deferred_task, task_ctx));
     const struct timeval tv = ms_to_timeval(uint32_t(defer.count()));
     event_add(info.timer_event.get(), &tv);
 
