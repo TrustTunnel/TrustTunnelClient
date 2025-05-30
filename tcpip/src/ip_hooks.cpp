@@ -243,6 +243,14 @@ static inline int process_udp(
             // requested, but not yet confirmed
             udp_cm_enqueue_incoming_packet(entry, p, header_len);
             return PACKET_IS_DEFERRED;
+        case UDP_CONN_STATE_UNREACHABLE:
+            pbuf_header_force(p, header_len);
+            if (IP_IS_V4(src_addr)) {
+                icmp_dest_unreach(p, ICMP_DUR_NET);
+            } else {
+                icmp6_dest_unreach_hook(p, ICMP6_DUR_NO_ROUTE, src_addr, ctx->netif);
+            }
+            return DROP_PACKET(p);
         default:
             return forward_existing_udp_entry(entry, ctx->udp.tun_pcb, p, header_len, dst_port);
         }

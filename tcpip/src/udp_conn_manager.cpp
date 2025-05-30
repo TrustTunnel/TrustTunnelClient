@@ -89,6 +89,20 @@ static void process_rejected_connection(UdpConnDescriptor *connection) {
     connection->state = UDP_CONN_STATE_REJECTED;
 }
 
+static void process_unreachable_connection(UdpConnDescriptor *connection) {
+    connection->state = UDP_CONN_STATE_UNREACHABLE;
+    if (!connection->pending_packets.empty()) {
+        struct netif *netif = connection->common.parent_ctx->netif;
+        struct pbuf *buf = connection->pending_packets.back().release();
+        connection->pending_packets.pop_back();
+        if (err_t r = netif_input(buf, netif); r != ERR_OK) {
+            pbuf_free(buf);
+            log_conn(connection, err, "netif_input failed: {} ({})", lwip_strerr(r), r);
+        }
+        udp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id);
+    }
+}
+
 static void process_forwarded_connection(UdpConnDescriptor *connection) {
     process_new_connection(connection);
 }
@@ -132,7 +146,7 @@ void udp_cm_complete_connect_request(TcpipCtx *ctx, UdpConnDescriptor *connectio
             /** TCPIP_ACT_REJECT */ {process_rejected_connection, "rejecting"},
             /** TCPIP_ACT_BYPASS */ {process_forwarded_connection, "forwarding"},
             /** TCPIP_ACT_DROP */ {process_rejected_connection, "rejecting"},
-            /** TCPIP_ACT_REJECT_UNREACHABLE */ {process_rejected_connection, "rejecting"},
+            /** TCPIP_ACT_REJECT_UNREACHABLE */ {process_unreachable_connection, "rejecting (unreachable)"},
     };
 
     log_conn(connection, dbg, "{} connection", COMPLETE_CONNECTION_HANDLERS[action].description);
