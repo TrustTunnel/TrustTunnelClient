@@ -305,7 +305,7 @@ static void on_read(struct bufferevent *bev, void *ctx) {
 
         // Handshake finished, report "connected".
         tcp_socket_set_read_enabled(socket, false);
-        log_sock(socket, dbg, "Socket connected, TLS handshake completed");
+        log_sock(socket, dbg, "TLS handshake complete. Session reused: {}", SSL_session_reused(socket->ssl.get()));
 
         for (;;) {
             SslBuf &buf = socket->ssl_pending.emplace_back();

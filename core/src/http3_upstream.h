@@ -95,7 +95,7 @@ private:
     bool m_closed = false; // @todo: seems like it can be replaced by a separate state
     ag::Logger m_log{"H3_UPSTREAM"};
     DeclPtr<QuicConnector, &quic_connector_destroy> m_quic_connector;
-    void *m_ssl_for_kex_group_nid = nullptr; // invalid after handshake completed / in case of handshake error
+    void *m_ssl_object = nullptr; // A non-owning pointer to SSL used by QuicConnector and Quiche.
     int m_kex_group_nid = NID_undef;
 
     /**

@@ -578,11 +578,13 @@ bool ag::DnsHandler::update_parameters(DnsHandlerParameters parameters) {
         log_handler(this, err, "Cert verify handler is not set");
         return false;
     }
-    this->m_parameters = std::move(parameters);
+    log_handler(this, dbg, "Restarting DNS proxy with new parameters");
+    m_parameters = std::move(parameters);
     return start_dns_proxy();
 }
 
 bool ag::DnsHandler::start_dns_proxy() {
+    m_upstream_conn_id_by_client_id.clear();
     m_client.reset();
     if (m_dns_proxy) {
         m_dns_proxy->stop();

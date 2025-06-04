@@ -812,47 +812,62 @@ public:
     }
 };
 
-static std::mutex m_session_cache_mutex;
-static ag::LruCache<std::string, SessionAccumulator> m_session_cache;
+static std::mutex g_session_cache_mutex;
+static LruCache<std::string, SessionAccumulator> g_session_cache;
 
-static std::string hash_sha256(std::string_view str) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    char hashstr[SHA256_DIGEST_LENGTH * 2 + 1];
-    SHA256((unsigned char*)str.data(), str.length(), hash);
+static std::string session_cache_key(std::string_view sni, bool quic) {
+    uint8_t sni_hash[SHA256_DIGEST_LENGTH];
+    SHA256((unsigned char *) sni.data(), sni.length(), sni_hash);
+
+    std::string key;
+    key.reserve(SHA256_DIGEST_LENGTH * 2 + 1);
+
     static constexpr char hex[] = "0123456789ABCDEF";
-    size_t k = 0;
-    for (size_t i = 0;  i != sizeof(hash);  i++) {
-        hashstr[k++] = hex[hash[i] >> 4];
-        hashstr[k++] = hex[hash[i] & 0x0f];
+    for (size_t i = 0;  i != sizeof(sni_hash);  i++) {
+        key += hex[sni_hash[i] >> 4];
+        key += hex[sni_hash[i] & 0x0f];
     }
-    hashstr[k++] = '\0';
-    return hashstr;
+
+    key += quic ? "Q" : "T";
+
+    return key;
 }
 
-static int cache_session_cb(SSL *ssl, SSL_SESSION *session) {
-    std::lock_guard l{m_session_cache_mutex};
+static int cache_session(SSL *ssl, SSL_SESSION *session, bool quic) {
+    std::lock_guard l{g_session_cache_mutex};
     if (const char *hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) {
-        auto hash = hash_sha256(hostname);
-        if (auto accum = m_session_cache.get(hash)) {
+        auto key = session_cache_key(hostname, quic);
+        if (auto accum = g_session_cache.get(key)) {
             accum->insert(DeclPtr<SSL_SESSION, &SSL_SESSION_free>{session});
+            dbglog(g_logger, "{} sessions remaining for SNI: {}, QUIC: {}", accum->list().size(), hostname, quic);
         } else {
             SessionAccumulator session_accum;
             session_accum.insert(DeclPtr<SSL_SESSION, &SSL_SESSION_free>{session});
-            m_session_cache.insert(hash, std::move(session_accum));
+            dbglog(g_logger, "{} sessions remaining for SNI: {}, QUIC: {}", session_accum.list().size(), hostname, quic);
+            g_session_cache.insert(key, std::move(session_accum));
         }
         return 1;
     }
     return 0;
 }
 
-static DeclPtr<SSL_SESSION, &SSL_SESSION_free> pop_session_from_cache(const std::string &sni) {
-    auto hash = hash_sha256(sni);
-    std::lock_guard l{m_session_cache_mutex};
-    if (auto it = m_session_cache.get(hash)) {
+static int cache_session_quic_cb(SSL *ssl, SSL_SESSION *session) {
+    return cache_session(ssl, session, /*quic*/true);
+}
+
+static int cache_session_tcp_cb(SSL *ssl, SSL_SESSION *session) {
+    return cache_session(ssl, session, /*quic*/false);
+}
+
+static DeclPtr<SSL_SESSION, &SSL_SESSION_free> pop_session_from_cache(const std::string &sni, bool quic) {
+    auto key = session_cache_key(sni, quic);
+    std::lock_guard l{g_session_cache_mutex};
+    if (auto it = g_session_cache.get(key)) {
         auto session = it->pop();
         if (it->size() == 0) {
-            m_session_cache.erase(hash);
+            g_session_cache.erase(key);
         }
+        dbglog(g_logger, "{} sessions remaining for SNI: {}, QUIC: {}", it->list().size(), sni, quic);
         return session;
     }
     return nullptr;
@@ -868,7 +883,7 @@ public:
             warnlog(g_logger, "SSL sessions won't be loaded and stored on disk because provided path doesn't exists: {}", m_dir.string());
             return;
         }
-        std::lock_guard l{m_session_cache_mutex};
+        std::lock_guard l{g_session_cache_mutex};
         std::map<size_t, std::pair<std::string, std::map<size_t, DeclPtr<SSL_SESSION, &SSL_SESSION_free>>>> sorted_cache;
         std::set<std::filesystem::path> files_to_remove;
         size_t sessions_counter = 0;
@@ -885,8 +900,8 @@ public:
                 sessions_counter++;
                 auto entry = sorted_cache.find(parsed_filename->index);
                 if (entry == sorted_cache.end()) {
-                    entry = sorted_cache.insert(std::pair{parsed_filename->index, std::pair{parsed_filename->hash, std::map<size_t, DeclPtr<SSL_SESSION, &SSL_SESSION_free>>{}}}).first;
-                    entry->second.first = parsed_filename->hash;
+                    entry = sorted_cache.insert(std::pair{parsed_filename->index, std::pair{parsed_filename->key, std::map<size_t, DeclPtr<SSL_SESSION, &SSL_SESSION_free>>{}}}).first;
+                    entry->second.first = parsed_filename->key;
                 }
                 entry->second.second.insert({parsed_filename->session_index, std::move(session)});
             }
@@ -898,12 +913,12 @@ public:
         }
         // Reversly build cache so last inserted session will become MRU
         for (auto itr = sorted_cache.rbegin(); itr != sorted_cache.rend(); itr++) {
-            auto &[sni, sessions] = itr->second;
+            auto &[cache_key, sessions] = itr->second;
             SessionAccumulator session_accum;
             for (auto s_itr = sessions.rbegin(); s_itr != sessions.rend(); s_itr++) {
                 session_accum.insert(std::move(s_itr->second));
             }
-            m_session_cache.insert(sni, std::move(session_accum));
+            g_session_cache.insert(cache_key, std::move(session_accum));
         }
     }
 
@@ -911,23 +926,23 @@ public:
         if (!exists(m_dir)) {
             return;
         }
-        std::lock_guard l{m_session_cache_mutex};
+        std::lock_guard l{g_session_cache_mutex};
         size_t sessions_counter = 0;
-        size_t hash_index = 0;
-        m_session_cache.iterate_values([&](const std::string &hash, const SessionAccumulator &accum) {
+        size_t key_index = 0;
+        g_session_cache.iterate_values([&](const std::string &cache_key, const SessionAccumulator &accum) {
             size_t session_index = 0;
             for (const auto &session : accum.list()) {
                 if (session && check_session_timings(session.get())) {
-                    auto key = std::string(FILE_PREFIX) + std::to_string(hash_index) + INDEX_DELIMETER + std::to_string(session_index) + INDEX_DELIMETER + hash;
+                    auto key = std::string(FILE_PREFIX) + std::to_string(key_index) + INDEX_DELIMETER + std::to_string(session_index) + INDEX_DELIMETER + cache_key;
                     write_session(m_dir/key, session.get());
                     session_index++;
                 }
             }
-            hash_index++;
+            key_index++;
             sessions_counter += session_index;
             return true;
         });
-        dbglog(g_logger, "Cached {} SSL sessions for {} domains on disk", sessions_counter, hash_index);
+        dbglog(g_logger, "Cached {} SSL sessions on disk", sessions_counter);
     }
 
 private:
@@ -937,7 +952,7 @@ private:
     struct FileNameEntry {
         size_t index;
         size_t session_index;
-        std::string_view hash;
+        std::string_view key;
     };
     std::optional<FileNameEntry> parse_filename(std::string_view filename) {
         if (!filename.starts_with(FILE_PREFIX)) {
@@ -1059,7 +1074,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     }
 
     SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_CLIENT);
-    SSL_CTX_sess_set_new_cb(ctx.get(), cache_session_cb);
+    SSL_CTX_sess_set_new_cb(ctx.get(), quic ? cache_session_quic_cb : cache_session_tcp_cb);
 
 // Mimic Chrome's ClientHello if we are using BoringSSL.
 #ifdef OPENSSL_IS_BORINGSSL
@@ -1136,7 +1151,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
     SSL_set_connect_state(ssl.get());
 
-    if (auto session = pop_session_from_cache(sni)) {
+    if (auto session = pop_session_from_cache(sni, quic)) {
         SSL_set_session(ssl.get(), session.get()); // Callee uprefs session.
     }
 
