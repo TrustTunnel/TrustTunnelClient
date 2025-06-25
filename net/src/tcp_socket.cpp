@@ -474,15 +474,15 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
     }
 
     if (e.code == 0) {
-        if (!socket->ssl) {
-            log_sock(socket, dbg, "Socket connected"); // without TLS
-            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_CONNECTED, nullptr);
-        }
 #ifdef _WIN32
         if (int ret = workaround_sndbuf(bufferevent_getfd(socket->bev))) {
             log_sock(socket, warn, "Failed to set SO_SNBBUF: {}", ret);
         }
 #endif
+        if (!socket->ssl) {
+            log_sock(socket, dbg, "Socket connected"); // without TLS
+            callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_CONNECTED, nullptr);
+        }
     } else if (socket->flags & SF_CONNECT_CALLED) {
         socket->pending_connect_error = e;
     } else {
