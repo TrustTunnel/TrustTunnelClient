@@ -96,11 +96,8 @@ vpn_client::Parameters Vpn::make_client_parameters() const {
 
 vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     AutoVpnEndpoint endpoint = vpn_endpoint_clone(this->selected_endpoint.value().endpoint.get()); // NOLINT(bugprone-unchecked-optional-access)
-    if (this->selected_endpoint->relay.has_value()) {
-        AutoVpnRelay relay = vpn_relay_clone(this->selected_endpoint->relay.value().get());
-        endpoint->address = relay->address;
-        std::swap(endpoint->additional_data.data, relay->additional_data.data);
-        std::swap(endpoint->additional_data.size, relay->additional_data.size);
+    if (this->selected_endpoint->relay_address.has_value()) {
+        endpoint->address = *this->selected_endpoint->relay_address;
     }
     return {
             .main_protocol = this->upstream_config->protocol,

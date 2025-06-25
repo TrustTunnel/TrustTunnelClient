@@ -187,52 +187,24 @@ bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
             && ((lh->remote_id == nullptr && rh->remote_id == nullptr) || 0 == strcmp(lh->remote_id, rh->remote_id));
 }
 
-void vpn_relay_destroy(VpnRelay *relay) {
-    if (relay == nullptr) {
-        return;
-    }
-    free(relay->additional_data.data);
-    relay->additional_data.data = nullptr;
-    relay->additional_data.size = 0;
-    std::memset(&relay->address, 0, sizeof(relay->address));
-}
-
-using AutoVpnRelay = AutoPod<VpnRelay, vpn_relay_destroy>;
-
-AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
-    AutoVpnRelay dst;
-    std::memcpy(&dst.get()->address, &src->address, sizeof(sockaddr_storage));
-    size_t data_len = src->additional_data.size;
-    dst->additional_data.data = (uint8_t *) malloc(data_len);
-    std::memcpy(dst->additional_data.data, src->additional_data.data, data_len);
-    dst->additional_data.size = data_len;
-    return dst;
-}
-
 AutoVpnLocation vpn_location_clone(const VpnLocation *src) {
     AutoVpnLocation dst;
     std::memcpy(dst.get(), src, sizeof(*src));
     dst->id = safe_strdup(src->id);
 
-    // Clone endpoints
     dst->endpoints = {};
     static_assert(std::is_trivial_v<VpnEndpoint>);
     dst->endpoints.data = (VpnEndpoint *) malloc(src->endpoints.size * sizeof(VpnEndpoint));
+
     for (size_t i = 0; i < src->endpoints.size; ++i) {
         AutoVpnEndpoint e = vpn_endpoint_clone(&src->endpoints.data[i]);
         std::memcpy(&dst->endpoints.data[dst->endpoints.size++], e.get(), sizeof(*e.get()));
         e.release();
     }
 
-    // Clone relays
-    dst->relays = {};
-    dst->relays.data = (VpnRelay *) malloc(src->relays.size * sizeof(VpnRelay));
-    dst->relays.size = src->relays.size;
-    for (size_t i = 0; i < src->relays.size; ++i) {
-        AutoVpnRelay r = vpn_relay_clone(&src->relays.data[i]);
-        std::memcpy(&dst->relays.data[i], r.get(), sizeof(VpnRelay));
-        r.release();
-    }
+    size_t relay_addresses_size = dst->relay_addresses.size * sizeof(sockaddr_storage);
+    dst->relay_addresses.data = (sockaddr_storage *) malloc(relay_addresses_size);
+    std::memcpy(dst->relay_addresses.data, src->relay_addresses.data, relay_addresses_size);
 
     return dst;
 }
@@ -249,17 +221,6 @@ void vpn_endpoints_destroy(VpnEndpoints *endpoints) {
     std::memset(endpoints, 0, sizeof(*endpoints));
 }
 
-void vpn_relays_destroy(VpnRelays *relays) {
-    if (relays == nullptr) {
-        return;
-    }
-    for (size_t i = 0; i < relays->size; ++i) {
-        vpn_relay_destroy(&relays->data[i]);
-    }
-    free(relays->data);
-    std::memset(relays, 0, sizeof(*relays));
-}
-
 void vpn_location_destroy(VpnLocation *location) {
     if (location == nullptr) {
         return;
@@ -267,7 +228,7 @@ void vpn_location_destroy(VpnLocation *location) {
 
     free((char *) location->id);
     vpn_endpoints_destroy(&location->endpoints);
-    vpn_relays_destroy(&location->relays);
+    free(location->relay_addresses.data);
 
     std::memset(location, 0, sizeof(*location));
 }

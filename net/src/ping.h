@@ -23,7 +23,7 @@ struct PingResult {
     int socket_error;              // has sense if `status` == `PING_SOCKET_ERROR`
     const VpnEndpoint *endpoint;   // pinged endpoint
     int ms;                        // RTT value
-    const VpnRelay *relay;         // non-null if the endpoint was pinged through a relay
+    const sockaddr *relay_address; // if the endpoint was pinged through a relay, the relay's address
     bool is_quic;                  // Whether the established connection is QUIC
     void *conn_state;              // Connection object, non-NULL if connection hand-off is enabled
 };
@@ -52,10 +52,10 @@ struct PingInfo {
     bool handoff = false;  ///< Enable connection hand-off.
 
     /// The list of relay addresses to try if an endpoint is unresponsive on its normal address.
-    std::span<const VpnRelay> relays;
+    std::span<const sockaddr_storage> relay_addresses;
 
     /// If not zero, ping through this relay address in parallel with normal pings.
-    VpnRelay relay_parallel;
+    sockaddr_storage relay_address_parallel;
 
     /// QUIC parameters. Set 0 to use defaults.
     uint32_t quic_max_idle_timeout_ms = 0;

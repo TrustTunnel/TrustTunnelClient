@@ -283,14 +283,14 @@ TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
             {sockaddr_from_str("[2a10:50c0::42]:443"), "one.one.one.one"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "one.one.one.one"},
     };
-    std::vector<VpnRelay> relays = {
-            {sockaddr_from_str("1.2.3.5:443")},
-            {sockaddr_from_str("1.1.1.1:443")},
+    std::vector<sockaddr_storage> relay_addresses = {
+            sockaddr_from_str("1.2.3.5:443"),
+            sockaddr_from_str("1.1.1.1:443"),
     };
     VpnLocation location{
             .id = "Cloudflare 1.1.1.1",
             .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
-            .relays = {.data = relays.data(), .size = (uint32_t) relays.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
     };
     struct TestCtx {
         AutoVpnEndpoint endpoint{};
@@ -310,8 +310,8 @@ TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
-                        if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
                         }
                         ++ctx->count;
                     },
@@ -357,8 +357,8 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
-                        if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
                         }
                         ++ctx->count;
                     },
@@ -382,15 +382,15 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
             {sockaddr_from_str("[2a10:50c0::42]:443"), "dns.quad9.net"},
             {sockaddr_from_str("[2a10:50c0::43]:443"), "dns.quad9.net"},
     };
-    std::vector<VpnRelay> relays = {
-            {sockaddr_from_str("94.140.14.222:443")},
-            {sockaddr_from_str("[2a10:50c0::42]:443")},
-            {sockaddr_from_str("9.9.9.9:443")},
+    std::vector<sockaddr_storage> relay_addresses = {
+            sockaddr_from_str("94.140.14.222:443"),
+            sockaddr_from_str("[2a10:50c0::42]:443"),
+            sockaddr_from_str("9.9.9.9:443"),
     };
     VpnLocation location{
             .id = "Quad9",
             .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
-            .relays = {.data = relays.data(), .size = (uint32_t) relays.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
     };
     struct TestCtx {
         AutoVpnEndpoint endpoint{};
@@ -411,8 +411,8 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
-                        if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
                         }
                         ++ctx->count;
                     },
@@ -438,14 +438,14 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
             // Working endpoint
             {sockaddr_from_str("1.1.1.1:443"), "one.one.one.one"},
     };
-    std::vector<VpnRelay> relays = {
+    std::vector<sockaddr_storage> relay_addresses = {
             // Working 1.1.1.1 alternative
-            {sockaddr_from_str("1.0.0.1:443")},
+            sockaddr_from_str("1.0.0.1:443"),
     };
     VpnLocation location{
             .id = "Quad9",
             .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
-            .relays = {.data = relays.data(), .size = (uint32_t) relays.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
     };
     struct TestCtx {
         AutoVpnEndpoint endpoint{};
@@ -466,8 +466,8 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
-                        if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
                         }
                         ++ctx->count;
                     },
@@ -494,14 +494,14 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
             // Working endpoint
             {sockaddr_from_str("9.9.9.9:443"), "dns.quad9.net"},
     };
-    std::vector<VpnRelay> relays = {
+    std::vector<sockaddr_storage> relay_addresses = {
             // Working 9.9.9.9 alternative
-            {sockaddr_from_str("149.112.112.112:443")},
+            sockaddr_from_str("149.112.112.112:443"),
     };
     VpnLocation location{
             .id = "Quad9",
             .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
-            .relays = {.data = relays.data(), .size = (uint32_t) relays.size()},
+            .relay_addresses = {.data = relay_addresses.data(), .size = (uint32_t) relay_addresses.size()},
     };
     struct TestCtx {
         AutoVpnEndpoint endpoint{};
@@ -522,8 +522,8 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
-                        if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                        if (result->relay_address) {
+                            ctx->relay_address = sockaddr_to_str(result->relay_address);
                         }
                         ++ctx->count;
                     },
@@ -550,7 +550,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
 
     ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
 
-    std::list<std::vector<VpnRelay>> relay_addresses;
+    std::list<std::vector<sockaddr_storage>> relay_addresses;
 
     size_t total_endpoints = 0;
     for (auto &json_loc : json["locations"]) {
@@ -587,8 +587,8 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                 }
             }
         }
-        location.relays.data = relays.data();
-        location.relays.size = relays.size();
+        location.relay_addresses.data = relays.data();
+        location.relay_addresses.size = relays.size();
     }
 
     struct Result {
@@ -640,7 +640,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                                 ctx->max = std::max(ctx->max, result->ping_ms);
                                 ctx->results.emplace_back(Result{result->id, result->endpoint->name,
                                         sockaddr_to_str((sockaddr *) &result->endpoint->address),
-                                        result->relay ? sockaddr_to_str((sockaddr *) &result->relay->address) : "none",
+                                        result->relay_address ? sockaddr_to_str(result->relay_address) : "none",
                                         result->ping_ms, result->is_quic});
                             },
                     .arg = &ctx,

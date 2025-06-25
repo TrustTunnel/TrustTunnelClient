@@ -234,7 +234,7 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner()
 
 Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_server() {
     std::vector<VpnEndpoint> endpoints;
-    std::vector<VpnRelay> relays;
+    std::vector<sockaddr_storage> relays;
     std::vector<std::string> hostnames;
     std::vector<std::string> remote_ids;
     hostnames.reserve(m_config.location.endpoints.size());
@@ -266,7 +266,7 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
                                     {
                                             .id = "hello-location",
                                             .endpoints = {endpoints.data(), uint32_t(endpoints.size())},
-                                            .relays = {relays.data(), uint32_t(relays.size())},
+                                            .relay_addresses = {relays.data(), uint32_t(relays.size())},
                                     },
                             .username = m_config.location.username.c_str(),
                             .password = m_config.location.password.c_str(),

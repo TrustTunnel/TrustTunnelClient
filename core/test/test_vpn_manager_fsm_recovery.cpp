@@ -141,7 +141,7 @@ struct ConnectingVpnManagerTest : MockedTest {
     }
 
     void loop_once() { // NOLINT(readability-make-member-function-const)
-        vpn_event_loop_hijack(vpn->ev_loop.get());
+        vpn_event_loop_exit(vpn->ev_loop.get(), Millis{0});
         vpn_event_loop_run(vpn->ev_loop.get());
     }
 

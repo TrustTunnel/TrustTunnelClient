@@ -189,10 +189,10 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
     }
 
     vpn->selected_endpoint.emplace(vpn_endpoint_clone(result->endpoint),
-            result->relay ? std::make_optional(vpn_relay_clone(result->relay)) : std::nullopt);
+            result->relay_address ? std::make_optional(sockaddr_to_storage(result->relay_address)) : std::nullopt);
     log_vpn(vpn, info, "Using endpoint: {}, relay={}, ping={}ms", *vpn->selected_endpoint->endpoint,
-            vpn->selected_endpoint->relay.has_value()
-                    ? sockaddr_to_str((sockaddr *) &vpn->selected_endpoint->relay->get()->address).c_str()
+            vpn->selected_endpoint->relay_address.has_value()
+                    ? sockaddr_to_str((sockaddr *) &*vpn->selected_endpoint->relay_address).c_str()
                     : "none",
             result->ping_ms);
 
@@ -291,9 +291,9 @@ static void run_ping(void *ctx, void *) {
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
-    if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay.has_value()
+    if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay_address.has_value()
             && vpn->recovery.start_ts != time_point<steady_clock>{}) {
-        pinger_info.relay_parallel = vpn->selected_endpoint->relay->get();
+        pinger_info.relay_address_parallel = (sockaddr *) &*vpn->selected_endpoint->relay_address;
     }
 
     vpn->pinger.reset(locations_pinger_start(&pinger_info, {pinger_handler, vpn}, vpn->ev_loop.get(), vpn->network_manager.get()));
@@ -466,8 +466,8 @@ static void raise_state(void *ctx, void *) {
         kex_group_name = kex_group_name_by_nid(kex_group_nid);
         event.connected_info = {
                 .endpoint = vpn->selected_endpoint->endpoint.get(),
-                .relay = vpn->selected_endpoint->relay.has_value()
-                        ? vpn->selected_endpoint->relay->get()
+                .relay_address = vpn->selected_endpoint->relay_address.has_value()
+                        ? (sockaddr *) &*vpn->selected_endpoint->relay_address
                         : nullptr,
                 .protocol = vpn->client.endpoint_upstream->get_protocol(),
                 .kex_group = kex_group_name.c_str(),
