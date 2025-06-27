@@ -102,10 +102,6 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
         std::swap(endpoint->additional_data.data, relay->additional_data.data);
         std::swap(endpoint->additional_data.size, relay->additional_data.size);
     }
-    auto ip_availability = IpVersionSet{}.set(IPV4);
-    if (endpoint->has_ipv6) {
-        ip_availability.set(IPV6);
-    }
     return {
             .main_protocol = this->upstream_config->protocol,
             .fallback = this->upstream_config->fallback,
@@ -114,7 +110,18 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
             .health_check_timeout = Millis{this->upstream_config->health_check_timeout_ms},
             .username = this->upstream_config->username,
             .password = this->upstream_config->password,
-            .ip_availability = ip_availability,
+            .ip_availability =
+                    [this] {
+                        const VpnEndpoints &endpoints = this->upstream_config->location.endpoints;
+                        // IPv4 is considered always available on an endpoint
+                        IpVersionSet ret = IpVersionSet{}.set(IPV4);
+                        ret.set(IPV6,
+                                std::any_of(endpoints.data, endpoints.data + endpoints.size,
+                                        [](const VpnEndpoint &e) -> bool {
+                                            return e.address.ss_family == AF_INET6;
+                                        }));
+                        return ret;
+                    }(),
             .anti_dpi = this->upstream_config->anti_dpi,
     };
 }

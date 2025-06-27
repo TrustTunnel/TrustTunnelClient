@@ -256,7 +256,6 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
                 .address = sockaddr_from_str(endpoint.address.c_str()),
                 .name = hostnames.back().c_str(),
                 .remote_id = remote_ids.back().c_str(),
-                .has_ipv6 = m_config.location.has_ipv6,
         });
     }
     VpnConnectParameters parameters = {

@@ -29,7 +29,6 @@ struct VpnStandaloneConfig {
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
         std::optional<ag::VpnUpstreamProtocol> upstream_fallback_protocol;
         bool anti_dpi = false;
-        bool has_ipv6 = false;
     };
 
     struct SocksListener {

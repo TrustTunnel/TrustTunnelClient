@@ -1,11 +1,5 @@
 # CHANGELOG
 
-## 0.95.31
-
-* [Feature] IPv6 support must now be explicitly specified on each `VpnEndpoint`. Previously, the library assumed
-  that all endpoints in a location have IPv6 support if any of the endpoints in a location had an IPv6 address.
-    * See `VpnEndpoint::has_ipv6`. 
-
 ## 0.94.7
 
 * [Feature] Add an option to use a post-quantum group for key exchange in TLS handshakes.

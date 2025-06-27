@@ -124,9 +124,6 @@ The exact address is selected by the pinger. Absence of IPv6 addresses in
 the list makes the VPN client reject IPv6 connections which must be routed
 through the endpoint with unreachable code."#)}
         pub addresses: Vec<String>,
-        #{doc("Whether IPv6 traffic can be routed through the endpoint")}
-        #[serde(default = "Endpoint::default_has_ipv6")]
-        pub has_ipv6: bool,
         #{doc("Username for authorization")}
         pub username: String,
         #{doc("Password for authorization")}
@@ -221,10 +218,6 @@ impl Settings {
 impl Endpoint {
     pub fn default_upstream_protocol() -> String {
         "http2".into()
-    }
-
-    pub fn default_has_ipv6() -> bool {
-        true
     }
 }
 
@@ -325,8 +318,6 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .split_whitespace()
             .map(String::from)
             .collect(),
-        has_ipv6: opt_field!(template, has_ipv6).cloned()
-            .unwrap_or_else(Endpoint::default_has_ipv6),
         username: ask_for_input(
             Endpoint::doc_username(),
             predefined_params.credentials.clone().unzip().0

@@ -51,7 +51,6 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Document {
 
     endpoint["hostname"] = value(&settings.endpoint.hostname);
     endpoint["addresses"] = value(Array::from_iter(settings.endpoint.addresses.iter()));
-    endpoint["has_ipv6"] = value(settings.endpoint.has_ipv6);
     endpoint["username"] = value(&settings.endpoint.username);
     endpoint["password"] = value(&settings.endpoint.password);
     endpoint["skip_verification"] = value(settings.endpoint.skip_verification);

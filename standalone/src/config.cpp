@@ -178,7 +178,6 @@ static void apply_endpoint_config(VpnStandaloneConfig *self, const toml::table &
     self->location.password = Field<std::string>(config, "password").unwrap("Password is not specified");
     self->location.skip_verification = Field<bool>(config, "skip_verification").unwrap_or(false);
     self->location.anti_dpi = Field<bool>(config, "anti_dpi").unwrap_or(false);
-    self->location.has_ipv6 = Field<bool>(config, "has_ipv6").unwrap_or(true);
 
     if (std::optional x = get_field<std::string>(config, "certificate");
             !self->location.skip_verification && x.has_value() && !x->empty()) {
