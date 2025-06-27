@@ -64,6 +64,8 @@ int udp_cm_send_data(UdpConnDescriptor *connection, const uint8_t *data, size_t 
 
 static void process_new_connection(UdpConnDescriptor *connection) {
     TcpipHandler *callbacks = &connection->common.parent_ctx->parameters.handler;
+    TcpipCtx *ctx = connection->common.parent_ctx;
+    uint64_t id = connection->common.id;
     callbacks->handler(callbacks->arg, TCPIP_EVENT_CONNECTION_ACCEPTED, &connection->common.id);
 
     struct netif *netif = connection->common.parent_ctx->netif;
@@ -72,14 +74,22 @@ static void process_new_connection(UdpConnDescriptor *connection) {
     packets.swap(connection->pending_packets);
     connection->pending_packets_bytes = 0;
 
-    for (auto &packet : packets) {
+    for (auto it = packets.begin(); it != packets.end(); ++it) {
+        if (it != packets.begin()) {
+            if (tcpip_get_connection_by_id(&ctx->udp.connections, id) == nullptr) {
+                // connection was closed while processing pending packets
+                log_conn(connection, trace, "Connection was closed while processing pending packets");
+                break;
+            }
+        }
+        auto &packet = *it;
         log_conn(connection, trace, "Sending queued packet");
         pbuf *buf = packet.release();
         const err_t r = netif_input(buf, netif);
         if (r != ERR_OK) {
             pbuf_free(buf);
             log_conn(connection, err, "netif_input failed: {} ({})", lwip_strerr(r), r);
-            udp_cm_close_descriptor(connection->common.parent_ctx, connection->common.id);
+            udp_cm_close_descriptor(ctx, id);
             break;
         }
     }
