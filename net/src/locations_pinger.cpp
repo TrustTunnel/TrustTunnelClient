@@ -125,13 +125,6 @@ static const PingedEndpoint *select_endpoint(const LocationsCtx *location, Pinge
     return selected;
 }
 
-static constexpr size_t count_of_ip_version(const VpnEndpoints &endpoints, IpVersion v) {
-    int family = ip_version_to_sa_family(v);
-    return std::count_if(endpoints.data, endpoints.data + endpoints.size, [family](const VpnEndpoint &e) {
-        return e.address.ss_family == family;
-    });
-}
-
 static void destroy_conn_state(PingedEndpoint &endpoint) {
     if (endpoint.is_quic) {
         quic_connector_destroy((QuicConnector *) endpoint.conn_state);
@@ -154,17 +147,7 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
         }
     }
 
-    LocationsPingerResultExtra result = {
-            .ip_availability =
-                    [&] {
-                        IpVersionSet ret;
-                        size_t ipv4_num = count_of_ip_version(location->info->endpoints, IPV4);
-                        ret.set(IPV4, ipv4_num == 0 || location->ipv4_unavailable_errors_cnt != ipv4_num);
-                        size_t ipv6_num = count_of_ip_version(location->info->endpoints, IPV6);
-                        ret.set(IPV6, ipv6_num == 0 || location->ipv6_unavailable_errors_cnt != ipv6_num);
-                        return ret;
-                    }(),
-    };
+    LocationsPingerResult result{};
     result.id = location->info->id;
     if (selected != nullptr) {
         result.is_quic = selected->is_quic;

@@ -627,8 +627,46 @@ bool VpnClient::drop_non_app_initiated_dns_queries() const {
     return this->kill_switch_on && this->fsm.get_state() != vpn_client::S_CONNECTED;
 }
 
-void VpnClient::update_bypass_ip_availability(IpVersionSet x) {
+void VpnClient::update_bypass_ip_availability() {
+    IpVersionSet x;
+    if (is_reachable(ag::SocketAddress{ag::AG_UNFILTERED_DNS_IPS_V4[0], 443})) {
+        x.set(IPV4);
+    }
+    if (is_reachable(ag::SocketAddress{ag::AG_UNFILTERED_DNS_IPS_V6[0], 443})) {
+        x.set(IPV6);
+    }
+    log_client(this, dbg, "IPv4: {}, IPv6: {}", x.test(IPV4), x.test(IPV6));
     this->bypass_upstream->update_ip_availability(x);
+}
+
+// Try connecting a protected UDP socket to determine if a route to `address` exists in the local routing table.
+// This shouldn't generate any network traffic and, if used with a globally routable address, should give a
+// reliable enough indication of whether an IP version connectivity is available on the machine.
+bool VpnClient::is_reachable(const SocketAddress &address) const {
+    evutil_socket_t fd = ::socket(address.c_sockaddr()->sa_family, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) {
+        int err = evutil_socket_geterror(fd);
+        log_client(this, dbg, "socket({}): ({}) {}", address.str(), err, evutil_socket_error_to_string(err));
+        return false;
+    }
+
+    SocketProtectEvent event{.fd = fd, .peer = address.c_sockaddr()};
+    this->parameters.handler.func(this->parameters.handler.arg, vpn_client::EVENT_PROTECT_SOCKET, &event);
+    if (0 != event.result) {
+        log_client(this, dbg, "Failed to protect socket: {}", event.result);
+        evutil_closesocket(fd);
+        return false;
+    }
+
+    if (0 != ::connect(fd, address.c_sockaddr(), address.c_socklen())) {
+        int err = evutil_socket_geterror(fd);
+        log_client(this, dbg, "connect({}): ({}) {}", address.str(), err, evutil_socket_error_to_string(err));
+        evutil_closesocket(fd);
+        return false;
+    }
+
+    evutil_closesocket(fd);
+    return true;
 }
 
 void VpnClient::on_network_change() {

@@ -82,7 +82,7 @@ bool VpnClient::drop_non_app_initiated_dns_queries() const {
     return test_mock::g_client.is_dropping_non_app_initiated_dns_queries;
 }
 
-void VpnClient::update_bypass_ip_availability(ag::IpVersionSet) {
+void VpnClient::update_bypass_ip_availability() {
 }
 
 void VpnClient::on_network_change() {

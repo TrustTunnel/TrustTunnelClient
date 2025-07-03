@@ -138,7 +138,9 @@ public:
 
     [[nodiscard]] bool drop_non_app_initiated_dns_queries() const;
 
-    void update_bypass_ip_availability(IpVersionSet x);
+    void update_bypass_ip_availability();
+
+    bool is_reachable(const ag::SocketAddress &address) const;
 
     void on_network_change();
 

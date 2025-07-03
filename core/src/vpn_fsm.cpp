@@ -202,8 +202,7 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
         vpn->client.tcp_socket.reset((TcpSocket *) result->conn_state);
     }
 
-    const auto *extra_result = (LocationsPingerResultExtra *) result;
-    vpn->client.update_bypass_ip_availability(extra_result->ip_availability);
+    vpn->client.update_bypass_ip_availability();
 
     vpn->fsm.perform_transition(vpn_fsm::CE_PING_READY, nullptr);
 }

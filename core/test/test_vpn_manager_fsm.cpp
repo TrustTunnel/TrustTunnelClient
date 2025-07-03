@@ -139,7 +139,7 @@ protected:
         }
     }
 
-    void ping_location(std::optional<LocationsPingerResultExtra> result_ = std::nullopt,
+    void ping_location(std::optional<LocationsPingerResult> result_ = std::nullopt,
             std::optional<VpnLocation> expected_location = std::nullopt) {
         auto &pinger_start_info = g_infos[test_mock::IDX_LOCATIONS_PINGER_START];
         ASSERT_TRUE(pinger_start_info.wait_called());
@@ -155,8 +155,8 @@ protected:
             }
         }
 
-        LocationsPingerResultExtra result = result_.value_or(LocationsPingerResultExtra{
-                {this->vpn->upstream_config->location.id, 10, this->vpn->upstream_config->location.endpoints.data}});
+        LocationsPingerResult result = result_.value_or(LocationsPingerResult{
+                this->vpn->upstream_config->location.id, 10, this->vpn->upstream_config->location.endpoints.data});
         auto pinger_handler = pinger_start_info.get_arg<LocationsPingerHandler>(1);
         this->vpn->submit([pinger_handler, result]() {
             pinger_handler.func(pinger_handler.arg, &result);
@@ -268,7 +268,7 @@ TEST_F(VpnManagerTest, SuccessfullConnect) {
 
     for (size_t i = 0; i < std::size(endpoints); ++i) {
         ASSERT_NO_FATAL_FAILURE(
-                ping_location(LocationsPingerResultExtra{{vpn->upstream_config->location.id, 10, &endpoints[i]}},
+                ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[i]},
                         VpnLocation{vpn->upstream_config->location.id, {endpoints, uint32_t(std::size(endpoints))}}));
         if (i != std::size(endpoints) - 1) {
             ASSERT_NO_FATAL_FAILURE(connect_client_fail(VPN_EC_ERROR, &endpoints[i]));
@@ -293,7 +293,7 @@ TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsed) {
 
     for (const VpnEndpoint &endpoint : endpoints) {
         ASSERT_NO_FATAL_FAILURE(
-                ping_location(LocationsPingerResultExtra{{vpn->upstream_config->location.id, 10, &endpoint}},
+                ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoint},
                         VpnLocation{vpn->upstream_config->location.id, {endpoints, uint32_t(std::size(endpoints))}}));
         ASSERT_NO_FATAL_FAILURE(connect_client_fail(VPN_EC_ERROR, &endpoint));
     }
@@ -314,7 +314,7 @@ TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsedNetworkLost) {
     for (size_t i = 0; i < std::size(endpoints); ++i) {
         const VpnEndpoint &endpoint = endpoints[i];
         ASSERT_NO_FATAL_FAILURE(
-                ping_location(LocationsPingerResultExtra{{vpn->upstream_config->location.id, 10, &endpoint}},
+                ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoint},
                         VpnLocation{vpn->upstream_config->location.id, {endpoints, uint32_t(std::size(endpoints))}}));
         vpn_notify_network_change(vpn, VPN_NS_NOT_CONNECTED);
         if (i < std::size(endpoints) - 1) {
@@ -407,7 +407,7 @@ TEST_F(ConnectedVpnManagerTest, RecoveryRePingLocation) {
         } else {
             ASSERT_FALSE(vpn->selected_endpoint.has_value()) << AG_FMT("{}", *vpn->selected_endpoint->endpoint);
             ASSERT_NO_FATAL_FAILURE(
-                    ping_location(LocationsPingerResultExtra{{vpn->upstream_config->location.id, 10, &endpoints[1]}}));
+                    ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[1]}));
             ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoints[1]));
             ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
         }
@@ -515,8 +515,8 @@ TEST_F(AbandonEndpoint, AllOfFamily) {
             ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
             ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
             ASSERT_FALSE(vpn->selected_endpoint.has_value()) << AG_FMT("{}", *vpn->selected_endpoint->endpoint);
-            ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResultExtra{
-                    {vpn->upstream_config->location.id, 10, endpoints_to_abandon[i + 1].get()}}));
+            ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{
+                    vpn->upstream_config->location.id, 10, endpoints_to_abandon[i + 1].get()}));
             ASSERT_NO_FATAL_FAILURE(connect_client_ok(endpoints_to_abandon[i + 1].get()));
             ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
         }

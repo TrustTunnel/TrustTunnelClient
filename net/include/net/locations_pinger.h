@@ -53,14 +53,6 @@ typedef struct {
                                    // If `handoff` is `true`, this is the connection state object.
 } LocationsPingerResult;
 
-struct LocationsPingerResultExtra : public LocationsPingerResult {
-    /**
-     * An IP version is considered unavailable in case pinging all the addresses
-     * of the corresponding family failed with the unavailable status.
-     */
-    IpVersionSet ip_availability;
-};
-
 typedef struct {
     /**
      * Ping result handler
