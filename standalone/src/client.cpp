@@ -262,7 +262,7 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
     VpnConnectParameters parameters = {
             .upstream_config =
                     {
-                            .protocol = {.type = m_config.location.upstream_protocol},
+                            .main_protocol = m_config.location.upstream_protocol,
                             .location =
                                     {
                                             .id = "hello-location",
@@ -274,10 +274,6 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
                             .anti_dpi = m_config.location.anti_dpi,
                     },
     };
-    if (m_config.location.upstream_fallback_protocol.has_value()) {
-        parameters.upstream_config.fallback.enabled = true;
-        parameters.upstream_config.fallback.protocol.type = *m_config.location.upstream_fallback_protocol;
-    }
 
     {
         std::unique_lock l(m_guard);

@@ -22,6 +22,16 @@ struct VpnError {
     const char *text;
 };
 
+/**
+ * Communication protocols between a VPN client and an endpoint
+ */
+typedef enum {
+    VPN_UP_HTTP2, // HTTP/2 only.
+    VPN_UP_HTTP3, // HTTP/3, with mandatory fallback to HTTP/2.
+    VPN_UP_AUTO, // VpnEndpoint: Try HTTP/2 and HTTP/3 simultaneously, use the first successful connection.
+                  // VpnUpstreamConfig: Use endpoints' preferred protocol.
+} VpnUpstreamProtocol;
+
 struct VpnConnectionStats {
     uint32_t rtt_us;          // RTT in microseconds
     double packet_loss_ratio; // the ratio of the number of lost packets to the total number of sent packets

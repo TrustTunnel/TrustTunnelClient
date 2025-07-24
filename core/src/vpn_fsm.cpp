@@ -275,18 +275,15 @@ static void run_ping(void *ctx, void *) {
 
     uint32_t quic_max_idle_timeout =
             2 * (vpn->upstream_config->timeout_ms + vpn->upstream_config->health_check_timeout_ms);
-    uint32_t quic_version =
-            vpn->upstream_config->protocol.type == VPN_UP_HTTP3 ? vpn->upstream_config->protocol.http3.quic_version : 0;
 
     LocationsPingerInfo pinger_info = {
             .timeout_ms = vpn->upstream_config->location_ping_timeout_ms,
             .locations = {&vpn->upstream_config->location, 1},
             .rounds = 1,
-            .use_quic = vpn->upstream_config->protocol.type == VPN_UP_HTTP3,
             .anti_dpi = vpn->upstream_config->anti_dpi,
             .handoff = true,
             .quic_max_idle_timeout_ms = quic_max_idle_timeout,
-            .quic_version = quic_version,
+            .quic_version = QUICHE_PROTOCOL_VERSION,
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.

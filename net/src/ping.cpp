@@ -67,6 +67,8 @@ struct PingConn {
     std::string bound_if_name;
     int socket_error = 0;
     bool use_quic = false;
+    bool no_quic_fallback = false; // If true, don't try to connect via TCP if QUIC connection fails.
+    bool old_use_quic = false;
     bool no_relay_fallback = false;
     uint32_t rounds_done = 0;
     ag::DeclPtr<QuicConnector, &quic_connector_destroy> quic_connector;
@@ -112,7 +114,7 @@ struct Ping {
     bool have_direct_result;
     bool have_round_winner;
     bool anti_dpi;
-    bool use_quic;
+    VpnUpstreamProtocol main_protocol;
     bool handoff;
 
     uint32_t quic_max_idle_timeout_ms;
@@ -121,6 +123,7 @@ struct Ping {
 
 // clang-format off
 static void add_endpoint(Ping *self, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if, const VpnRelay *relay_address);
+static void add_endpoint(Ping *self, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if, const VpnRelay *relay_address, bool use_quic, bool no_quic_fallback);
 static bool conn_prepare(Ping *ping, PingConn *conn);
 static void do_prepare(void *arg);
 static void do_connect(void *arg, bool shortcut);
@@ -183,7 +186,8 @@ static void on_shortcut_timer(evutil_socket_t, short, void *arg) {
         if (conn.relay->address.ss_family != 0) {
             continue;
         }
-        add_endpoint(self, self->pending_shortcut, *conn.endpoint, conn.bound_if, nullptr);
+        add_endpoint(self, self->pending_shortcut, *conn.endpoint, conn.bound_if, nullptr, conn.use_quic,
+                conn.no_quic_fallback);
 
         PingConn &sc_conn = self->pending_shortcut.back();
         sc_conn.relay = vpn_relay_clone(self->relays.back().get());
@@ -398,8 +402,9 @@ static void do_prepare(void *arg) {
 
     for (auto conn = self->done.begin(); conn != self->done.end();) {
         if (conn->socket_error && conn->rounds_done == 0) {
-            if (conn->use_quic) { // Fall back from QUIC to TLS
+            if (!conn->no_quic_fallback && conn->use_quic) { // Fall back from QUIC to TLS
                 conn->use_quic = false;
+                conn->old_use_quic = true;
             } else if (std::string sni; !conn->no_relay_fallback && !self->have_direct_result
                        && !self->relays.empty()
                        && !relay_snis.contains((sni = conn->endpoint->name))) { // NOLINT(*-assignment-in-if-condition)
@@ -407,8 +412,8 @@ static void do_prepare(void *arg) {
                 conn->relay = vpn_relay_clone(self->relays.back().get());
                 relay_snis.emplace(std::move(sni));
                 // Restore QUIC after falling back to relay
-                if (self->use_quic && !conn->use_quic) {
-                    conn->use_quic = true;
+                if (!conn->no_quic_fallback) {
+                    conn->use_quic = conn->old_use_quic;
                 }
             } else {
                 goto increment_rounds;
@@ -497,11 +502,26 @@ static void do_prepare(void *arg) {
 
 void add_endpoint(Ping *self, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if,
         const VpnRelay *relay) {
+
+    VpnUpstreamProtocol protocol =
+            self->main_protocol != VPN_UP_AUTO ? self->main_protocol : endpoint.preferred_protocol;
+
+    if (protocol == VPN_UP_AUTO) {
+        add_endpoint(self, list, endpoint, bound_if, relay, /*use_quic=*/ false, /*no_quic_fallback=*/ false);
+        add_endpoint(self, list, endpoint, bound_if, relay, /*use_quic=*/ true, /*no_quic_fallback=*/ true);
+    } else {
+        add_endpoint(self, list, endpoint, bound_if, relay, /*use_quic=*/ protocol == VPN_UP_HTTP3, /*no_quic_fallback=*/ false);
+    }
+}
+
+void add_endpoint(Ping *self, std::list<PingConn> &list, const VpnEndpoint &endpoint, uint32_t bound_if,
+        const VpnRelay *relay, bool use_quic, bool no_quic_fallback) {
     PingConn &conn = list.emplace_back();
     conn.ping = self;
     conn.endpoint = vpn_endpoint_clone(&endpoint);
     conn.bound_if = bound_if;
-    conn.use_quic = self->use_quic;
+    conn.use_quic = use_quic;
+    conn.no_quic_fallback = no_quic_fallback;
 
     if (relay) {
         conn.relay = vpn_relay_clone(relay);
@@ -551,9 +571,9 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     self->handler = handler;
     self->anti_dpi = info->anti_dpi;
 #ifndef DISABLE_HTTP3
-    self->use_quic = info->use_quic;
+    self->main_protocol = info->main_protocol;
 #else
-    self->use_quic = false;
+    self->main_protocol = VPN_UP_HTTP2;
 #endif
     self->handoff = info->handoff;
     self->rounds_target = info->nrounds ? info->nrounds : DEFAULT_PING_ROUNDS;

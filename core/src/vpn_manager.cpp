@@ -55,14 +55,8 @@ Vpn::~Vpn() = default;
 void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> config) {
     this->upstream_config = std::move(config);
 
-    if (!this->upstream_config->fallback.enabled && this->upstream_config->protocol.type == VPN_UP_HTTP3) {
-        log_vpn(this, info, "Forcibly setting HTTP/2 as fallback protocol");
-        this->upstream_config->fallback.enabled = true;
-        this->upstream_config->fallback.protocol.type = VPN_UP_HTTP2;
-    }
-
     if (this->upstream_config->location_ping_timeout_ms == 0) {
-        this->upstream_config->location_ping_timeout_ms = DEFAULT_PING_TIMEOUT_MS;
+        this->upstream_config->location_ping_timeout_ms = DEFAULT_LOCATION_PING_TIMEOUT_MS;
     }
     if (this->upstream_config->timeout_ms == 0) {
         this->upstream_config->timeout_ms = VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS;
@@ -77,11 +71,6 @@ void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_
     }
     if (this->upstream_config->recovery.location_update_period_ms == 0) {
         this->upstream_config->recovery.location_update_period_ms = VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS;
-    }
-    if (VpnUpstreamFallbackConfig &fallback = this->upstream_config->fallback; fallback.enabled) {
-        if (fallback.connect_delay_ms == 0) {
-            fallback.connect_delay_ms = VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS;
-        }
     }
 }
 
@@ -107,8 +96,8 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
         ip_availability.set(IPV6);
     }
     return {
-            .main_protocol = this->upstream_config->protocol,
-            .fallback = this->upstream_config->fallback,
+            .main_protocol = VpnUpstreamProtocolConfig{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2},
+            .fallback = VpnUpstreamFallbackConfig{},
             .endpoint = std::move(endpoint),
             .timeout = Millis{this->upstream_config->timeout_ms},
             .health_check_timeout = Millis{this->upstream_config->health_check_timeout_ms},

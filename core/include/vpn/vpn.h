@@ -24,7 +24,7 @@ static constexpr int VPN_DEFAULT_TCP_TIMEOUT_MS = TCPIP_TCP_TIMEOUT_FOR_ESTABLIS
 static constexpr int VPN_DEFAULT_UDP_TIMEOUT_MS = TCPIP_UDP_TIMEOUT_S * 1000; // for bypassed and redirected server-side and client-side UDP connections
 static constexpr int VPN_DEFAULT_MAX_CONN_BUFFER_FILE_SIZE = 4 * 1024 * 1024;
 static constexpr int VPN_DEFAULT_CONN_MEMORY_BUFFER_THRESHOLD = DEFAULT_CONNECTION_MEMORY_BUFFER_SIZE;
-static constexpr int VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS = 70 * 1000;
+static constexpr int VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS = 10 * 1000;
 static constexpr int VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_CONNECT_ATTEMPTS_NUM = 5;
 static constexpr int VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS = 1 * 1000;
@@ -124,14 +124,6 @@ typedef struct {
     AG_ARRAY_OF(const char *) dns_upstreams;
 } VpnListenerConfig;
 
-/**
- * Communication protocols between a VPN client and an endpoint
- */
-typedef enum {
-    VPN_UP_HTTP2,
-    VPN_UP_HTTP3,
-} VpnUpstreamProtocol;
-
 typedef struct {
     /** Number of parallel HTTP2 sessions. If 0, default value will be assigned. */
     uint32_t connections_num;
@@ -185,8 +177,16 @@ typedef struct {
  * VPN client's server-side interface configuration
  */
 typedef struct {
-    /** Protocol-specific configuration */
-    VpnUpstreamProtocolConfig protocol;
+    /**
+     * Application-level protocol override for VPN endpoint protocols.
+     * If set to `VPN_UP_HTTP2` or `VPN_UP_HTTP3`, the library will try to connect to the endpoint
+     * using HTTP/2 or HTTP/3 protocols, respectively. If set to `VPN_UP_AUTO`, the library
+     * will use endpoint's preference.
+     * If endpoint's preferred protocol is `VPN_UP_AUTO`, the library will
+     * try to ping the endpoint using HTTP/2 and HTTP/3 in parallel,
+     * with 100ms advantage for HTTP/2.
+     */
+    VpnUpstreamProtocol main_protocol;
     /**
      * A location to connect to. An endpoint is selected by the location ping algorithm,
      * see `locations_pinger_t` for details.
@@ -194,7 +194,7 @@ typedef struct {
     VpnLocation location;
     /**
      * Time out value for VPN endpoints addresses ping operation.
-     * If 0, `DEFAULT_PING_TIMEOUT_MS` will be assigned.
+     * If 0, `DEFAULT_LOCATION_PING_TIMEOUT_MS` will be assigned.
      */
     uint32_t location_ping_timeout_ms;
     /**
@@ -220,8 +220,6 @@ typedef struct {
     const char *password;
     /** Session recovery settings */
     VpnUpstreamSessionRecoverySettings recovery;
-    /** Fall back configuration */
-    VpnUpstreamFallbackConfig fallback;
     /** Enable anti-dpi measures */
     bool anti_dpi;
 } VpnUpstreamConfig;
@@ -535,11 +533,11 @@ typedef enum {
     /// into the connection recovery algorithm, just like if the client would
     /// lose the connection while were connected
     VPN_CRP_FALL_INTO_RECOVERY,
-} VpnConnectRetyPolicy;
+} VpnConnectRetryPolicy;
 
 typedef struct {
     /// Defines the failure handling algorithm
-    VpnConnectRetyPolicy policy;
+    VpnConnectRetryPolicy policy;
     union {
         /// Valid for `VPN_CRP_SEVERAL_ATTEMPTS`.
         /// Number of the connection attempts

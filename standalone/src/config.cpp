@@ -31,6 +31,7 @@ static const std::unordered_map<std::string_view, ag::LogLevel> LOG_LEVEL_MAP = 
 };
 
 static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_PROTO_MAP = {
+        {"auto", VPN_UP_AUTO},
         {"http2", VPN_UP_HTTP2},
         {"http3", VPN_UP_HTTP3},
 };

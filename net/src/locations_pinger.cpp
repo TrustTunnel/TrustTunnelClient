@@ -23,6 +23,8 @@
 
 namespace ag {
 
+static constexpr uint32_t HTTP_HE_HTTP3_PENALTY_MS = 100;
+
 struct PingedEndpoint {
     AutoVpnEndpoint endpoint;
     int ping_ms = 0;
@@ -73,7 +75,7 @@ struct LocationsPinger {
     event_loop::AutoTaskId task_id;
     uint32_t timeout_ms;
     uint32_t rounds;
-    bool use_quic;
+    VpnUpstreamProtocol main_protocol;
     bool anti_dpi;
     bool handoff;
     AutoVpnRelay relay_parallel;
@@ -164,7 +166,9 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
         if (selected->relay->address.ss_family) {
             result.relay = selected->relay.get();
         }
-        log_location(pinger, location->info->id, dbg, "Selected endpoint: {} ({}){}{} ({} ms)", result.endpoint->name,
+        log_location(pinger, location->info->id, dbg, "Selected endpoint: {}{} ({}){}{} ({} ms)",
+                result.is_quic ? "udp://" : "tcp://",
+                result.endpoint->name,
                 sockaddr_to_str((sockaddr *) &result.endpoint->address), result.relay ? " through relay " : "",
                 result.relay ? sockaddr_to_str((sockaddr *) &result.relay->address) : "", result.ping_ms);
     } else {
@@ -199,15 +203,20 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
             dst.emplace_back(vpn_endpoint_clone(result->endpoint), result->ms, result->relay, result->is_quic,
                     result->conn_state);
         } else {
-            if (!pinger->query_all_interfaces) {
+            if (!pinger->query_all_interfaces && pinger->main_protocol != VPN_UP_AUTO) {
                 log_location(pinger, ping_get_id(result->ping), warn,
                         "Duplicate result for address {}. Please check that location doesn't contain duplicate IPs.",
                         sockaddr_to_str((sockaddr *) &result->endpoint->address));
             }
-            it->ping_ms = std::min(result->ms, it->ping_ms);
-            destroy_conn_state(*it);
-            it->is_quic = result->is_quic;
-            it->conn_state = result->conn_state;
+            // We give some time advantage for HTTP/2 in HTTP/HE mode
+            auto corrected_result_ms = result->is_quic ? result->ms + HTTP_HE_HTTP3_PENALTY_MS : result->ms;
+            auto corrected_ping_ms = it->is_quic ? it->ping_ms + HTTP_HE_HTTP3_PENALTY_MS : it->ping_ms;
+            if (corrected_result_ms < corrected_ping_ms) {
+                it->ping_ms = result->ms;
+                destroy_conn_state(*it);
+                it->is_quic = result->is_quic;
+                it->conn_state = result->conn_state;
+            }
         }
         break;
     }
@@ -252,7 +261,7 @@ static void start_location_ping(LocationsPinger *pinger) {
     log_location(pinger, i->info->id, dbg, "Starting location ping");
     PingInfo ping_info = {i->info->id, pinger->loop, pinger->network_manager, {i->info->endpoints.data, i->info->endpoints.size},
             pinger->timeout_ms, {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds,
-            pinger->use_quic, pinger->anti_dpi, pinger->handoff,
+            pinger->main_protocol, pinger->anti_dpi, pinger->handoff,
             {i->info->relays.data, i->info->relays.size}, *pinger->relay_parallel,
             pinger->quic_max_idle_timeout_ms, pinger->quic_version};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
@@ -297,7 +306,7 @@ LocationsPinger *locations_pinger_start(
 
     pinger->timeout_ms = info->timeout_ms;
     pinger->rounds = info->rounds;
-    pinger->use_quic = info->use_quic;
+    pinger->main_protocol = info->main_protocol;
     pinger->anti_dpi = info->anti_dpi;
     pinger->handoff = info->handoff;
     pinger->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms;

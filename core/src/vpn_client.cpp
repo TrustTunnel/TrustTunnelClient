@@ -353,6 +353,8 @@ static std::unique_ptr<ServerUpstream> make_upstream(const VpnUpstreamProtocolCo
         upstream = std::make_unique<Http3Upstream>(VpnClient::next_upstream_id(), protocol);
 #endif
         break;
+    case VPN_UP_AUTO:
+        return nullptr;
     }
 
     return upstream;

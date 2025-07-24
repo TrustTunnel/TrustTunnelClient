@@ -348,7 +348,7 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
             .timeout_ms = 1000,
             .locations = {&location, 1},
             .rounds = 1,
-            .use_quic = true,
+            .main_protocol = VPN_UP_HTTP3,
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
@@ -402,7 +402,7 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
             .timeout_ms = 1000,
             .locations = {&location, 1},
             .rounds = 1,
-            .use_quic = true,
+            .main_protocol = VPN_UP_HTTP3,
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
@@ -457,7 +457,7 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
             .timeout_ms = 1000,
             .locations = {&location, 1},
             .rounds = 1,
-            .use_quic = true,
+            .main_protocol = VPN_UP_HTTP3,
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
@@ -513,7 +513,7 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
             .timeout_ms = 1000,
             .locations = {&location, 1},
             .rounds = 1,
-            .use_quic = true,
+            .main_protocol = VPN_UP_HTTP3,
     };
     runner.reset(locations_pinger_runner_create(&info,
             {

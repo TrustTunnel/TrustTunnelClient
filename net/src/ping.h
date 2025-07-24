@@ -47,7 +47,11 @@ struct PingInfo {
     /// The best result (lowest RTT) will be reported.
     uint32_t nrounds = 0;
 
-    bool use_quic = false; ///< Use QUIC version negotiation instead of TCP handshake
+    /**
+     * Application-level protocol override for VPN endpoint protocols.
+     * @see `VpnUpstreamConfig.main_protocol` for full description.
+     */
+    VpnUpstreamProtocol main_protocol;
     bool anti_dpi = false; ///< Enable anti-DPI measures
     bool handoff = false;  ///< Enable connection hand-off.
 

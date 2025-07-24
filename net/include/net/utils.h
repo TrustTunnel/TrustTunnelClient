@@ -51,6 +51,8 @@ struct VpnEndpoint {
     const char *remote_id;    // if not NULL or empty, used for server TLS certificate verification instead of `name`
     AG_ARRAY_OF(uint8_t) additional_data; // additional data about the endpoint
     bool has_ipv6; // Whether IPv6 traffic can be routed through the endpoint
+    VpnUpstreamProtocol preferred_protocol; // Protocol to use for the endpoint connection.
+                                            // @see `VpnUpstreamConfig.main_protocol` for full description.
 };
 
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
@@ -157,6 +159,7 @@ constexpr size_t UDP_MAX_DATAGRAM_SIZE = 65535;
 
 constexpr int DEFAULT_PING_TIMEOUT_MS = 3333;
 constexpr int DEFAULT_PING_ROUNDS = 3;
+constexpr int DEFAULT_LOCATION_PING_TIMEOUT_MS = 5000;
 
 constexpr std::string_view HTTP_METHOD_CONNECT = "CONNECT";
 constexpr std::string_view HTTP_METHOD_GET = "GET";

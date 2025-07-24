@@ -32,9 +32,8 @@ typedef struct {
 #ifdef __MACH__
     bool query_all_interfaces; // Query all interfaces to calculate pings. Supported only on Apple platforms.
 #endif
-    // Use QUIC instead of TLS to ping the endpoints.
-    // If a ping fails, the pinger will fall back to TLS for that endpoint.
-    bool use_quic;
+    VpnUpstreamProtocol main_protocol;      // Application-level protocol override for VPN endpoint protocols.
+                                            // @see `VpnUpstreamConfig.main_protocol` for full description.
     bool anti_dpi;                          // Enable anti-DPI measures.
     bool handoff;                           // For internal use. Applications should set this parameter to `false`.
                                             // If `true`, pass the connection state with the ping result.
