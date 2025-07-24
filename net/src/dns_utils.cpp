@@ -89,11 +89,17 @@ static dns_utils::DecodeResult decode_reply(dns_utils::LdnsPktPtr pkt) {
             decoded_answer.addresses.push_back({{ip, ip + rd_size}, std::chrono::seconds(ldns_rr_ttl(a))});
             break;
         }
-        case LDNS_RR_TYPE_CNAME:
+        case LDNS_RR_TYPE_CNAME: {
+            const ldns_rdf *rd = ldns_rr_rdf(a, 0);
+            if (rd == nullptr) {
+                continue;
+            }
+
             add_name_to_answer(decoded_answer, ldns_rr_owner(a));
             // ignoring TTL of CNAMEs for simplicity
-            add_name_to_answer(decoded_answer, ldns_rr_rdf(a, 0));
+            add_name_to_answer(decoded_answer, rd);
             break;
+        }
         case LDNS_RR_TYPE_HTTPS:
         case LDNS_RR_TYPE_SVCB:
             add_name_to_answer(decoded_answer, ldns_rr_owner(a));

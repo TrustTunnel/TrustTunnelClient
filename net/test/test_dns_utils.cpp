@@ -115,6 +115,81 @@ TEST(DNSUtilsDecode, MultipleAddresses) {
     }
 }
 
+TEST(DNSUtilsDecode, InvalidRDLENGTH) {
+    // Header (12) + Question (7) + start of Answer (12) = 31 bytes
+    static constexpr uint8_t BAD_RESPONSE[] = {
+            // DNS header
+            0x12, 0x34,                   // ID
+            0x81, 0x80,                   // QR=1, RD/RA=1, RCODE=0
+            0x00, 0x01,                   // QDCOUNT = 1
+            0x00, 0x01,                   // ANCOUNT = 1
+            0x00, 0x00, 0x00, 0x00,       // NSCOUNT, ARCOUNT
+            // Question: "a." A IN=
+            0x01, 0x61, 0x00,             // QNAME = "a."
+            0x00, 0x01,                   // QTYPE = A
+            0x00, 0x01,                   // QCLASS = IN
+            // Answer (truncated)=
+            0xC0, 0x0C,                   // NAME = ptr to QNAME
+            0x00, 0x05,                   // TYPE = CNAME
+            0x00, 0x01,                   // CLASS = IN
+            0x00, 0x00, 0x00, 0x3C,       // TTL  = 60
+            0x00, 0x03                    // **RDLENGTH = 3, but 0 bytes follow → mismatch**
+    };
+
+    dns_utils::DecodeResult result = dns_utils::decode_packet({BAD_RESPONSE, std::size(BAD_RESPONSE)});
+    ASSERT_TRUE(std::holds_alternative<dns_utils::Error>(result));
+}
+
+TEST(DNSUtilsDecode, InvalidOwnerNamePointer) {
+    static constexpr uint8_t BAD_RESPONSE[] = {
+            // DNS Header
+            0x12, 0x34,                   // ID
+            0x81, 0x80,                   // QR=1 (response), RCODE=0
+            0x00, 0x01,                   // QDCOUNT = 1
+            0x00, 0x01,                   // ANCOUNT = 1
+            0x00, 0x00, 0x00, 0x00,       // NSCOUNT, ARCOUNT = 0
+            // Question: "a." A IN
+            0x01, 0x61, 0x00,             // QNAME = "a."
+            0x00, 0x01,                   // QTYPE = A
+            0x00, 0x01,                   // QCLASS = IN
+            // Answer: NAME = invalid pointer (C0 FF → offset 0xFF, outside the package)
+            0xC0, 0xFF,                   // NAME = pointer to 0xFF -> error
+            0x00, 0x01,                   // TYPE = A
+            0x00, 0x01,                   // CLASS = IN
+            0x00, 0x00, 0x00, 0x3C,       // TTL = 60
+            0x00, 0x04,                   // RDLENGTH = 4
+            0x7F, 0x00, 0x00, 0x01        // RDATA = 127.0.0.1
+    };
+
+    dns_utils::DecodeResult result = dns_utils::decode_packet({BAD_RESPONSE, std::size(BAD_RESPONSE)});
+    ASSERT_TRUE(std::holds_alternative<dns_utils::Error>(result));
+}
+
+TEST(DNSUtilsDecode, DnsResponseWithRdataEmpty) {
+    static constexpr uint8_t BAD_RESPONSE[] = {
+            // DNS-header
+            0x12,0x34,             // ID
+            0x81,0x80,             // QR=1, RD/RA=1, RCODE=0
+            0x00,0x01,             // QDCOUNT = 1
+            0x00,0x01,             // ANCOUNT = 1
+            0x00,0x00,             // NSCOUNT = 0
+            0x00,0x00,             // ARCOUNT = 0
+            // Question: “a.” A IN
+            0x01,0x61,0x00,        // QNAME = "a."
+            0x00,0x01,             // QTYPE = A
+            0x00,0x01,             // QCLASS = IN
+            // Answer: CNAME with empty RDLENGTH
+            0xC0,0x0C,             // NAME = pointer to QNAME (offset 12)
+            0x00,0x05,             // TYPE = CNAME
+            0x00,0x01,             // CLASS = IN
+            0x00,0x00,0x00,0x3C,   // TTL  = 60
+            0x00,0x00              // **RDLENGTH = 0 -> no RDATA**
+    };
+
+    dns_utils::DecodeResult result = dns_utils::decode_packet({BAD_RESPONSE, std::size(BAD_RESPONSE)});
+    ASSERT_FALSE(std::holds_alternative<dns_utils::Error>(result)) << std::get<dns_utils::Error>(result).description;
+}
+
 TEST(DNSUtilsEncode, A) {
     static constexpr uint8_t EXPECTED[] = {0x2a, 0x18, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
             0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01, 0x00, 0x01};
