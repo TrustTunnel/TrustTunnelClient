@@ -149,6 +149,12 @@ struct SystemDnsServers {
     std::vector<std::string> bootstrap;
 };
 
+enum MakeSslProtocolType {
+    MSPT_TLS,    /**< plain SSL object */
+    MSPT_QUICHE, /**< SSL object will be used with quiche */
+    MSPT_NGTCP2, /**< SSL object will be used with ngtcp2 */
+};
+
 /**
  * Special message type used as a marker for dropping a pending request.
  * The value must not match any of the standard codes from
@@ -266,7 +272,7 @@ void dump_session_cache(const std::string &path);
 void load_session_cache(const std::string &path);
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
-        ag::U8View alpn_protos, const char *sni, bool quic, ag::U8View endpoint_data = ag::U8View{});
+        ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{});
 
 /**
  * Return name of the group function used in key exchange from OpenSSL NID

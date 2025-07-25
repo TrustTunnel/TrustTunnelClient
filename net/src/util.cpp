@@ -43,6 +43,12 @@
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
+#ifdef OPENSSL_IS_BORINGSSL
+#include <ngtcp2/ngtcp2_crypto_boringssl.h>
+#else
+#include <ngtcp2/ngtcp2_crypto_quictls.h>
+#endif
+
 namespace ag {
 
 static const Logger g_logger("NET_UTILS");
@@ -1102,7 +1108,8 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
 }
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
-        U8View alpn_protos, const char *sni, bool quic, U8View endpoint_data) {
+        U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data) {
+    bool quic = type == MSPT_QUICHE || type == MSPT_NGTCP2;
     DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
     if (verification_callback && arg) {
         SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
@@ -1127,6 +1134,17 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
         SSL_CTX_set_grease_enabled(ctx.get(), 1);
     }
 #endif // OPENSSL_IS_BORINGSSL
+
+    if (type == MSPT_NGTCP2) {
+#ifdef OPENSSL_IS_BORINGSSL
+        if (0 != ngtcp2_crypto_boringssl_configure_client_context(ctx.get()))
+#else
+        if (0 != ngtcp2_crypto_quictls_configure_client_context(ctx.get()))
+#endif
+        {
+            return "Couldn't configure SSL object for QUIC";
+        }
+    }
 
     SslPtr ssl{SSL_new(ctx.get())};
     if (!SocketAddress{sni}.valid()) {

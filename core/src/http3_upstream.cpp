@@ -111,7 +111,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
             upstream_config.endpoint->additional_data.data, upstream_config.endpoint->additional_data.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)},
-                upstream_config.endpoint->name, /*quic*/ true, endpoint_data);
+                upstream_config.endpoint->name, /*quic*/ MSPT_QUICHE, endpoint_data);
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

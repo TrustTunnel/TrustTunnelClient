@@ -83,7 +83,7 @@ TEST(NetUtils, JA4Quic) {
 std::vector<uint8_t> prepare_client_hello(const char *sni) {
     static constexpr uint8_t HTTP2_ALPN[] = {2, 'h', '2'};
     ag::SslPtr ssl;
-    auto r = ag::make_ssl(nullptr, nullptr, {HTTP2_ALPN, std::size(HTTP2_ALPN)}, sni, false);
+    auto r = ag::make_ssl(nullptr, nullptr, {HTTP2_ALPN, std::size(HTTP2_ALPN)}, sni, ag::MSPT_TLS);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ssl = std::move(std::get<ag::SslPtr>(r));
     SSL_set0_wbio(ssl.get(), BIO_new(BIO_s_mem()));
@@ -99,7 +99,7 @@ std::vector<uint8_t> prepare_client_hello(const char *sni) {
 std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
     ag::SslPtr ssl;
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, true);
+    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_QUICHE);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ssl = std::move(std::get<ag::SslPtr>(r));
     uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
