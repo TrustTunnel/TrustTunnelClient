@@ -40,6 +40,9 @@ void icmp_rm_close(TcpipCtx *ctx) {
 }
 
 void icmp_rm_clean_up(TcpipCtx *ctx) {
+    if (ctx->icmp.requests == nullptr) {
+        return;
+    }
     for (khiter_t i = kh_begin(ctx->icmp.requests); i != kh_end(ctx->icmp.requests); ++i) {
         while (kh_exist(ctx->icmp.requests, i)) {
             icmp_rm_close_descriptor(ctx, kh_val(ctx->icmp.requests, i));

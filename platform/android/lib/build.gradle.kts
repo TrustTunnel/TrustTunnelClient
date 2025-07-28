@@ -1,0 +1,62 @@
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    kotlin("plugin.serialization") version "2.2.0"
+}
+
+android {
+    namespace = "com.adguard.trusttunnel"
+    compileSdk = 35
+    ndkVersion = "29.0.13599879"
+
+    defaultConfig {
+        minSdk = 26
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
+        externalNativeBuild {
+            cmake {
+                targets += "trusttunnel_android"
+                arguments += "-DANDROID_STL=c++_static"
+                arguments += "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+}
+
+dependencies {
+    // Logging
+    implementation("org.slf4j:slf4j-api:1.7.25")
+    implementation("com.github.tony19:logback-android:2.0.0")
+    implementation("io.reactivex.rxjava3:rxandroid:3.0.0")
+
+    implementation("com.akuleshov7:ktoml-core:0.7.0")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+}

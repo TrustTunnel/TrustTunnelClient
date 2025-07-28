@@ -35,9 +35,10 @@
 
 namespace ag {
 
-VpnStandaloneClient::VpnStandaloneClient(VpnStandaloneConfig &&config)
+VpnStandaloneClient::VpnStandaloneClient(VpnStandaloneConfig &&config, VpnCallbacks &&callbacks)
         : m_config(std::move(config))
-        , m_extra_loop(vpn_event_loop_create()) {
+        , m_extra_loop(vpn_event_loop_create())
+        , m_callbacks(std::move(callbacks)) {
     if (!m_config.log_file_path.empty()) {
         m_logfile_handler.emplace(m_config.log_file_path);
         m_logtofile.emplace(m_logfile_handler->get_file());
@@ -56,36 +57,36 @@ VpnStandaloneClient::~VpnStandaloneClient() {
     }
 }
 
-Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect(std::chrono::milliseconds timeout) {
+Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect(std::chrono::milliseconds timeout, ListenerHelper &&listener) {
     m_connect_timeout = timeout;
-    return connect_impl();
+    return connect_impl(std::move(listener));
 }
 
 int VpnStandaloneClient::disconnect() {
-    Vpn *vpn = m_vpn.exchange(nullptr);
-    vpn_stop(vpn);
-    vpn_close(vpn);
-
-    if (auto tun = std::exchange(m_tunnel, nullptr); tun != nullptr) {
-        tun->deinit();
+    if (Vpn *vpn = m_vpn.exchange(nullptr)) {
+        vpn_stop(vpn);
+        vpn_close(vpn);
     }
 
-#ifdef _WIN32
-    FreeLibrary(m_wintun);
-#endif
     return 0;
 }
 
 void VpnStandaloneClient::notify_network_change(VpnNetworkState state) {
-    vpn_notify_network_change(m_vpn, state);
+    if (m_vpn) {
+        vpn_notify_network_change(m_vpn, state);
+    }
 }
 
 void VpnStandaloneClient::notify_sleep() {
-    vpn_notify_sleep(m_vpn, [](void *){}, nullptr);
+    if (m_vpn) {
+        vpn_notify_sleep(m_vpn, [](void *){}, nullptr);
+    }
 }
 
 void VpnStandaloneClient::notify_wake() {
-    vpn_notify_wake(m_vpn);
+    if (m_vpn) {
+        vpn_notify_wake(m_vpn);
+    }
 }
 
 void VpnStandaloneClient::vpn_protect_socket(SocketProtectEvent *event) {
@@ -145,7 +146,7 @@ int VpnStandaloneClient::set_outbound_interface() {
     return 0;
 }
 
-Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::dns_runner() {
+Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::set_system_dns() {
 #ifdef _WIN32
     uint32_t if_index = vpn_win_detect_active_if();
     if (if_index == 0) {
@@ -170,12 +171,7 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::dns_runner()
     return {};
 }
 
-Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_impl() {
-    auto error = dns_runner();
-    if (error) {
-        return error;
-    }
-
+Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_impl(ListenerHelper &&listener) {
     VpnSettings settings = {
             .handler = {static_vpn_handler, this},
             .mode = m_config.mode,
@@ -198,19 +194,17 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_impl
         return make_error(ConnectResultError{}, "Failed on create VPN instance");
     }
 
-    return vpn_runner();
+    return vpn_runner(std::move(listener));
 }
 
-Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner() {
+Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner(ListenerHelper &&listener) {
     if (auto r = connect_to_server(); r) {
         return r;
     }
 
-    VpnListener *listener = std::holds_alternative<VpnStandaloneConfig::TunListener>(m_config.listener)
-            ? make_tun_listener()
-            : make_socks_listener();
-    if (listener == nullptr) {
-        return make_error(ConnectResultError{}, "Failed to create listener");
+    VpnListener *vpn_listener = listener.release();
+    if (vpn_listener == nullptr) {
+        return make_error(ConnectResultError{}, "The provided listener is mallformed");
     }
 
     std::vector<const char *> dns_upstreams;
@@ -222,9 +216,8 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::vpn_runner()
     VpnListenerConfig listener_config = {
             .dns_upstreams = {.data = dns_upstreams.data(), .size = uint32_t(dns_upstreams.size())},
     };
-    VpnError error = vpn_listen(m_vpn, listener, &listener_config);
+    VpnError error = vpn_listen(m_vpn, vpn_listener, &listener_config);
     if (error.code != 0) {
-        std::exchange(m_tunnel, nullptr)->deinit();
         return make_error(ConnectResultError{},
                 AG_FMT("Failed to start listening: {} ({})", safe_to_string_view(error.text),
                         magic_enum::enum_name((VpnErrorCode) error.code)));
@@ -279,7 +272,7 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
         std::unique_lock l(m_guard);
         VpnError err = vpn_connect(m_vpn, &parameters);
         auto res = m_connect_waiter.wait_for(l, m_connect_timeout);
-        if (res == std::cv_status::timeout) {
+        if (m_connect_result != VPN_SS_CONNECTED || res == std::cv_status::timeout) {
             disconnect();
             return make_error(ConnectResultError{}, "Connect timed out");
         }
@@ -291,88 +284,6 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
     }
 
     return {};
-}
-
-VpnListener *VpnStandaloneClient::make_tun_listener() {
-    auto &config = std::get<VpnStandaloneConfig::TunListener>(m_config.listener);
-
-    std::vector<const char *> included_routes;
-    included_routes.reserve(config.included_routes.size());
-    for (const auto &route : config.included_routes) {
-        included_routes.emplace_back(route.c_str());
-    }
-
-    std::vector<std::string> complete_excluded_routes = config.excluded_routes;
-    for (const auto &endpoint : m_config.location.endpoints) {
-        auto result = ag::utils::split_host_port(endpoint.address);
-        if (result.has_error()) {
-            errlog(m_logger, "Failed to parse endpoint address: address={}, error={}", endpoint.address,
-                    result.error()->str());
-            return nullptr;
-        }
-        auto [host_view, port_view] = result.value();
-        complete_excluded_routes.emplace_back(host_view.data(), host_view.size());
-    }
-
-    std::vector<const char *> excluded_routes;
-    excluded_routes.reserve(complete_excluded_routes.size());
-    for (const auto &route : complete_excluded_routes) {
-        excluded_routes.emplace_back(route.c_str());
-    }
-
-    const VpnOsTunnelSettings *defaults = vpn_os_tunnel_settings_defaults();
-    VpnOsTunnelSettings tunnel_settings = {.ipv4_address = defaults->ipv4_address,
-            .ipv6_address = defaults->ipv6_address,
-            .included_routes = {.data = included_routes.data(), .size = uint32_t(included_routes.size())},
-            .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
-            .mtu = int(config.mtu_size),
-            .dns_servers = defaults->dns_servers};
-
-    m_tunnel = ag::make_vpn_tunnel();
-    if (m_tunnel == nullptr) {
-        errlog(m_logger, "Tunnel create error");
-        return nullptr;
-    }
-
-#ifdef _WIN32
-    m_wintun = LoadLibraryEx(
-            WINTUN_DLL_NAME.data(), nullptr, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    if (m_wintun == nullptr) {
-        errlog(m_logger, "Failed to load wintun: {}", ag::sys::strerror(GetLastError()));
-        return nullptr;
-    }
-    VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
-    win_settings.wintun_lib = m_wintun;
-    win_settings.block_inbound = m_config.killswitch_enabled;
-    VpnError res = m_tunnel->init(&tunnel_settings, &win_settings);
-#else
-    VpnError res = m_tunnel->init(&tunnel_settings);
-#endif
-    if (res.code != 0) {
-        errlog(m_logger, "Failed to initialize tunnel: {}", res.text);
-        std::exchange(m_tunnel, nullptr)->deinit();
-        return nullptr;
-    }
-
-    VpnTunListenerConfig listener_config = {
-            .fd = m_tunnel->get_fd(),
-#ifdef _WIN32
-            .tunnel = m_tunnel.get(),
-#endif
-            .mtu_size = config.mtu_size,
-    };
-
-    return vpn_create_tun_listener(m_vpn, &listener_config);
-}
-
-VpnListener *VpnStandaloneClient::make_socks_listener() {
-    const auto &cfg = std::get<VpnStandaloneConfig::SocksListener>(m_config.listener);
-    VpnSocksListenerConfig config = {
-            .listen_address = sockaddr_from_str(cfg.address.c_str()),
-            .username = cfg.username.c_str(),
-            .password = cfg.password.c_str(),
-    };
-    return vpn_create_socks_listener(m_vpn, &config);
 }
 
 void VpnStandaloneClient::static_vpn_handler(void *arg, VpnEvent what, void *data) {
@@ -387,7 +298,7 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
     case VPN_EVENT_PROTECT_SOCKET: {
         // protect socket to avoid route loop
         auto *event = (SocketProtectEvent *) data;
-        vpn_protect_socket(event);
+        m_callbacks.protect_handler(event);
         break;
     }
     case VPN_EVENT_CLIENT_OUTPUT:
@@ -399,38 +310,21 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
         break;
     case VPN_EVENT_VERIFY_CERTIFICATE: {
         auto *event = (VpnVerifyCertificateEvent *) data;
-        const char *err = m_config.location.skip_verification
-                ? nullptr
-                : tls_verify_cert(event->cert, event->chain, m_config.location.ca_store.get());
-        if (err == nullptr) {
-            tracelog(m_logger, "Certificate verified successfully");
-            event->result = m_config.location.skip_verification ? VPN_SKIP_VERIFICATION_FLAG : 0;
+        if (m_config.location.skip_verification) {
+            event->result = VPN_SKIP_VERIFICATION_FLAG;
         } else {
-            errlog(m_logger, "Failed to verify certificate: {}", err);
-            event->result = -1;
+            m_callbacks.verify_handler(event);
         }
         break;
     }
     case VPN_EVENT_STATE_CHANGED: {
-        const VpnStateChangedEvent *event = (VpnStateChangedEvent *) data;
-        switch (event->state) {
-        case VPN_SS_DISCONNECTED:
-            errlog(m_logger, "Error: {} {}", event->error.code, safe_to_string_view(event->error.text));
-            break;
-        case VPN_SS_WAITING_RECOVERY:
-            infolog(m_logger, "Waiting recovery: to next={}ms error={} {}",
-                    event->waiting_recovery_info.time_to_next_ms, event->waiting_recovery_info.error.code,
-                    safe_to_string_view(event->waiting_recovery_info.error.text));
-            break;
-        case VPN_SS_CONNECTED: {
+        auto *event = (VpnStateChangedEvent *) data;
+        if (event->state == VPN_SS_CONNECTED || event->state == VPN_SS_DISCONNECTED) {
             std::unique_lock l(m_guard);
+            m_connect_result = event->state;
             m_connect_waiter.notify_one();
-        } break;
-        case VPN_SS_CONNECTING:
-        case VPN_SS_RECOVERING:
-        case VPN_SS_WAITING_FOR_NETWORK:
-            break;
         }
+        m_callbacks.state_changed_handler(event);
         break;
     }
     case VPN_EVENT_CONNECT_REQUEST: {

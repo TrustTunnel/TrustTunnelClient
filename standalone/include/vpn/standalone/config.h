@@ -6,7 +6,6 @@
 #include <variant>
 #include <vector>
 
-#include <cxxopts.hpp>
 #include <toml++/toml.h>
 
 #include "vpn/utils.h"
@@ -25,7 +24,7 @@ struct VpnStandaloneConfig {
         std::string password;
         std::vector<Endpoint> endpoints;
         bool skip_verification = false;
-        ag::DeclPtr<X509_STORE, &X509_STORE_free> ca_store;
+        std::optional<std::string> certificate;
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
         std::optional<ag::VpnUpstreamProtocol> upstream_fallback_protocol;
         bool anti_dpi = false;
@@ -58,8 +57,6 @@ struct VpnStandaloneConfig {
     Location location;
     Listener listener;
 
-    void apply_config(const toml::table &config);
-    void apply_cmd_args(const cxxopts::ParseResult &result);
-    void detect_bound_if();
+    static std::optional<VpnStandaloneConfig> build_config(const toml::table &config);
 };
 } // namespace ag

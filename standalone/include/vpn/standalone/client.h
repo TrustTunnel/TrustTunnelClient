@@ -20,6 +20,12 @@ static constexpr std::string_view WINTUN_DLL_NAME = "wintun";
 
 namespace ag {
 
+struct VpnCallbacks {
+    std::function<void(SocketProtectEvent *)> protect_handler;
+    std::function<void(VpnVerifyCertificateEvent *)> verify_handler;
+    std::function<void(VpnStateChangedEvent *)> state_changed_handler;
+};
+
 class VpnStandaloneClient {
 private:
     class FileHandler {
@@ -41,16 +47,64 @@ private:
     };
 
 public:
+    // Helper class that cleans up the listener resources on destruction
+    // (e.g. closes tun fd). `release()` method should be called to create the
+    // `VpnListener` and pass it to VpnListen where the resources will be handled internally
+    class ListenerHelper {
+    public:
+        explicit ListenerHelper(std::variant<VpnTunListenerConfig, VpnSocksListenerConfig> listener_config)
+            : m_listener_config(listener_config) {}
+
+        VpnListener *release() {
+            auto listener_config = std::exchange(m_listener_config, std::nullopt);
+            if (!listener_config.has_value()) {
+                return nullptr;
+            }
+            if (auto *config = std::get_if<VpnTunListenerConfig>(&listener_config.value())) {
+                return vpn_create_tun_listener(nullptr, config);
+            }
+            if (auto *config = std::get_if<VpnSocksListenerConfig>(&listener_config.value())) {
+                return vpn_create_socks_listener(nullptr, config);
+            }
+            return nullptr;
+        }
+
+        ListenerHelper(const ListenerHelper &) = delete;
+        ListenerHelper &operator=(const ListenerHelper &) = delete;
+        ListenerHelper(ListenerHelper &&other) {
+            other = std::move(*this);
+        }
+        ListenerHelper &operator=(ListenerHelper &&other) {
+            other.m_listener_config = std::exchange(this->m_listener_config, std::nullopt);
+            return *this;
+        }
+
+        ~ListenerHelper() {
+            if (!m_listener_config.has_value()) {
+                return;
+            }
+
+            // Cleanup
+            if (auto *config = std::get_if<VpnTunListenerConfig>(&m_listener_config.value())) {
+                close(config->fd);
+            }
+        }
+
+    private:
+        std::optional<std::variant<VpnTunListenerConfig, VpnSocksListenerConfig>> m_listener_config;
+    };
+
     enum ConnectResultError {};
 
-    explicit VpnStandaloneClient(VpnStandaloneConfig &&config);
+    VpnStandaloneClient(VpnStandaloneConfig &&config, VpnCallbacks &&callbacks);
 
     VpnStandaloneClient(const VpnStandaloneClient &c) = delete;
     VpnStandaloneClient(VpnStandaloneClient &&c) = delete;
     VpnStandaloneClient &operator=(const VpnStandaloneClient &c) = delete;
     VpnStandaloneClient &operator=(VpnStandaloneClient &&c) = delete;
 
-    Error<ConnectResultError> connect(std::chrono::milliseconds timeout);
+    Error<ConnectResultError> connect(std::chrono::milliseconds timeout, ListenerHelper &&listener);
+    Error<ConnectResultError> set_system_dns();
 
     int disconnect();
 
@@ -62,34 +116,28 @@ public:
     ~VpnStandaloneClient();
 
 private:
-    Error<ConnectResultError> connect_impl();
-    Error<ConnectResultError> vpn_runner();
-    Error<ConnectResultError> dns_runner();
+    Error<ConnectResultError> connect_impl(ListenerHelper &&listener);
+    Error<ConnectResultError> vpn_runner(ListenerHelper &&listener);
     Error<ConnectResultError> connect_to_server();
 
     void vpn_protect_socket(SocketProtectEvent *event);
     int set_outbound_interface();
-
-    VpnListener *make_tun_listener();
-    VpnListener *make_socks_listener();
 
     static void static_vpn_handler(void *arg, VpnEvent what, void *data);
     void vpn_handler(void *, VpnEvent what, void *data);
 
     std::mutex m_guard;
     std::condition_variable m_connect_waiter;
+    VpnSessionState m_connect_result = VPN_SS_DISCONNECTED;
     const ag::Logger m_logger{"STANDALONE_CLIENT"};
     std::atomic<Vpn *> m_vpn = nullptr;
     VpnStandaloneConfig m_config;
     std::thread m_loop_thread;
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> m_extra_loop = nullptr;
-    std::unique_ptr<ag::VpnOsTunnel> m_tunnel = nullptr;
     std::optional<FileHandler> m_logfile_handler;
     std::optional<Logger::LogToFile> m_logtofile;
-    std::chrono::milliseconds m_connect_timeout;
-#ifdef _WIN32
-    HMODULE m_wintun;
-#endif
+    std::chrono::milliseconds m_connect_timeout {};
+    VpnCallbacks m_callbacks;
 };
 
 template <>

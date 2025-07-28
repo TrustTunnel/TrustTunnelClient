@@ -11,6 +11,7 @@
 
 #include "net/tls.h"
 #include "vpn/standalone/config.h"
+#include "utils.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -21,14 +22,6 @@ using namespace ag; // NOLINT(google-build-using-namespace)
 
 static constexpr uint32_t DEFAULT_MTU = 1500;
 static const Logger g_logger("STANDALONE_CLIENT"); // NOLINT(readability-identifier-naming)
-
-static const std::unordered_map<std::string_view, ag::LogLevel> LOG_LEVEL_MAP = {
-        {"error", ag::LOG_LEVEL_ERROR},
-        {"warn", ag::LOG_LEVEL_WARN},
-        {"info", ag::LOG_LEVEL_INFO},
-        {"debug", ag::LOG_LEVEL_DEBUG},
-        {"trace", ag::LOG_LEVEL_TRACE},
-};
 
 static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_PROTO_MAP = {
         {"auto", VPN_UP_AUTO},
@@ -48,203 +41,104 @@ static std::string streamable_to_string(const T &obj) {
     return stream.str();
 }
 
-#define FAIL(fmt_, ...)                                                                                                \
-    do {                                                                                                               \
-        errlog(g_logger, fmt_, ##__VA_ARGS__);                                                                         \
-        exit(1);                                                                                                       \
-    } while (0)
 
-template <typename T>
-static std::optional<T> get_field(const toml::table &table, std::string_view name) {
-    return table[name].value<T>();
-}
-
-template <typename T>
-class Field {
-public:
-    Field(const toml::table &table, std::string_view name)
-            : m_value(get_field<T>(table, name)) {
-    }
-
-    explicit Field(T value)
-            : m_value(std::move(value)) {
-    }
-
-    Field(const Field &) = default;
-    Field &operator=(const Field &) = default;
-    Field(Field &&) noexcept = default;
-    Field &operator=(Field &&) noexcept = default;
-    ~Field() = default;
-
-    template <typename Fn>
-    auto map(Fn &&fn) && {
-        using U = std::remove_cv_t<std::invoke_result_t<Fn, T>>;
-        return Field<U>{
-                m_value.has_value() ? std::make_optional<U>(fn(std::move(m_value.value()))) : std::nullopt,
-        };
-    }
-
-    template <typename... Ts>
-    Field check_value(std::function<bool(const T &)> fn, std::string_view fmt_str, Ts &&...args) && {
-        if (m_value.has_value() && !fn(m_value.value())) {
-            std::string message = fmt::vformat(fmt_str, fmt::make_format_args(args...));
-            FAIL("{}", message);
-        }
-        return std::move(*this);
-    }
-
-    template <typename... Ts>
-    T unwrap(std::string_view fmt_str, Ts &&...args) && {
-        if (!m_value.has_value()) {
-            std::string message = fmt::vformat(fmt_str, fmt::make_format_args(args...));
-            FAIL("{}", message);
-        }
-        return std::move(m_value.value());
-    }
-
-    T unwrap() && {
-        if (!m_value.has_value()) {
-            FAIL("Bad optional access");
-        }
-        return std::move(m_value.value());
-    }
-
-    T unwrap_or(T &&x) {
-        return m_value.value_or(std::move(x));
-    }
-
-private:
-    std::optional<T> m_value;
-
-    template <typename U>
-    friend class Field;
-
-    explicit Field(std::optional<T> value)
-            : m_value(std::move(value)) {
-    }
-};
-
-void set_loglevel(VpnStandaloneConfig *self, std::string_view x) {
-    if (auto it = LOG_LEVEL_MAP.find(x); it != LOG_LEVEL_MAP.end()) {
-        if (self->loglevel != it->second) {
-            infolog(g_logger, "Log level was overwritten: old={}, new={}", magic_enum::enum_name(self->loglevel),
-                    magic_enum::enum_name(it->second));
-        }
-        self->loglevel = it->second;
-    } else {
-        FAIL("Unexpected log level: {}", x);
-    }
-}
-
-DeclPtr<X509_STORE, &X509_STORE_free> load_certificate(const char *path) {
-    DeclPtr<FILE, &std::fclose> file{std::fopen(path, "r")};
-    if (file == nullptr) {
-        FAIL("Cannot open certificate file ({}): {}", path, strerror(errno));
-    }
-
-    DeclPtr<X509, &X509_free> cert{PEM_read_X509(file.get(), nullptr, nullptr, nullptr)};
-    if (cert == nullptr) {
-        FAIL("Couldn't parse certificate");
-    }
-
-    DeclPtr<X509_STORE, &X509_STORE_free> store{tls_create_ca_store()};
-    if (store == nullptr) {
-        FAIL("Couldn't create store");
-    }
-
-    X509_STORE_add_cert(store.get(), cert.get());
-
-    return store;
-}
-
-static void apply_endpoint_config(VpnStandaloneConfig *self, const toml::table &config) {
+static std::optional<VpnStandaloneConfig::Location> build_endpoint(const toml::table &config) {
+    VpnStandaloneConfig::Location location;
     std::vector<VpnStandaloneConfig::Endpoint> endpoint;
 
-    auto hostname = Field<std::string>(config, "hostname").unwrap("Hostname is not specified");
+    auto hostname = config["hostname"].value<std::string>();
+    if (!hostname) {
+        return std::nullopt;
+    }
 
     if (const auto *x = config["addresses"].as_array(); x != nullptr) {
         for (const auto &a : *x) {
             if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
-                self->location.endpoints.emplace_back(
-                        VpnStandaloneConfig::Endpoint{.hostname = hostname, .address = std::string(addr.value())});
+                location.endpoints.emplace_back(
+                        VpnStandaloneConfig::Endpoint{.hostname = *hostname, .address = std::string(addr.value())});
             }
         }
     }
 
-    if (self->location.endpoints.empty()) {
-        FAIL("Endpoint addresses are invalid or not specified");
+    if (location.endpoints.empty()) {
+        errlog(g_logger, "Endpoint addresses are invalid or not specified");
+        return std::nullopt;
     }
 
-    self->location.username = Field<std::string>(config, "username").unwrap("Username is not specified");
-    self->location.password = Field<std::string>(config, "password").unwrap("Password is not specified");
-    self->location.skip_verification = Field<bool>(config, "skip_verification").unwrap_or(false);
-    self->location.anti_dpi = Field<bool>(config, "anti_dpi").unwrap_or(false);
-    self->location.has_ipv6 = Field<bool>(config, "has_ipv6").unwrap_or(true);
+    if (auto username = config["username"].value<std::string>()) {
+        location.username = *username;
+    } else {
+        errlog(g_logger, "Username is not specified");
+        return std::nullopt;
+    }
+    if (auto password = config["password"].value<std::string>()) {
+        location.password = *password;
+    } else {
+        errlog(g_logger, "Password is not specified");
+        return std::nullopt;
+    }
+    location.skip_verification = config["skip_verification"].value_or(false);
+    location.anti_dpi = config["anti_dpi"].value_or(false);
+    location.has_ipv6 = config["has_ipv6"].value_or(true);
+    location.certificate = config["certificate"].value<std::string>();
 
-    if (std::optional x = get_field<std::string>(config, "certificate");
-            !self->location.skip_verification && x.has_value() && !x->empty()) {
-        self->location.ca_store = load_certificate(x->c_str());
+    if (auto upstream_protocol = config["upstream_protocol"].value<std::string_view>(); upstream_protocol && UPSTREAM_PROTO_MAP.contains(*upstream_protocol)) {
+        location.upstream_protocol = UPSTREAM_PROTO_MAP.at(*upstream_protocol);
+    } else {
+        errlog(g_logger, "Unexpected endpoint upstream protocol value: {}",
+                            streamable_to_string(config["upstream_protocol"].node()));
+        return std::nullopt;
+    }
+    if (auto upstream_fallback_protocol = config["upstream_fallback_protocol"].value<std::string_view>();
+            upstream_fallback_protocol && !upstream_fallback_protocol->empty()) {
+        if (UPSTREAM_PROTO_MAP.contains(*upstream_fallback_protocol)) {
+            location.upstream_fallback_protocol = UPSTREAM_PROTO_MAP.at(*upstream_fallback_protocol);
+        } else {
+            errlog(g_logger, "Unexpected endpoint upstream fallback protocol value: {}",
+                   streamable_to_string(config["upstream_protocol"].node()));
+            return std::nullopt;
+        }
     }
 
-    self->location.upstream_protocol = Field<std::string_view>(config, "upstream_protocol")
-                                               .check_value(
-                                                       [](std::string_view x) -> bool {
-                                                           return UPSTREAM_PROTO_MAP.contains(x);
-                                                       },
-                                                       "Unexpected endpoint upstream protocol value: {}",
-                                                       streamable_to_string(config["upstream_protocol"]))
-                                               .map([](std::string_view x) {
-                                                   return UPSTREAM_PROTO_MAP.at(x);
-                                               })
-                                               .unwrap("Endpoint upstream protocol is not specified");
-    if (std::optional x = get_field<std::string>(config, "upstream_fallback_protocol"); x.has_value() && !x->empty()) {
-        self->location.upstream_fallback_protocol =
-                Field(x.value())
-                        .check_value(
-                                [](std::string_view x) -> bool {
-                                    return UPSTREAM_PROTO_MAP.contains(x);
-                                },
-                                "Unexpected endpoint upstream fallback protocol value: {}",
-                                streamable_to_string(config["upstream_fallback_protocol"]))
-                        .map([](std::string_view x) {
-                            return UPSTREAM_PROTO_MAP.at(x);
-                        })
-                        .unwrap();
-    }
+    return location;
 }
 
-static std::optional<VpnStandaloneConfig::SocksListener> parse_socks_listener_config(
-        VpnStandaloneConfig *, const toml::table &config) {
+static std::optional<VpnStandaloneConfig::SocksListener> parse_socks_listener_config(const toml::table &config) {
     const toml::table *socks_config = config["socks"].as_table();
     if (socks_config == nullptr) {
+        return std::nullopt;
+    }
+    auto address = (*socks_config)["address"].value<std::string>();
+    if (!address) {
         return std::nullopt;
     }
 
     return VpnStandaloneConfig::SocksListener{
             .username = (*socks_config)["username"].value_or<std::string>({}),
             .password = (*socks_config)["password"].value_or<std::string>({}),
-            .address = Field<std::string>(*socks_config, "address").unwrap("SOCKS listener address is not specified"),
+            .address = std::move(*address),
     };
 }
 
-static std::optional<VpnStandaloneConfig::TunListener> parse_tun_listener_config(
-        VpnStandaloneConfig *, const toml::table &config) {
+static std::optional<VpnStandaloneConfig::TunListener> parse_tun_listener_config(const toml::table &config) {
     const toml::table *tun_config = config["tun"].as_table();
     if (tun_config == nullptr) {
         return std::nullopt;
     }
 
+    std::string bound_if;
+#if defined(_WIN32) || defined(__linux__)
+    bound_if = (*tun_config)["bound_if"].value_or<std::string>({});
+#elif defined(__APPLE__)
+    bound_if = (*tun_config)["bound_if"].value_or<std::string>("en0");
+#else
+    errlog(g_logger, "Outbound interface is not specified");
+    return std::nullopt;
+#endif
+
     VpnStandaloneConfig::TunListener tun = {
         .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
-        .bound_if = Field<std::string>(*tun_config, "bound_if")
-#if defined(_WIN32) || defined(__linux__)
-                            // will be detected automatically later
-                            .unwrap_or({}),
-#elif defined(__APPLE__)
-                            .unwrap_or("en0"),
-#else
-                            .unwrap("Outbound interface is not specified"),
-#endif
+        .bound_if = std::move(bound_if),
     };
 
     if (const auto *x = (*tun_config)["included_routes"].as_array(); x != nullptr) {
@@ -268,126 +162,93 @@ static std::optional<VpnStandaloneConfig::TunListener> parse_tun_listener_config
     return tun;
 }
 
-static void apply_listener_config(VpnStandaloneConfig *self, const toml::table &config) {
-    std::optional socks = parse_socks_listener_config(self, config);
-    std::optional tun = parse_tun_listener_config(self, config);
+static std::optional<VpnStandaloneConfig::Listener> build_listener_config(const toml::table &config) {
+    std::optional socks = parse_socks_listener_config(config);
+    std::optional tun = parse_tun_listener_config(config);
 
     if (socks.has_value() == tun.has_value()) {
         if (socks.has_value()) {
-            FAIL("Several listener types are specified simultaneously");
+            errlog(g_logger, "Several listener types are specified simultaneously");
+            return std::nullopt;
         } else {
-            FAIL("Listener type is not specified or unexpected");
+            errlog(g_logger, "Listener type is not specified or unexpected");
+            return std::nullopt;
         }
     }
 
     if (socks.has_value()) {
-        self->listener = std::move(socks.value());
-        return;
+        return socks;
     }
 
-    self->listener = std::move(tun.value());
+    return tun;
 }
 
-void VpnStandaloneConfig::apply_config(const toml::table &config) {
+std::optional<VpnStandaloneConfig> VpnStandaloneConfig::build_config(const toml::table &config) {
+    VpnStandaloneConfig result;
+
     if (std::optional lvl = config["loglevel"].value<std::string_view>(); lvl.has_value()) {
-        set_loglevel(this, lvl.value());
+        if (auto loglevel = StandaloneUtils::parse_loglevel(lvl.value())) {
+            result.loglevel = loglevel.value();
+        } else {
+            errlog(g_logger, "Unexpected log level: {}", lvl.value());
+            return std::nullopt;
+        }
     }
 
-    mode = Field<std::string_view>(config, "vpn_mode")
-                   .check_value(
-                           [](std::string_view x) -> bool {
-                               return VPN_MODE_MAP.contains(x);
-                           },
-                           "Unexpected VPN mode: {}", streamable_to_string(config["vpn_mode"]))
-                   .map([](std::string_view x) {
-                       return VPN_MODE_MAP.at(x);
-                   })
-                   .unwrap_or(VPN_MODE_GENERAL);
+    if (auto mode = config["vpn_mode"].value<std::string_view>(); mode && VPN_MODE_MAP.contains(*mode)) {
+        result.mode = VPN_MODE_MAP.at(*mode);
+    } else {
+        errlog(g_logger, "Unexpected VPN mode: {}", streamable_to_string(config["vpn_mode"].node()));
+        return std::nullopt;
+    }
 
-    killswitch_enabled = Field<bool>(config, "killswitch_enabled").unwrap_or(false);
-    post_quantum_group_enabled = Field<bool>(config, "post_quantum_group_enabled").unwrap_or(false);
+    result.killswitch_enabled = config["killswitch_enabled"].value_or<bool>(false);
+    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or<bool>(false);
 
-    ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
+    result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 
     if (const auto *x = config["exclusions"].as_array(); x != nullptr) {
         for (const auto &e : *x) {
             if (std::optional ex = e.value<std::string_view>(); ex.has_value() && !ex->empty()) {
-                exclusions.append(ex.value());
-                exclusions.push_back(' ');
+                result.exclusions.append(ex.value());
+                result.exclusions.push_back(' ');
             }
         }
     }
 
     if (const auto *x = config["dns_upstreams"].as_array(); x != nullptr) {
-        dns_upstreams.reserve(x->size());
+        result.dns_upstreams.reserve(x->size());
         for (const auto &a : *x) {
             if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
-                dns_upstreams.emplace_back(addr.value());
+                result.dns_upstreams.emplace_back(addr.value());
             }
         }
     }
 
-    if (const toml::table *endpoint_config = config["endpoint"].as_table(); endpoint_config == nullptr) {
-        FAIL("Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"]));
+
+    const toml::table *endpoint_config = config["endpoint"].as_table();
+    if (endpoint_config == nullptr) {
+        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"].node()));
+        return std::nullopt;
+    }
+    if (auto endpoint = build_endpoint(*endpoint_config)) {
+        result.location = std::move(*endpoint);
     } else {
-        apply_endpoint_config(this, *endpoint_config);
+        errlog(g_logger, "Failed to parse endpoint part of the config");
+        return std::nullopt;
     }
 
-    if (const toml::table *listener_config = config["listener"].as_table(); listener_config == nullptr) {
-        FAIL("Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"]));
+    const toml::table *listener_config = config["listener"].as_table();
+    if (listener_config == nullptr) {
+        errlog(g_logger, "Endpoint configuration is not a table: {}", streamable_to_string(config["endpoint"].node()));
+        return std::nullopt;
+    }
+    if (auto listener = build_listener_config(*listener_config)) {
+        result.listener = std::move(*listener);
     } else {
-        apply_listener_config(this, *listener_config);
-    }
-}
-
-void VpnStandaloneConfig::apply_cmd_args(const cxxopts::ParseResult &args) {
-    if (args.count("s") > 0) {
-        bool x = args["s"].as<bool>();
-        if (x != location.skip_verification) {
-            infolog(g_logger, "Skip verification value was overwritten: old={}, new={}", location.skip_verification, x);
-        }
-        location.skip_verification = x;
-    }
-    if (args.count("loglevel") > 0) {
-        set_loglevel(this, args["loglevel"].as<std::string>());
-    }
-}
-
-void VpnStandaloneConfig::detect_bound_if() {
-    if (!std::holds_alternative<TunListener>(this->listener)) {
-        return;
-    }
-    TunListener &config = std::get<TunListener>(this->listener);
-    if (!config.bound_if.empty()) {
-        return;
-    }
-#ifdef __linux__
-    constexpr std::string_view CMD = "ip -o route show to default";
-    infolog(g_logger, "{} {}", (geteuid() == 0) ? '#' : '$', CMD);
-    Result result = tunnel_utils::fsystem_with_output(CMD);
-    if (result.has_error()) {
-        errlog(g_logger, "Failed to detect outbound interface automatically: {}", result.error()->str());
-        return;
+        errlog(g_logger, "Faild to parse listener part of the config");
+        return std::nullopt;
     }
 
-    dbglog(g_logger, "Detect command output: {}", result.value());
-    std::vector parts = utils::split_by(result.value(), ' ');
-    auto found = std::find(parts.begin(), parts.end(), "dev");
-    if (found == parts.end() || std::next(found) == parts.end()) {
-        warnlog(g_logger, "Failed to detect outbound interface name");
-        return;
-    }
-    config.bound_if = *std::next(found);
-#endif
-#ifdef _WIN32
-    uint32_t if_index = vpn_win_detect_active_if();
-    if (if_index == 0) {
-        warnlog(g_logger, "Failed to detect active network interface");
-        return;
-    }
-    char if_name[IF_NAMESIZE]{};
-    if_indextoname(if_index, if_name);
-    config.bound_if = if_name;
-#endif // _WIN32
-    infolog(g_logger, "Using automatically detected outbound interface: {}", config.bound_if);
+    return result;
 }

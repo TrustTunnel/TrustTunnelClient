@@ -105,7 +105,7 @@ Values of each parameter occurence are gathered into a list."#,
                 .long("cert")
                 .action(clap::ArgAction::Set)
                 .value_parser(clap::builder::NonEmptyStringValueParser::new())
-                .help(format!("Path to a endpoint's certificate file. If `{}` is specified, certificate will be written to this path", ENDPOINT_CONFIG_PARAM_NAME)),
+                .help(format!("Path to a endpoint's certificate file.")),
             clap::Arg::new(SETTINGS_FILE_PARAM_NAME)
                 .long("settings")
                 .action(clap::ArgAction::Set)
@@ -122,7 +122,7 @@ Required in non-interactive mode."#),
         ])
         .group(
             clap::ArgGroup::new("separate_options")
-                .args([HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME])
+                .args([HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME, CERTIFICATE_FILE_PARAM_NAME])
                 .multiple(true)
                 .requires_all([HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME])
         );
@@ -153,11 +153,6 @@ OR
    --endpoint_config <endpoint_config>
 
 Note: Cannot mix both variants"#).exit();
-        }
-        if args.contains_id(ENDPOINT_CONFIG_PARAM_NAME) && !args.contains_id(CERTIFICATE_FILE_PARAM_NAME) {
-            command.error(clap::error::ErrorKind::MissingRequiredArgument,
-r#"Using endpoint config requires <cert> argument to be provided:
-    --cert <cert>"#).exit()
         }
     }
 

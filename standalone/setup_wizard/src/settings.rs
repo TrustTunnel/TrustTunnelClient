@@ -135,8 +135,8 @@ through the endpoint with unreachable code."#)}
 That is, any certificate is accepted with this one set to true."#)}
         #[serde(default)]
         pub skip_verification: bool,
-        #{doc(r#"Path to a file containing the endpoint certificate.
-If not specified, the endpoint certificate is verfied using the system storage."#)}
+        #{doc(r#"Endpoint certificate in PEM format.
+If not specified, the endpoint certificate is verified using the system storage."#)}
         pub certificate: Option<String>,
         #{doc("Protocol to be used to communicate with the endpoint [http2, http3]")}
         #[serde(default)]
@@ -412,40 +412,33 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
 
     if endpoint_config.is_some() {
         let config = endpoint_config.as_ref().unwrap();
-        let cert = ask_for_input("Path to save endpoint certificate", predefined_params.certificate.or(opt_field!(template, certificate).cloned().flatten()));
-        if path::Path::new(&cert).exists()
-                && fs::read_to_string(&cert).unwrap().trim() != config.certificate.as_str().trim()
-                && !checked_overwrite(&cert, "Overwrite existent certificate?") {
-            panic!("Can't save the certificate, the file already exists");
-        }
-        fs::write(&cert, &config.certificate)
-            .expect("Failed to write certificate to file");
-
         x.hostname = config.hostname.clone();
-        x.certificate = Some(cert);
+        x.certificate = config.certificate.clone().into();
     } else {
         let (hostname, certificate) = if crate::get_mode() == Mode::NonInteractive {
-            (predefined_params.hostname.clone(), predefined_params.certificate)
+            (predefined_params.hostname.clone(), predefined_params.certificate
+                                                    .and_then(|x| {
+                                                        fs::read_to_string(&x).expect("Failed to read certificate").into()
+                                                    }))
         } else if let Some(cert) = opt_field!(template, certificate).cloned().flatten()
             .and_then(parse_cert)
-            .or_else(lookup_existent_cert)
             .and_then(|x|
                 ask_for_agreement(&format!("Use an existent certificate? {:?}", x))
                     .then_some(x)
             )
         {
-            (Some(cert.common_name), Some(cert.cert_path))
+            (Some(cert.common_name), opt_field!(template, certificate).cloned().flatten())
         } else if let Some(cert) = empty_to_none(ask_for_input::<String>(
-            &format!("{}\n", Endpoint::doc_certificate()),
-            Some(opt_field!(template, certificate).cloned().flatten().unwrap_or_default()),
+            &format!("{}\nEnter a path to certificate:", Endpoint::doc_certificate()),
+            None,
         )) {
-            match parse_cert(cert.clone()) {
-                Some(cert) => {
-                    (Some(cert.common_name), Some(cert.cert_path))
+            let contents = fs::read_to_string(& cert).expect("Failed to read certificate");
+            match parse_cert(contents.clone()) {
+                Some(parsed) => {
+                    (Some(parsed.common_name), Some(contents))
                 }
                 None => {
-                    println!("Couldn't parse certificate from the file");
-                    (None, Some(cert))
+                    panic!("Couldn't parse provided certificate");
                 }
             }
         } else {
@@ -459,6 +452,10 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 .or(hostname),
         );
         x.certificate = certificate;
+    }
+
+    if x.certificate.is_some() {
+        parse_cert(x.certificate.clone().unwrap()).expect("Couldn't parse provided certificate");
     }
 
     x.skip_verification = x.certificate.is_none()
@@ -565,7 +562,6 @@ struct Cert {
     alt_names: Vec<String>,
     #[allow(dead_code)] // needed only for logging
     expiration_date: String,
-    cert_path: String,
 }
 
 fn lookup_existent_cert() -> Option<Cert> {
@@ -576,8 +572,8 @@ fn lookup_existent_cert() -> Option<Cert> {
         .find_map(parse_cert)
 }
 
-fn parse_cert(path: String) -> Option<Cert> {
-    let cert = rustls_pemfile::certs(&mut BufReader::new(File::open(&path).ok()?))
+fn parse_cert(contents: String) -> Option<Cert> {
+    let cert = rustls_pemfile::certs(&mut contents.as_bytes())
         .ok()?
         .into_iter()
         .map(rustls::Certificate)
@@ -596,6 +592,5 @@ fn parse_cert(path: String) -> Option<Cert> {
             .map(|x| x.value.general_names.iter().map(GeneralName::to_string).collect())
             .unwrap_or_default(),
         expiration_date: cert.validity.not_after.to_string(),
-        cert_path: path,
     })
 }

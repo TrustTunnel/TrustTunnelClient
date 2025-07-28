@@ -17,6 +17,7 @@ endif (MSVC)
 set(SOURCE_FILES
         src/config.cpp
         src/client.cpp
+        src/utils.cpp
         )
 
 add_library(vpnlibs_standalone EXCLUDE_FROM_ALL ${SOURCE_FILES})
