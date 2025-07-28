@@ -1,5 +1,9 @@
 #include <algorithm>
 
+#ifndef DISABLE_HTTP3
+#include <quiche.h>
+#endif
+
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
 #include "vpn_fsm.h"
@@ -284,7 +288,9 @@ static void run_ping(void *ctx, void *) {
             .anti_dpi = vpn->upstream_config->anti_dpi,
             .handoff = true,
             .quic_max_idle_timeout_ms = quic_max_idle_timeout,
+#ifndef DISABLE_HTTP3
             .quic_version = QUICHE_PROTOCOL_VERSION,
+#endif
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
