@@ -19,7 +19,7 @@ namespace ag {
 
 // clang-format off
 static constexpr int VPN_DEFAULT_ENDPOINT_UPSTREAM_TIMEOUT_MS = 30 * 1000; // for VPN endpoint connection
-static constexpr int VPN_DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 5000;
+static constexpr int VPN_DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 7000;
 static constexpr int VPN_DEFAULT_TCP_TIMEOUT_MS = TCPIP_TCP_TIMEOUT_FOR_ESTABLISHED_S * 1000; // for bypassed server-side and client-side TCP connections
 static constexpr int VPN_DEFAULT_UDP_TIMEOUT_MS = TCPIP_UDP_TIMEOUT_S * 1000; // for bypassed and redirected server-side and client-side UDP connections
 static constexpr int VPN_DEFAULT_MAX_CONN_BUFFER_FILE_SIZE = 4 * 1024 * 1024;
