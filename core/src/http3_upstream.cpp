@@ -668,6 +668,11 @@ void Http3Upstream::on_udp_packet() {
             break;
         }
 
+        // Data receival indicates that the connection is alive.
+        // Cancelling the health check now should reduce the probability
+        // of bogus health check failures due to a slow remote.
+        cancel_health_check();
+
         if (quiche_conn_is_closed(quic_conn)) {
             log_upstream(this, dbg, "QUIC connection closed");
             close_session_inner();

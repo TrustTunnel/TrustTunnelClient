@@ -394,6 +394,11 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
                 break;
             }
 
+            // Data receival indicates that the connection is alive.
+            // Cancelling the health check now should reduce the probability
+            // of bogus health check failures due to a slow remote.
+            upstream->cancel_health_check();
+
             for (uint32_t stream_id : upstream->m_streams_to_reset) {
                 http_session_reset_stream(upstream->m_session.get(), (int32_t) stream_id, NGHTTP2_CANCEL);
             }
