@@ -396,12 +396,21 @@ static void dns_resolver_handler(void *arg, ClientEvent what, void *data) {
     self->listener_handler(self->dns_resolver, what, data);
 }
 
+// Send buffered data, if there is any, possibly not completely,
+// and turn listener read on/off.
+//
+// Return `false` on fatal error, `true` otherwise.
+//
+// Caller should check `conn->buffered_packets` after this function returns
+// if handling a listener read event.
 static bool send_buffered_data(const Tunnel *self, uint64_t conn_client_id) {
     VpnConnection *conn = vpn_connection_get_by_id(self->connections.by_client_id, conn_client_id);
     if (conn == nullptr) {
         log_tun(self, dbg, "Connection not found: [L:{}]", conn_client_id);
         return false;
     }
+
+    conn->send_buffered_task.release();
 
     std::shared_ptr<ServerUpstream> upstream = conn->upstream.lock();
     if (upstream == nullptr) {
@@ -415,8 +424,8 @@ static bool send_buffered_data(const Tunnel *self, uint64_t conn_client_id) {
         return false;
     }
 
-    conn->send_buffered_task.release();
-    for (std::vector<uint8_t> &packet : std::exchange(conn->buffered_packets, {})) {
+    for (auto it = conn->buffered_packets.begin(); it != conn->buffered_packets.end();) {
+        auto &packet = *it;
         log_conn(self, conn, trace, "Sending {} bytes from buffered packets", packet.size());
         ssize_t r = upstream->send(conn->server_id, packet.data(), packet.size());
         if (r >= 0 && size_t(r) == packet.size()) {
@@ -424,17 +433,18 @@ static bool send_buffered_data(const Tunnel *self, uint64_t conn_client_id) {
             if (conn->flags.test(CONNF_MONITOR_STATS)) {
                 self->statistics_monitor->update_upload(conn_client_id, r);
             }
+            it = conn->buffered_packets.erase(it);
             continue;
         }
 
         if (r < 0) {
             log_conn(self, conn, dbg, "Failed to send data: error={}", r);
-        } else {
-            log_conn(self, conn, dbg, "Sent partially: {} bytes out of {}", r, packet.size());
+            return false;
         }
 
-        listener->close_connection(conn_client_id, false, false);
-        return false;
+        log_conn(self, conn, dbg, "Sent partially: {} bytes out of {}", r, packet.size());
+        packet.erase(packet.begin(), packet.begin() + r);
+        break;
     }
 
     size_t server_can_send = upstream->available_to_send(conn->server_id);
@@ -511,6 +521,25 @@ static std::optional<DnsHandlerParameters> make_dns_handler_parameters(Tunnel *s
                 ((SocksListener *) self->vpn->dns_proxy_listener.get())->get_listen_address();
     }
     return parameters;
+}
+
+static void schedule_send_buffered_data(Tunnel *tunnel, VpnConnection *conn) {
+    struct Ctx {
+        Tunnel *tunnel;
+        uint64_t conn_client_id;
+    };
+    conn->send_buffered_task = event_loop::submit(tunnel->vpn->parameters.ev_loop,
+                                                  {
+                                                          new Ctx{tunnel, conn->client_id},
+                                                          [](void *arg, TaskId) {
+                                                              auto *ctx = (Ctx *) arg;
+
+                                                              send_buffered_data(ctx->tunnel, ctx->conn_client_id);
+                                                          },
+                                                          [](void *arg) {
+                                                              delete (Ctx *) arg;
+                                                          },
+                                                  });
 }
 
 void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, ServerEvent what, void *data) {
@@ -591,21 +620,7 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
 
             log_conn(this, conn, dbg, "Upstream has been switched successfully");
             if (!conn->buffered_packets.empty()) {
-                struct Ctx {
-                    Tunnel *tunnel;
-                    uint64_t conn_client_id;
-                };
-                conn->send_buffered_task = event_loop::submit(this->vpn->parameters.ev_loop,
-                        {
-                                new Ctx{this, conn->client_id},
-                                [](void *arg, TaskId) {
-                                    auto *ctx = (Ctx *) arg;
-                                    send_buffered_data(ctx->tunnel, ctx->conn_client_id);
-                                },
-                                [](void *arg) {
-                                    delete (Ctx *) arg;
-                                },
-                        });
+                schedule_send_buffered_data(this, conn);
                 break;
             }
 
@@ -755,6 +770,11 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
             if (event->length > 0) {
                 log_conn(this, conn, trace, "{} bytes sent to server (server side can send {} bytes)", event->length,
                         server_can_send);
+            }
+
+            if (!conn->buffered_packets.empty()) {
+                schedule_send_buffered_data(this, conn);
+                break;
             }
             break;
         }
@@ -1725,8 +1745,13 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
         case CONNS_CONNECTED: {
             if (!conn->buffered_packets.empty()) {
                 if (!send_buffered_data(this, conn->client_id)) {
-                    // connection has already closed
+                    // Listener should handle send error by closing connection.
                     event->result = -1;
+                    return;
+                }
+                if (!conn->buffered_packets.empty()) {
+                    // Listener should wait, buffered data will be sent out on SERVER_EVENT_DATA_SENT.
+                    event->result = 0;
                     return;
                 }
             }
