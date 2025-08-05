@@ -46,8 +46,6 @@ struct VpnOsTunnelSettings {
     int mtu;
     /** DNS servers addresses */
     VpnAddressArray dns_servers;
-    /** Network namespace name. Specify NULL if not needed */
-    const char *netns;
 };
 
 #ifdef _WIN32
@@ -121,6 +119,9 @@ public:
 #ifdef _WIN32
     /** Initialize tunnel with windows adapter settings */
     virtual VpnError init(const VpnOsTunnelSettings *settings, const VpnWinTunnelSettings *win_settings) = 0;
+#elif __linux__
+    /** Initialize tunnel */
+    virtual VpnError init(const VpnOsTunnelSettings *settings, std::optional<std::string> netns) = 0;
 #else
     /** Initialize tunnel */
     virtual VpnError init(const VpnOsTunnelSettings *settings) = 0;
@@ -178,7 +179,7 @@ protected:
 class VpnLinuxTunnel : public VpnOsTunnel {
 public:
     /** Initialize tunnel */
-    VpnError init(const VpnOsTunnelSettings *settings) override;
+    VpnError init(const VpnOsTunnelSettings *settings, std::optional<std::string> netns) override;
     /** Get file descriptor */
     evutil_socket_t get_fd() override;
     /** Get interface name */

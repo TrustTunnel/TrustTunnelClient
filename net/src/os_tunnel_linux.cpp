@@ -44,11 +44,9 @@ static ag::Result<std::string, ag::tunnel_utils::ExecError> sys_cmd_with_output_
     return ag::tunnel_utils::sys_cmd_with_output(cmd);
 }
 
-ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings) {
+ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
-    if (settings->netns != nullptr) {
-        m_netns = settings->netns;
-    }
+    m_netns = netns.value_or("");
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }

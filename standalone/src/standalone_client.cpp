@@ -213,7 +213,7 @@ static std::optional<VpnStandaloneClient::ListenerHelper> make_tun_listener_help
             .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
             .mtu = int(config.mtu_size),
             .dns_servers = defaults->dns_servers,
-            .netns = config.netns.has_value() ? config.netns->c_str() : nullptr};
+    };
 
     g_tunnel = ag::make_vpn_tunnel();
     if (g_tunnel == nullptr) {
@@ -234,7 +234,11 @@ static std::optional<VpnStandaloneClient::ListenerHelper> make_tun_listener_help
     VpnError res = g_tunnel->init(&tunnel_settings, &win_settings);
 #else
     (void) killswitch_enabled; // Used only in win
+# ifdef __linux__
+    VpnError res = g_tunnel->init(&tunnel_settings, config.netns);
+# else
     VpnError res = g_tunnel->init(&tunnel_settings);
+# endif
 #endif
     if (res.code != 0) {
         errlog(g_logger, "Failed to initialize tunnel: {}", res.text);
