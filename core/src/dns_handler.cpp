@@ -98,6 +98,18 @@ void ag::DnsHandlerServerUpstreamBase::send_response(uint64_t upstream_conn_id, 
                         sockaddr_to_str((sockaddr *) &it->second.addrs.src), it->second.app_name,
                         tunnel_addr_to_str(&it->second.addrs.dst), event.result);
                 }
+            } else {
+                it = m_connections.find(upstream_conn_id);
+                if (it != m_connections.end()) {
+                    auto &conn = it->second;
+                    if (--conn.unanswered_dns_requests == 0) {
+                        log_upstream(this, dbg,
+                                "[R:{}] All DNS requests answered for connection {} -> {} proto: {} app: {}",
+                                upstream_conn_id, sockaddr_to_str((sockaddr *) &conn.addrs.src),
+                                tunnel_addr_to_str(&conn.addrs.dst), conn.proto, conn.app_name);
+                        close_connection(upstream_conn_id, /*graceful*/ false, /*async*/ false);
+                    }
+                }
             }
         } else {
             log_upstream(this, info, "Failed to send UDP {} ({}) <- {}: read disabled",
@@ -179,6 +191,7 @@ ssize_t ag::DnsHandlerServerUpstreamBase::send(uint64_t upstream_conn_id, const 
     };
 
     if (it->second.proto == IPPROTO_UDP) {
+        ++it->second.unanswered_dns_requests;
         on_dns_request(info, {data, length});
         return length;
     }
@@ -299,6 +312,7 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
                 m_connections.emplace(std::piecewise_construct, std::forward_as_tuple(listener_conn_id),
                         std::forward_as_tuple(listener_conn_id, info.upstream_conn_id, info.proto));
         assert_use(placed);
+        m_conn_id_by_upstream_conn_id.emplace(info.upstream_conn_id, listener_conn_id);
 
         ClientConnectRequest event{
                 .id = listener_conn_id,
@@ -443,7 +457,7 @@ ag::TcpFlowCtrlInfo ag::DnsHandlerClientListenerBase::flow_control_info(uint64_t
 void ag::DnsHandlerClientListenerBase::turn_read(uint64_t id, bool read_enabled) {
     auto it = m_connections.find(id);
     if (it == m_connections.end()) {
-        log_listener(this, warn, "Connectin L:{} does not exist", id);
+        log_listener(this, warn, "Connection L:{} does not exist", id);
         return;
     }
     if (it->second.proto == IPPROTO_TCP && !it->second.read_enabled && read_enabled && !it->second.snd_buf.empty()) {

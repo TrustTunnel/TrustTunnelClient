@@ -99,6 +99,7 @@ public:
     };
 
     std::unordered_map<size_t, Connection> connections;
+    std::unordered_map<size_t, Connection> closed_connections;
 
     TestListener() = default;
     ~TestListener() override = default;
@@ -122,7 +123,7 @@ public:
     }
 
     void close_connection(uint64_t id, bool, bool) override {
-        connections.erase(id);
+        closed_connections.insert(connections.extract(id));
         handler.func(handler.arg, CLIENT_EVENT_CONNECTION_CLOSED, &id);
     }
 
@@ -1053,9 +1054,11 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(0, this->system_ipv6_unexpected);
     ASSERT_EQ(0, this->user_unexpected);
     ASSERT_EQ(1, this->user_complete);
+    ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
+    ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
     dns_utils::LdnsPktPtr pkt =
-            dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
-                    this->client_listener->connections[udp_event.id].last_send->size()});
+            dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
+                    this->client_listener->closed_connections[udp_event.id].last_send->size()});
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     DeclPtr<char, &free> str{ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0))};
@@ -1091,10 +1094,10 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(0, this->system_ipv6_unexpected);
     ASSERT_EQ(0, this->user_unexpected);
     ASSERT_EQ(1, this->system_complete);
-    ASSERT_TRUE(this->client_listener->connections.contains(udp_event.id));
-    ASSERT_TRUE(this->client_listener->connections[udp_event.id].last_send);
-    pkt = dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
-            this->client_listener->connections[udp_event.id].last_send->size()});
+    ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
+    ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
+    pkt = dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
+            this->client_listener->closed_connections[udp_event.id].last_send->size()});
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));
@@ -1128,10 +1131,10 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(0, this->system_ipv6_unexpected);
     ASSERT_EQ(0, this->user_unexpected);
     ASSERT_EQ(2, this->user_complete);
-    ASSERT_TRUE(this->client_listener->connections.contains(udp_event.id));
-    ASSERT_TRUE(this->client_listener->connections[udp_event.id].last_send);
-    pkt = dns_utils::decode_pkt({this->client_listener->connections[udp_event.id].last_send->data(),
-            this->client_listener->connections[udp_event.id].last_send->size()});
+    ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
+    ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
+    pkt = dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
+            this->client_listener->closed_connections[udp_event.id].last_send->size()});
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));

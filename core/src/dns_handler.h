@@ -136,6 +136,7 @@ private:
         std::string app_name;
         bool read_enabled;
         bool vpn_resolver_connection;
+        int unanswered_dns_requests = 0;
 
         std::vector<uint8_t> snd_buf; // TCP connections only.
         std::vector<uint8_t> rcv_buf; // TCP connections only.
