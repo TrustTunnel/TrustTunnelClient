@@ -34,13 +34,12 @@ Default Job:
 
             conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
 
-            cd script
+            cd scripts
             python3 -m pip install -r requirements.txt
             ./conan_export.py
+            cd ..
 
-            conan remote login art "${bamboo_artifactoryUser}" --password "${bamboo_artifactoryPassword}" > upload.txt 2>&1
-
-            conan upload -r art --all -c '*' >> upload.txt 2>&1
+            ./bamboo-specs/scripts/conan_upload_and_cleanup.sh
   final-tasks:
     - script:
         interpreter: SHELL
