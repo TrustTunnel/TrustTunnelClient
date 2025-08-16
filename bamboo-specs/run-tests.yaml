@@ -68,7 +68,7 @@ Run tests on Linux:
         configuration:
           testFilePathPattern: '**/Testing/*/*.xml'
     - script:
-        file: ./bamboo-specs/scripts/conan_upload_and_cleanup.sh
+        file: vpn-libs/bamboo-specs/scripts/conan_upload_and_cleanup.sh
         description: Conan upload and cleanup
   requirements:
     - adg-privileged-docker
@@ -197,8 +197,6 @@ Run tests on macOS:
         interpreter: SHELL
         scripts:
           - |-
-            set -x -e
-
             source ./venv/bin/activate
             ./bamboo-specs/scripts/conan_upload_and_cleanup.sh
   requirements:
