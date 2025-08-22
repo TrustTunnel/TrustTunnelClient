@@ -255,6 +255,13 @@ static const std::shared_ptr<WithMtx<LruTimeoutCache<TunnelAddressPair, DomainLo
 VpnError VpnClient::init(const VpnSettings *settings) {
     log_client(this, dbg, "...");
 
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    this->parameters.qos_settings = {
+        .qos_class = settings->qos_settings.qos_class,
+        .relative_priority = settings->qos_settings.relative_priority
+    };
+#endif // __APPLE__ && TARGET_OS_IPHONE
+
     this->tunnel->udp_close_wait_hostname_cache = g_udp_close_wait_hostname_cache;
     this->kill_switch_on = settings->killswitch_enabled;
     update_exclusions(settings->mode, {settings->exclusions.data, settings->exclusions.size});

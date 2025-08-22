@@ -6,6 +6,11 @@
 #include <utility>
 #include <functional>
 
+#ifdef __APPLE__
+#include <sys/qos.h>
+#include <TargetConditionals.h>
+#endif // __APPLE__
+
 #include <event2/event.h>
 
 #include "common/defs.h"
@@ -33,6 +38,17 @@ struct VpnEventLoopTask {
 };
 
 /**
+ * Event loop settings struct.
+ * For now only holds QoS class and relative priority for threads/queues on iOS.
+ */
+struct VpnEventLoopSettings {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    qos_class_t qos_class = QOS_CLASS_DEFAULT;
+    int relative_priority = 0;
+#endif // __APPLE__ && TARGET_OS_IPHONE
+};
+
+/**
  * Create an event loop
  */
 VpnEventLoop *vpn_event_loop_create();
@@ -47,7 +63,7 @@ void vpn_event_loop_destroy(VpnEventLoop *loop);
  * Blocks until stopped, if not exited immediately with an error.
  * @return 0 if successful, non-zero value otherwise
  */
-int vpn_event_loop_run(VpnEventLoop *loop);
+int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings = {});
 
 /**
  * Stop an event loop.

@@ -118,7 +118,7 @@ typedef struct {
      */
     AG_ARRAY_OF(VpnBuffer) hashes;
     /** Server properties */
-    VpnDnsStampInformalProperties properties;
+    VpnDnsStampInformalProperties *properties;
 } VpnDnsStamp;
 
 typedef struct {

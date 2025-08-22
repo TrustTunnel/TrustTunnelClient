@@ -402,7 +402,10 @@ VpnDnsStamp *vpn_dns_stamp_from_str(const char *stamp_str, const char **error) {
             c_result->hashes.data[i] = marshal_buffer({h.data(), h.size()});
         }
     }
-    c_result->properties = (VpnDnsStampInformalProperties) stamp.props;
+    if (stamp.props.has_value()) {
+        c_result->properties = (VpnDnsStampInformalProperties *)calloc(1, sizeof(VpnDnsStampInformalProperties));
+        *c_result->properties = (VpnDnsStampInformalProperties)stamp.props.value();
+    }
     return c_result;
 }
 
@@ -418,6 +421,7 @@ void vpn_dns_stamp_free(VpnDnsStamp *stamp) {
         std::free(stamp->hashes.data[i].data);
     }
     std::free((void *) stamp->hashes.data);
+    std::free(stamp->properties);
     std::free(stamp);
 }
 
@@ -440,7 +444,9 @@ static dns::ServerStamp marshal_stamp(const VpnDnsStamp *c_stamp) {
         const VpnBuffer &hash = c_stamp->hashes.data[i];
         stamp.hashes.emplace_back(hash.data, hash.data + hash.size);
     }
-    stamp.props = (dns::ServerInformalProperties) c_stamp->properties;
+    if (c_stamp->properties) {
+        stamp.props = (dns::ServerInformalProperties) *c_stamp->properties;
+    }
     return stamp;
 }
 

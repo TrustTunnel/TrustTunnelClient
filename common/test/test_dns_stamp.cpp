@@ -19,9 +19,10 @@ TEST(VpnDnsStampTest, DnsStampManipulationWorks) {
     ASSERT_FALSE(error);
     ASSERT_STREQ(stamp->provider_name, "dns.adguard.com");
     ASSERT_STREQ(stamp->path, "/dns-query");
-    ASSERT_TRUE(stamp->properties & VDSIP_DNSSEC);
-    ASSERT_TRUE(stamp->properties & VDSIP_NO_LOG);
-    ASSERT_FALSE(stamp->properties & VDSIP_NO_FILTER);
+    ASSERT_TRUE(stamp->properties);
+    ASSERT_TRUE(*stamp->properties & VDSIP_DNSSEC);
+    ASSERT_TRUE(*stamp->properties & VDSIP_NO_LOG);
+    ASSERT_FALSE(*stamp->properties & VDSIP_NO_FILTER);
     ASSERT_EQ(stamp->hashes.size, 2);
 
     using StrPtr = DeclPtr<const char, &vpn_string_free>;
@@ -37,7 +38,7 @@ TEST(VpnDnsStampTest, DnsStampManipulationWorks) {
     stamp->proto = VDSP_DOQ;
     stamp->hashes.data = &hash;
     stamp->hashes.size = 1;
-    stamp->properties = VDSIP_NO_FILTER;
+    *stamp->properties = VDSIP_NO_FILTER;
     stamp->path = NULL;
 
     ASSERT_STREQ(StrPtr(vpn_dns_stamp_pretty_url(stamp)).get(), "quic://dns.adguard.com");

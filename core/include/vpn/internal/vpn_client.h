@@ -6,6 +6,15 @@
 #include <set>
 #include <string>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+
+#if TARGET_OS_IPHONE
+#include "vpn/internal/qos_settings.h"
+#endif // TARGET_OS_IPHONE
+
+#endif // __APPLE__
+
 #include "common/defs.h"
 #include "common/logger.h"
 #include "net/locations_pinger.h"
@@ -60,6 +69,10 @@ struct Parameters {
     VpnNetworkManager *network_manager = nullptr;
     Handler handler = {};
     CertVerifyHandler cert_verify_handler = {};
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    /// QoS class and relative priority for threads on iOS platform
+    VpnQosSettings qos_settings;
+#endif // __APPLE__ && TARGET_OS_IPHONE
 };
 
 struct EndpointConnectionConfig {

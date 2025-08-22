@@ -7,6 +7,15 @@
 #include <string>
 #include <vector>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+
+#if TARGET_OS_IPHONE
+#include "vpn/internal/qos_settings.h"
+#endif // TARGET_OS_IPHONE
+
+#endif // __APPLE__
+
 #include "common/net_utils.h"
 #include "common/socket_address.h"
 #include "common/utils.h"
@@ -37,6 +46,10 @@ public:
         std::optional<sockaddr_storage> socks_listener_address;
         /// Certificate verification handler
         CertVerifyHandler cert_verify_handler = {};
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+        /// QoS class and relative priority for threads on iOS platform
+        VpnQosSettings qos_settings;
+#endif // __APPLE__ && TARGET_OS_IPHONE
     };
 
     explicit DnsProxyAccessor(Parameters p);

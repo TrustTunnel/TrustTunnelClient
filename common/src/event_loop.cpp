@@ -148,16 +148,20 @@ void vpn_event_loop_destroy(VpnEventLoop *loop) {
     delete loop;
 }
 
-int vpn_event_loop_run(VpnEventLoop *loop) {
+int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe_unused]]) {
     log_loop(loop, dbg, "...");
 
 #ifdef __MACH__
     static auto ensure_sigpipe_ignored [[maybe_unused]] = signal(SIGPIPE, SIG_IGN);
-#if !TARGET_OS_IPHONE
-    if (0 != pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0)) {
-        log_loop(loop, warn, "Failed to set qos class to user-initiated: {}", strerror(errno));
-    }
+    qos_class_t qos_class = QOS_CLASS_USER_INITIATED;
+    int relative_priority = 0;
+#if TARGET_OS_IPHONE
+    qos_class = settings.qos_class;
+    relative_priority = settings.relative_priority;
 #endif // TARGET_OS_IPHONE
+    if (0 != pthread_set_qos_class_self_np(qos_class, relative_priority)) {
+        log_loop(loop, warn, "Failed to set qos class: {}", strerror(errno));
+    }
 
 #elif defined EVTHREAD_USE_PTHREADS_IMPLEMENTED
     // Block SIGPIPE

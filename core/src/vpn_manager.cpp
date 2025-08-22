@@ -2,6 +2,11 @@
 #include <atomic>
 #include <chrono>
 
+#ifdef __APPLE__
+#include <sys/qos.h>
+#include <TargetConditionals.h>
+#endif // __APPLE__
+
 #include <magic_enum/magic_enum.hpp>
 
 #include "socks_listener.h"
@@ -147,7 +152,12 @@ bool Vpn::run_event_loop() {
     }
 
     this->executor_thread = std::thread([this]() {
-        int ret = vpn_event_loop_run(this->ev_loop.get());
+        int ret = vpn_event_loop_run(this->ev_loop.get(), {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+            .qos_class = this->client.parameters.qos_settings.qos_class,
+            .relative_priority = this->client.parameters.qos_settings.relative_priority,
+#endif // __APPLE__ && TARGET_OS_IPHONE
+        });
         if (ret != 0) {
             log_vpn(this, err, "Event loop run returned {}, shutting down", ret);
             this->pending_error = {.code = VPN_EC_EVENT_LOOP_FAILURE, .text = "Event loop run error"};

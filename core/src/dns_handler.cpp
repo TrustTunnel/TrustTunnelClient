@@ -621,6 +621,12 @@ bool ag::DnsHandler::start_dns_proxy() {
             .upstreams = std::move(m_parameters.dns_upstreams),
             .socks_listener_address = m_parameters.dns_proxy_listener_address,
             .cert_verify_handler = m_parameters.cert_verify_handler,
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+            .qos_settings = {
+                .qos_class = ServerUpstream::vpn->parameters.qos_settings.qos_class,
+                .relative_priority = ServerUpstream::vpn->parameters.qos_settings.relative_priority
+            }
+#endif // __APPLE__ && TARGET_OS_IPHONE
     });
 
     if (!m_dns_proxy->start()) {
@@ -719,6 +725,12 @@ bool ag::DnsHandler::start_system_dns_proxy() {
                 .fallbacks = std::move(servers->fallback),
                 .bootstraps = std::move(servers->bootstrap),
                 .cert_verify_handler = m_parameters.cert_verify_handler,
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+                .qos_settings = {
+                    .qos_class = ServerUpstream::vpn->parameters.qos_settings.qos_class,
+                    .relative_priority = ServerUpstream::vpn->parameters.qos_settings.relative_priority
+            }
+#endif // __APPLE__ && TARGET_OS_IPHONE
         });
 
         if (!proxy->start()) {

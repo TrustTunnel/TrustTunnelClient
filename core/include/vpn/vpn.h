@@ -3,6 +3,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+
+#if TARGET_OS_IPHONE
+#include "vpn/internal/qos_settings.h"
+#endif // TARGET_OS_IPHONE
+
+#endif // __APPLE__
+
 #include "vpn/platform.h" // Unbreak Windows build
 
 #include <event2/buffer.h>
@@ -509,6 +518,12 @@ typedef struct {
      * If null, SSL sessions will not be cached on disk.
      */
     const char *ssl_sessions_storage_path;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    /**
+     * QoS class and relative priority for threads on iOS platform
+     */
+     VpnQosSettings qos_settings;
+#endif // __APPLE__ && TARGET_OS_IPHONE
 } VpnSettings;
 
 /**
