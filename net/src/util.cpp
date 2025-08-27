@@ -188,7 +188,7 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
 }
 
 bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
-    return sockaddr_equals((struct sockaddr *) &lh->address, (struct sockaddr *) &rh->address)
+    return SocketAddress(lh->address) == SocketAddress(rh->address)
             && ((lh->name == nullptr && rh->name == lh->name) || 0 == strcmp(lh->name, rh->name))
             && ((lh->remote_id == nullptr && rh->remote_id == nullptr) || 0 == strcmp(lh->remote_id, rh->remote_id));
 }
@@ -207,7 +207,7 @@ using AutoVpnRelay = AutoPod<VpnRelay, vpn_relay_destroy>;
 
 AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
     AutoVpnRelay dst;
-    std::memcpy(&dst.get()->address, &src->address, sizeof(sockaddr_storage));
+    std::memcpy(&dst.get()->address, &src->address, sizeof(SocketAddressStorage));
     size_t data_len = src->additional_data.size;
     dst->additional_data.data = (uint8_t *) malloc(data_len);
     std::memcpy(dst->additional_data.data, src->additional_data.data, data_len);
@@ -592,13 +592,13 @@ static DWORD get_default_route_ifs(
         return error;
     }
     for (size_t i = 0; i < table_v4->NumEntries; i++) {
-        if (sockaddr_is_any((sockaddr *) &table_v4->Table[i].DestinationPrefix.Prefix.Ipv4)
+        if (SocketAddress((sockaddr *) &table_v4->Table[i].DestinationPrefix.Prefix.Ipv4).is_any()
                 && table_v4->Table[i].DestinationPrefix.PrefixLength == 0) {
             net_ifs_v4.insert(table_v4->Table[i].InterfaceIndex);
         }
     }
     for (size_t i = 0; i < table_v6->NumEntries; i++) {
-        if (sockaddr_is_any((sockaddr *) &table_v6->Table[i].DestinationPrefix.Prefix.Ipv6)
+        if (SocketAddress((sockaddr *) &table_v6->Table[i].DestinationPrefix.Prefix.Ipv6).is_any()
                 && table_v6->Table[i].DestinationPrefix.PrefixLength == 0) {
             net_ifs_v6.insert(table_v6->Table[i].InterfaceIndex);
         }
@@ -736,7 +736,7 @@ Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers() {
         };
         if (addr.is_loopback()
                 || std::find(std::begin(UNFILTERED_IPS), std::end(UNFILTERED_IPS), addr) != std::end(UNFILTERED_IPS)) {
-            warnlog(g_logger, "Skipping potential route loop address: {}", addr.str());
+            warnlog(g_logger, "Skipping potential route loop address: {}", addr);
             continue;
         }
 #endif // __linux__
@@ -787,7 +787,7 @@ Result<SystemDnsServers, RetrieveSystemDnsError> retrieve_system_dns_servers() {
         };
         if (addr.is_loopback()
                 || std::find(std::begin(UNFILTERED_IPS), std::end(UNFILTERED_IPS), addr) != std::end(UNFILTERED_IPS)) {
-            warnlog(g_logger, "Skipping potential route loop address: {}", addr.str());
+            warnlog(g_logger, "Skipping potential route loop address: {}", addr);
             continue;
         }
 #endif // __linux__

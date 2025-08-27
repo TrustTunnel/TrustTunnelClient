@@ -3,6 +3,7 @@
 #include "vpn/platform.h"
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "icmp_request_manager.h"
 #include "tcpip_common.h"
 #include "tcpip_util.h"
@@ -95,7 +96,7 @@ int icmp_rm_start_request(TcpipCtx *ctx, IcmpRequestDescriptor *request) {
 
     const TcpipHandler *callbacks = &ctx->parameters.handler;
     IcmpEchoRequestEvent event = {{
-            ip_addr_to_sockaddr(&request->dst, 0),
+            ip_addr_to_socket_address(&request->dst, 0),
             request->key.id,
             request->key.seqno,
             request->ttl,
@@ -121,7 +122,7 @@ void icmp_rm_process_reply(TcpipCtx *ctx, const IcmpEchoReply *reply) {
 
     ip_addr_t src_ip;
     uint16_t dummy; // NOLINT(cppcoreguidelines-init-variables)
-    sockaddr_to_ip_addr(&reply->peer, sockaddr_get_size((struct sockaddr *) &reply->peer), &src_ip, &dummy);
+    socket_address_to_ip_addr(reply->peer, &src_ip, &dummy);
 
     ip_addr_copy(request->reply_src, src_ip);
     request->reply_type = reply->type;

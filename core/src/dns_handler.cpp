@@ -35,7 +35,7 @@ struct ag::DnsHandlerServerUpstreamBase::ConnectionInfo {
 
     friend std::string format_as(const ConnectionInfo &info) {
         return AG_FMT("[R:{}] {} -> {} proto: {} app: {}", info.upstream_conn_id,
-                sockaddr_to_str((sockaddr *) &info.addrs->src), tunnel_addr_to_str(&info.addrs->dst), info.proto,
+                info.addrs->src, tunnel_addr_to_str(&info.addrs->dst), info.proto,
                 info.app_name);
     }
 };
@@ -95,7 +95,7 @@ void ag::DnsHandlerServerUpstreamBase::send_response(uint64_t upstream_conn_id, 
                             event.result, upstream_conn_id);
                 } else {
                     log_upstream(this, info, "Failed to send UDP {} ({}) <- {}: handler returned {}",
-                        sockaddr_to_str((sockaddr *) &it->second.addrs.src), it->second.app_name,
+                        it->second.addrs.src, it->second.app_name,
                         tunnel_addr_to_str(&it->second.addrs.dst), event.result);
                 }
             } else {
@@ -105,7 +105,7 @@ void ag::DnsHandlerServerUpstreamBase::send_response(uint64_t upstream_conn_id, 
                     if (--conn.unanswered_dns_requests == 0) {
                         log_upstream(this, dbg,
                                 "[R:{}] All DNS requests answered for connection {} -> {} proto: {} app: {}",
-                                upstream_conn_id, sockaddr_to_str((sockaddr *) &conn.addrs.src),
+                                upstream_conn_id, conn.addrs.src,
                                 tunnel_addr_to_str(&conn.addrs.dst), conn.proto, conn.app_name);
                         close_connection(upstream_conn_id, /*graceful*/ false, /*async*/ false);
                     }
@@ -113,7 +113,7 @@ void ag::DnsHandlerServerUpstreamBase::send_response(uint64_t upstream_conn_id, 
             }
         } else {
             log_upstream(this, info, "Failed to send UDP {} ({}) <- {}: read disabled",
-                    sockaddr_to_str((sockaddr *) &it->second.addrs.src), it->second.app_name,
+                    it->second.addrs.src, it->second.app_name,
                     tunnel_addr_to_str(&it->second.addrs.dst));
         }
     } else {
@@ -289,7 +289,7 @@ bool ag::DnsHandlerServerUpstreamBase::raise_read(Connection &conn) {
     conn.rcv_buf.erase(conn.rcv_buf.begin(), conn.rcv_buf.begin() + event.result);
     if (conn.rcv_buf.size() > CONN_MAX_BUFFERED) {
         log_upstream(this, warn, "Receive buffer for connection R:{} (({}) {} -> {}) is getting too long", conn.id,
-                conn.app_name, sockaddr_to_str((sockaddr *) &conn.addrs.src), tunnel_addr_to_str(&conn.addrs.dst));
+                conn.app_name, conn.addrs.src, tunnel_addr_to_str(&conn.addrs.dst));
         return false;
     }
     return true;
@@ -317,7 +317,7 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
         ClientConnectRequest event{
                 .id = listener_conn_id,
                 .protocol = info.proto,
-                .src = (sockaddr *) &info.addrs->src,
+                .src = &info.addrs->src,
                 .dst = &info.addrs->dst,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
@@ -345,14 +345,14 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
             this->handler.func(this->handler.arg, CLIENT_EVENT_READ, &event);
             if (event.result <= 0) {
                 log_upstream(this, info, "Failed to send UDP {} ({}) -> {}: handler returned {}",
-                        sockaddr_to_str((sockaddr *) &info.addrs->src), info.app_name,
+                        info.addrs->src, info.app_name,
                         tunnel_addr_to_str(&info.addrs->dst), event.result);
             }
         } else if (it->second.udp_pending.empty()) {
             it->second.udp_pending.emplace_back(message.begin(), message.end());
         } else {
             log_upstream(this, info, "Failed to send UDP {} ({}) -> {}: read disabled",
-                    sockaddr_to_str((sockaddr *) &info.addrs->src), info.app_name,
+                    info.addrs->src, info.app_name,
                     tunnel_addr_to_str(&info.addrs->dst));
         }
     } else {
@@ -610,10 +610,9 @@ bool ag::DnsHandler::start_dns_proxy() {
         return true;
     }
 
-    if (sockaddr_is_any((sockaddr *) &m_parameters.dns_proxy_listener_address)
-            || !sockaddr_is_loopback((sockaddr *) &m_parameters.dns_proxy_listener_address)) {
+    if (m_parameters.dns_proxy_listener_address.is_any() || !m_parameters.dns_proxy_listener_address.is_loopback()) {
         log_handler(this, warn, "DNS proxy listener address is invalid: {}",
-                sockaddr_to_str((sockaddr *) &m_parameters.dns_proxy_listener_address));
+                m_parameters.dns_proxy_listener_address);
         return false;
     }
 
@@ -634,10 +633,9 @@ bool ag::DnsHandler::start_dns_proxy() {
         return false;
     }
 
-    sockaddr_storage tcp_addr = m_dns_proxy->get_listen_address(utils::TP_TCP);
-    sockaddr_storage udp_addr = m_dns_proxy->get_listen_address(utils::TP_UDP);
-    log_handler(this, info, "DNS proxy listening on {}/TCP, {}/UDP", sockaddr_to_str((sockaddr *) &tcp_addr),
-            sockaddr_to_str((sockaddr *) &udp_addr));
+    SocketAddress tcp_addr = m_dns_proxy->get_listen_address(utils::TP_TCP);
+    SocketAddress udp_addr = m_dns_proxy->get_listen_address(utils::TP_UDP);
+    log_handler(this, info, "DNS proxy listening on {}/TCP, {}/UDP", tcp_addr, udp_addr);
 
     m_client = std::make_unique<DnsClient>(DnsClientParameters{
             .ev_loop = ServerUpstream::vpn->parameters.ev_loop,
@@ -738,11 +736,10 @@ bool ag::DnsHandler::start_system_dns_proxy() {
             return false;
         }
 
-        sockaddr_storage tcp_addr = proxy->get_listen_address(utils::TP_TCP);
-        sockaddr_storage udp_addr = proxy->get_listen_address(utils::TP_UDP);
+        SocketAddress tcp_addr = proxy->get_listen_address(utils::TP_TCP);
+        SocketAddress udp_addr = proxy->get_listen_address(utils::TP_UDP);
         log_handler(this, info, "System{} DNS proxy listening on {}/TCP, {}/UDP",
-                servers == &servers_v6 ? " (IPv6)" : "", sockaddr_to_str((sockaddr *) &tcp_addr),
-                sockaddr_to_str((sockaddr *) &udp_addr));
+                servers == &servers_v6 ? " (IPv6)" : "", tcp_addr, udp_addr);
 
         client = std::make_unique<DnsClient>(DnsClientParameters{
                 .ev_loop = ServerUpstream::vpn->parameters.ev_loop,
@@ -883,8 +880,8 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
     }
 
     auto &request = std::get<dns_utils::DecodedRequest>(decode_result);
-    bool ipv6 = std::holds_alternative<sockaddr_storage>(info.addrs->dst)
-            && std::get<sockaddr_storage>(info.addrs->dst).ss_family == AF_INET6;
+    bool ipv6 = std::holds_alternative<SocketAddress>(info.addrs->dst)
+            && std::get<SocketAddress>(info.addrs->dst).is_ipv6();
     bool tcp = (info.proto == IPPROTO_TCP);
 
     if (!ServerUpstream::vpn->tunnel->endpoint_upstream_connected) {
@@ -928,8 +925,10 @@ void ag::DnsHandler::on_dns_response(uint64_t upstream_conn_id, U8View message) 
             // Add exclusion suspects.
             for (const auto &addr : response->addresses) {
                 ServerUpstream::vpn->domain_filter.add_exclusion_suspect(
-                        sockaddr_from_raw(addr.ip.data(), addr.ip.size(), 0),
-                        is_vpn_resolver_connection(upstream_conn_id) ? std::max(addr.ttl, Tunnel::EXCLUSIONS_RESOLVE_PERIOD) : addr.ttl);
+                        SocketAddress({addr.ip.data(), addr.ip.size()}, 0),
+                        is_vpn_resolver_connection(upstream_conn_id) ? std::max(addr.ttl,
+                                                                                Tunnel::EXCLUSIONS_RESOLVE_PERIOD)
+                                                                     : addr.ttl);
             }
             // Remove ECH parameters.
             if (dns_utils::remove_svcparam_echconfig(response->pkt.get())) {

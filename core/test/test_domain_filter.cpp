@@ -81,8 +81,8 @@ class AddressMatch : public MatchTest {};
 TEST_P(AddressMatch, Test) {
     const MatchTestParam &param = GetParam();
 
-    sockaddr_storage address = sockaddr_from_str(param.entry.c_str());
-    ASSERT_NE(address.ss_family, AF_UNSPEC);
+    SocketAddress address(param.entry.c_str());
+    ASSERT_TRUE(address.valid());
     ASSERT_EQ(DFMS_EXCLUSION, filter.match_tag({address, ""}).status);
 }
 
@@ -111,8 +111,8 @@ class AddressNoMatch : public MatchTest {};
 TEST_P(AddressNoMatch, Test) {
     const MatchTestParam &param = GetParam();
 
-    sockaddr_storage address = sockaddr_from_str(param.entry.c_str());
-    ASSERT_NE(address.ss_family, AF_UNSPEC);
+    SocketAddress address(param.entry.c_str());
+    ASSERT_TRUE(address.valid());
     ASSERT_EQ(filter.match_tag({address, ""}).status, DFMS_DEFAULT);
 }
 
@@ -141,7 +141,7 @@ struct TagsTestParam {
 class Tags : public testing::TestWithParam<TagsTestParam> {
 public:
     DomainFilter filter = {};
-    sockaddr_storage address = {};
+    SocketAddress address = {};
 
     static void SetUpTestSuite() {
         ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
@@ -150,8 +150,8 @@ public:
     void SetUp() override {
         const TagsTestParam &param = GetParam();
 
-        address = sockaddr_from_str(param.address.c_str());
-        ASSERT_NE(address.ss_family, AF_UNSPEC);
+        address = SocketAddress(param.address.c_str());
+        ASSERT_TRUE(address.valid());
 
         ASSERT_TRUE(filter.update_exclusions(VPN_MODE_GENERAL, "example.com"));
     }

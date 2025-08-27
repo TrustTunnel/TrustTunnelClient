@@ -160,7 +160,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
         assert(ok);
         i->second.proto = tcp_event->proto;
 
-        TunnelAddress dst(*(sockaddr_storage *) tcp_event->dst);
+        TunnelAddress dst(*(SocketAddress *) tcp_event->dst);
 
         ClientConnectRequest event = {tcp_event->id, tcp_event->proto, tcp_event->src, &dst};
         listener->handler.func(listener->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);

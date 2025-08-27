@@ -90,7 +90,7 @@ ag::VpnError ag::quic_connector_connect(
             .ev_loop = connector->parameters.ev_loop,
             .handler = {.func = socket_handler, .arg = connector},
             .timeout = parameters->timeout,
-            .peer = sockaddr_to_storage(parameters->peer),
+            .peer = parameters->peer ? *parameters->peer : SocketAddress{},
             .socket_manager = connector->parameters.socket_manager,
     };
     connector->socket.reset(udp_socket_create(&sock_param));
@@ -132,9 +132,10 @@ ag::VpnError ag::quic_connector_connect(
     }
 
     connector->ssl = ssl.get();
-    sockaddr_storage local_address = local_sockaddr_from_fd(udp_socket_get_fd(connector->socket.get()));
-    connector->conn.reset(quiche_conn_new_with_tls(scid, sizeof(scid), RUST_EMPTY, 0, (sockaddr *) &local_address,
-            sockaddr_get_size((sockaddr *) &local_address), parameters->peer, sockaddr_get_size(parameters->peer),
+    SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(connector->socket.get()));
+    SocketAddress peer = parameters->peer ? *parameters->peer : SocketAddress{};
+    connector->conn.reset(quiche_conn_new_with_tls(scid, sizeof(scid), RUST_EMPTY, 0, local_address.c_sockaddr(),
+            local_address.c_socklen(), peer.c_sockaddr(), peer.c_socklen(),
             config.get(), ssl.release(), /*is_server*/ false));
     if (connector->conn == nullptr) {
         connector->ssl = nullptr;

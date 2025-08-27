@@ -19,7 +19,8 @@ static void vpn_handler(void *, vpn_client::Event what, void *) {
 }
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -126,10 +127,10 @@ void DirectUpstream::udp_socket_handler(void *, UdpSocketEvent, void *) {
 }
 void DirectUpstream::on_async_task(void *, TaskId) {
 }
-uint64_t DirectUpstream::open_tcp_connection(const sockaddr_storage &) {
+uint64_t DirectUpstream::open_tcp_connection(const SocketAddress &) {
     return 0;
 }
-uint64_t DirectUpstream::open_udp_connection(const sockaddr_storage &) {
+uint64_t DirectUpstream::open_udp_connection(const SocketAddress &) {
     return 0;
 }
 void DirectUpstream::on_icmp_request(IcmpEchoRequestEvent &) {
@@ -213,8 +214,8 @@ int UpstreamMultiplexer::kex_group_nid() const {
 SocksListener::SocksListener(const VpnSocksListenerConfig *) {
 }
 SocksListener::~SocksListener() = default;
-const sockaddr_storage &SocksListener::get_listen_address() const {
-    static const sockaddr_storage ADDR = sockaddr_from_str("127.0.0.1:1111");
+const SocketAddress &SocksListener::get_listen_address() const {
+    static const SocketAddress ADDR("127.0.0.1:1111");
     return ADDR;
 }
 ClientListener::InitResult SocksListener::init(VpnClient *vpn, ClientHandler handler) {

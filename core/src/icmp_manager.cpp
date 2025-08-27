@@ -5,10 +5,10 @@
 #include <vector>
 
 #define log_req(mngr_, msg_, lvl_, fmt_, ...)                                                                          \
-    lvl_##log((mngr_)->m_log, "[{}] [{}/{}/{}] " fmt_, (mngr_)->m_id, sockaddr_ip_to_str((sockaddr *) &(msg_).peer),   \
+    lvl_##log((mngr_)->m_log, "[{}] [{}/{}/{}] " fmt_, (mngr_)->m_id, (msg_).peer,                                     \
             (int) (msg_).id, (int) (msg_).seqno, ##__VA_ARGS__)
 #define log_reply(mngr_, msg_, lvl_, fmt_, ...)                                                                        \
-    lvl_##log((mngr_)->m_log, "[{}] [{}/{}/{}] " fmt_, (mngr_)->m_id, sockaddr_ip_to_str((sockaddr *) &(msg_).peer),   \
+    lvl_##log((mngr_)->m_log, "[{}] [{}/{}/{}] " fmt_, (mngr_)->m_id, (msg_).peer,                                     \
             (int) (msg_).id, (int) (msg_).seqno, ##__VA_ARGS__)
 
 using namespace std::chrono;
@@ -21,7 +21,7 @@ struct RequestAttempt {
 };
 
 struct IcmpManager::RequestInfo {
-    sockaddr_storage original_peer = {};
+    SocketAddress original_peer = {};
     std::vector<RequestAttempt> tries;
 };
 
@@ -121,8 +121,8 @@ IcmpManagerMessageStatus IcmpManager::register_reply(IcmpEchoReply &reply) {
     }
 
     auto try_it = info->tries.end();
-    if (!(reply.peer.ss_family == AF_INET && reply.type != ICMP_MT_ECHO_REPLY)
-            && !(reply.peer.ss_family == AF_INET6 && reply.type != ICMPV6_MT_ECHO_REPLY)) {
+    if (!(reply.peer.is_ipv4() && reply.type != ICMP_MT_ECHO_REPLY)
+            && !(reply.peer.is_ipv6() && reply.type != ICMPV6_MT_ECHO_REPLY)) {
         try_it = std::find_if(info->tries.begin(), info->tries.end(), [seqno = reply.seqno](const RequestAttempt &i) {
             return i.seqno == seqno;
         });
@@ -145,7 +145,7 @@ IcmpManagerMessageStatus IcmpManager::register_reply(IcmpEchoReply &reply) {
     return IM_MSGS_PASS;
 }
 
-static IcmpEchoReply make_reply_on_timeout(const IcmpRequestKey &key, const sockaddr_storage &peer, uint16_t seqno) {
+static IcmpEchoReply make_reply_on_timeout(const IcmpRequestKey &key, const SocketAddress &peer, uint16_t seqno) {
     return {
             .peer = peer,
             .id = key.id,

@@ -8,6 +8,7 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "vpn/internal/wire_utils.h"
 
 static ag::Logger g_logger{"MOCK_DNS_SERVER"};
@@ -19,7 +20,7 @@ ag::MockDnsServer::~MockDnsServer() {
     }
 }
 
-std::optional<sockaddr_storage> ag::MockDnsServer::start(sockaddr_storage bind_addr, VpnEventLoop *event_loop,
+std::optional<ag::SocketAddress> ag::MockDnsServer::start(ag::SocketAddress bind_addr, VpnEventLoop *event_loop,
         SocketManager *socket_manager, CompleteHandler complete_handler, UnexpectedHandler unexpected_handler) {
     if (m_unexpected_handler) {
         warnlog(g_logger, "Repeated call to start()");
@@ -38,7 +39,7 @@ std::optional<sockaddr_storage> ag::MockDnsServer::start(sockaddr_storage bind_a
 
     static constexpr int MAX_ATTEMPTS = 10;
     for (int attempt = 1;; ++attempt) {
-        evutil_socket_t fd = socket(bind_addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+        evutil_socket_t fd = socket(bind_addr.c_sockaddr()->sa_family, SOCK_DGRAM, IPPROTO_UDP);
         if (fd == EVUTIL_INVALID_SOCKET) {
             int error = evutil_socket_geterror(fd);
             infolog(g_logger, "socket(): ({}) {}", error, evutil_socket_error_to_string(error));
@@ -49,28 +50,30 @@ std::optional<sockaddr_storage> ag::MockDnsServer::start(sockaddr_storage bind_a
             infolog(g_logger, "Failed to make socket non-blocking");
             return std::nullopt;
         }
-        ev_socklen_t bind_addrlen = sockaddr_get_size((sockaddr *) &bind_addr);
-        if (0 != bind(fd, (sockaddr *) &bind_addr, bind_addrlen)) {
+        ev_socklen_t bind_addrlen = bind_addr.c_socklen();
+        if (0 != bind(fd, bind_addr.c_sockaddr(), bind_addrlen)) {
             int error = evutil_socket_geterror(fd);
             infolog(g_logger, "bind(): ({}) {}", error, evutil_socket_error_to_string(error));
             evutil_closesocket(fd);
             return std::nullopt;
         }
-        if (0 != getsockname(fd, (sockaddr *) &bind_addr, &bind_addrlen)) {
+        SocketAddressStorage storage = *bind_addr.c_storage();
+        if (0 != getsockname(fd, (sockaddr *) &storage, &bind_addrlen)) {
             int error = evutil_socket_geterror(fd);
             infolog(g_logger, "getsockname(): ({}) {}", error, evutil_socket_error_to_string(error));
             evutil_closesocket(fd);
             return std::nullopt;
         }
-        assert(bind_addrlen == sockaddr_get_size((sockaddr *) &bind_addr));
+        bind_addr = SocketAddress(storage);
+        assert(bind_addrlen == bind_addr.c_socklen());
         m_listener.reset(evconnlistener_new_bind(vpn_event_loop_get_base(event_loop), listener_handler, this,
-                LEV_OPT_CLOSE_ON_FREE, -1, (sockaddr *) &bind_addr, bind_addrlen));
+                LEV_OPT_CLOSE_ON_FREE, -1, bind_addr.c_sockaddr(), bind_addrlen));
         if (!m_listener) {
             evutil_closesocket(fd);
             // There's a small chance that the bound port will already be in use by TCP.
             if (attempt < MAX_ATTEMPTS) {
                 infolog(g_logger, "evconnlistener_new_bind() failed, retrying");
-                sockaddr_set_port((sockaddr *) &bind_addr, 1 + sockaddr_get_port((sockaddr *) &bind_addr));
+                bind_addr.set_port(1 + bind_addr.port());
                 continue;
             }
             infolog(g_logger, "evconnlistener_new_bind() failed");
@@ -87,7 +90,7 @@ std::optional<sockaddr_storage> ag::MockDnsServer::start(sockaddr_storage bind_a
 
     event_add(m_udp_event.get(), nullptr);
 
-    infolog(g_logger, "Listening on {}", sockaddr_to_str((sockaddr *) &bind_addr));
+    infolog(g_logger, "Listening on {}", bind_addr);
     return bind_addr;
 }
 
@@ -98,7 +101,7 @@ void ag::MockDnsServer::expect(Spec expect) {
 void ag::MockDnsServer::udp_handler(evutil_socket_t fd, short /*what*/, void *arg) {
     auto *self = (MockDnsServer *) arg;
     uint8_t buf[UINT16_MAX];
-    sockaddr_storage from{};
+    SocketAddressStorage from{};
     ev_socklen_t fromlen = sizeof(from);
     int ret = recvfrom(fd, (char *) buf, sizeof(buf), 0, (sockaddr *) &from, &fromlen);
     if (ret < 0) {
@@ -135,7 +138,7 @@ void ag::MockDnsServer::listener_handler(
         return;
     }
 
-    conn.from = sockaddr_to_storage(from);
+    conn.from = SocketAddress(from);
     tcp_socket_set_read_enabled(conn.socket.get(), true);
 }
 
@@ -185,7 +188,7 @@ void ag::MockDnsServer::tcp_handler(void *arg, TcpSocketEvent what, void *data) 
                     error = tcp_socket_write(conn->socket.get(), response->data(), ntohs(size));
                 }
                 if (error.code) {
-                    infolog(g_logger, "Peer {} tcp_socket_write(): ({}) {}", sockaddr_to_str((sockaddr *) &conn->from),
+                    infolog(g_logger, "Peer {} tcp_socket_write(): ({}) {}", conn->from,
                             error.code, error.text);
                     tcp_socket_set_rst(conn->socket.get(), true);
                     remove_conn = true;
@@ -204,7 +207,7 @@ void ag::MockDnsServer::tcp_handler(void *arg, TcpSocketEvent what, void *data) 
     }
     case TCP_SOCKET_EVENT_ERROR: {
         auto *error = (VpnError *) data;
-        infolog(g_logger, "Peer {} error: ({}) {}", sockaddr_to_str((sockaddr *) &conn->from), error->code,
+        infolog(g_logger, "Peer {} error: ({}) {}", conn->from, error->code,
                 error->text);
         tcp_socket_set_rst(conn->socket.get(), true);
         conn->server->m_tcp_conns.remove_if([&](const TcpConn &e) {

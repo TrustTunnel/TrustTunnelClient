@@ -4,13 +4,15 @@
 #include <gtest/gtest.h>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "http_udp_multiplexer.h"
 #include "vpn/event_loop.h"
 #include "vpn/internal/server_upstream.h"
 #include "vpn/internal/vpn_client.h"
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const ag::CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const ag::CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -134,7 +136,7 @@ TEST_F(HttpUdpMultiplexer, Encoding) {
             // payload
             'h', 'e', 'l', 'l', 'o'};
 
-    ag::TunnelAddressPair addr{ag::sockaddr_from_str("1.1.1.1:1"), ag::sockaddr_from_str("2.2.2.2:2")};
+    ag::TunnelAddressPair addr{ag::SocketAddress("1.1.1.1:1"), ag::SocketAddress("2.2.2.2:2")};
     ASSERT_TRUE(mux.open_connection(CONNECTION_ID, &addr, APP_NAME));
     ASSERT_EQ(streams_num, 1);
     loop_once();
@@ -170,7 +172,7 @@ protected:
     void SetUp() override {
         HttpUdpMultiplexer::SetUp();
 
-        ag::TunnelAddressPair addr{ag::sockaddr_from_str("1.1.1.1:1"), ag::sockaddr_from_str("2.2.2.2:2")};
+        ag::TunnelAddressPair addr{ag::SocketAddress("1.1.1.1:1"), ag::SocketAddress("2.2.2.2:2")};
         ASSERT_TRUE(mux.open_connection(CONNECTION_ID, &addr, APP_NAME));
         ASSERT_EQ(streams_num, 1);
         loop_once();

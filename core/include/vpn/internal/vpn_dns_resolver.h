@@ -36,7 +36,7 @@ enum VpnDnsResolverQueue {
 /// Successfully resolved
 struct VpnDnsResolverSuccess {
     /// Always non-empty
-    std::vector<sockaddr_storage> addresses;
+    std::vector<SocketAddress> addresses;
 };
 
 /// Failed to resolve a domain for some reason
@@ -125,7 +125,7 @@ private:
         std::string name;
         RecordTypeSet record_types;
         ResultHandler handler = {};
-        std::vector<sockaddr_storage> resolved_addresses;
+        std::vector<SocketAddress> resolved_addresses;
         std::array<std::optional<uint16_t>, magic_enum::enum_count<dns_utils::RecordType>()> queries;
     };
 
@@ -173,7 +173,7 @@ private:
             dns_utils::RecordType record_type, std::string_view name) const;
     void resolve_pending_domains();
     void resolve_queue(VpnDnsResolverQueue queue);
-    sockaddr_storage make_source_address();
+    SocketAddress make_source_address();
     static void raise_result(ResultHandler h, VpnDnsResolveId id, VpnDnsResolverResult result);
 
     static void on_connection_timeout(void *arg, TaskId);

@@ -311,8 +311,7 @@ bool ag::DnsClient::send_request(U8View request, uint16_t id, bool tcp) {
 }
 
 void ag::DnsClient::connect_socket() {
-    log_client(
-            this, info, "Connecting TCP socket to {}", sockaddr_to_str((sockaddr *) &m_parameters.tcp_server_address));
+    log_client(this, info, "Connecting TCP socket to {}", m_parameters.tcp_server_address);
     assert(!m_tcp_socket_is_connecting);
     assert(!m_tcp_socket);
 
@@ -327,7 +326,7 @@ void ag::DnsClient::connect_socket() {
     assert(m_tcp_socket);
 
     TcpSocketConnectParameters connect_parameters{
-            .peer = (sockaddr *) &m_parameters.tcp_server_address,
+            .peer = &m_parameters.tcp_server_address,
     };
 
     if (VpnError error = tcp_socket_connect(m_tcp_socket.get(), &connect_parameters); error.code) {
@@ -340,8 +339,8 @@ void ag::DnsClient::connect_socket() {
 
 ag::DnsClient::DnsClient(DnsClientParameters parameters)
         : m_parameters{std::move(parameters)} {
-    assert(sockaddr_is_loopback((sockaddr *) &m_parameters.tcp_server_address)); // Intended for local DNS proxy
-    assert(sockaddr_is_loopback((sockaddr *) &m_parameters.udp_server_address)); // Intended for local DNS proxy
+    assert(m_parameters.tcp_server_address.is_loopback()); // Intended for local DNS proxy
+    assert(m_parameters.udp_server_address.is_loopback()); // Intended for local DNS proxy
     assert(m_parameters.ev_loop);
 }
 

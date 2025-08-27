@@ -130,8 +130,9 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         return false;
     }
 
+    SocketAddress sa_peer(upstream_config.endpoint->address);
     QuicConnectorConnectParameters connect_prm{
-            .peer = (sockaddr *) &upstream_config.endpoint->address,
+            .peer = &sa_peer,
             .ssl = ssl.release(),
             .timeout = upstream_config.timeout,
             .max_idle_timeout = m_max_idle_timeout,
@@ -531,7 +532,7 @@ int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
             !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
                     ? self->vpn->upstream_config.endpoint->remote_id
                     : self->vpn->upstream_config.endpoint->name,
-            (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl},
+            (sockaddr *)&self->vpn->upstream_config.endpoint->address, {cert, chain, ssl},
             self->vpn->parameters.cert_verify_handler.arg);
 }
 
@@ -642,12 +643,13 @@ void Http3Upstream::on_udp_packet() {
     constexpr size_t READ_BUDGET = 64;
 
     quiche_conn *quic_conn = m_quic_conn.get();
-    sockaddr_storage local_address = local_sockaddr_from_fd(udp_socket_get_fd(m_socket.get()));
+    SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+
     quiche_recv_info info{
             .from = (sockaddr *) &this->vpn->upstream_config.endpoint->address,
-            .from_len = socklen_t(sockaddr_get_size((sockaddr *) &this->vpn->upstream_config.endpoint->address)),
-            .to = (sockaddr *) &local_address,
-            .to_len = socklen_t(sockaddr_get_size((sockaddr *) &local_address)),
+            .from_len = SocketAddress(this->vpn->upstream_config.endpoint->address).c_socklen(),
+            .to = (sockaddr *) local_address.c_sockaddr(),
+            .to_len = local_address.c_socklen(),
     };
     uint8_t buffer[QUIC_MAX_UDP_PAYLOAD_SIZE];
     for (size_t i = 0; i < READ_BUDGET; ++i) {
@@ -1365,7 +1367,7 @@ bool ag::Http3Upstream::continue_connecting() {
             .ev_loop = this->vpn->parameters.ev_loop,
             .handler = {socket_handler, this},
             .timeout = this->vpn->upstream_config.timeout,
-            .peer = this->vpn->upstream_config.endpoint->address,
+            .peer = SocketAddress(this->vpn->upstream_config.endpoint->address),
             .socket_manager = this->vpn->parameters.network_manager->socket,
     };
     m_socket.reset(udp_socket_acquire_fd(&params, result->fd));
@@ -1374,12 +1376,12 @@ bool ag::Http3Upstream::continue_connecting() {
         return false;
     }
 
-    sockaddr_storage local_address = local_sockaddr_from_fd(udp_socket_get_fd(m_socket.get()));
+    SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
     quiche_recv_info info{
             .from = (sockaddr *) &this->vpn->upstream_config.endpoint->address,
-            .from_len = socklen_t(sockaddr_get_size((sockaddr *) &this->vpn->upstream_config.endpoint->address)),
-            .to = (sockaddr *) &local_address,
-            .to_len = socklen_t(sockaddr_get_size((sockaddr *) &local_address)),
+            .from_len = SocketAddress(this->vpn->upstream_config.endpoint->address).c_socklen(),
+            .to = (sockaddr *) local_address.c_sockaddr(),
+            .to_len = local_address.c_socklen(),
     };
     ssize_t ret = quiche_conn_recv(m_quic_conn.get(), result->data.data(), result->data.size(), &info);
     if (ret < 0) {

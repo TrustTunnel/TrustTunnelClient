@@ -38,7 +38,7 @@ struct ProfilingVpnHandlerCtx {
 static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
 static void client_handler(void *arg, vpn_client::Event what, void *data);
 static void shutdown_cb(Vpn *vpn);
-static const char *check_address(const sockaddr_storage *addr);
+static const char *check_address(const SocketAddress &addr);
 static void profiling_vpn_handler(void *arg, VpnEvent what, void *data);
 
 static constexpr auto STATE_NAMES = make_enum_names_array<VpnSessionState>();
@@ -256,17 +256,17 @@ static VpnError validate_upstream_config(const Vpn *vpn, const VpnUpstreamConfig
     for (size_t i = 0; i < config->location.endpoints.size; ++i) {
         const VpnEndpoint *i_ep = &config->location.endpoints.data[i];
         if (i_ep->name == nullptr) {
-            log_vpn(vpn, err, "No hostname for endpoint '{}'", sockaddr_to_str((sockaddr *) &i_ep->address));
+            log_vpn(vpn, err, "No hostname for endpoint '{}'", SocketAddress(i_ep->address));
             return {VPN_EC_INVALID_SETTINGS, "Names must be specified for each endpoint"};
         }
 
-        if (config->location.endpoints.size > 1 && i_ep->address.ss_family == AF_UNSPEC) {
+        if (config->location.endpoints.size > 1 && i_ep->address.sa_family == AF_UNSPEC) {
             log_vpn(vpn, err, "No address for endpoint '{}'", i_ep->name);
             return {VPN_EC_INVALID_SETTINGS, "In case of multiple endpoints addresses must be specified for each one"};
         }
 
-        if (const char *error_message = check_address(&i_ep->address); error_message != nullptr) {
-            log_vpn(vpn, err, "Invalid endpoint address {} ({}): {}", sockaddr_to_str((sockaddr *) &i_ep->address),
+        if (const char *error_message = check_address(SocketAddress(i_ep->address)); error_message != nullptr) {
+            log_vpn(vpn, err, "Invalid endpoint address {} ({}): {}", SocketAddress(i_ep->address),
                     i_ep->name, error_message);
             return {VPN_EC_INVALID_SETTINGS, "Invalid endpoint address"};
         }
@@ -689,7 +689,8 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
     return true;
 }
 
-static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg) {
+static int ssl_verify_callback(
+        const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg) {
     const Vpn *vpn = (Vpn *) arg;
 
     int result = 0;
@@ -712,7 +713,7 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, c
     if ((host_name != nullptr || (host_ip != nullptr && host_ip->sa_family != AF_UNSPEC))
             && (host_name == nullptr || !tls_verify_cert_host_name(ctx.cert, host_name))
             && (host_ip == nullptr || host_ip->sa_family == AF_UNSPEC
-                    || !tls_verify_cert_ip(ctx.cert, sockaddr_to_str(host_ip).c_str()))) {
+                    || !tls_verify_cert_ip(ctx.cert, SocketAddress(host_ip).str().c_str()))) {
         log_vpn(vpn, err, "Server host name or IP doesn't match certificate");
 #ifdef OPENSSL_IS_BORINGSSL
         if (ctx.ssl) {
@@ -769,21 +770,14 @@ static void shutdown_cb(Vpn *vpn) {
     vpn->fsm.perform_transition(vpn_fsm::CE_SHUTDOWN, nullptr);
 }
 
-static const char *check_address(const sockaddr_storage *addr) {
-    switch (addr->ss_family) {
-    case AF_INET: {
-        const sockaddr_in *v4 = (sockaddr_in *) addr;
-        return (v4->sin_port > 0) ? nullptr : "Port must be specified";
-    }
-    case AF_INET6: {
-        const sockaddr_in6 *v6 = (sockaddr_in6 *) addr;
-        return (v6->sin6_port > 0) ? nullptr : "Port must be specified";
-    }
-    case AF_UNSPEC:
-        return nullptr;
-    default:
+static const char *check_address(const SocketAddress &addr) {
+    if (addr.valid()) {
+        if (addr.is_ipv4() || addr.is_ipv6()) {
+            return (addr.port() > 0) ? nullptr : "Port must be specified";
+        }
         return "Unknown family";
     }
+    return nullptr;
 }
 
 VpnEventLoop *vpn_get_event_loop(Vpn *vpn) {
@@ -819,10 +813,10 @@ void vpn_abandon_endpoint(Vpn *vpn, const VpnEndpoint *endpoint) {
         }
 
         endpoints_end = vpn->upstream_config->location.endpoints.data + vpn->upstream_config->location.endpoints.size;
-        if (int abandoned_family = endpoint->get()->address.ss_family;
+        if (int abandoned_family = endpoint->get()->address.sa_family;
                 std::none_of(vpn->upstream_config->location.endpoints.data, endpoints_end,
                         [abandoned_family](const VpnEndpoint &iter) {
-                            return abandoned_family == iter.address.ss_family;
+                            return abandoned_family == iter.address.sa_family;
                         })) {
             vpn->pending_error = (vpn->upstream_config->location.endpoints.size == 0)
                     ? VpnError{VPN_EC_LOCATION_UNAVAILABLE, "Exhausted all endpoints of location"}
@@ -853,11 +847,11 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
     return std::make_unique<SocksListener>(config).release();
 }
 
-sockaddr_storage vpn_get_socks_listener_address(Vpn *vpn) {
-    sockaddr_storage ret{};
+SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
+    SocketAddressStorage ret{};
     std::scoped_lock l(vpn->stop_guard);
     event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
-        ret = vpn->client.socks_listener_address;
+        ret = *vpn->client.socks_listener_address.c_storage();
     });
     return ret;
 }

@@ -22,7 +22,7 @@ DomainFilter::~DomainFilter() = default;
 
 DomainFilterValidationStatus DomainFilter::validate_entry(std::string_view entry) {
     ParseResult result = parse_entry(entry);
-    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_ADDR, ParseResult>::type, sockaddr_storage>);
+    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_ADDR, ParseResult>::type, SocketAddress>);
     static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_CIDR, ParseResult>::type, CidrRange>);
     static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_DOMAIN, ParseResult>::type, DomainEntryInfo>);
     static_assert(std::is_same_v<typename std::variant_alternative<DFVS_MALFORMED, ParseResult>::type, DomainEntryMalformed>);
@@ -32,8 +32,20 @@ DomainFilterValidationStatus DomainFilter::validate_entry(std::string_view entry
 }
 
 DomainFilter::ParseResult DomainFilter::parse_entry(std::string_view entry) {
-    if (sockaddr_storage addr = sockaddr_from_str(std::string{entry}.c_str()); addr.ss_family != AF_UNSPEC) {
-        return addr;
+    SocketAddress addr{};
+    Result split = utils::split_host_port(entry);
+    if (!split.has_error()) {
+        std::optional port = utils::to_integer<uint64_t>(split->second);
+        if (port.has_value() && !split->second.empty()) {
+            if (port > 0 && port <= USHRT_MAX) {
+                addr = SocketAddress(split->first, port.value());
+            }
+        } else {
+            addr = SocketAddress(split->first);
+        }
+        if (addr.valid()) {
+            return addr;
+        }
     }
 
     if (auto range = ag::CidrRange(entry); range.valid()) {
@@ -81,7 +93,7 @@ bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions)
 
     auto add_entry = [this](const std::string &entry) {
         ParseResult result = parse_entry(entry);
-        if (const auto *addr = std::get_if<sockaddr_storage>(&result); addr != nullptr) {
+        if (const auto *addr = std::get_if<SocketAddress>(&result); addr != nullptr) {
             log_filter(this, trace, "Entry added in address table: {}", entry);
             m_addresses.insert(*addr);
         } else if (auto *domain_info = std::get_if<DomainEntryInfo>(&result); domain_info != nullptr) {
@@ -146,15 +158,10 @@ DomainFilterMatchStatus DomainFilter::match_domain(std::string_view domain) cons
 }
 
 DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
-    DomainFilterMatchResult result = {.status = DFMS_DEFAULT};
+    DomainFilterMatchResult result{.status = DFMS_DEFAULT};
 
-    char addr_str[SOCKADDR_STR_BUF_SIZE];
-    if (m_log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
-        sockaddr_to_str((sockaddr *) &tag.addr, addr_str, sizeof(addr_str));
-    }
-
-    sockaddr_storage addr_no_port = tag.addr;
-    sockaddr_set_port((sockaddr *) &addr_no_port, 0);
+    SocketAddress addr_no_port = tag.addr;
+    addr_no_port.set_port(0);
 
     bool found = m_addresses.end() != m_addresses.find(tag.addr);
     if (!found) {
@@ -162,19 +169,18 @@ DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
     }
 
     if (!found) {
-        auto addr_size = sockaddr_get_ip_size((sockaddr *) &tag.addr);
-        ag::CidrRange addr_cidr = ag::CidrRange(
-                Uint8View((uint8_t *) sockaddr_get_ip_ptr((sockaddr *) &tag.addr), addr_size), addr_size * 8);
+        const Uint8View addr = tag.addr.addr();
+        ag::CidrRange addr_cidr(addr, addr.size() * 8);
         found = std::any_of(m_cidr_ranges.begin(), m_cidr_ranges.upper_bound(addr_cidr), [&](const auto &range) {
             return range.contains(addr_cidr);
         });
     }
 
     if (found) {
-        log_filter(this, trace, "Address matched against exclusion list: {}", addr_str);
+        log_filter(this, trace, "Address matched against exclusion list: {}", tag.addr);
         result.status = DFMS_EXCLUSION;
     } else if (auto domain = m_resolved_tags.get(tag)) {
-        log_filter(this, dbg, "Cache hit: {}#{} -> {}", addr_str, tag.appname, *domain);
+        log_filter(this, dbg, "Cache hit: {}#{} -> {}", tag.addr, tag.appname, *domain);
         result.status = match_domain(*domain);
         result.domain = *domain;
     } else if (m_exclusion_suspects.get(addr_no_port)) {
@@ -185,15 +191,15 @@ DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
 }
 
 void DomainFilter::add_resolved_tag(SockAddrTag tag, std::string domain) {
-    log_filter(this, dbg, "{}#{} -> {}", sockaddr_to_str((sockaddr *) &tag.addr), tag.appname, domain);
+    log_filter(this, dbg, "{}#{} -> {}", tag.addr, tag.appname, domain);
 
     m_resolved_tags.insert(std::move(tag), std::move(domain));
 }
 
-void DomainFilter::add_exclusion_suspect(const sockaddr_storage &addr_, std::chrono::seconds ttl) {
-    sockaddr_storage addr = addr_;
-    sockaddr_set_port((sockaddr *) &addr, 0);
-    log_filter(this, dbg, "{} / {}", sockaddr_ip_to_str((sockaddr *) &addr), ttl);
+void DomainFilter::add_exclusion_suspect(const SocketAddress &addr_, std::chrono::seconds ttl) {
+    SocketAddress addr = addr_;
+    addr.set_port(0);
+    log_filter(this, dbg, "{} / {}", addr.host_str(/*ipv6_brackets=*/true), ttl);
 
     // @todo: fix TTL reduction caused by overwriting it by an entry with a smaller TTL
     m_exclusion_suspects.insert(addr, 0, ttl);

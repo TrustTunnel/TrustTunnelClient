@@ -19,6 +19,7 @@
 
 #include "common/logger.h"
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "net/socket_manager.h"
 #include "net/tcp_socket.h"
 #include "vpn/utils.h"
@@ -92,7 +93,7 @@ static void on_read(struct bufferevent *, void *);
 static void on_write_flush(struct bufferevent *, TcpSocket *ctx);
 static void on_event(struct bufferevent *, short, void *);
 static void on_sent_event(struct evbuffer *buf, const struct evbuffer_cb_info *info, void *arg);
-static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sockaddr *dst, bool anti_dpi);
+static struct bufferevent *create_bufferevent(TcpSocket *sock, const SocketAddress &dst, bool anti_dpi);
 static VpnError do_handshake(TcpSocket *socket);
 static void tcp_socket_update_timeout(TcpSocket *sock);
 
@@ -538,21 +539,21 @@ static void on_rate_limited_write(struct evbuffer *, const struct evbuffer_cb_in
     }
 }
 
-static struct bufferevent *create_bufferevent(TcpSocket *sock, const struct sockaddr *dst, bool anti_dpi) {
+static struct bufferevent *create_bufferevent(TcpSocket *sock, const SocketAddress &dst, bool anti_dpi) {
     struct bufferevent *bev = nullptr;
     SocketProtectEvent event;
     const TcpSocketHandler *callbacks = &sock->parameters.handler;
     int options;
     struct event_base *base;
 
-    evutil_socket_t fd = socket(dst->sa_family, SOCK_STREAM, 0);
+    evutil_socket_t fd = socket(dst.c_storage()->sa_family, SOCK_STREAM, 0);
     if (fd < 0) {
         log_sock(sock, err, "Failed to create socket: {}", strerror(errno));
         goto fail;
     }
 
-    if (dst && !sockaddr_is_loopback(dst)) {
-        event = {fd, dst, 0};
+    if (dst.valid() && dst.is_loopback()) {
+        event = {fd, dst.c_sockaddr(), 0};
         callbacks->handler(callbacks->arg, TCP_SOCKET_EVENT_PROTECT, &event);
         if (event.result != 0) {
             log_sock(sock, err, "Failed to protect socket: {}", event.result);
@@ -612,18 +613,17 @@ VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters 
 
     VpnError error = {};
     int ret;
-
+    SocketAddress addr{};
     if (param->peer != nullptr) {
-        char buf[SOCKADDR_STR_BUF_SIZE];
-        sockaddr_to_str(param->peer, buf, sizeof(buf));
-        snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT "%s", socket->id, buf);
+        addr = SocketAddress(*param->peer);
+        snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT "%s", socket->id, addr.str().c_str());
 
-        socket->bev = create_bufferevent(socket, param->peer, (param->ssl && param->anti_dpi));
+        socket->bev = create_bufferevent(socket, addr, (param->ssl && param->anti_dpi));
         if (socket->bev == nullptr) {
             goto fail;
         }
     }
-    ret = bufferevent_socket_connect(socket->bev, param->peer, (int) sockaddr_get_size(param->peer));
+    ret = bufferevent_socket_connect(socket->bev, addr.c_sockaddr(), (int) addr.c_socklen());
     if (socket->pending_connect_error.code != 0) {
         error = socket->pending_connect_error;
         log_sock(socket, dbg, "Failed to start connection: {} ({})", safe_to_string_view(error.text), error.code);
@@ -661,11 +661,9 @@ exit:
 }
 
 VpnError tcp_socket_acquire_fd(TcpSocket *socket, evutil_socket_t fd) {
-    struct sockaddr_storage addr = remote_sockaddr_from_fd(fd);
+    SocketAddress addr = remote_socket_address_from_fd(fd);
 
-    char buf[SOCKADDR_STR_BUF_SIZE];
-    sockaddr_to_str((struct sockaddr *) &addr, buf, sizeof(buf));
-    snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT "%s", socket->id, buf);
+    snprintf(socket->log_id, sizeof(socket->log_id), LOG_ID_PREADDR_FMT "%s", socket->id, addr.str().c_str());
 
     socket->bev = wrap_fd(socket, fd);
     if (socket->bev == nullptr) {
@@ -877,7 +875,7 @@ VpnConnectionStats tcp_socket_get_stats(const TcpSocket *socket) {
 #ifdef _WIN32
 
 static int get_family(const TcpSocket *socket) {
-    return local_sockaddr_from_fd(tcp_socket_get_fd(socket)).ss_family;
+    return local_socket_address_from_fd(tcp_socket_get_fd(socket)).c_storage()->sa_family;
 }
 
 static ULONG get_tcp_row_(int local_port, int remote_port, PMIB_TCPROW row) {
@@ -1063,8 +1061,8 @@ static ULONG get_tcp_row_for_socket(const TcpSocket *socket, void **connect_row)
     int family = get_family(socket);
 
     evutil_socket_t fd = tcp_socket_get_fd(socket);
-    struct sockaddr_storage local_addr = local_sockaddr_from_fd(fd);
-    struct sockaddr_storage remote_addr = remote_sockaddr_from_fd(fd);
+    SocketAddress local_addr = local_socket_address_from_fd(fd);
+    SocketAddress remote_addr = remote_socket_address_from_fd(fd);
 
     size_t row_size = 0;
     switch (family) {
@@ -1081,8 +1079,7 @@ static ULONG get_tcp_row_for_socket(const TcpSocket *socket, void **connect_row)
         return ERROR_OUTOFMEMORY;
     }
 
-    ULONG status = get_tcp_row(family, sockaddr_get_raw_port((struct sockaddr *) &local_addr),
-            sockaddr_get_raw_port((struct sockaddr *) &remote_addr), *connect_row);
+    ULONG status = get_tcp_row(family, htons(local_addr.port()), htons(remote_addr.port()), *connect_row);
     if (status != ERROR_SUCCESS) {
         free(*connect_row);
         *connect_row = nullptr;

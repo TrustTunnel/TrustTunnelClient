@@ -311,8 +311,8 @@ static DWORD set_dns_via_registry(std::string_view dns_list, std::string_view if
 
 static IP_ADDRESS_PREFIX ip_address_prefix_from_cidr_range(const ag::CidrRange &route) {
     IP_ADDRESS_PREFIX value{};
-    sockaddr_storage addr = ag::sockaddr_from_raw(route.get_address().data(), route.get_address().size(), 0);
-    std::memcpy(&value.Prefix, &addr, sizeof(SOCKADDR_INET));
+    ag::SocketAddress addr({route.get_address().data(), route.get_address().size()}, 0);
+    std::memcpy(&value.Prefix, addr.c_storage(), sizeof(SOCKADDR_INET));
     value.PrefixLength = route.get_prefix_len();
     return value;
 }
@@ -356,10 +356,10 @@ bool ag::VpnWinTunnel::setup_dns() {
         return false;
     }
 
-    std::vector<sockaddr_storage> dns_servers;
+    std::vector<ag::SocketAddress> dns_servers;
     dns_servers.reserve(m_settings->dns_servers.size);
     for (size_t i = 0; i != m_settings->dns_servers.size; i++) {
-        dns_servers.emplace_back(sockaddr_from_str(m_settings->dns_servers.data[i]));
+        dns_servers.emplace_back(ag::SocketAddress(m_settings->dns_servers.data[i]));
     }
 
     std::vector<ag::CidrRange> ipv4_routes;
@@ -369,18 +369,16 @@ bool ag::VpnWinTunnel::setup_dns() {
 
     // Add adapter DNS addresses to the list of destinations to restrict DNS traffic to,
     // to make sure that they are accessible even if not explicitly in the "included_routes" list.
-    for (const sockaddr_storage &dns_server : dns_servers) {
+    for (const ag::SocketAddress &dns_server : dns_servers) {
         std::vector<CidrRange> *routes;
-        if (dns_server.ss_family == AF_INET) {
+        if (dns_server.is_ipv4()) {
             routes = &ipv4_routes;
-        } else if (dns_server.ss_family == AF_INET6) {
+        } else if (dns_server.is_ipv6()) {
             routes = &ipv6_routes;
         } else {
             continue;
         }
-        routes->emplace_back(Uint8View{(uint8_t *) sockaddr_get_ip_ptr((sockaddr *) &dns_server),
-                                     sockaddr_get_ip_size((sockaddr *) &dns_server)},
-                sockaddr_get_ip_size((sockaddr *) &dns_server));
+        routes->emplace_back(dns_server.addr(), dns_server.c_socklen());
     }
 
     if (auto error = m_firewall.restrict_dns_to(ipv4_routes, ipv6_routes)) {
@@ -388,9 +386,8 @@ bool ag::VpnWinTunnel::setup_dns() {
         return false;
     }
 
-    for (const sockaddr_storage &dns_server : dns_servers) {
-        ag::SocketAddress address{(sockaddr *) &dns_server};
-        ag::CidrRange route{address.addr(), address.addr().length() * CHAR_BIT};
+    for (const ag::SocketAddress &dns_server : dns_servers) {
+        ag::CidrRange route{dns_server.addr(), dns_server.addr().length() * CHAR_BIT};
         if (!add_adapter_route(route, m_if_index)) {
             return false;
         }
@@ -520,18 +517,19 @@ void ag::vpn_win_tunnel_destroy(void *win_tunnel) {
     delete (VpnWinTunnel *) win_tunnel;
 }
 
-static bool protect_with_bind(evutil_socket_t fd, const sockaddr *addr, uint32_t bound_if) {
+static bool protect_with_bind(evutil_socket_t fd, const ag::SocketAddress *addr, uint32_t bound_if) {
     SOCKADDR_INET source_best{};
     MIB_IPFORWARD_ROW2 row{};
-    sockaddr_storage dest = ag::sockaddr_to_storage(addr);
 
-    if (int error = GetBestRoute2(nullptr, bound_if, nullptr, (const SOCKADDR_INET *) &dest, 0, &row, &source_best);
+    if (int error = GetBestRoute2(
+                nullptr, bound_if, nullptr, (const SOCKADDR_INET *) addr->c_storage(), 0, &row, &source_best);
             error != ERROR_SUCCESS) {
         dbglog(logger, "GetBestRoute2(): {}", ag::sys::strerror(error));
         return false;
     }
 
-    if (0 != bind(fd, (sockaddr *) &source_best, ag::sockaddr_get_size((sockaddr *) &source_best))) {
+    ag::SocketAddress src_best((sockaddr *) &source_best);
+    if (0 != bind(fd, src_best.c_sockaddr(), src_best.c_socklen())) {
         dbglog(logger, "Failed to bind socket to interface: {}", ag::sys::strerror(WSAGetLastError()));
         return false;
     }
@@ -539,22 +537,22 @@ static bool protect_with_bind(evutil_socket_t fd, const sockaddr *addr, uint32_t
     return true;
 }
 
-static bool protect_with_unicast_if(evutil_socket_t fd, const sockaddr *addr, uint32_t bound_if) {
-    if (addr->sa_family == AF_INET) {
+static bool protect_with_unicast_if(evutil_socket_t fd, const ag::SocketAddress *addr, uint32_t bound_if) {
+    if (addr->is_ipv4()) {
         // WinSock expects IPv4 address in network byte order
         bound_if = htonl(bound_if);
         if (0 != setsockopt(fd, IPPROTO_IP, IP_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
             dbglog(logger, "setsockopt(IP_UNICAST_IF): {}", ag::sys::strerror(WSAGetLastError()));
             return false;
         }
-    } else if (addr->sa_family == AF_INET6) {
+    } else if (addr->is_ipv6()) {
         // IPV6_UNICAST_IF is 32-bit int in host byte order
         if (0 != setsockopt(fd, IPPROTO_IPV6, IPV6_UNICAST_IF, (char *) &bound_if, sizeof(bound_if))) {
             dbglog(logger, "setsockopt(IPV6_UNICAST_IF): {}", ag::sys::strerror(WSAGetLastError()));
             return false;
         }
     } else {
-        dbglog(logger, "Unexpected address family: {}", addr->sa_family);
+        dbglog(logger, "Unexpected address family: {}", addr->c_storage()->sa_family);
         return false;
     }
     return true;
@@ -566,8 +564,9 @@ bool ag::vpn_win_socket_protect(evutil_socket_t fd, const sockaddr *addr) {
         return true;
     }
 
-    const bool bind_protect_success = protect_with_bind(fd, addr, bound_if);
-    const bool unicast_protect_success = protect_with_unicast_if(fd, addr, bound_if);
+    ag::SocketAddress sa(addr);
+    const bool bind_protect_success = protect_with_bind(fd, &sa, bound_if);
+    const bool unicast_protect_success = protect_with_unicast_if(fd, &sa, bound_if);
     if (!bind_protect_success && !unicast_protect_success) {
         warnlog(logger, "Failed to protect socket");
         return false;

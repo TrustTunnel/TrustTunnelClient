@@ -5,6 +5,7 @@
 
 #include <event2/util.h>
 
+#include "common/socket_address.h"
 #include "dns/dnsstamp/dns_stamp.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
@@ -21,129 +22,6 @@ inline bool IN6_IS_ADDR_UNIQUE_LOCAL(const struct in6_addr *addr) {
     return ((addr->s6_addr[0] == 0xfc) || (addr->s6_addr[0] == 0xfd));
 }
 #endif
-
-size_t sockaddr_get_size(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return sizeof(struct sockaddr_in);
-    case AF_INET6:
-        return sizeof(struct sockaddr_in6);
-    default:
-        return 0;
-    }
-}
-
-bool sockaddr_is_any(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return htonl(INADDR_ANY) == ((struct sockaddr_in *) addr)->sin_addr.s_addr;
-    case AF_INET6:
-        // in6addr_any is already in network order
-        return 0 == memcmp(&((struct sockaddr_in6 *) addr)->sin6_addr, &in6addr_any, sizeof(in6addr_any));
-    default:
-        return false;
-    }
-}
-
-bool sockaddr_is_loopback(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return (INADDR_LOOPBACK & 0xff000000) == (ntohl(((struct sockaddr_in *) addr)->sin_addr.s_addr) & 0xff000000);
-    case AF_INET6:
-        // in6addr_loopback is already in network order
-        return 0 == memcmp(&((struct sockaddr_in6 *) addr)->sin6_addr, &in6addr_loopback, sizeof(in6addr_loopback));
-    default:
-        return false;
-    }
-}
-
-uint16_t sockaddr_get_raw_port(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return ((struct sockaddr_in *) addr)->sin_port;
-    case AF_INET6:
-        return ((struct sockaddr_in6 *) addr)->sin6_port;
-    default:
-        return 0;
-    }
-}
-
-uint16_t sockaddr_get_port(const struct sockaddr *addr) {
-    return ntohs(sockaddr_get_raw_port(addr));
-}
-
-void sockaddr_set_port(struct sockaddr *addr, int port) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        ((struct sockaddr_in *) addr)->sin_port = htons(port);
-        break;
-    case AF_INET6:
-        ((struct sockaddr_in6 *) addr)->sin6_port = htons(port);
-        break;
-    }
-}
-
-void *sockaddr_get_ip_ptr(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return &((struct sockaddr_in *) addr)->sin_addr;
-    case AF_INET6:
-        return &((struct sockaddr_in6 *) addr)->sin6_addr;
-    default:
-        return NULL;
-    }
-}
-
-size_t sockaddr_get_ip_size(const struct sockaddr *addr) {
-    switch (addr->sa_family) {
-    case AF_INET:
-        return sizeof(((struct sockaddr_in *) addr)->sin_addr);
-    case AF_INET6:
-        return sizeof(((struct sockaddr_in6 *) addr)->sin6_addr);
-    default:
-        return 0;
-    }
-}
-
-bool sockaddr_equals(const struct sockaddr *lh, const struct sockaddr *rh) {
-    ev_socklen_t len = sockaddr_get_size(lh);
-    return lh->sa_family == rh->sa_family && (len == 0 || 0 == memcmp(lh->sa_data, rh->sa_data, len - offsetof(sockaddr, sa_data)));
-}
-
-ssize_t sockaddr_ip_to_str(const struct sockaddr *addr, char *buf, size_t buf_size) {
-    const char *orig_buf = buf;
-    if (addr->sa_family == AF_INET6 && buf_size > 0) {
-        *buf++ = '[';
-        --buf_size;
-    }
-
-    if (NULL == evutil_inet_ntop(addr->sa_family, sockaddr_get_ip_ptr(addr), buf, buf_size)) {
-        snprintf(buf, buf_size, "__conversion error__");
-        return -1;
-    }
-
-    size_t addr_len = strlen(buf);
-    buf += addr_len;
-    buf_size -= addr_len;
-
-    if (addr->sa_family == AF_INET6 && buf_size > 0) {
-        *buf++ = ']';
-        *buf = '\0';
-        --buf_size;
-    }
-
-    return buf - orig_buf;
-}
-
-bool sockaddr_to_str(const struct sockaddr *addr, char *buf, size_t buf_size) {
-    ssize_t size = sockaddr_ip_to_str(addr, buf, buf_size);
-    if (size < 0) {
-        return false;
-    }
-
-    snprintf(&buf[size], buf_size - size, ":%d", sockaddr_get_port(addr));
-    return true;
-}
 
 uint64_t hash_pair_combine(uint64_t h1, uint64_t h2) {
     uint64_t hash = 17;
@@ -172,82 +50,36 @@ uint64_t ip_addr_hash(sa_family_t family, const void *addr) {
     return hash;
 }
 
-uint64_t sockaddr_hash(const struct sockaddr *addr) {
-    return hash_pair_combine(ip_addr_hash(addr->sa_family, sockaddr_get_ip_ptr(addr)), sockaddr_get_port(addr));
+uint64_t socket_address_hash(const SocketAddress &addr) {
+    return std::hash<SocketAddress>{}(addr);
 }
 
-uint64_t sockaddr_pair_hash(const struct sockaddr *src, const struct sockaddr *dst) {
-    return hash_pair_combine(sockaddr_hash(src), sockaddr_hash(dst));
+SocketAddressStorage socket_address_storage_from_string(const char *str) {
+    SocketAddress addr(str);
+    return *addr.c_storage();
 }
 
-struct sockaddr_storage sockaddr_from_raw(const uint8_t *src, size_t size, uint16_t port) {
-    struct sockaddr_storage result = {};
-
-    switch (size) {
-    case 4: {
-        struct sockaddr_in *sin = (struct sockaddr_in *) &result;
-        sin->sin_family = AF_INET;
-        sin->sin_port = port;
-        sin->sin_addr.s_addr = *(uint32_t *) src;
-#ifdef SIN6_LEN
-        sin->sin_len = sizeof(struct sockaddr_in);
-#endif
-        break;
-    }
-    case 16: {
-        struct sockaddr_in6 *sin = (struct sockaddr_in6 *) &result;
-        sin->sin6_family = AF_INET6;
-        sin->sin6_port = port;
-        memcpy(sin->sin6_addr.s6_addr, src, size);
-#ifdef SIN6_LEN
-        sin->sin6_len = sizeof(struct sockaddr_in6);
-#endif
-        break;
-    }
-    }
-
-    return result;
+void socket_address_storage_from_str_out(const char *str, struct SocketAddressStorage *result) {
+    SocketAddressStorage local_result = socket_address_storage_from_string(str);
+    std::memcpy(result, &local_result, sizeof(SocketAddressStorage));
 }
 
-void sockaddr_from_str_out(const char *str, struct sockaddr_storage *result) {
-    sockaddr_storage local_result = sockaddr_from_str(str);
-    std::memcpy(result, &local_result, sizeof(sockaddr_storage));
-}
-
-struct sockaddr_storage sockaddr_to_storage(const struct sockaddr *addr) {
-    void *ip = sockaddr_get_ip_ptr(addr);
-    return (ip != nullptr)
-            ? sockaddr_from_raw((uint8_t *) ip, (addr->sa_family == AF_INET) ? 4 : 16, htons(sockaddr_get_port(addr)))
-            : sockaddr_storage{};
-}
-
-struct sockaddr_storage sockaddr_from_str(const char *str) {
-    struct sockaddr_storage addr = {};
-    int addr_len = sizeof(addr);
-
-    if (str != NULL && 0 != evutil_parse_sockaddr_port(str, (struct sockaddr *) &addr, &addr_len)) {
-        std::memset(&addr, 0, sizeof(addr));
-    }
-
-    return addr;
-}
-
-struct sockaddr_storage local_sockaddr_from_fd(evutil_socket_t fd) {
-    struct sockaddr_storage addr = {};
+SocketAddress local_socket_address_from_fd(evutil_socket_t fd) {
+    SocketAddressStorage addr = {};
     socklen_t addrlen = sizeof(addr);
     if (getsockname(fd, (struct sockaddr *) &addr, &addrlen) != 0) {
         std::memset(&addr, 0, sizeof(addr));
     }
-    return addr;
+    return SocketAddress(addr);
 }
 
-struct sockaddr_storage remote_sockaddr_from_fd(evutil_socket_t fd) {
-    struct sockaddr_storage addr = {};
+SocketAddress remote_socket_address_from_fd(evutil_socket_t fd) {
+    SocketAddressStorage addr{};
     socklen_t addrlen = sizeof(addr);
     if (getpeername(fd, (struct sockaddr *) &addr, &addrlen) != 0) {
         std::memset(&addr, 0, sizeof(addr));
     }
-    return addr;
+    return SocketAddress(addr);
 }
 
 uint32_t str_hash32(const char *str, size_t length) {
@@ -256,18 +88,6 @@ uint32_t str_hash32(const char *str, size_t length) {
         hash = (hash * 33) ^ (uint32_t) str[i];
     }
     return hash;
-}
-
-std::string sockaddr_ip_to_str(const struct sockaddr *addr) {
-    char buf[SOCKADDR_STR_BUF_SIZE];
-    sockaddr_ip_to_str(addr, buf, sizeof(buf));
-    return buf;
-}
-
-std::string sockaddr_to_str(const struct sockaddr *addr) {
-    char buf[SOCKADDR_STR_BUF_SIZE];
-    sockaddr_to_str(addr, buf, sizeof(buf));
-    return buf;
 }
 
 std::string str_format(const char *fmt, ...) {

@@ -80,10 +80,10 @@ TEST_F(LocationsPingerRunnerTest, Single) {
 #endif
 
     // Cloudflare DNS servers
-    VpnEndpoint expected_endpoint = {sockaddr_from_str("[2606:4700:4700::1111]:443"), "nullptr"};
+    VpnEndpoint expected_endpoint = {socket_address_storage_from_string("[2606:4700:4700::1111]:443"), "nullptr"};
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("1.1.1.1:443"), "nullptr"},
-            {sockaddr_from_str("1.0.0.1:443"), "nullptr"},
+            {socket_address_storage_from_string("1.1.1.1:443"), "nullptr"},
+            {socket_address_storage_from_string("1.0.0.1:443"), "nullptr"},
             expected_endpoint,
     };
     VpnLocation location = {"10", {addresses.data(), uint32_t(addresses.size())}};
@@ -107,15 +107,15 @@ TEST_F(LocationsPingerRunnerTest, Single) {
     ASSERT_EQ(test_ctx.results.size(), 1);
     ASSERT_EQ(test_ctx.result_ids[location.id], location.id);
     ASSERT_TRUE(vpn_endpoint_equals(test_ctx.results[location.id].endpoint, &expected_endpoint))
-            << sockaddr_to_str((sockaddr *) &test_ctx.results[location.id].endpoint->address);
+            << SocketAddress(test_ctx.results[location.id].endpoint->address).str();
 }
 
 TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("94.140.14.222:12"), "nullptr"},
-            {sockaddr_from_str("0.0.0.0:123"), "nullptr"},
-            {sockaddr_from_str("[::42]:123"), "nullptr"},
-            {sockaddr_from_str("[::]:123"), "nullptr"},
+            {socket_address_storage_from_string("94.140.14.222:12"), "nullptr"},
+            {socket_address_storage_from_string("0.0.0.0:123"), "nullptr"},
+            {socket_address_storage_from_string("[::42]:123"), "nullptr"},
+            {socket_address_storage_from_string("[::]:123"), "nullptr"},
     };
     VpnLocation location = {"10", {addresses.data(), uint32_t(addresses.size())}};
 
@@ -145,12 +145,12 @@ TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
 TEST_F(LocationsPingerRunnerTest, Multiple) {
     // Cloudflare DNS servers
     std::vector<VpnEndpoint> endpoints_1 = {
-            {sockaddr_from_str("1.1.1.1:443"), "nullptr"},
-            {sockaddr_from_str("[2606:4700:4700::1111]:443"), "nullptr"},
+            {socket_address_storage_from_string("1.1.1.1:443"), "nullptr"},
+            {socket_address_storage_from_string("[2606:4700:4700::1111]:443"), "nullptr"},
     };
     std::vector<VpnEndpoint> endpoints_2 = {
-            {sockaddr_from_str("1.0.0.1:443"), "nullptr"},
-            {sockaddr_from_str("[2606:4700:4700::1001]:443"), "nullptr"},
+            {socket_address_storage_from_string("1.0.0.1:443"), "nullptr"},
+            {socket_address_storage_from_string("[2606:4700:4700::1001]:443"), "nullptr"},
     };
 
     std::vector<VpnLocation> locations = {
@@ -179,24 +179,24 @@ TEST_F(LocationsPingerRunnerTest, Multiple) {
 
     for (const auto &l : locations) {
         ASSERT_EQ(test_ctx.result_ids[l.id], l.id)
-                << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+                << SocketAddress(test_ctx.results[l.id].endpoint->address).str();
 #ifdef IPV6_UNAVAILABLE
         ASSERT_EQ(test_ctx.results[l.id].endpoint->address.ss_family, AF_INET)
-                << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+                << SocketAddress(test_ctx.results[l.id].endpoint->address).str();
 #else
         // IPv6 should always be preferred
-        ASSERT_EQ(test_ctx.results[l.id].endpoint->address.ss_family, AF_INET6)
-                << sockaddr_to_str((sockaddr *) &test_ctx.results[l.id].endpoint->address);
+        ASSERT_EQ(test_ctx.results[l.id].endpoint->address.sa_family, AF_INET6)
+                << SocketAddress(test_ctx.results[l.id].endpoint->address).str();
 #endif
     }
 }
 
 TEST_F(LocationsPingerRunnerTest, Timeout) {
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("94.140.14.222:443"), "nullptr"},
-            {sockaddr_from_str("94.140.14.200:443"), "nullptr"},
-            {sockaddr_from_str("[2a10:50c0::42]:443"), "nullptr"},
-            {sockaddr_from_str("[2a10:50c0::43]:443"), "nullptr"},
+            {socket_address_storage_from_string("94.140.14.222:443"), "nullptr"},
+            {socket_address_storage_from_string("94.140.14.200:443"), "nullptr"},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443"), "nullptr"},
+            {socket_address_storage_from_string("[2a10:50c0::43]:443"), "nullptr"},
     };
     std::vector<std::string> ids = make_ids(addresses.size());
     std::vector<VpnLocation> locations;
@@ -230,10 +230,10 @@ TEST_F(LocationsPingerRunnerTest, Timeout) {
 TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
     // Cloudflare DNS servers
     std::vector<VpnEndpoint> addresses = {
-            {sockaddr_from_str("1.1.1.1:443"), "nullptr"},
-            {sockaddr_from_str("1.0.0.1:443"), "nullptr"},
-            {sockaddr_from_str("[2606:4700:4700::1111]:443"), "nullptr"},
-            {sockaddr_from_str("[2606:4700:4700::1001]:443"), "nullptr"},
+            {socket_address_storage_from_string("1.1.1.1:443"), "nullptr"},
+            {socket_address_storage_from_string("1.0.0.1:443"), "nullptr"},
+            {socket_address_storage_from_string("[2606:4700:4700::1111]:443"), "nullptr"},
+            {socket_address_storage_from_string("[2606:4700:4700::1001]:443"), "nullptr"},
     };
     std::vector<std::string> ids = make_ids(addresses.size());
     std::vector<VpnLocation> locations;
@@ -278,14 +278,14 @@ TEST_F(LocationsPingerRunnerTest, StopAnotherThread) {
 TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("94.140.14.222:443"), "one.one.one.one"},
-            {sockaddr_from_str("94.140.14.200:443"), "one.one.one.one"},
-            {sockaddr_from_str("[2a10:50c0::42]:443"), "one.one.one.one"},
-            {sockaddr_from_str("[2a10:50c0::43]:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("94.140.14.222:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("94.140.14.200:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("[2a10:50c0::43]:443"), "one.one.one.one"},
     };
     std::vector<VpnRelay> relays = {
-            {sockaddr_from_str("1.2.3.5:443")},
-            {sockaddr_from_str("1.1.1.1:443")},
+            {socket_address_storage_from_string("1.2.3.5:443")},
+            {socket_address_storage_from_string("1.1.1.1:443")},
     };
     VpnLocation location{
             .id = "Cloudflare 1.1.1.1",
@@ -311,7 +311,7 @@ TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
                         if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
                         }
                         ++ctx->count;
                     },
@@ -329,10 +329,10 @@ TEST_F(LocationsPingerRunnerTest, RelayAddresses) {
 TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
     // At the time of writing, Quad9 doesn't respond to QUIC
     std::vector<VpnEndpoint> endpoints = {
-            {sockaddr_from_str("9.9.9.9:443"), "dns.quad9.net"},
-            {sockaddr_from_str("149.112.112.112:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2620:fe::fe]:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2620:fe::9]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("9.9.9.9:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("149.112.112.112:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2620:fe::fe]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2620:fe::9]:443"), "dns.quad9.net"},
     };
     VpnLocation location{
             .id = "Quad9",
@@ -358,7 +358,7 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallback) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
                         if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
                         }
                         ++ctx->count;
                     },
@@ -377,15 +377,15 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
     // At the time of writing, Quad9 doesn't respond to QUIC
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("94.140.14.222:443"), "dns.quad9.net"},
-            {sockaddr_from_str("94.140.14.200:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2a10:50c0::42]:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2a10:50c0::43]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("94.140.14.222:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("94.140.14.200:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2a10:50c0::43]:443"), "dns.quad9.net"},
     };
     std::vector<VpnRelay> relays = {
-            {sockaddr_from_str("94.140.14.222:443")},
-            {sockaddr_from_str("[2a10:50c0::42]:443")},
-            {sockaddr_from_str("9.9.9.9:443")},
+            {socket_address_storage_from_string("94.140.14.222:443")},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443")},
+            {socket_address_storage_from_string("9.9.9.9:443")},
     };
     VpnLocation location{
             .id = "Quad9",
@@ -412,7 +412,7 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
                         if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
                         }
                         ++ctx->count;
                     },
@@ -430,17 +430,17 @@ TEST_F(LocationsPingerRunnerTest, QuicToTlsFallbackAndRelayAddresses) {
 TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("94.140.14.200:443"), "one.one.one.one"},
-            {sockaddr_from_str("[2a10:50c0::42]:443"), "one.one.one.one"},
-            {sockaddr_from_str("[2a10:50c0::43]:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("94.140.14.200:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("[2a10:50c0::43]:443"), "one.one.one.one"},
             // Immediately fails
-            {sockaddr_from_str("[fe80::]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[fe80::]:443"), "dns.quad9.net"},
             // Working endpoint
-            {sockaddr_from_str("1.1.1.1:443"), "one.one.one.one"},
+            {socket_address_storage_from_string("1.1.1.1:443"), "one.one.one.one"},
     };
     std::vector<VpnRelay> relays = {
             // Working 1.1.1.1 alternative
-            {sockaddr_from_str("1.0.0.1:443")},
+            {socket_address_storage_from_string("1.0.0.1:443")},
     };
     VpnLocation location{
             .id = "Quad9",
@@ -467,7 +467,7 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelayQuic) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
                         if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
                         }
                         ++ctx->count;
                     },
@@ -486,17 +486,17 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
     // At the time of writing, Quad9 doesn't respond to QUIC
     std::vector<VpnEndpoint> endpoints = {
             // Blackhole addresses
-            {sockaddr_from_str("94.140.14.200:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2a10:50c0::42]:443"), "dns.quad9.net"},
-            {sockaddr_from_str("[2a10:50c0::43]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("94.140.14.200:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2a10:50c0::42]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[2a10:50c0::43]:443"), "dns.quad9.net"},
             // Immediately fails
-            {sockaddr_from_str("[fe80::]:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("[fe80::]:443"), "dns.quad9.net"},
             // Working endpoint
-            {sockaddr_from_str("9.9.9.9:443"), "dns.quad9.net"},
+            {socket_address_storage_from_string("9.9.9.9:443"), "dns.quad9.net"},
     };
     std::vector<VpnRelay> relays = {
             // Working 9.9.9.9 alternative
-            {sockaddr_from_str("149.112.112.112:443")},
+            {socket_address_storage_from_string("149.112.112.112:443")},
     };
     VpnLocation location{
             .id = "Quad9",
@@ -523,7 +523,7 @@ TEST_F(LocationsPingerRunnerTest, NoRelayIfAnyAccessibleWithoutRelay) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
                         }
                         if (result->relay) {
-                            ctx->relay_address = sockaddr_to_str((sockaddr *) &result->relay->address);
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
                         }
                         ++ctx->count;
                     },
@@ -572,8 +572,8 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                 } else {
                     endpoint->name = safe_strdup(ep["domain_name"].get<std::string>().c_str());
                 }
-                endpoint->address = sockaddr_from_str(ep[addr_propname].get<std::string>().c_str());
-                sockaddr_set_port((sockaddr *) &endpoint->address, 443);
+                SocketAddress addr(ep[addr_propname].get<std::string>(), 443);
+                endpoint->address = *addr.c_storage();
                 ++total_endpoints;
             }
         }
@@ -582,8 +582,8 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
         for (auto &r : json_loc["relay_endpoints"]) {
             for (const char *addr_propname : {"ipv4_address", "ipv6_address"}) {
                 if (!r[addr_propname].empty()) {
-                    relays.emplace_back(sockaddr_from_str(r[addr_propname].get<std::string>().c_str()));
-                    sockaddr_set_port((sockaddr *) &relays.back(), 443);
+                    SocketAddress addr(r[addr_propname].get<std::string>(), 443);
+                    relays.emplace_back(*addr.c_storage());
                 }
             }
         }
@@ -639,8 +639,8 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                                 ctx->min = std::min(ctx->min, result->ping_ms);
                                 ctx->max = std::max(ctx->max, result->ping_ms);
                                 ctx->results.emplace_back(Result{result->id, result->endpoint->name,
-                                        sockaddr_to_str((sockaddr *) &result->endpoint->address),
-                                        result->relay ? sockaddr_to_str((sockaddr *) &result->relay->address) : "none",
+                                        SocketAddress(result->endpoint->address).str(),
+                                        result->relay ? SocketAddress(result->relay->address).str() : "none",
                                         result->ping_ms, result->is_quic});
                             },
                     .arg = &ctx,

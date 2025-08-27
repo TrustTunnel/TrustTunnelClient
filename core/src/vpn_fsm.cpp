@@ -4,6 +4,7 @@
 #include <quiche.h>
 #endif
 
+#include "common/socket_address.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
 #include "vpn_fsm.h"
@@ -196,7 +197,7 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
             result->relay ? std::make_optional(vpn_relay_clone(result->relay)) : std::nullopt);
     log_vpn(vpn, info, "Using endpoint: {}, relay={}, ping={}ms", *vpn->selected_endpoint->endpoint,
             vpn->selected_endpoint->relay.has_value()
-                    ? sockaddr_to_str((sockaddr *) &vpn->selected_endpoint->relay->get()->address).c_str()
+                    ? SocketAddress(vpn->selected_endpoint->relay->get()->address).str()
                     : "none",
             result->ping_ms);
 

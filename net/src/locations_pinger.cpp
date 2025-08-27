@@ -12,6 +12,7 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/network_manager.h"
 #include "net/quic_connector.h"
 #include "net/tcp_socket.h"
@@ -88,17 +89,17 @@ struct FinalizeLocationInfo {
     bool is_last_location = false;
 };
 
-typedef size_t (*PingerSort)(const LocationsCtx *location, const sockaddr *a, int ping_ms);
+typedef size_t (*PingerSort)(const LocationsCtx *location, const SocketAddressStorage *a, int ping_ms);
 
-static size_t get_addr_priority(const LocationsCtx *location, const sockaddr *a, int /*ping_ms*/) {
+static size_t get_addr_priority(const LocationsCtx *location, const SocketAddressStorage *a, int /*ping_ms*/) {
     auto *i = std::find_if(location->info->endpoints.data,
             location->info->endpoints.data + location->info->endpoints.size, [a](const VpnEndpoint &i) -> bool {
-                return sockaddr_equals(a, (sockaddr *) &i.address);
+                return SocketAddress(*a) == SocketAddress(i.address);
             });
     return location->info->endpoints.size - std::distance(location->info->endpoints.data, i);
 }
 
-static size_t get_smallest_ping_priority(const LocationsCtx *, const sockaddr *, int ping_ms) {
+static size_t get_smallest_ping_priority(const LocationsCtx *, const SocketAddressStorage *, int ping_ms) {
     return -(ping_ms + 1);
 }
 
@@ -108,7 +109,7 @@ static const PingedEndpoint *select_endpoint_from_list(
     size_t selected_priority = 0;
 
     for (const PingedEndpoint &i : addresses) {
-        size_t i_priority = priority_func(location, (sockaddr *) &i.endpoint->address, i.ping_ms);
+        size_t i_priority = priority_func(location, &i.endpoint->address, i.ping_ms);
         if (selected == nullptr || selected_priority < i_priority) {
             selected = &i;
             selected_priority = i_priority;
@@ -163,14 +164,14 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
             }
         }
         assert(result.endpoint != nullptr);
-        if (selected->relay->address.ss_family) {
+        if (selected->relay->address.sa_family) {
             result.relay = selected->relay.get();
         }
         log_location(pinger, location->info->id, dbg, "Selected endpoint: {}{} ({}){}{} ({} ms)",
                 result.is_quic ? "udp://" : "tcp://",
                 result.endpoint->name,
-                sockaddr_to_str((sockaddr *) &result.endpoint->address), result.relay ? " through relay " : "",
-                result.relay ? sockaddr_to_str((sockaddr *) &result.relay->address) : "", result.ping_ms);
+                SocketAddress(result.endpoint->address), result.relay ? " through relay " : "",
+                result.relay ? SocketAddress(result.relay->address).str() : "", result.ping_ms);
     } else {
         log_location(pinger, location->info->id, dbg, "None of the endpoints has been pinged successfully");
         result.ping_ms = -1;
@@ -194,7 +195,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
     switch (result->status) {
     case PING_OK: {
         std::vector<PingedEndpoint> &dst =
-                (result->endpoint->address.ss_family == AF_INET6) ? l->pinged_ipv6 : l->pinged_ipv4;
+                (result->endpoint->address.sa_family == AF_INET6) ? l->pinged_ipv6 : l->pinged_ipv4;
         // This might not be the first result for this address
         auto it = std::find_if(dst.begin(), dst.end(), [&](const PingedEndpoint &a) {
             return vpn_endpoint_equals(a.endpoint.get(), result->endpoint);
@@ -206,7 +207,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
             if (!pinger->query_all_interfaces && pinger->main_protocol != VPN_UP_AUTO) {
                 log_location(pinger, ping_get_id(result->ping), warn,
                         "Duplicate result for address {}. Please check that location doesn't contain duplicate IPs.",
-                        sockaddr_to_str((sockaddr *) &result->endpoint->address));
+                        SocketAddress(result->endpoint->address));
             }
             // We give some time advantage for HTTP/2 in HTTP/HE mode
             auto corrected_result_ms = result->is_quic ? result->ms + HTTP_HE_HTTP3_PENALTY_MS : result->ms;
@@ -227,7 +228,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
     }
     case PING_SOCKET_ERROR:
         if (result->socket_error == AG_EHOSTUNREACH || result->socket_error == AG_ENETUNREACH) {
-            if (result->endpoint->address.ss_family == AF_INET) {
+            if (result->endpoint->address.sa_family == AF_INET) {
                 l->ipv4_unavailable_errors_cnt += 1;
             } else {
                 l->ipv6_unavailable_errors_cnt += 1;
@@ -236,7 +237,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
         [[fallthrough]];
     case PING_TIMEDOUT:
         log_location(pinger, ping_get_id(result->ping), dbg, "Failed to ping endpoint {} ({}) - error code {}",
-                result->endpoint->name, sockaddr_to_str((sockaddr *) &result->endpoint->address),
+                result->endpoint->name, SocketAddress(result->endpoint->address),
                 magic_enum::enum_name(result->status));
         break;
     }

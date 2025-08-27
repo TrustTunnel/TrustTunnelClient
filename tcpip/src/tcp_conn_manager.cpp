@@ -19,6 +19,7 @@
 #include <lwip/timeouts.h>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "tcp_conn_manager.h"
 #include "tcp_raw.h"
 #include "tcpip/tcpip.h"
@@ -318,14 +319,14 @@ void tcp_cm_request_connection(TcpipCtx *ctx, TcpConnDescriptor *connection) {
 
     connection->state = TCP_CONN_STATE_REQUESTED;
 
-    struct sockaddr_storage src = ip_addr_to_sockaddr(&common->addr.src_ip, common->addr.src_port);
-    struct sockaddr_storage dst = ip_addr_to_sockaddr(&common->addr.dst_ip, common->addr.dst_port);
+    SocketAddress src = ip_addr_to_socket_address(&common->addr.src_ip, common->addr.src_port);
+    SocketAddress dst = ip_addr_to_socket_address(&common->addr.dst_ip, common->addr.dst_port);
 
     TcpipConnectRequestEvent event = {
             common->id,
             IPPROTO_TCP,
-            (struct sockaddr *) &src,
-            (struct sockaddr *) &dst,
+            &src,
+            &dst,
     };
 
     TcpipHandler *callbacks = &ctx->parameters.handler;

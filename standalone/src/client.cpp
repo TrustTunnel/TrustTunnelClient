@@ -242,11 +242,11 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
             remote_ids.emplace_back("");
         }
         if (endpoint.address.starts_with("|")) {
-            relays.emplace_back(sockaddr_from_str(endpoint.address.substr(1).c_str()));
+            relays.emplace_back(socket_address_storage_from_string(endpoint.address.substr(1).c_str()));
             continue;
         }
         endpoints.emplace_back(VpnEndpoint{
-                .address = sockaddr_from_str(endpoint.address.c_str()),
+                .address = socket_address_storage_from_string(endpoint.address.c_str()),
                 .name = hostnames.back().c_str(),
                 .remote_id = remote_ids.back().c_str(),
                 .has_ipv6 = m_config.location.has_ipv6,
@@ -361,14 +361,14 @@ void VpnStandaloneClient::vpn_handler(void *, VpnEvent what, void *data) {
     }
     case VPN_EVENT_CONNECTION_INFO:
         const VpnConnectionInfoEvent *info = (VpnConnectionInfoEvent *) data;
-        std::string src = sockaddr_ip_to_str((sockaddr *) info->src);
+        std::string src = SocketAddress(*info->src).host_str(/*ipv6_brackets=*/true);
         std::string proto = info->proto == IPPROTO_TCP ? "TCP" : "UDP";
         std::string dst;
         if (info->domain) {
             dst = info->domain;
         }
         if (info->dst) {
-            dst = AG_FMT("{}({})", dst, sockaddr_ip_to_str((sockaddr *) info->dst));
+            dst = AG_FMT("{}({})", dst, src);
         }
         auto action = magic_enum::enum_name(info->action);
 

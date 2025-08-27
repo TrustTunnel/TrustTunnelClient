@@ -34,8 +34,8 @@ struct DnsClientParameters {
     VpnEventLoop *ev_loop;
     SocketManager *socket_manager;
     DnsClientHandler handler;
-    sockaddr_storage tcp_server_address;
-    sockaddr_storage udp_server_address;
+    SocketAddress tcp_server_address;
+    SocketAddress udp_server_address;
     Millis request_timeout;
     std::string tag; // A string to include in each log message.
 };

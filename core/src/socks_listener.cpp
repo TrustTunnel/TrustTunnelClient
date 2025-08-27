@@ -113,7 +113,7 @@ SocksListener::~SocksListener() {
     destroy_cloned_config(&m_config);
 }
 
-const sockaddr_storage &SocksListener::get_listen_address() const {
+const SocketAddress &SocksListener::get_listen_address() const {
     return *socks5_listener_listen_address(m_socks5_listener);
 }
 
@@ -124,7 +124,7 @@ ClientListener::InitResult SocksListener::init(VpnClient *vpn, ClientHandler han
 
     Socks5ListenerConfig socks5_config = {
             .ev_loop = vpn->parameters.ev_loop,
-            .listen_address = m_config.listen_address,
+            .listen_address = SocketAddress(m_config.listen_address),
             .timeout = Millis{vpn->listener_config.timeout_ms},
             .socket_manager = vpn->parameters.network_manager->socket,
             .read_threshold = 0,

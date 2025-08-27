@@ -8,6 +8,7 @@
 #include <nghttp2/nghttp2.h>
 
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "net/tls.h"
 #include "net/utils.h"
 #include "vpn/utils.h"
@@ -503,8 +504,9 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
         return false;
     }
 
+    SocketAddress sa_peer(config->endpoint->address);
     TcpSocketConnectParameters param = {
-            .peer = (sockaddr *) &config->endpoint->address,
+            .peer = &sa_peer,
             .ssl = ssl.release(),
             .anti_dpi = config->anti_dpi,
     };
@@ -801,7 +803,7 @@ int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
             !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
                     ? self->vpn->upstream_config.endpoint->remote_id
                     : self->vpn->upstream_config.endpoint->name,
-            (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl},
+            (sockaddr *)&self->vpn->upstream_config.endpoint->address, {cert, chain, ssl},
             self->vpn->parameters.cert_verify_handler.arg);
 }
 

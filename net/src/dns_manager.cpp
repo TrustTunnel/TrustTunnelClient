@@ -13,15 +13,15 @@ namespace ag {
 static const Logger logger{"DNS_MANAGER"}; // NOLINT(readability-identifier-naming)
 static constexpr size_t AG_UNFILTERED_IPS_NUM =
         std::size(AG_UNFILTERED_DNS_IPS_V4) + std::size(AG_UNFILTERED_DNS_IPS_V6);
-static const std::array<sockaddr_storage, AG_UNFILTERED_IPS_NUM> AG_UNFILTERED_DNS_IPS = []() {
-    std::array<sockaddr_storage, AG_UNFILTERED_IPS_NUM> arr;
+static const std::array<SocketAddress, AG_UNFILTERED_IPS_NUM> AG_UNFILTERED_DNS_IPS = []() {
+    std::array<SocketAddress, AG_UNFILTERED_IPS_NUM> arr;
     auto ipv6_begin = std::transform(std::begin(AG_UNFILTERED_DNS_IPS_V4), std::end(AG_UNFILTERED_DNS_IPS_V4),
             arr.begin(), [](std::string_view ip) {
-                return sockaddr_from_str(std::string{ip}.c_str());
+                return SocketAddress(ip);
             });
     std::transform(std::begin(AG_UNFILTERED_DNS_IPS_V6), std::end(AG_UNFILTERED_DNS_IPS_V6), ipv6_begin,
             [](std::string_view ip) {
-                return sockaddr_from_str(std::string{ip}.c_str());
+                return SocketAddress(ip);
             });
     return arr;
 }();
@@ -109,15 +109,15 @@ static SystemDnsServers prepare_system_servers(SystemDnsServers servers) {
     filtered_servers.insert(servers.fallback.begin(), servers.fallback.end());
 
     std::erase_if(filtered_servers, [](const std::string &s) {
-        sockaddr_storage addr = sockaddr_from_str(s.c_str());
-        return addr.ss_family != AF_UNSPEC && sockaddr_is_loopback((sockaddr *) &addr);
+        SocketAddress addr(s);
+        return addr.valid() && addr.is_loopback();
     });
     std::erase_if(filtered_servers, [](const std::string &s) {
-        sockaddr_storage addr = sockaddr_from_str(s.c_str());
-        sockaddr_set_port((sockaddr *) &addr, 0);
+        SocketAddress addr(s);
+        addr.set_port(0);
         return std::any_of(
-                std::begin(AG_UNFILTERED_DNS_IPS), std::end(AG_UNFILTERED_DNS_IPS), [&](const sockaddr_storage &i) {
-                    return sockaddr_equals((sockaddr *) &i, (sockaddr *) &addr);
+                std::begin(AG_UNFILTERED_DNS_IPS), std::end(AG_UNFILTERED_DNS_IPS), [&](const SocketAddress &i) {
+                    return i == addr;
                 });
     });
 

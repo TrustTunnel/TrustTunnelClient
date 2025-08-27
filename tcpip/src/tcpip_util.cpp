@@ -16,10 +16,10 @@
 
 namespace ag {
 
-struct sockaddr_storage ip_addr_to_sockaddr(const ip_addr_t *addr, uint16_t port) {
-    struct sockaddr_storage sockaddr = {};
+SocketAddress ip_addr_to_socket_address(const ip_addr_t *addr, uint16_t port) {
+    SocketAddressStorage storage = {};
     if (IP_IS_V4(addr)) {
-        auto *sin = (struct sockaddr_in *) &sockaddr;
+        auto *sin = (struct sockaddr_in *) &storage;
         sin->sin_addr.s_addr = ip_2_ip4(addr)->addr;
         sin->sin_port = htons(port);
         sin->sin_family = AF_INET;
@@ -27,7 +27,7 @@ struct sockaddr_storage ip_addr_to_sockaddr(const ip_addr_t *addr, uint16_t port
         sin->sin_len = sizeof(struct sockaddr_in);
 #endif
     } else if (IP_IS_V6(addr)) {
-        auto *sin = (struct sockaddr_in6 *) &sockaddr;
+        auto *sin = (struct sockaddr_in6 *) &storage;
         memcpy(sin->sin6_addr.s6_addr, ip_2_ip6(addr)->addr, sizeof(ip6_addr_t));
         sin->sin6_port = htons(port);
         sin->sin6_family = AF_INET6;
@@ -36,29 +36,27 @@ struct sockaddr_storage ip_addr_to_sockaddr(const ip_addr_t *addr, uint16_t port
 #endif
     }
 
-    return sockaddr;
+    return SocketAddress(storage);
 }
 
-void sockaddr_to_ip_addr(
-        const struct sockaddr_storage *sock_addr, ev_socklen_t sock_addr_len, ip_addr_t *out_addr, uint16_t *out_port) {
-    if (sock_addr->ss_family == AF_INET) {
-        if (sock_addr_len < (ev_socklen_t) sizeof(struct sockaddr_in)) {
+void socket_address_to_ip_addr(const SocketAddress &sock_addr, ip_addr_t *out_addr, uint16_t *out_port) {
+    if (sock_addr.is_ipv4()) {
+        if (sock_addr.c_socklen() < (ev_socklen_t) sizeof(struct sockaddr_in)) {
             goto fail;
         }
-        const auto *sockaddr = (sockaddr_in *) sock_addr;
-        ip_2_ip4(out_addr)->addr = sockaddr->sin_addr.s_addr;
+        ip_2_ip4(out_addr)->addr = ((sockaddr_in *) sock_addr.c_sockaddr())->sin_addr.s_addr;
         out_addr->type = IPADDR_TYPE_V4;
-        *out_port = ntohs(sockaddr->sin_port);
+        *out_port = sock_addr.port();
         return;
     }
-    if (sock_addr->ss_family == AF_INET6) {
-        if (sock_addr_len < (ev_socklen_t) sizeof(struct sockaddr_in6)) {
+    if (sock_addr.is_ipv6()) {
+        if (sock_addr.c_socklen() < (ev_socklen_t) sizeof(struct sockaddr_in6)) {
             goto fail;
         }
-        const auto *sockaddr = (sockaddr_in6 *) sock_addr;
-        memcpy(ip_2_ip6(out_addr)->addr, sockaddr->sin6_addr.s6_addr, sizeof(ip6_addr_t));
+        memcpy(ip_2_ip6(out_addr)->addr, ((sockaddr_in6 *) sock_addr.c_sockaddr())->sin6_addr.s6_addr,
+                sizeof(ip6_addr_t));
         out_addr->type = IPADDR_TYPE_V6;
-        *out_port = ntohs(sockaddr->sin6_port);
+        *out_port = sock_addr.port();
         return;
     }
 fail:

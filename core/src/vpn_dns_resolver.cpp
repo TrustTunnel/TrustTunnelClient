@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "common/socket_address.h"
 #include "net/dns_utils.h"
 #include "vpn/internal/vpn_client.h"
 #include "vpn/internal/vpn_dns_resolver.h"
@@ -12,10 +13,10 @@ using namespace std::chrono;
 
 namespace ag {
 
-static const sockaddr_storage CUSTOM_SRC_IP = sockaddr_from_str("127.0.0.11");
+static const SocketAddress CUSTOM_SRC_IP("127.0.0.11");
 static constexpr std::string_view CUSTOM_APP_NAME = "__vpn_dns_resolver__";
 static const TunnelAddress FALLBACK_RESOLVER_ADDRESS =
-        sockaddr_from_str(AG_FMT("{}:53", AG_UNFILTERED_DNS_IPS_V4[0]).c_str());
+        SocketAddress(AG_FMT("{}:53", AG_UNFILTERED_DNS_IPS_V4[0]).c_str());
 static constexpr size_t RESOLVE_CAPACITIES[magic_enum::enum_count<VpnDnsResolverQueue>()] = {
         /** VDRQ_BACKGROUND */ VpnDnsResolver::MAX_PARALLEL_BACKGROUND_RESOLVES,
         /** VDRQ_FOREGROUND */ std::numeric_limits<size_t>::max(),
@@ -248,7 +249,7 @@ ssize_t VpnDnsResolver::send(uint64_t id, const uint8_t *data, size_t length) {
         return -1;
     }
 
-    std::vector<sockaddr_storage> resolved_addresses;
+    std::vector<SocketAddress> resolved_addresses;
     uint16_t reply_id; // NOLINT(cppcoreguidelines-init-variables)
     if (const auto *inapplicable_packet = std::get_if<dns_utils::InapplicablePacket>(&r);
             inapplicable_packet != nullptr) {
@@ -263,7 +264,7 @@ ssize_t VpnDnsResolver::send(uint64_t id, const uint8_t *data, size_t length) {
         resolved_addresses.reserve(reply.addresses.size());
         std::transform(reply.addresses.begin(), reply.addresses.end(), std::back_inserter(resolved_addresses),
                 [](const dns_utils::AnswerAddress &a) {
-                    return sockaddr_from_raw(a.ip.data(), a.ip.size(), 0);
+                    return SocketAddress({a.ip.data(), a.ip.size()}, 0);
                 });
         // @note: resolved addresses are passed to filter via the DNS sniffer in the tunnel
     }
@@ -344,11 +345,11 @@ void VpnDnsResolver::resolve_pending_domains() {
 
     if (this->state.connection_id == NON_ID) {
         this->state.connection_id = this->vpn->listener_conn_id_generator.get();
-        sockaddr_storage src = this->make_source_address();
+        SocketAddress src = this->make_source_address();
         ClientConnectRequest event = {
                 this->state.connection_id,
                 IPPROTO_UDP,
-                (sockaddr *) &src,
+                &src,
                 &m_resolver_address,
                 CUSTOM_APP_NAME,
         };
@@ -426,9 +427,9 @@ void VpnDnsResolver::resolve_queue(VpnDnsResolverQueue queue_type) {
     }
 }
 
-sockaddr_storage VpnDnsResolver::make_source_address() {
-    sockaddr_storage addr = CUSTOM_SRC_IP;
-    sockaddr_set_port((sockaddr *) &addr, this->next_connection_port++);
+SocketAddress VpnDnsResolver::make_source_address() {
+    SocketAddress addr = CUSTOM_SRC_IP;
+    addr.set_port(this->next_connection_port++);
     return addr;
 }
 
@@ -494,17 +495,15 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
 
     static constexpr auto server_address_from_str = [](std::string_view str) {
         auto [host, port] = utils::split_host_port(str).value();
-        return sockaddr_to_storage(
-                SocketAddress(host, utils::to_integer<uint16_t>(port).value_or(dns_utils::PLAIN_DNS_PORT_NUMBER))
-                        .c_sockaddr());
+        return SocketAddress(host, utils::to_integer<uint16_t>(port).value_or(dns_utils::PLAIN_DNS_PORT_NUMBER));
     };
 
-    std::optional<sockaddr_storage> selected_address;
+    std::optional<SocketAddress> selected_address;
 
     SystemDnsServers servers = dns_manager_get_system_servers(self->vpn->parameters.network_manager->dns);
     for (const SystemDnsServer &x : servers.main) {
-        sockaddr_storage address = server_address_from_str(x.address);
-        if (address.ss_family == AF_UNSPEC) {
+        SocketAddress address = server_address_from_str(x.address);
+        if (!address.valid()) {
             continue;
         }
         selected_address = address;
@@ -519,8 +518,8 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
     }
 
     for (std::string_view x : servers.fallback) {
-        sockaddr_storage address = server_address_from_str(x);
-        if (address.ss_family == AF_UNSPEC) {
+        SocketAddress address = server_address_from_str(x);
+        if (!address.valid()) {
             continue;
         }
         selected_address = address;

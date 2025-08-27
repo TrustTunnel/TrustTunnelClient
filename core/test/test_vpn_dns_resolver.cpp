@@ -90,7 +90,7 @@ TEST_F(VpnDnsResolverTest, ResolveV4Only) {
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 1);
-    ASSERT_EQ(result->addresses[0].ss_family, AF_INET);
+    ASSERT_TRUE(result->addresses[0].is_ipv4());
 }
 
 TEST_F(VpnDnsResolverTest, ResultV6) {
@@ -124,8 +124,8 @@ TEST_F(VpnDnsResolverTest, ResultV6) {
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 2);
-    ASSERT_EQ(result->addresses[0].ss_family, AF_INET);
-    ASSERT_EQ(result->addresses[1].ss_family, AF_INET6);
+    ASSERT_TRUE(result->addresses[0].is_ipv4());
+    ASSERT_TRUE(result->addresses[1].is_ipv6());
 }
 
 TEST_F(VpnDnsResolverTest, Cancel) {
@@ -231,7 +231,7 @@ TEST_F(VpnDnsResolverTest, QueryTimeout) {
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 1);
-    ASSERT_EQ(result->addresses[0].ss_family, AF_INET);
+    ASSERT_TRUE(result->addresses[0].is_ipv4());
 }
 
 TEST_F(VpnDnsResolverTest, ConnectionTimeout) {

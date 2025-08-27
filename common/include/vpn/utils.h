@@ -13,6 +13,7 @@
 #include <event2/util.h>
 
 #include "common/defs.h"
+#include "common/socket_address.h"
 #include "vpn/platform.h"
 
 namespace ag {
@@ -185,68 +186,6 @@ static inline uint64_t timeval_to_ms(struct timeval tv) {
 }
 
 /**
- * Get containing sockaddr structure size
- */
-size_t sockaddr_get_size(const struct sockaddr *addr);
-
-/**
- * Check if address is any
- */
-bool sockaddr_is_any(const struct sockaddr *addr);
-/**
- * Check if address is loopback
- */
-bool sockaddr_is_loopback(const struct sockaddr *addr);
-/**
- * Get port in network byte order from sockaddr
- * @param addr sockaddr with ip
- * @return port
- */
-uint16_t sockaddr_get_raw_port(const struct sockaddr *addr);
-
-/**
- * Get port in host byte order from sockaddr
- * @param addr sockaddr with ip
- * @return port
- */
-uint16_t sockaddr_get_port(const struct sockaddr *addr);
-
-/**
- * Set port number in host byte order to sockaddr
- */
-void sockaddr_set_port(struct sockaddr *addr, int port);
-
-/**
- * Get pointer to ip address
- * @param addr sockaddr with ip
- * @return pointer to ip address
- */
-void *sockaddr_get_ip_ptr(const struct sockaddr *addr);
-
-/**
- * Get ip address size
- */
-size_t sockaddr_get_ip_size(const struct sockaddr *addr);
-
-/**
- * Check if addresses are equal
- */
-bool sockaddr_equals(const struct sockaddr *lh, const struct sockaddr *rh);
-
-/**
- * Convert sockaddr's IP to human-readable string (null-terminated)
- * @return >0 length of successfully composed string without terminating null,
- *         <0 if failed
- */
-ssize_t sockaddr_ip_to_str(const struct sockaddr *addr, char *buf, size_t buf_size);
-
-/**
- * Convert sockaddr to human-readable string `<IP>:<port>` (null-terminated)
- * @return true in case of success, false otherwise
- */
-bool sockaddr_to_str(const struct sockaddr *addr, char *buf, size_t buf_size);
-
-/**
  * Combine 2 hash codes into a single one
  */
 uint64_t hash_pair_combine(uint64_t h1, uint64_t h2);
@@ -259,28 +198,12 @@ uint64_t ip_addr_hash(sa_family_t family, const void *addr);
 /**
  * Get hash of address:port
  */
-uint64_t sockaddr_hash(const struct sockaddr *addr);
+uint64_t socket_address_hash(const SocketAddress &addr);
 
 /**
  * Get hash of a pair of address:port
  */
-uint64_t sockaddr_pair_hash(const struct sockaddr *src, const struct sockaddr *dst);
-
-/**
- * Create sockaddr from raw buffer
- * @param src buffer with ip
- * @param size buffer size
- * @param port port (in network order!)
- * @return composed sockaddr
- */
-struct sockaddr_storage sockaddr_from_raw(const uint8_t *src, size_t size, uint16_t port);
-
-/**
- * Create sockaddr_storage from sockaddr
- * @param addr sockaddr
- * @return composed sockaddr_storage
- */
-struct sockaddr_storage sockaddr_to_storage(const struct sockaddr *addr);
+uint64_t socket_address_pair_hash(const SocketAddress &src, const SocketAddress &dst);
 
 /**
  * Parse an IPv4 or IPv6 address, with optional port, from a string
@@ -295,23 +218,23 @@ struct sockaddr_storage sockaddr_to_storage(const struct sockaddr *addr);
  * If no port is specified, the port in the output is set to 0
  *
  * @param str string to parse
- * @return parsed sockaddr
+ * @return parsed socket address storage
  */
-struct sockaddr_storage sockaddr_from_str(const char *str);
+SocketAddressStorage socket_address_storage_from_string(const char *str);
 
 /**
- * Get bound sockaddr from file descriptor
+ * Get bound socket address storage from file descriptor
  * @param fd descriptor
- * @return composed sockaddr
+ * @return composed socket address
  */
-struct sockaddr_storage local_sockaddr_from_fd(evutil_socket_t fd);
+SocketAddress local_socket_address_from_fd(evutil_socket_t fd);
 
 /**
- * Get connected peer sockaddr from file descriptor
+ * Get connected peer socket address storage from file descriptor
  * @param fd descriptor
- * @return composed sockaddr
+ * @return composed socket address
  */
-struct sockaddr_storage remote_sockaddr_from_fd(evutil_socket_t fd);
+SocketAddress remote_socket_address_from_fd(evutil_socket_t fd);
 
 /**
  * 32-bit hash of string by djb2 algorithm
@@ -344,9 +267,6 @@ template <typename T, auto FUNC>
 using DeclPtr = std::unique_ptr<T, Ftor<FUNC>>;
 
 using U8View = ag::Uint8View;
-
-std::string sockaddr_ip_to_str(const struct sockaddr *addr);
-std::string sockaddr_to_str(const struct sockaddr *addr);
 
 /** %-formatted string output. */
 std::string str_format(const char *fmt, ...)
@@ -414,7 +334,7 @@ extern "C" {
  * @param str string to parse
  * @param result (out) parsed sockaddr
  */
-WIN_EXPORT void sockaddr_from_str_out(const char *str, struct sockaddr_storage *result);
+WIN_EXPORT void sockaddr_from_str_out(const char *str, struct SocketAddressStorage *result);
 
 /**
  * Parse a DNS stamp string. The caller is responsible for freeing

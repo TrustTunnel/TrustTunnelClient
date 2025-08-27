@@ -327,9 +327,9 @@ static std::variant<AfterLookuperAction, DomainLookuperResult> lookup_udp(
 
 #if BLOCK_OLD_QUIC_CONNS
     // get destination port
-    const sockaddr *dst = (sockaddr *) std::get_if<sockaddr_storage>(&conn->addr.dst);
+    const SocketAddress *dst = std::get_if<SocketAddress>(&conn->addr.dst);
     assert(dst != nullptr);
-    auto dst_port = sockaddr_get_port(dst);
+    auto dst_port = dst->port();
     // Check if destination is default quic port
     if (dst_port == ag::quic_utils::DEFAULT_QUIC_PORT) {
         // expected to get quic initial, but got wrong data, block it
@@ -488,16 +488,16 @@ static void report_connection_info(const Tunnel *self, VpnConnection *conn, cons
         return;
     }
 
-    if (const sockaddr *dst = (sockaddr *) std::get_if<sockaddr_storage>(&conn->addr.dst);
-            dst && sockaddr_is_loopback(dst)) {
+    if (const SocketAddress *dst = std::get_if<SocketAddress>(&conn->addr.dst);
+            dst && dst->is_loopback()) {
         return;
     }
 
     conn->flags.set(CONNF_CONN_INFO_SENT);
     VpnConnectionInfoEvent info;
-    info.src = &conn->addr.src;
-    if (const sockaddr_storage *dst =std::get_if<sockaddr_storage>(&conn->addr.dst)) {
-        info.dst = dst;
+    info.src = conn->addr.src.c_storage();
+    if (const SocketAddress *dst =std::get_if<SocketAddress>(&conn->addr.dst)) {
+        info.dst = dst->c_storage();
         info.domain = domain;
     } else {
         info.dst = nullptr;
@@ -916,10 +916,10 @@ static std::shared_ptr<ServerUpstream> select_upstream(
                 return self->dns_handler;
             }
         }
-        if (const sockaddr_storage * dst; // NOLINT(cppcoreguidelines-init-variables)
+        if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
                 conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && conn->flags.test(CONNF_SUSPECT_EXCLUSION)
-                && nullptr != (dst = std::get_if<sockaddr_storage>(&conn->addr.dst))
-                && is_domain_scannable_port(sockaddr_get_port((sockaddr *) dst))) {
+                && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
+                && is_domain_scannable_port(dst->port())) {
             return self->fake_upstream;
         }
         return select_upstream(self, vpn_mode_to_action(self->vpn->domain_filter.get_mode()), nullptr);
@@ -1020,7 +1020,7 @@ std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestRe
     if ((request_result.action.has_value() && request_result.action.value() != VPN_CA_DEFAULT)
             || conn->flags.test(CONNF_PLAIN_DNS_CONNECTION)) {
         conn->action = request_result.action;
-    } else if (const sockaddr_storage *dst = std::get_if<sockaddr_storage>(&conn->addr.dst); dst != nullptr) {
+    } else if (const SocketAddress *dst = std::get_if<SocketAddress>(&conn->addr.dst); dst != nullptr) {
         DomainFilterMatchResult filter_result = filter->match_tag(conn->make_tag());
         switch (filter_result.status) {
         case DFMS_DEFAULT:
@@ -1034,7 +1034,7 @@ std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestRe
             break;
         }
         case DFMS_SUSPECT_EXCLUSION:
-            if (is_domain_scannable_port(sockaddr_get_port((sockaddr *) dst))) {
+            if (is_domain_scannable_port(dst->port())) {
                 log_conn(this, conn, dbg, "Connection may target excluded host");
                 conn->flags.set(CONNF_SUSPECT_EXCLUSION);
             }
@@ -1064,12 +1064,12 @@ std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestRe
     return conn->action;
 }
 
-static std::optional<sockaddr_storage> select_resolved_destination_address(
-        const Tunnel *self, const VpnConnection *conn, std::span<sockaddr_storage> addresses) {
-    for (sockaddr_storage address : addresses) {
-        log_conn(self, conn, dbg, "Checking: {}", sockaddr_ip_to_str((sockaddr *) &address));
+static std::optional<SocketAddress> select_resolved_destination_address(
+        const Tunnel *self, const VpnConnection *conn, std::span<SocketAddress> addresses) {
+    for (SocketAddress address : addresses) {
+        log_conn(self, conn, dbg, "Checking: {}", address.host_str(/*ipv6_brackets=*/true));
 
-        sockaddr_set_port((sockaddr *) &address, std::get<NamePort>(conn->addr.dst).port);
+        address.set_port(std::get<NamePort>(conn->addr.dst).port);
         VpnConnectAction action = VPN_CA_DEFAULT;
         // if the action was default, check if the address matches exclusions
         if (!conn->flags.test(CONNF_FORCIBLY_BYPASSED) && !conn->flags.test(CONNF_FORCIBLY_REDIRECTED)) {
@@ -1090,11 +1090,11 @@ static std::optional<sockaddr_storage> select_resolved_destination_address(
 
         std::shared_ptr<ServerUpstream> upstream = select_upstream(self, action, nullptr);
         if (upstream != nullptr
-                && upstream->ip_version_availability.test(sa_family_to_ip_version(address.ss_family).value())) {
+                && upstream->ip_version_availability.test(get_ip_version(address).value())) {
             return address;
         }
 
-        log_conn(self, conn, dbg, "{} is unreachable", sockaddr_to_str((sockaddr *) &address));
+        log_conn(self, conn, dbg, "{} is unreachable", address);
     }
 
     return std::nullopt;
@@ -1138,7 +1138,7 @@ static void on_destination_resolve_result(void *arg, VpnDnsResolveId id, VpnDnsR
     self->dns_resolver->cancel(id);
     self->dns_resolve_waiters.erase(it);
 
-    std::optional<sockaddr_storage> maybe_address =
+    std::optional<SocketAddress> maybe_address =
             select_resolved_destination_address(self, conn, std::get<VpnDnsResolverSuccess>(result).addresses);
     if (!maybe_address.has_value()) {
         log_conn(self, conn, dbg, "Suitable address not found");
@@ -1146,9 +1146,9 @@ static void on_destination_resolve_result(void *arg, VpnDnsResolveId id, VpnDnsR
         return;
     }
 
-    const sockaddr_storage &address = maybe_address.value();
-    sockaddr_set_port((sockaddr *) &address, std::get<NamePort>(conn->addr.dst).port);
-    log_conn(self, conn, dbg, "Resolved address: {}", sockaddr_to_str((sockaddr *) &address));
+    SocketAddress &address = maybe_address.value();
+    address.set_port(std::get<NamePort>(conn->addr.dst).port);
+    log_conn(self, conn, dbg, "Resolved address: {}", address);
 
     VpnConnectAction action = VPN_CA_DEFAULT;
     if (conn->flags.test(CONNF_FORCIBLY_BYPASSED)) {
@@ -1231,13 +1231,13 @@ static bool need_resolve_hostname(const Tunnel *self, VpnConnectAction action, c
 }
 
 static bool is_destination_reachable(const Tunnel *self, VpnConnection *conn, ServerUpstream *upstream) {
-    const sockaddr_storage *dst = std::get_if<sockaddr_storage>(&conn->addr.dst);
+    const SocketAddress *dst = std::get_if<SocketAddress>(&conn->addr.dst);
     if (!dst) {
         // Let's assume a hostname+port pair is reachable.
         return true;
     }
 
-    std::optional<IpVersion> ipv = sa_family_to_ip_version(dst->ss_family);
+    std::optional<IpVersion> ipv = get_ip_version(*dst);
     if (!ipv) {
         // Let's assume an invalid address is unreachable.
         return false;
@@ -1293,7 +1293,7 @@ void Tunnel::complete_connect_request(uint64_t id, std::optional<VpnConnectActio
         break;
     case VPN_CA_DEFAULT:
         conn->flags.set(CONNF_LOOKINGUP_DOMAIN,
-                std::holds_alternative<sockaddr_storage>(conn->addr.dst)
+                std::holds_alternative<SocketAddress>(conn->addr.dst)
                         && !conn->flags.test(CONNF_PLAIN_DNS_CONNECTION));
         action = VPN_CA_DEFAULT;
         break;
@@ -1504,7 +1504,7 @@ bool Tunnel::should_complete_immediately(uint64_t client_id) const {
 static VpnAddress tunnel_to_vpn_address(const TunnelAddress *tunnel) {
     VpnAddress vpn = {};
 
-    if (const sockaddr_storage *addr = std::get_if<sockaddr_storage>(tunnel); addr != nullptr) {
+    if (const SocketAddress *addr = std::get_if<SocketAddress>(tunnel); addr != nullptr) {
         vpn.type = VPN_AT_ADDR;
         memcpy(&vpn.addr, addr, sizeof(vpn.addr));
     } else if (const NamePort *addr = std::get_if<NamePort>(tunnel); addr != nullptr) {
@@ -1529,11 +1529,11 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
         TunnelAddressPair client_event_addr = {client_event->src, *client_event->dst};
         if (const auto *addr = std::get_if<NamePort>(client_event->dst); addr != nullptr) {
             if (utils::is_valid_ip4(addr->name)) {
-                auto dst = sockaddr_from_str(AG_FMT("{}:{}", addr->name, addr->port).c_str());
-                client_event_addr = {client_event->src, (sockaddr *) &dst};
+                SocketAddress dst(addr->name, addr->port);
+                client_event_addr = {client_event->src, &dst};
             } else if (utils::is_valid_ip6(addr->name)) {
-                auto dst = sockaddr_from_str(AG_FMT("[{}]:{}", addr->name, addr->port).c_str());
-                client_event_addr = {client_event->src, (sockaddr *) &dst};
+                SocketAddress dst(addr->name, addr->port);
+                client_event_addr = {client_event->src, &dst};
             }
         }
 
@@ -1546,7 +1546,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
         }
 
         log_conn(this, conn, dbg, "New client connection request: {}->{} (proto: {})",
-                sockaddr_to_str(client_event->src), tunnel_addr_to_str(&client_event_addr.dst), client_event->protocol);
+                *client_event->src, tunnel_addr_to_str(&client_event_addr.dst), client_event->protocol);
 
         add_connection(this, conn);
 
@@ -1562,8 +1562,8 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
 
         // Plain DNS connections are routed by `PlainDnsManager`
         if (!conn->flags.test(CONNF_PLAIN_DNS_CONNECTION)) {
-            if (const auto *addr = (sockaddr *) std::get_if<sockaddr_storage>(client_event->dst);
-                    addr != nullptr && sockaddr_is_loopback(addr)) {
+            if (const auto *addr = std::get_if<SocketAddress>(client_event->dst);
+                    addr != nullptr && addr->is_loopback()) {
                 log_conn(this, conn, dbg, "Routing loopback connection directly");
                 this->complete_connect_request(conn->client_id, VPN_CA_FORCE_BYPASS);
                 return;
@@ -1571,8 +1571,8 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
         }
 
         VpnAddress dst = tunnel_to_vpn_address(&client_event_addr.dst);
-        VpnConnectRequestEvent vpn_event = {
-                client_event->id, client_event->protocol, client_event->src, &dst, conn->app_name.c_str()};
+        VpnConnectRequestEvent vpn_event = {client_event->id, client_event->protocol, client_event->src->c_sockaddr(),
+                &dst, conn->app_name.c_str()};
         // result will come in `complete_connect_request`
         vpn->parameters.handler.func(vpn->parameters.handler.arg, vpn_client::EVENT_CONNECT_REQUEST, &vpn_event);
         break;

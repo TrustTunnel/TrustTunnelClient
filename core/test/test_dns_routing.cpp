@@ -20,7 +20,8 @@
 using namespace ag; // NOLINT(google-build-using-namespace)
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -167,8 +168,8 @@ public:
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     VpnClient vpn;
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
-    sockaddr_storage src = sockaddr_from_str("1.1.1.1:42");
-    TunnelAddress dst = sockaddr_from_str("2.2.2.2:53");
+    SocketAddress src = SocketAddress("1.1.1.1:42");
+    TunnelAddress dst = SocketAddress("2.2.2.2:53");
     std::shared_ptr<TestUpstream> redirect_upstream;
     std::shared_ptr<TestUpstream> bypass_upstream;
     std::shared_ptr<TestListener> client_listener;
@@ -219,7 +220,7 @@ public:
         vpn.tunnel->upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_OPENED, nullptr);
 
         auto system_address = mock_system_dns_server->start(
-                sockaddr_from_str("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
                     ++this->system_complete;
@@ -230,7 +231,7 @@ public:
                     return std::nullopt;
                 });
         ASSERT_TRUE(system_address.has_value());
-        vpn_network_manager_update_system_dns({.main = {{.address = sockaddr_to_str((sockaddr *) &*system_address)}}});
+        vpn_network_manager_update_system_dns({.main = {{.address = system_address->str()}}});
         run_event_loop_once();
     }
 
@@ -241,7 +242,7 @@ public:
     }
 
     void raise_client_connection(uint64_t id) {
-        ClientConnectRequest event = {id, IPPROTO_UDP, (sockaddr *) &src, &dst};
+        ClientConnectRequest event = {id, IPPROTO_UDP, &src, &dst};
         vpn.tunnel->listener_handler(client_listener, CLIENT_EVENT_CONNECT_REQUEST, &event);
         ASSERT_EQ(g_last_raised_vpn_event, vpn_client::EVENT_CONNECT_REQUEST);
     }
@@ -372,7 +373,7 @@ public:
         vpn.bypass_upstream = bypass_upstream;
 
         auto system_address = mock_system_dns_server->start(
-                sockaddr_from_str("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
                     ++this->system_complete;
@@ -383,7 +384,7 @@ public:
                     return std::nullopt;
                 });
         ASSERT_TRUE(system_address.has_value());
-        vpn_network_manager_update_system_dns({.main = {{.address = sockaddr_to_str((sockaddr *) &*system_address)}}});
+        vpn_network_manager_update_system_dns({.main = {{.address = system_address->str()}}});
         run_event_loop_once();
     }
 
@@ -581,7 +582,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         ASSERT_EQ(ClientListener::InitResult::SUCCESS,
                 vpn.dns_proxy_listener->init(&vpn, {&dns_proxy_listener_handler, this}));
         auto user_server_addr = user_server->start(
-                sockaddr_from_str("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     this->schedule_exit(Millis{100});
                     ++this->user_complete;
@@ -604,7 +605,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
                     return std::nullopt;
                 });
         ASSERT_TRUE(user_server_addr.has_value());
-        std::string user_server_addr_str = sockaddr_to_str((sockaddr *) &*user_server_addr);
+        std::string user_server_addr_str = user_server_addr->str();
         const char *upstream = user_server_addr_str.c_str();
         VpnListenerConfig listener_config{.dns_upstreams = {.data = &upstream, .size = 1}};
         vpn.listener_config = vpn_listener_config_clone(&listener_config);
@@ -617,7 +618,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         vpn.tunnel->upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_OPENED, nullptr);
 
         auto system_server_addr = system_server->start(
-                sockaddr_from_str("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     this->schedule_exit(Millis{100});
                     ++this->system_complete;
@@ -629,7 +630,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
                 });
         ASSERT_TRUE(system_server_addr.has_value());
         auto system_server_ipv6_addr = system_ipv6_server->start(
-                sockaddr_from_str("::1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("::1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     this->schedule_exit(Millis{100});
                     ++this->system_ipv6_complete;
@@ -644,8 +645,8 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         vpn_network_manager_update_system_dns({
                 .main =
                         {
-                                {.address = sockaddr_to_str((sockaddr *) &*system_server_addr)},
-                                {.address = sockaddr_to_str((sockaddr *) &*system_server_ipv6_addr)},
+                                {.address = system_server_addr->str()},
+                                {.address = system_server_ipv6_addr->str()},
                         },
         });
 
@@ -701,10 +702,10 @@ struct DnsRoutingAllProxies : public ::testing::Test {
 };
 
 TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    TunnelAddress dst_v6 = sockaddr_from_str("[2001:4860:4860::8888]:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
-    sockaddr_storage src_v6 = sockaddr_from_str("[::1]:50002");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    TunnelAddress dst_v6 = SocketAddress("[2001:4860:4860::8888]:53");
+    SocketAddress src("127.0.0.1:50001");
+    SocketAddress src_v6("[::1]:50002");
 
     vpn.update_exclusions(VPN_MODE_GENERAL, "*.example.org *.example.com");
 
@@ -717,7 +718,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
         ClientConnectRequest udp_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_UDP,
-                .src = (sockaddr *) &src,
+                .src = &src,
                 .dst = &dst,
                 .app_name = "TestAppName",
         };
@@ -725,7 +726,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
         ClientConnectRequest tcp_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_TCP,
-                .src = (sockaddr *) &src,
+                .src = &src,
                 .dst = &dst,
                 .app_name = "TestAppName",
         };
@@ -733,7 +734,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
         ClientConnectRequest udp6_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_UDP,
-                .src = (sockaddr *) &src_v6,
+                .src = &src_v6,
                 .dst = &dst_v6,
                 .app_name = "TestAppName",
         };
@@ -741,7 +742,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
         ClientConnectRequest tcp6_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_TCP,
-                .src = (sockaddr *) &src_v6,
+                .src = &src_v6,
                 .dst = &dst_v6,
                 .app_name = "TestAppName",
         };
@@ -815,16 +816,16 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
     ASSERT_GT(i, 0);
     while (--i >= 0) {
         auto ret = vpn.domain_filter.match_tag(
-                {.addr = sockaddr_from_str(AG_FMT("1.1.1.{}", i).c_str()), .appname = "TestAppName"});
+                {.addr = SocketAddress(AG_FMT("1.1.1.{}", i)), .appname = "TestAppName"});
         ASSERT_EQ(DFMS_SUSPECT_EXCLUSION, ret.status);
     }
 }
 
 TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    TunnelAddress dst_v6 = sockaddr_from_str("[2001:4860:4860::8888]:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
-    sockaddr_storage src_v6 = sockaddr_from_str("[::1]:50002");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    TunnelAddress dst_v6 = SocketAddress("[2001:4860:4860::8888]:53");
+    SocketAddress src("127.0.0.1:50001");
+    SocketAddress src_v6("[::1]:50002");
 
     int i = 0;
     int j = 0;
@@ -834,7 +835,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
         ClientConnectRequest udp_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_UDP,
-                .src = (sockaddr *) &src,
+                .src = &src,
                 .dst = &dst,
                 .app_name = "TestAppName",
         };
@@ -842,7 +843,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
         ClientConnectRequest tcp_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_TCP,
-                .src = (sockaddr *) &src,
+                .src = &src,
                 .dst = &dst,
                 .app_name = "TestAppName",
         };
@@ -850,7 +851,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
         ClientConnectRequest udp6_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_UDP,
-                .src = (sockaddr *) &src_v6,
+                .src = &src_v6,
                 .dst = &dst_v6,
                 .app_name = "TestAppName",
         };
@@ -858,7 +859,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
         ClientConnectRequest tcp6_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_TCP,
-                .src = (sockaddr *) &src_v6,
+                .src = &src_v6,
                 .dst = &dst_v6,
                 .app_name = "TestAppName",
         };
@@ -931,15 +932,15 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
 }
 
 TEST_F(DnsRoutingAllProxies, RecordTypes) {
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    SocketAddress src("127.0.0.1:50001");
 
     for (ldns_rr_type qtype : {LDNS_RR_TYPE_A, LDNS_RR_TYPE_AAAA, LDNS_RR_TYPE_CNAME, LDNS_RR_TYPE_TXT,
                  LDNS_RR_TYPE_HTTPS, LDNS_RR_TYPE_SVCB}) {
         ClientConnectRequest udp_event{
                 .id = this->vpn.listener_conn_id_generator.get(),
                 .protocol = IPPROTO_UDP,
-                .src = (sockaddr *) &src,
+                .src = &src,
                 .dst = &dst,
                 .app_name = "TestAppName",
         };
@@ -962,12 +963,12 @@ TEST_F(DnsRoutingAllProxies, RecordTypes) {
 
 TEST_F(DnsRoutingAllProxies, ExclusionSuspectsGeneral) {
     vpn.update_exclusions(VPN_MODE_GENERAL, "example.org");
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    SocketAddress src("127.0.0.1:50001");
     ClientConnectRequest udp_event{
             .id = this->vpn.listener_conn_id_generator.get(),
             .protocol = IPPROTO_UDP,
-            .src = (sockaddr *) &src,
+            .src = &src,
             .dst = &dst,
             .app_name = "TestAppName",
     };
@@ -988,18 +989,18 @@ TEST_F(DnsRoutingAllProxies, ExclusionSuspectsGeneral) {
     ASSERT_EQ(0, this->user_unexpected);
     ASSERT_EQ(0, this->system_unexpected);
     ASSERT_EQ(0, this->system_ipv6_unexpected);
-    auto ret = vpn.domain_filter.match_tag({.addr = sockaddr_from_str("1.2.3.4"), .appname = "TestAppName"});
+    auto ret = vpn.domain_filter.match_tag({.addr = SocketAddress("1.2.3.4"), .appname = "TestAppName"});
     ASSERT_EQ(DFMS_SUSPECT_EXCLUSION, ret.status);
 }
 
 TEST_F(DnsRoutingAllProxies, ExclusionSuspectsSelective) {
     vpn.update_exclusions(VPN_MODE_SELECTIVE, "example.org");
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    SocketAddress src("127.0.0.1:50001");
     ClientConnectRequest udp_event{
             .id = this->vpn.listener_conn_id_generator.get(),
             .protocol = IPPROTO_UDP,
-            .src = (sockaddr *) &src,
+            .src = &src,
             .dst = &dst,
             .app_name = "TestAppName",
     };
@@ -1020,19 +1021,19 @@ TEST_F(DnsRoutingAllProxies, ExclusionSuspectsSelective) {
     ASSERT_EQ(0, this->user_unexpected);
     ASSERT_EQ(0, this->system_unexpected);
     ASSERT_EQ(0, this->system_ipv6_unexpected);
-    auto ret = vpn.domain_filter.match_tag({.addr = sockaddr_from_str("1.2.3.4"), .appname = "TestAppName"});
+    auto ret = vpn.domain_filter.match_tag({.addr = SocketAddress("1.2.3.4"), .appname = "TestAppName"});
     ASSERT_EQ(DFMS_SUSPECT_EXCLUSION, ret.status);
 }
 
 TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
-    TunnelAddress dst = sockaddr_from_str("8.8.8.8:53");
-    sockaddr_storage src = sockaddr_from_str("127.0.0.1:50001");
+    TunnelAddress dst = SocketAddress("8.8.8.8:53");
+    SocketAddress src("127.0.0.1:50001");
 
     // Without exclusion.
     ClientConnectRequest udp_event{
             .id = this->vpn.listener_conn_id_generator.get(),
             .protocol = IPPROTO_UDP,
-            .src = (sockaddr *) &src,
+            .src = &src,
             .dst = &dst,
             .app_name = "TestAppName",
     };
@@ -1071,7 +1072,7 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     udp_event = {
             .id = this->vpn.listener_conn_id_generator.get(),
             .protocol = IPPROTO_UDP,
-            .src = (sockaddr *) &src,
+            .src = &src,
             .dst = &dst,
             .app_name = "TestAppName",
     };
@@ -1108,7 +1109,7 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     udp_event = {
             .id = this->vpn.listener_conn_id_generator.get(),
             .protocol = IPPROTO_UDP,
-            .src = (sockaddr *) &src,
+            .src = &src,
             .dst = &dst,
             .app_name = "TestAppName",
     };

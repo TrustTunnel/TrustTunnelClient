@@ -75,8 +75,8 @@ private:
     static void icmp_socket_handler(void *arg, TcpSocketEvent what, void *data);
     static void on_async_task(void *arg, TaskId);
 
-    uint64_t open_tcp_connection(const sockaddr_storage &peer);
-    uint64_t open_udp_connection(const sockaddr_storage &peer);
+    uint64_t open_tcp_connection(const SocketAddress &peer);
+    uint64_t open_udp_connection(const SocketAddress &peer);
     void cancel_icmp_request(const IcmpRequestKey &key, uint16_t seqno);
     void update_system_dns_redirect_peers(std::span<std::string> servers);
 };

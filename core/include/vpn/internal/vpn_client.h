@@ -17,6 +17,7 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
 #include "net/utils.h"
@@ -181,7 +182,7 @@ public:
     ag::Logger log{vpn_client::LOG_NAME}; // logger
     int id = 0;
     std::optional<VpnError> pending_error;
-    sockaddr_storage socks_listener_address{}; // The address the SOCKS listener is bound to
+    SocketAddress socks_listener_address{}; // The address the SOCKS listener is bound to
     bool bypass_upstream_session_opened = false;
     bool in_disconnect = false;
     VpnMode exclusions_mode = VPN_MODE_GENERAL;

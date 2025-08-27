@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "common/defs.h"
+#include "common/socket_address.h"
 #include "net/socket_manager.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
@@ -27,7 +28,7 @@ typedef struct {
     VpnEventLoop *ev_loop; // event loop for operation
     UdpSocketCallbacks handler;
     Millis timeout;                // socket timeout, set 0 to disable
-    sockaddr_storage peer;         // destination peer (must be set)
+    SocketAddress peer;            // destination peer (must be set)
     SocketManager *socket_manager; // socket manager
 } UdpSocketParameters;
 

@@ -6,6 +6,7 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/socket_manager.h"
 #include "net/tcp_socket.h"
 #include "vpn/event_loop.h"
@@ -42,7 +43,7 @@ enum Socks5ConnectionAddressType {
 
 struct Socks5ConnectionAddress {
     Socks5ConnectionAddressType type;
-    struct sockaddr_storage ip;
+    SocketAddress ip;
     struct {
         std::string name;
         uint16_t port;
@@ -52,7 +53,7 @@ struct Socks5ConnectionAddress {
 struct Socks5ConnectRequestEvent {
     uint64_t id;                        /**< connection identifier */
     int proto;                          /**< connection protocol */
-    const struct sockaddr *src;         /**< source address of connection */
+    const SocketAddress *src;           /**< source address of connection */
     const Socks5ConnectionAddress *dst; /**< destination address */
     std::string_view app_name;          /**< name of application that initiated this request */
 };
@@ -101,7 +102,7 @@ struct Socks5ListenerConfig {
      *    - IPv4Address
      * If port is 0 or not specified, it will be chosen automatically.
      */
-    struct sockaddr_storage listen_address;
+    SocketAddress listen_address;
     /** IO operations timeout */
     Millis timeout;
     /** Socket manager */
@@ -192,6 +193,6 @@ void socks5_listener_turn_read(const Socks5Listener *listener, uint64_t id, bool
 /**
  * Get the address is being listened for SOCKS requests
  */
-const struct sockaddr_storage *socks5_listener_listen_address(const Socks5Listener *listener);
+const SocketAddress *socks5_listener_listen_address(const Socks5Listener *listener);
 
 } // namespace ag

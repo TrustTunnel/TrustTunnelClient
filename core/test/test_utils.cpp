@@ -22,10 +22,10 @@ TEST_P(Equal, Test) {
 
 static const std::pair<TunnelAddress, TunnelAddress> EQUAL_ADDRS_SAMPLES[] = {
         {NamePort{"example.org", 80}, NamePort{"example.org", 80}},
-        {sockaddr_from_str("1.1.1.1:1"), sockaddr_from_str("1.1.1.1:1")},
-        {sockaddr_from_str("1.1.1.1"), sockaddr_from_str("1.1.1.1")},
-        {sockaddr_from_str("[::1]:1"), sockaddr_from_str("[::1]:1")},
-        {sockaddr_from_str("::1"), sockaddr_from_str("::1")},
+        {SocketAddress("1.1.1.1:1"), SocketAddress("1.1.1.1:1")},
+        {SocketAddress("1.1.1.1"), SocketAddress("1.1.1.1")},
+        {SocketAddress("[::1]:1"), SocketAddress("[::1]:1")},
+        {SocketAddress("::1"), SocketAddress("::1")},
 };
 INSTANTIATE_TEST_SUITE_P(TunnelAddress, Equal, testing::ValuesIn(EQUAL_ADDRS_SAMPLES));
 
@@ -39,11 +39,11 @@ static const std::pair<TunnelAddress, TunnelAddress> NOT_EQUAL_ADDRS_SAMPLES[] =
         {NamePort{"example.org", 80}, NamePort{"example.org", 0}},
         {NamePort{"example.org", 80}, NamePort{"example.com", 80}},
         {NamePort{"example.org", 80}, NamePort{"Example.org", 80}},
-        {sockaddr_from_str("1.1.1.1:1"), sockaddr_from_str("1.1.1.1:0")},
-        {sockaddr_from_str("1.1.1.1:1"), sockaddr_from_str("1.1.1.11:1")},
-        {sockaddr_from_str("[::1]:1"), sockaddr_from_str("[::1]:11")},
-        {sockaddr_from_str("[::1]:1"), sockaddr_from_str("[::2]:1")},
-        {sockaddr_from_str("::1"), sockaddr_from_str("::2")},
+        {SocketAddress("1.1.1.1:1"), SocketAddress("1.1.1.1:0")},
+        {SocketAddress("1.1.1.1:1"), SocketAddress("1.1.1.11:1")},
+        {SocketAddress("[::1]:1"), SocketAddress("[::1]:11")},
+        {SocketAddress("[::1]:1"), SocketAddress("[::2]:1")},
+        {SocketAddress("::1"), SocketAddress("::2")},
 };
 INSTANTIATE_TEST_SUITE_P(TunnelAddressTest, NotEqual, testing::ValuesIn(NOT_EQUAL_ADDRS_SAMPLES));
 

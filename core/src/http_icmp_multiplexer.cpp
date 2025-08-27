@@ -96,7 +96,7 @@ bool HttpIcmpMultiplexer::send_request_established(const IcmpEchoRequest &reques
     uint8_t packet_buffer[ICMPPKT_REQ_SIZE]{};
     wire_utils::Writer writer({packet_buffer, sizeof(packet_buffer)});
     writer.put_u16(request.id);
-    writer.put_ip_padded((sockaddr *) &request.peer);
+    writer.put_ip_padded(request.peer);
     writer.put_u16(request.seqno);
     writer.put_u8(request.ttl);
     writer.put_u16(request.data_size);

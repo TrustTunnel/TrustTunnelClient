@@ -3,6 +3,7 @@
 #include "common/base64.h"
 #include "common/net_utils.h"
 #include "common/utils.h"
+#include "common/socket_address.h"
 #include "http_udp_multiplexer.h"
 #include "vpn/internal/utils.h"
 #include "vpn/platform.h"
@@ -13,8 +14,8 @@ namespace ag {
 std::string tunnel_addr_to_str(const TunnelAddress *tun_addr) {
     std::string out;
 
-    if (const auto *addr = std::get_if<sockaddr_storage>(tun_addr)) {
-        out = sockaddr_to_str((sockaddr *) addr);
+    if (const auto *addr = std::get_if<SocketAddress>(tun_addr)) {
+        out = addr->str();
     } else {
         const auto &domain = std::get<NamePort>(*tun_addr);
         out = (domain.port == 0) ? domain.name : AG_FMT("{}:{}", domain.name, domain.port);

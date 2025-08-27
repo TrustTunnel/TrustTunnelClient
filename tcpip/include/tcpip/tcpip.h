@@ -7,6 +7,7 @@
 #include <event2/util.h>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
@@ -64,8 +65,8 @@ typedef enum {
 typedef struct {
     uint64_t id;                /**< generated identifier of request for connection */
     int proto;                  /**< connection protocol */
-    const struct sockaddr *src; /**< source address of connection */
-    const struct sockaddr *dst; /**< destination address of connection */
+    const SocketAddress *src;   /**< source address of connection */
+    const SocketAddress *dst;   /**< destination address of connection */
 } TcpipConnectRequestEvent;
 
 typedef struct {

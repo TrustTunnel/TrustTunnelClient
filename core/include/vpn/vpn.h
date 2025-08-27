@@ -18,6 +18,7 @@
 #include <openssl/x509.h>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/os_tunnel.h"
 #include "net/utils.h"
 #include "tcpip/tcpip.h"
@@ -100,7 +101,7 @@ typedef struct {
      *    - IPv4Address
      * If port is 0 or not specified, it will be chosen automatically.
      */
-    struct sockaddr_storage listen_address;
+    SocketAddressStorage listen_address;
     /**
      * If set, require this username to connect.
      * Must be set if `listen_address` is not a loopback address or if `password` is set.
@@ -351,7 +352,7 @@ typedef struct {
 typedef struct {
     VpnAddressType type;
     union {
-        struct sockaddr_storage addr;
+        SocketAddressStorage addr;
         VpnHostPort host;
     };
 } VpnAddress;
@@ -393,8 +394,8 @@ typedef enum {
  * VPN client connection information
  */
 typedef struct {
-    const struct sockaddr_storage *src; // source address of connection
-    const struct sockaddr_storage *dst; // destination address of connection
+    const SocketAddressStorage *src;           // source address of connection
+    const SocketAddressStorage *dst;           // destination address of connection
     const char *domain;                 // destination domain
     int proto;                          // connection protocol
     VpnFinalConnectionAction action;    // final action
@@ -641,7 +642,7 @@ WIN_EXPORT void vpn_close(Vpn *vpn);
  * after `vpn_listen()` has completed successfully with a result
  * of `vpn_create_socks_listener()` as an argument.
  */
-WIN_EXPORT sockaddr_storage vpn_get_socks_listener_address(Vpn *vpn);
+WIN_EXPORT SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn);
 
 /**
  * Clone common listener config.

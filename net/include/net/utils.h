@@ -46,7 +46,7 @@ struct CertVerifyHandler {
 };
 
 struct VpnEndpoint {
-    sockaddr_storage address; // endpoint address
+    SocketAddressStorage address; // endpoint address
     const char *name;         // endpoint host name (used, for example, for TLS handshake)
     const char *remote_id;    // if not NULL or empty, used for server TLS certificate verification instead of `name`
     AG_ARRAY_OF(uint8_t) additional_data; // additional data about the endpoint
@@ -58,7 +58,7 @@ struct VpnEndpoint {
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
 
 struct VpnRelay {
-    sockaddr_storage address; // relay address
+    SocketAddressStorage address; // relay address
     AG_ARRAY_OF(uint8_t) additional_data; // additional data about the relay
 };
 
@@ -108,16 +108,16 @@ enum Icmpv6TimeExceededCode {
 };
 
 struct IcmpEchoRequest {
-    sockaddr_storage peer; /**< destination address of connection */
-    uint16_t id;           /**< an identifier to aid in matching echos and replies */
-    uint16_t seqno;        /**< a sequence number to aid in matching echos and replies */
-    uint8_t ttl;           /**< a carrying IP packet TTL */
-    uint16_t data_size;    /**< the size of data of the echo message */
+    SocketAddress peer; /**< destination address of connection */
+    uint16_t id;        /**< an identifier to aid in matching echos and replies */
+    uint16_t seqno;     /**< a sequence number to aid in matching echos and replies */
+    uint8_t ttl;        /**< a carrying IP packet TTL */
+    uint16_t data_size; /**< the size of data of the echo message */
 };
 
 struct IcmpEchoReply {
     /** source address of the reply (essentially equals to `dst` in corresponding `tcpip_icmp_echo_t`) */
-    sockaddr_storage peer;
+    SocketAddress  peer;
     uint16_t id;    /**< an identifier to aid in matching echos and replies */
     uint16_t seqno; /**< a sequence number to aid in matching echos and replies */
     uint8_t type;   /**< a type of the reply message */
@@ -364,6 +364,16 @@ enum IpVersion {
 
 using IpVersionSet = EnumSet<IpVersion>;
 
+inline std::optional<IpVersion> get_ip_version(const SocketAddress &addr) {
+    if (addr.is_ipv4()) {
+        return IPV4;
+    }
+    if (addr.is_ipv6()) {
+        return IPV6;
+    }
+    return std::nullopt;
+}
+
 constexpr std::optional<IpVersion> sa_family_to_ip_version(int family) {
     switch (family) {
     case AF_INET:
@@ -396,8 +406,8 @@ struct fmt::formatter<ag::IcmpEchoRequest> {
     template <typename FormatContext>
     auto format(const ag::IcmpEchoRequest &request, FormatContext &ctx) {
         return fmt::format_to(ctx.out(), "peer={}, id={}, seqno={}, ttl={}, data_size={}",
-                ag::sockaddr_ip_to_str((sockaddr *) &request.peer), request.id, request.seqno, request.ttl,
-                request.data_size);
+                ag::SocketAddress(request.peer).host_str(/*ipv6_brackets=*/true), request.id, request.seqno,
+                request.ttl, request.data_size);
     }
 };
 
@@ -411,7 +421,8 @@ struct fmt::formatter<ag::IcmpEchoReply> {
     template <typename FormatContext>
     auto format(const ag::IcmpEchoReply &reply, FormatContext &ctx) {
         return fmt::format_to(ctx.out(), "peer={}, id={}, seqno={}, type={}, code={}",
-                ag::sockaddr_ip_to_str((sockaddr *) &reply.peer), reply.id, reply.seqno, reply.type, reply.code);
+                ag::SocketAddress(reply.peer).host_str(/*ipv6_brackets=*/true), reply.id, reply.seqno, reply.type,
+                reply.code);
     }
 };
 
@@ -425,7 +436,7 @@ struct fmt::formatter<ag::VpnEndpoint> {
     template <typename FormatContext>
     auto format(const ag::VpnEndpoint &endpoint, FormatContext &ctx) {
         return fmt::format_to(
-                ctx.out(), "name={}, address={}", endpoint.name, ag::sockaddr_to_str((sockaddr *) &endpoint.address));
+                ctx.out(), "name={}, address={}", endpoint.name, ag::SocketAddress(endpoint.address));
     }
 };
 

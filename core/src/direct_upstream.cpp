@@ -5,6 +5,7 @@
 
 #include "common/defs.h"
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "direct_upstream.h"
 #include "net/network_manager.h"
 #include "net/utils.h"
@@ -24,7 +25,7 @@ struct SocketContext {
 
 struct IcmpSocketContext {
     DirectUpstream *upstream = nullptr;
-    sockaddr_storage peer = {};
+    SocketAddress peer = {};
     IcmpRequestKey key = {};
     uint16_t seqno = 0;
 
@@ -226,7 +227,7 @@ void DirectUpstream::udp_socket_handler(void *arg, UdpSocketEvent what, void *da
     }
 }
 
-uint64_t DirectUpstream::open_tcp_connection(const sockaddr_storage &peer) {
+uint64_t DirectUpstream::open_tcp_connection(const SocketAddress &peer) {
     uint64_t id = this->vpn->upstream_conn_id_generator.get();
 
     std::unique_ptr<SocketContext> ctx = std::make_unique<SocketContext>(SocketContext{this, id});
@@ -249,7 +250,7 @@ uint64_t DirectUpstream::open_tcp_connection(const sockaddr_storage &peer) {
     }
 
     TcpSocketConnectParameters param = {
-            .peer = (sockaddr *) &peer,
+            .peer = &peer,
     };
     if (0 != tcp_socket_connect(sock.get(), &param).code) {
         return NON_ID;
@@ -262,7 +263,7 @@ uint64_t DirectUpstream::open_tcp_connection(const sockaddr_storage &peer) {
     return id;
 }
 
-uint64_t DirectUpstream::open_udp_connection(const sockaddr_storage &peer) {
+uint64_t DirectUpstream::open_udp_connection(const SocketAddress &peer) {
     uint64_t id = this->vpn->upstream_conn_id_generator.get();
     std::unique_ptr<SocketContext> ctx = std::make_unique<SocketContext>(SocketContext{this, id});
 
@@ -294,7 +295,7 @@ uint64_t DirectUpstream::open_udp_connection(const sockaddr_storage &peer) {
 uint64_t DirectUpstream::open_connection(const TunnelAddressPair *addr, int proto, std::string_view) {
     uint64_t id = NON_ID;
 
-    const auto *peer = std::get_if<sockaddr_storage>(&addr->dst);
+    const auto *peer = std::get_if<SocketAddress>(&addr->dst);
     if (peer == nullptr) {
         log_upstream(this, dbg, "Destination peer is unresolved");
         return NON_ID;
@@ -430,10 +431,10 @@ void DirectUpstream::on_icmp_request(IcmpEchoRequestEvent &event) {
         return;
     }
 
-    sockaddr_storage peer = event.request.peer;
-    sockaddr_set_port((sockaddr *) &peer, ICMP_PING_EMULATION_PORT);
+    SocketAddress peer = event.request.peer;
+    peer.set_port(ICMP_PING_EMULATION_PORT);
     TcpSocketConnectParameters param = {
-            .peer = (sockaddr *) &peer,
+            .peer = &peer,
     };
     if (0 != tcp_socket_connect(sock.get(), &param).code) {
         event.result = -1;
@@ -518,11 +519,11 @@ void DirectUpstream::icmp_socket_handler(void *arg, TcpSocketEvent what, void *d
     switch (what) {
     case TCP_SOCKET_EVENT_CONNECTED:
         reply = ctx->make_reply_template();
-        reply->type = (ctx->peer.ss_family == AF_INET) ? uint8_t(ICMP_MT_ECHO_REPLY) : uint8_t(ICMPV6_MT_ECHO_REPLY);
+        reply->type = (ctx->peer.is_ipv4()) ? uint8_t(ICMP_MT_ECHO_REPLY) : uint8_t(ICMPV6_MT_ECHO_REPLY);
         break;
     case TCP_SOCKET_EVENT_ERROR:
         reply = ctx->make_reply_template();
-        if (const VpnError *error = (VpnError *) data; reply->peer.ss_family == AF_INET) {
+        if (const VpnError *error = (VpnError *) data; reply->peer.is_ipv4()) {
             update_reply_on_error_v4(reply.value(), error->code);
         } else {
             update_reply_on_error_v6(reply.value(), error->code);
@@ -538,7 +539,7 @@ void DirectUpstream::icmp_socket_handler(void *arg, TcpSocketEvent what, void *d
     case TCP_SOCKET_EVENT_WRITE_FLUSH:
         log_upstream(self, dbg, "Unexpected event: {}", magic_enum::enum_name(what));
         reply = ctx->make_reply_template();
-        if (reply->peer.ss_family == AF_INET) {
+        if (reply->peer.is_ipv4()) {
             update_reply_on_error_v4(reply.value(), ag::utils::AG_ECONNREFUSED);
         } else {
             update_reply_on_error_v6(reply.value(), ag::utils::AG_ECONNREFUSED);

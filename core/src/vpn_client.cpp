@@ -655,7 +655,7 @@ bool VpnClient::is_reachable(const SocketAddress &address) const {
     evutil_socket_t fd = ::socket(address.c_sockaddr()->sa_family, SOCK_DGRAM, IPPROTO_UDP);
     if (fd < 0) {
         int err = evutil_socket_geterror(fd);
-        log_client(this, dbg, "socket({}): ({}) {}", address.str(), err, evutil_socket_error_to_string(err));
+        log_client(this, dbg, "socket({}): ({}) {}", address, err, evutil_socket_error_to_string(err));
         return false;
     }
 
@@ -669,7 +669,7 @@ bool VpnClient::is_reachable(const SocketAddress &address) const {
 
     if (0 != ::connect(fd, address.c_sockaddr(), address.c_socklen())) {
         int err = evutil_socket_geterror(fd);
-        log_client(this, dbg, "connect({}): ({}) {}", address.str(), err, evutil_socket_error_to_string(err));
+        log_client(this, dbg, "connect({}): ({}) {}", address, err, evutil_socket_error_to_string(err));
         evutil_closesocket(fd);
         return false;
     }

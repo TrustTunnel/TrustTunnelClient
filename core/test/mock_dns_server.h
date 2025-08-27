@@ -11,6 +11,7 @@
 #include <event2/util.h>
 
 #include "common/defs.h"
+#include "common/socket_address.h"
 #include "net/tcp_socket.h"
 #include "net/udp_socket.h"
 
@@ -64,7 +65,7 @@ public:
      * On an unexpected request, `unexpected_handler` is called.
      * When all expected requests are exhausted, `complete_handler` is called.
      */
-    std::optional<sockaddr_storage> start(sockaddr_storage listen_addr, VpnEventLoop *event_loop,
+    std::optional<SocketAddress> start(SocketAddress listen_addr, VpnEventLoop *event_loop,
             SocketManager *socket_manager, CompleteHandler complete_handler, UnexpectedHandler unexpected_handler);
 
     /** Specify a request to expect and how to respond. The order of expected requests is not checked. */
@@ -74,7 +75,7 @@ private:
     struct TcpConn {
         MockDnsServer *server = nullptr;
         UniquePtr<TcpSocket, &tcp_socket_destroy> socket;
-        sockaddr_storage from;
+        SocketAddress from;
         std::vector<uint8_t> buf;
     };
 

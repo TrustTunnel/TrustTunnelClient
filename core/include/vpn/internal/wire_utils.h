@@ -5,6 +5,7 @@
 #include <cstring>
 #include <optional>
 
+#include "common/socket_address.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
@@ -55,13 +56,12 @@ public:
         m_buffer.remove_prefix(d.size());
     }
 
-    void put_ip(const sockaddr *addr) {
-        size_t addr_size = (addr->sa_family == AF_INET) ? IPV4_ADDR_SIZE : IPV6_ADDR_SIZE;
-        this->put_data({(uint8_t *) sockaddr_get_ip_ptr(addr), addr_size});
+    void put_ip(const SocketAddress &addr) {
+        this->put_data(addr.addr());
     }
 
-    void put_ip_padded(const sockaddr *addr) {
-        if (addr->sa_family == AF_INET) {
+    void put_ip_padded(const SocketAddress &addr) {
+        if (addr.is_ipv4()) {
             // empty PADDING for ipv4
             static constexpr uint8_t PADDING[IPV4_6_SIZE_DIFF] = {};
             this->put_data({PADDING, std::size(PADDING)});
@@ -114,18 +114,18 @@ public:
         return ntohl(val);
     }
 
-    std::optional<sockaddr_storage> get_ip(int family) {
+    std::optional<SocketAddress> get_ip(int family) {
         size_t ip_size = (family == AF_INET) ? IPV4_ADDR_SIZE : IPV6_ADDR_SIZE;
         if (m_buffer.size() < ip_size) {
             return std::nullopt;
         }
 
-        sockaddr_storage addr = sockaddr_from_raw(m_buffer.data(), ip_size, 0);
+        SocketAddress addr({m_buffer.data(), ip_size}, 0);
         m_buffer.remove_prefix(ip_size);
         return addr;
     }
 
-    std::optional<sockaddr_storage> get_ip_padded() {
+    std::optional<SocketAddress> get_ip_padded() {
         if (m_buffer.size() < PADDED_IP_SIZE) {
             return std::nullopt;
         }

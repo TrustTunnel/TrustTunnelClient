@@ -45,9 +45,9 @@ static ag::Logger g_logger{"PING"}; // NOLINT(cert-err58-cpp,cppcoreguidelines-a
 #define log_conn(ping_, conn_, lvl_, fmt_, ...)                                                                        \
     log_ping(ping_, lvl_, "Round {}: {}{} ({}){}{} via {}: " fmt_, (ping_)->rounds_started,                            \
             (conn_)->use_quic ? "udp://" : "tcp://", (conn_)->endpoint->name,                                          \
-            sockaddr_to_str((sockaddr *) &(conn_)->endpoint->address),                                                 \
-            (conn_)->relay->address.ss_family ? " through relay " : "",                                                \
-            (conn_)->relay->address.ss_family ? sockaddr_to_str((sockaddr *) &(conn_)->relay->address) : "",           \
+            SocketAddress((conn_)->endpoint->address),                                                                 \
+            (conn_)->relay->address.sa_family ? " through relay " : "",                                                \
+            (conn_)->relay->address.sa_family ? SocketAddress((conn_)->relay->address).str() : "",                     \
             (conn_)->bound_if_name, ##__VA_ARGS__)
 
 using PingClock = std::chrono::high_resolution_clock;
@@ -185,7 +185,7 @@ static void on_shortcut_timer(evutil_socket_t, short, void *arg) {
     self->relay_shortcut_timer.reset();
 
     for (const PingConn &conn : self->inprogress) {
-        if (conn.relay->address.ss_family != 0) {
+        if (conn.relay->address.sa_family != 0) {
             continue;
         }
         add_endpoint(self, self->pending_shortcut, *conn.endpoint, conn.bound_if, nullptr, conn.use_quic,
@@ -230,13 +230,13 @@ static void do_connect(void *arg, bool shortcut) {
     log_conn(self, conn, dbg, "Connecting");
 
     VpnError error{};
-    auto *dest =
-            conn->relay->address.ss_family ? (sockaddr *) &conn->relay->address : (sockaddr *) &conn->endpoint->address;
+    SocketAddress dest = conn->relay->address.sa_family ? SocketAddress(conn->relay->address)
+                                                        : SocketAddress(conn->endpoint->address);
     if (conn->use_quic) {
         assert(conn->quic_connector);
         assert(!conn->tcp_socket);
         QuicConnectorConnectParameters parameters{
-                .peer = dest,
+                .peer = &dest,
                 .ssl = conn->ssl.release(), // Always consumed by `quic_connector_connect`.
                 .timeout = Millis{self->round_timeout_ms},
                 .max_idle_timeout = Millis{self->quic_max_idle_timeout_ms},
@@ -247,7 +247,7 @@ static void do_connect(void *arg, bool shortcut) {
         assert(conn->tcp_socket);
         assert(!conn->quic_connector);
         TcpSocketConnectParameters parameters{
-                .peer = dest,
+                .peer = &dest,
                 .ssl = conn->ssl.get(),
                 .anti_dpi = self->anti_dpi,
                 .pause_tls = true,
@@ -320,7 +320,7 @@ static void do_report(void *arg) {
             if (self->handoff) {
                 result.conn_state = it->use_quic ? (void *) it->quic_connector.release() : it->tcp_socket.release();
             }
-            if (it->relay->address.ss_family) {
+            if (it->relay->address.sa_family) {
                 result.relay = it->relay.get();
             }
             result.status = PING_OK;
@@ -399,7 +399,7 @@ static void do_prepare(void *arg) {
     // Don't try to fall back to a relay if we ever received a response from at least one endpoint directly.
     self->have_direct_result =
             self->have_direct_result || std::any_of(self->done.begin(), self->done.end(), [](const PingConn &conn) {
-                return conn.best_result_ms.has_value() && conn.relay->address.ss_family == 0;
+                return conn.best_result_ms.has_value() && conn.relay->address.sa_family == 0;
             });
 
     for (auto conn = self->done.begin(); conn != self->done.end();) {
@@ -600,12 +600,12 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     }
     for (const VpnEndpoint &endpoint : info->endpoints) {
         if (ag::utils::trim(safe_to_string_view(endpoint.name)).empty()) {
-            log_ping(self, warn, "Endpoint {} has no name", sockaddr_to_str((sockaddr *) &endpoint.address));
+            log_ping(self, warn, "Endpoint {} has no name", SocketAddress(endpoint.address));
             return nullptr;
         }
         for (uint32_t bound_if : interfaces) {
             add_endpoint(self.get(), self->pending, endpoint, bound_if, nullptr);
-            if (info->relay_parallel.address.ss_family) {
+            if (info->relay_parallel.address.sa_family) {
                 add_endpoint(self.get(), self->pending, endpoint, bound_if, &info->relay_parallel);
             }
         }
@@ -691,7 +691,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     }
     Uint8View alpn_protos = conn->use_quic ? Uint8View{QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)}
                                            : Uint8View{TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)};
-    U8View endpoint_data = conn->relay->address.ss_family
+    U8View endpoint_data = conn->relay->address.sa_family
             ? Uint8View{conn->relay->additional_data.data, conn->relay->additional_data.size}
             : Uint8View{conn->endpoint->additional_data.data, conn->endpoint->additional_data.size};
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,

@@ -5,6 +5,7 @@
 #include <lwip/ip_addr.h>
 
 #include "tcpip_util.h"
+#include "common/socket_address.h"
 #include "vpn/utils.h"
 
 using namespace ag;
@@ -17,7 +18,7 @@ using namespace ag;
         }                                                                                                              \
     } while (0)
 
-void test_sockaddr_to_ip_addr() {
+void test_socket_address_to_ip_addr() {
     // Test IPv4
     {
         // Set
@@ -29,7 +30,7 @@ void test_sockaddr_to_ip_addr() {
         // Convert
         ip_addr_t ip4;
         uint16_t ip4_port;
-        sockaddr_to_ip_addr((const struct sockaddr_storage *) &in4, sizeof(struct sockaddr_in), &ip4, &ip4_port);
+        socket_address_to_ip_addr(SocketAddress((const sockaddr *) &in4), &ip4, &ip4_port);
 
         // Check
         ip_addr_t ip4_check;
@@ -49,7 +50,7 @@ void test_sockaddr_to_ip_addr() {
         // Convert
         ip_addr_t ip6;
         uint16_t ip6_port;
-        sockaddr_to_ip_addr((const struct sockaddr_storage *) &in6, sizeof(struct sockaddr_in6), &ip6, &ip6_port);
+        socket_address_to_ip_addr(SocketAddress((const struct sockaddr *) &in6), &ip6, &ip6_port);
 
         // Check
         ip_addr_t ip6_check;
@@ -59,7 +60,7 @@ void test_sockaddr_to_ip_addr() {
     }
 }
 
-void test_ip_addr_to_sockaddr() {
+void test_ip_addr_to_socket_address() {
     // Test IPv4
     {
         // Set
@@ -68,11 +69,11 @@ void test_ip_addr_to_sockaddr() {
         ASSERT(ipaddr_aton("192.0.2.2", &ip4));
 
         // Convert
-        struct sockaddr_storage in4 = ip_addr_to_sockaddr(&ip4, ip4_port);
-        socklen_t in4_len = sockaddr_get_size((struct sockaddr *) &in4);
+        SocketAddress in4 = ip_addr_to_socket_address(&ip4, ip4_port);
+        socklen_t in4_len = in4.c_socklen();
 
         // Check
-        ASSERT(in4.ss_family == AF_INET);
+        ASSERT(in4.is_ipv4());
         ASSERT(in4_len == sizeof(struct sockaddr_in));
         struct sockaddr_in *pin = (struct sockaddr_in *) &in4;
         ASSERT(pin->sin_port == PP_HTONS(12334));
@@ -89,11 +90,11 @@ void test_ip_addr_to_sockaddr() {
         ASSERT(ipaddr_aton("2001:db8:2017::2", &ip6));
 
         // Convert
-        struct sockaddr_storage in6 = ip_addr_to_sockaddr(&ip6, ip6_port);
-        socklen_t in6_len = sockaddr_get_size((struct sockaddr *) &in6);
+        SocketAddress in6 = ip_addr_to_socket_address(&ip6, ip6_port);
+        socklen_t in6_len = in6.c_socklen();
 
         // Check
-        ASSERT(in6.ss_family == AF_INET6);
+        ASSERT(in6.is_ipv6());
         ASSERT(in6_len == sizeof(struct sockaddr_in6));
         struct sockaddr_in6 *pin6 = (struct sockaddr_in6 *) &in6;
         ASSERT(pin6->sin6_port == PP_HTONS(12335));
@@ -104,6 +105,6 @@ void test_ip_addr_to_sockaddr() {
 }
 
 int main() {
-    test_sockaddr_to_ip_addr();
-    test_ip_addr_to_sockaddr();
+    test_socket_address_to_ip_addr();
+    test_ip_addr_to_socket_address();
 }

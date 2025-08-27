@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "vpn/internal/tunnel.h"
 #include "vpn/internal/vpn_client.h"
 
@@ -203,7 +204,8 @@ size_t TestListener::g_next_connection_id = 1000000;
 static vpn_client::Event g_last_raised_vpn_event;
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -222,7 +224,7 @@ public:
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
     VpnClient vpn;
     Tunnel tun = {};
-    sockaddr_storage src{};
+    SocketAddress src{};
     TunnelAddress dst;
     std::shared_ptr<TestUpstream> redirect_upstream;
     std::shared_ptr<TestUpstream> bypass_upstream;
@@ -250,8 +252,8 @@ public:
         TestUpstream::g_next_upstream_id = 0;
         TestListener::g_next_connection_id = 0;
 
-        src = sockaddr_from_str("1.1.1.1:1000");
-        dst = sockaddr_from_str("1.1.1.2:443");
+        src = SocketAddress("1.1.1.1:1000");
+        dst = SocketAddress("1.1.1.2:443");
 
         vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         vpn.parameters.handler = {&vpn_handler, this};
@@ -312,7 +314,7 @@ public:
     }
 
     void raise_client_connection(uint64_t id) {
-        ClientConnectRequest event = {id, IPPROTO_UDP, (sockaddr *) &src, &dst};
+        ClientConnectRequest event = {id, IPPROTO_UDP, &src, &dst};
         tun.listener_handler(client_listener, CLIENT_EVENT_CONNECT_REQUEST, &event);
         ASSERT_EQ(g_last_raised_vpn_event, vpn_client::EVENT_CONNECT_REQUEST);
     }

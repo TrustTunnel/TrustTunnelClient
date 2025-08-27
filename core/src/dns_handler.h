@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/socket_address.h"
 #include "net/dns_manager.h"
 #include "vpn/event_loop.h"
 #include "vpn/internal/client_listener.h"
@@ -213,7 +214,7 @@ private:
 
 struct DnsHandlerParameters {
     /** Address of the SOCKS5 listener to be used as outbound proxy for the DNS proxy. */
-    sockaddr_storage dns_proxy_listener_address;
+    SocketAddress dns_proxy_listener_address;
     /** User-provided DNS server addresses specified in `ag::VpnListenerConfig::dns_upstreams`. */
     std::vector<DnsProxyAccessor::Upstream> dns_upstreams;
     /** Cert verify callback for the DNS proxies. */

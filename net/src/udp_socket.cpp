@@ -91,14 +91,12 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
 
     sock->parameters = *parameters;
 
-    char buf[SOCKADDR_STR_BUF_SIZE];
-    sockaddr_to_str((struct sockaddr *) &parameters->peer, buf, sizeof(buf));
-    snprintf(sock->log_id, sizeof(sock->log_id), "id=%d/%s", g_next_id.fetch_add(1), buf);
+    snprintf(sock->log_id, sizeof(sock->log_id), "id=%d/%s", g_next_id.fetch_add(1), parameters->peer.str().c_str());
 
-    const struct sockaddr *peer = (struct sockaddr *) &sock->parameters.peer;
+    const SocketAddress *peer = &sock->parameters.peer;
     if (fd < 0) {
         if (create_fd) {
-            fd = socket(peer->sa_family, SOCK_DGRAM, 0);
+            fd = socket(peer->c_storage()->sa_family, SOCK_DGRAM, 0);
             if (fd < 0) {
                 int err = evutil_socket_geterror(fd);
                 log_sock(sock, err, "Failed to create socket: {} ({})", evutil_socket_error_to_string(err), err);
@@ -113,8 +111,8 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
         goto fail;
     }
     {
-        if (!sockaddr_is_loopback(peer)) {
-            SocketProtectEvent protect_event = {fd, peer, 0};
+        if (!peer->is_loopback()) {
+            SocketProtectEvent protect_event = {fd, peer->c_sockaddr(), 0};
             parameters->handler.func(parameters->handler.arg, UDP_SOCKET_EVENT_PROTECT, &protect_event);
             if (protect_event.result != 0) {
                 log_sock(sock, err, "Failed to protect socket");
@@ -122,7 +120,7 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
             }
         }
 
-        if (0 != connect(fd, peer, sockaddr_get_size(peer))) {
+        if (0 != connect(fd, peer->c_sockaddr(), peer->c_socklen())) {
             int err = evutil_socket_geterror(fd);
             log_sock(sock, err, "Failed to set socket destination: {} ({})", evutil_socket_error_to_string(err), err);
             goto fail;

@@ -10,6 +10,7 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/socket_manager.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
@@ -56,12 +57,12 @@ typedef struct {
 } TcpSocketParameters;
 
 typedef struct {
-    const sockaddr *peer; // should be null if `tcp_socket_acquire_fd` was called before
-    SSL *ssl;             // SSL context in case of the traffic needs to be encrypted
-    bool anti_dpi;        // Enable anti-DPI protection
-    bool pause_tls;       // Pause the TLS handshake and raise `TCP_SOCKET_EVENT_CONNECTED` after receiving the
-                          // first bytes from server. Continue the handshake by calling `tcp_socket_connect_continue`.
-                          // `TCP_SOCKET_EVENT_CONNECTED` will be raised one more time when the handshake is complete.
+    const SocketAddress *peer; // should be null if `tcp_socket_acquire_fd` was called before
+    SSL *ssl;                  // SSL context in case of the traffic needs to be encrypted
+    bool anti_dpi;             // Enable anti-DPI protection
+    bool pause_tls;            // Pause the TLS handshake and raise `TCP_SOCKET_EVENT_CONNECTED` after receiving the
+                               // first bytes from server. Continue the handshake by calling `tcp_socket_connect_continue`.
+                               // `TCP_SOCKET_EVENT_CONNECTED` will be raised one more time when the handshake is complete.
 } TcpSocketConnectParameters;
 
 /**

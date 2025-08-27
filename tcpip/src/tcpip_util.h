@@ -9,26 +9,26 @@
 #include <event2/util.h>
 #include <lwip/ip_addr.h>
 
+#include "common/socket_address.h"
+
 namespace ag {
 
 /**
- * Convert ip_addr_t and port to `sockaddr`
+ * Convert ip_addr_t and port to `SocketAddress`
  *
  * @param addr ip_addr_t instance
  * @param port Port
- * @param out_sock_addr sockaddr storage
+ * @param out_sock_addr SocketAddress
  */
-struct sockaddr_storage ip_addr_to_sockaddr(const ip_addr_t *addr, uint16_t port);
+SocketAddress ip_addr_to_socket_address(const ip_addr_t *addr, uint16_t port);
 
 /**
- * Makes ip_addr_t and port from sockaddr
- * @param sock_addr sockaddr
- * @param sock_addr_len Sockaddr length
+ * Makes ip_addr_t and port from SocketAddress
+ * @param sock_addr SocketAddress
  * @param out_addr ip_addr_t instance
  * @param out_port port
  */
-void sockaddr_to_ip_addr(
-        const struct sockaddr_storage *sock_addr, ev_socklen_t sock_addr_len, ip_addr_t *out_addr, uint16_t *out_port);
+void socket_address_to_ip_addr(const SocketAddress &sock_addr, ip_addr_t *out_addr, uint16_t *out_port);
 
 /**
  * IP addr to string conversion, prettier than LWIP variant

@@ -35,7 +35,7 @@ enum ClientConnectResult {
 struct ClientConnectRequest {
     uint64_t id;               /**< connection identifier */
     int protocol;              /**< protocol */
-    const sockaddr *src;       /**< source address */
+    const SocketAddress *src;  /**< source address */
     const TunnelAddress *dst;  /**< destination address */
     std::string_view app_name; /**< name of application that initiated this request */
 };

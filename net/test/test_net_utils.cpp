@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "common/defs.h"
+#include "common/socket_address.h"
 #include "net/quic_utils.h"
 #include "net/utils.h"
 #include "vpn/utils.h"
@@ -104,15 +105,15 @@ std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni) {
     ssl = std::move(std::get<ag::SslPtr>(r));
     uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
     RAND_bytes(scid, sizeof(scid));
-    sockaddr_storage dummy_address{.ss_family = AF_INET};
+    ag::SocketAddress dummy_address(ag::SocketAddressStorage{.sa_family = AF_INET});
     ag::DeclPtr<quiche_config, &quiche_config_free> config{quiche_config_new(QUICHE_PROTOCOL_VERSION)};
     quiche_config_set_max_recv_udp_payload_size(config.get(), UINT16_MAX);
     quiche_config_set_max_send_udp_payload_size(config.get(), UINT16_MAX);
     // clang-format off
     ag::DeclPtr<quiche_conn, &quiche_conn_free> qconn{quiche_conn_new_with_tls(
             scid, sizeof(scid), RUST_EMPTY, 0,
-            (sockaddr *) &dummy_address, ag::sockaddr_get_size((sockaddr *) &dummy_address),
-            (sockaddr *) &dummy_address, ag::sockaddr_get_size((sockaddr *) &dummy_address),
+            dummy_address.c_sockaddr(), dummy_address.c_socklen(),
+            dummy_address.c_sockaddr(), dummy_address.c_socklen(),
             config.get(), ssl.release(), false)};
     // clang-format on
     std::list<std::vector<uint8_t>> initials;

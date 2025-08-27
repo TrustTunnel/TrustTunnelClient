@@ -13,6 +13,7 @@
 
 #include "common/net_utils.h"
 #include "common/utils.h"
+#include "common/socket_address.h"
 #include "net/tcp_socket.h"
 #include "net/udp_socket.h"
 #include "vpn/platform.h"
@@ -57,37 +58,37 @@ inline bool operator!=(const NamePort &lh, const NamePort &rh) {
     return !(lh == rh);
 }
 
-using TunnelAddress = std::variant<sockaddr_storage, NamePort>;
+using TunnelAddress = std::variant<SocketAddress, NamePort>;
 
 struct TunnelAddressPair {
-    sockaddr_storage src;
+    SocketAddress src;
     TunnelAddress dst;
 
     TunnelAddressPair() = delete;
 
-    TunnelAddressPair(const sockaddr *s, TunnelAddress d)
-            : src(ag::sockaddr_to_storage(s))
+    TunnelAddressPair(const SocketAddress *s, TunnelAddress d)
+            : src(s ? *s : SocketAddress{})
             , dst(std::move(d)) {
     }
 
-    TunnelAddressPair(const sockaddr_storage &s, TunnelAddress d)
+    TunnelAddressPair(const SocketAddress &s, TunnelAddress d)
             : src(s)
             , dst(std::move(d)) {
     }
 
-    TunnelAddressPair(const sockaddr *s, const sockaddr *d)
-            : src(ag::sockaddr_to_storage(s))
-            , dst(ag::sockaddr_to_storage(d)) {
+    TunnelAddressPair(const SocketAddress *s, const SocketAddress *d)
+            : src(s ? *s : SocketAddress{})
+            , dst(d ? *d : SocketAddress{}) {
     }
 
-    TunnelAddressPair(const sockaddr_storage &s, const sockaddr_storage &d)
+    TunnelAddressPair(const SocketAddress &s, const SocketAddress &d)
             : src(s)
             , dst(d) {
     }
 
     uint16_t dstport() const {
-        if (const auto *ss = std::get_if<sockaddr_storage>(&dst)) {
-            return sockaddr_get_port((const sockaddr *) ss);
+        if (const auto *ss = std::get_if<SocketAddress>(&dst)) {
+            return ss->port();
         }
         if (const auto *np = std::get_if<NamePort>(&dst)) {
             return np->port;
@@ -98,16 +99,16 @@ struct TunnelAddressPair {
 };
 
 inline bool operator==(const TunnelAddressPair &lh, const TunnelAddressPair &rh) {
-    if (!sockaddr_equals((sockaddr *) &lh.src, (sockaddr *) &rh.src)) {
+    if (lh.src != rh.src) {
         return false;
     }
     if (lh.dst.index() != rh.dst.index()) {
         return false;
     }
-    if (const sockaddr_storage *ld = std::get_if<sockaddr_storage>(&lh.dst),
-            *rd = std::get_if<sockaddr_storage>(&rh.dst);
+    if (const SocketAddress *ld = std::get_if<SocketAddress>(&lh.dst),
+            *rd = std::get_if<SocketAddress>(&rh.dst);
             ld && rd) {
-        return sockaddr_equals((sockaddr *) ld, (sockaddr *) rd);
+        return *ld == *rd;
     }
     if (const NamePort *ld = std::get_if<NamePort>(&lh.dst), *rd = std::get_if<NamePort>(&rh.dst); ld && rd) {
         return *ld == *rd;
@@ -136,12 +137,12 @@ using UdpSocketPtr = ag::DeclPtr<UdpSocket, &udp_socket_destroy>;
 using EventPtr = ag::DeclPtr<event, &event_free>;
 
 struct SockAddrTag {
-    sockaddr_storage addr = {};
+    SocketAddress addr = {};
     std::string appname;
 };
 
 inline bool operator==(const SockAddrTag &lh, const SockAddrTag &rh) {
-    return ag::sockaddr_equals((sockaddr *) &lh.addr, (sockaddr *) &rh.addr) && lh.appname == rh.appname;
+    return (lh.addr == rh.addr) && lh.appname == rh.appname;
 }
 
 /**
@@ -208,29 +209,14 @@ constexpr std::optional<utils::TransportProtocol> ipproto_to_transport_protocol(
 
 } // namespace ag
 
-inline bool operator==(const sockaddr_storage &lh, const sockaddr_storage &rh) {
-    return ag::sockaddr_equals((sockaddr *) &lh, (sockaddr *) &rh);
-}
-
-inline bool operator!=(const sockaddr_storage &lh, const sockaddr_storage &rh) {
-    return !(lh == rh);
-}
-
 namespace std {
-
-template <>
-struct hash<sockaddr_storage> {
-    size_t operator()(const sockaddr_storage &k) const {
-        return size_t(ag::sockaddr_hash((sockaddr *) &k));
-    }
-};
 
 template <>
 struct hash<ag::TunnelAddress> {
     size_t operator()(const ag::TunnelAddress &addr) const {
         size_t hash = 0;
-        if (const auto *a = std::get_if<sockaddr_storage>(&addr); a != nullptr) {
-            hash = size_t(ag::sockaddr_hash((sockaddr *) a));
+        if (const auto *a = std::get_if<ag::SocketAddress>(&addr); a != nullptr) {
+            hash = size_t(ag::socket_address_hash(*a));
         } else {
             const auto &np = std::get<ag::NamePort>(addr);
             hash = size_t(ag::hash_pair_combine(ag::str_hash32(np.name.c_str(), np.name.length()), np.port));
@@ -243,7 +229,7 @@ template <>
 struct hash<ag::TunnelAddressPair> {
     size_t operator()(const ag::TunnelAddressPair &addr) const {
         return size_t(
-                ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &addr.src), hash<ag::TunnelAddress>{}(addr.dst)));
+                ag::hash_pair_combine(ag::socket_address_hash(addr.src), hash<ag::TunnelAddress>{}(addr.dst)));
     }
 };
 
@@ -251,7 +237,7 @@ template <>
 struct hash<ag::SockAddrTag> {
     size_t operator()(const ag::SockAddrTag &k) const {
         return size_t(
-                ag::hash_pair_combine(ag::sockaddr_hash((sockaddr *) &k.addr), std::hash<std::string>()(k.appname)));
+                ag::hash_pair_combine(ag::socket_address_hash(k.addr), std::hash<std::string>()(k.appname)));
     }
 };
 

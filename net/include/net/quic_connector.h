@@ -49,7 +49,7 @@ struct QuicConnectorParameters {
 };
 
 struct QuicConnectorConnectParameters {
-    const sockaddr *peer;
+    const SocketAddress *peer;
     SSL *ssl;
     Millis timeout;          // How long to wait for server response before giving up.
     Millis max_idle_timeout; // QUIC connection's maximum idle timeout.

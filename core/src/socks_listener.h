@@ -3,6 +3,7 @@
 #include <set>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "net/socks5_listener.h"
 #include "vpn/internal/client_listener.h"
 
@@ -22,7 +23,7 @@ public:
     /**
      * Get the address the listener is listening on
      */
-    [[nodiscard]] const sockaddr_storage &get_listen_address() const;
+    [[nodiscard]] const SocketAddress &get_listen_address() const;
 
 private:
     Socks5Listener *m_socks5_listener = nullptr;

@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "vpn/internal/vpn_client.h"
 #include "vpn/internal/wire_utils.h"
 #include "vpn/utils.h"
@@ -29,17 +30,18 @@ static std::atomic_int g_next_mux_id = 0; // NOLINT(cppcoreguidelines-avoid-non-
 static constexpr Secs TIMER_PERIOD{15};
 
 static std::vector<uint8_t> compose_udp_packet(
-        const sockaddr *src, const sockaddr *dst, std::string_view app_name, const uint8_t *data, size_t length) {
+        const SocketAddress *src, const SocketAddress *dst, std::string_view app_name,
+        const uint8_t *data, size_t length) {
     size_t full_length = UDPPKT_IN_PREFIX_SIZE + UDPPKT_APPLEN_SIZE + app_name.size() + length;
 
     std::vector<uint8_t> packet_buffer(full_length);
     wire_utils::Writer writer({packet_buffer.data(), packet_buffer.size()});
 
     writer.put_u32(full_length - UDPPKT_LENGTH_SIZE);
-    writer.put_ip_padded(src);
-    writer.put_u16(sockaddr_get_port(src));
-    writer.put_ip_padded(dst);
-    writer.put_u16(sockaddr_get_port(dst));
+    writer.put_ip_padded(*src);
+    writer.put_u16(src->port());
+    writer.put_ip_padded(*dst);
+    writer.put_u16(dst->port());
 
     app_name = app_name.substr(0, UINT8_MAX);
     writer.put_u8(uint8_t(app_name.size()));
@@ -111,7 +113,7 @@ void HttpUdpMultiplexer::complete_udp_connection(void *arg, TaskId) {
 }
 
 bool HttpUdpMultiplexer::open_connection(uint64_t conn_id, const TunnelAddressPair *addr, std::string_view app_name) {
-    if (std::get_if<sockaddr_storage>(&addr->dst) == nullptr) {
+    if (std::get_if<SocketAddress>(&addr->dst) == nullptr) {
         log_conn(this, conn_id, err, "UDP connection must have socket address as destination");
         assert(0);
         return false;
@@ -221,10 +223,9 @@ ssize_t HttpUdpMultiplexer::send(uint64_t id, U8View data) {
     }
 
     Connection *conn = &i->second;
-    const sockaddr *src = (sockaddr *) &conn->addr.src;
-    const sockaddr *dst = (sockaddr *) std::get_if<sockaddr_storage>(&conn->addr.dst);
-    log_conn(this, id, trace, "Sending UDP packet: {}->{} len={}", sockaddr_to_str(src), sockaddr_to_str(dst),
-            data.size());
+    SocketAddress *src = &conn->addr.src;
+    SocketAddress *dst = std::get_if<SocketAddress>(&conn->addr.dst);
+    log_conn(this, id, trace, "Sending UDP packet: {}->{} len={}", *src, *dst, data.size());
 
     std::vector<uint8_t> packet = compose_udp_packet(src, dst, conn->app_name, data.data(), data.size());
     int r = m_params.send_data_callback(m_params.parent, m_stream_id, {packet.data(), packet.size()});
@@ -250,13 +251,12 @@ HttpUdpMultiplexer::PacketInfo HttpUdpMultiplexer::read_prefix(const std::vector
         return info;
     }
 
-    sockaddr_storage src_addr = reader.get_ip_padded().value();
-    sockaddr_set_port((sockaddr *) &src_addr, reader.get_u16().value());
-    sockaddr_storage dst_addr = reader.get_ip_padded().value();
-    sockaddr_set_port((sockaddr *) &dst_addr, reader.get_u16().value());
+    SocketAddress src_addr = reader.get_ip_padded().value();
+    src_addr.set_port(reader.get_u16().value());
+    SocketAddress dst_addr = reader.get_ip_padded().value();
+    dst_addr.set_port(reader.get_u16().value());
 
-    log_mux(this, trace, "Got UDP packet: {}->{} len={}", sockaddr_to_str((sockaddr *) &src_addr),
-            sockaddr_to_str((sockaddr *) &dst_addr), length);
+    log_mux(this, trace, "Got UDP packet: {}->{} len={}", src_addr, dst_addr, length);
 
     if (length > MAX_UDP_IN_PACKET_LENGTH) {
         log_mux(this, dbg, "Drop packet as its length more than the maximum allowed value ({})", length);
@@ -270,8 +270,7 @@ HttpUdpMultiplexer::PacketInfo HttpUdpMultiplexer::read_prefix(const std::vector
         info.id = i->second;
         log_conn(this, info.id, trace, "Payload length: {}", info.payload_length);
     } else {
-        log_mux(this, dbg, "Connection has already been closed or never existed: {}->{}",
-                sockaddr_to_str((sockaddr *) &src_addr), sockaddr_to_str((sockaddr *) &dst_addr));
+        log_mux(this, dbg, "Connection has already been closed or never existed: {}->{}", src_addr, dst_addr);
     }
 
     return info;

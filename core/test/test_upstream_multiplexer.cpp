@@ -9,7 +9,8 @@
 using namespace ag;
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -126,7 +127,7 @@ public:
     }
 
     uint64_t initiate_connection() { // NOLINT(readability-make-member-function-const)
-        TunnelAddressPair addr = {sockaddr_from_str("1.1.1.1:1"), sockaddr_from_str("2.2.2.2:2")};
+        TunnelAddressPair addr = {SocketAddress("1.1.1.1:1"), SocketAddress("2.2.2.2:2")};
         uint64_t conn_id = this->vpn.endpoint_upstream->open_connection(&addr, IPPROTO_TCP, "");
         return conn_id;
     }

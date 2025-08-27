@@ -41,9 +41,8 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
                     } else {
                         data = resolved_host.emplace<Ipv6Address>().data();
                     }
-                    auto *ip = (uint8_t *) sockaddr_get_ip_ptr(upstream.resolved_host->c_sockaddr());
-                    size_t size = sockaddr_get_ip_size(upstream.resolved_host->c_sockaddr());
-                    std::copy(ip, ip + size, data);
+                    auto ip = upstream.resolved_host->addr();
+                    std::copy(ip.data(), ip.data() + ip.size(), data);
                 }
 
                 return dns::UpstreamOptions{
@@ -72,8 +71,8 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
     if (parameters.socks_listener_address.has_value()) {
         settings.outbound_proxy = {{
                 .protocol = dns::OutboundProxyProtocol::SOCKS5_UDP,
-                .address = sockaddr_ip_to_str((sockaddr *) &parameters.socks_listener_address.value()),
-                .port = sockaddr_get_port((sockaddr *) &parameters.socks_listener_address.value()),
+                .address = parameters.socks_listener_address->host_str(/*ipv6_brackets=*/true),
+                .port = parameters.socks_listener_address->port(),
         }};
     }
 
@@ -142,20 +141,17 @@ bool DnsProxyAccessor::start() {
     for (const auto &listener : settings.listeners) {
         switch (listener.protocol) {
         case utils::TP_UDP:
-            m_dns_proxy_udp_listen_address = sockaddr_from_str(listener.address.c_str());
-            sockaddr_set_port((sockaddr *) &m_dns_proxy_udp_listen_address, listener.port);
+            m_dns_proxy_udp_listen_address = SocketAddress(listener.address, listener.port);
             break;
         case utils::TP_TCP:
-            m_dns_proxy_tcp_listen_address = sockaddr_from_str(listener.address.c_str());
-            sockaddr_set_port((sockaddr *) &m_dns_proxy_tcp_listen_address, listener.port);
+            m_dns_proxy_tcp_listen_address = SocketAddress(listener.address, listener.port);
             break;
         }
     }
 
-    if (AF_UNSPEC == m_dns_proxy_udp_listen_address.ss_family
-            || AF_UNSPEC == m_dns_proxy_tcp_listen_address.ss_family) {
+    if (!m_dns_proxy_udp_listen_address.valid() || !m_dns_proxy_tcp_listen_address.valid()) {
         log_accessor(this, err, "DNS proxy is not listening for queries over {}",
-                (m_dns_proxy_udp_listen_address.ss_family == AF_UNSPEC) ? "UDP" : "TCP");
+                (!m_dns_proxy_udp_listen_address.valid()) ? "UDP" : "TCP");
         this->stop();
         return false;
     }
@@ -172,7 +168,7 @@ void DnsProxyAccessor::stop() {
     m_dns_proxy_tcp_listen_address = {};
 }
 
-const sockaddr_storage &DnsProxyAccessor::get_listen_address(utils::TransportProtocol protocol) const {
+const SocketAddress &DnsProxyAccessor::get_listen_address(utils::TransportProtocol protocol) const {
     switch (protocol) {
     case utils::TP_UDP:
         return m_dns_proxy_udp_listen_address;

@@ -43,7 +43,7 @@ public:
         /// Bootstraps DNS servers used for initial resolution
         std::vector<std::string> bootstraps;
         /// The address which the outbound proxy for the DNS proxy is listening on
-        std::optional<sockaddr_storage> socks_listener_address;
+        std::optional<SocketAddress> socks_listener_address;
         /// Certificate verification handler
         CertVerifyHandler cert_verify_handler = {};
 #if defined(__APPLE__) && TARGET_OS_IPHONE
@@ -73,13 +73,13 @@ public:
     /**
      * Get a listener address by the given protocol
      */
-    [[nodiscard]] const sockaddr_storage &get_listen_address(utils::TransportProtocol protocol) const;
+    [[nodiscard]] const SocketAddress &get_listen_address(utils::TransportProtocol protocol) const;
 
 private:
     std::unique_ptr<dns::DnsProxy> m_dns_proxy;
     Parameters m_parameters = {};
-    sockaddr_storage m_dns_proxy_udp_listen_address = {};
-    sockaddr_storage m_dns_proxy_tcp_listen_address = {};
+    SocketAddress m_dns_proxy_udp_listen_address = {};
+    SocketAddress m_dns_proxy_tcp_listen_address = {};
     ag::Logger m_log{"DNS_PROXY_ACCESSOR"};
 };
 

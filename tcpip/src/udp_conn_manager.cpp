@@ -17,6 +17,7 @@
 #include <lwip/timeouts.h>
 
 #include "common/logger.h"
+#include "common/socket_address.h"
 #include "tcpip_common.h"
 #include "tcpip_util.h"
 #include "udp_conn_manager.h"
@@ -285,14 +286,14 @@ void udp_cm_request_connection(TcpipCtx *ctx, UdpConnDescriptor *connection) {
 
     connection->state = UDP_CONN_STATE_REQUESTED;
 
-    struct sockaddr_storage src = ip_addr_to_sockaddr(&common->addr.src_ip, common->addr.src_port);
-    struct sockaddr_storage dst = ip_addr_to_sockaddr(&common->addr.dst_ip, common->addr.dst_port);
+    SocketAddress src = ip_addr_to_socket_address(&common->addr.src_ip, common->addr.src_port);
+    SocketAddress dst = ip_addr_to_socket_address(&common->addr.dst_ip, common->addr.dst_port);
 
     TcpipConnectRequestEvent event = {
             common->id,
             IPPROTO_UDP,
-            (struct sockaddr *) &src,
-            (struct sockaddr *) &dst,
+            &src,
+            &dst,
     };
 
     TcpipHandler *callbacks = &ctx->parameters.handler;

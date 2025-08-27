@@ -5,6 +5,7 @@
 #include <openssl/rand.h>
 
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "fake_upstream.h"
 #include "mock_dns_server.h"
 #include "net/dns_utils.h"
@@ -157,7 +158,8 @@ public:
 static vpn_client::Event g_last_raised_vpn_event;
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/,
+        void * /*arg*/) {
     return 1;
 }
 
@@ -175,7 +177,7 @@ public:
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
     VpnClient vpn;
     Tunnel tun = {};
-    sockaddr_storage src{};
+    SocketAddress src{};
     TunnelAddress dst;
     std::shared_ptr<TestUpstream> redirect_upstream;
     std::shared_ptr<TestUpstream> bypass_upstream;
@@ -200,8 +202,8 @@ public:
     void SetUp() override {
         ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
 
-        src = sockaddr_from_str("1.1.1.1:1000");
-        dst = sockaddr_from_str("1.1.1.2:443");
+        src = SocketAddress("1.1.1.1:1000");
+        dst = SocketAddress("1.1.1.2:443");
 
         vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
         vpn.parameters.handler = {&vpn_handler, this};
@@ -228,7 +230,7 @@ public:
     }
 
     void raise_client_connection(uint64_t id) {
-        ClientConnectRequest event = {id, connection_protocol, (sockaddr *) &src, &dst};
+        ClientConnectRequest event = {id, connection_protocol, &src, &dst};
         tun.listener_handler(client_listener, CLIENT_EVENT_CONNECT_REQUEST, &event);
         ASSERT_EQ(g_last_raised_vpn_event, vpn_client::EVENT_CONNECT_REQUEST);
     }
@@ -240,11 +242,11 @@ public:
 };
 
 TEST_F(TunnelTest, IPv6Unavailable) {
-    src = sockaddr_from_str("[::1:1:1:1]:443");
+    src = SocketAddress("[::1:1:1:1]:443");
     vpn.endpoint_upstream->update_ip_availability(IpVersionSet{1 << IPV4});
     size_t client_id = vpn.listener_conn_id_generator.get();
 
-    dst = sockaddr_from_str("[::2:2:2:2]:443");
+    dst = SocketAddress("[::2:2:2:2]:443");
     ASSERT_NO_FATAL_FAILURE(raise_client_connection(client_id));
 
     std::optional<VpnConnectAction> action = tun.finalize_connect_action({client_id, VPN_CA_DEFAULT, "some", 1});
@@ -258,8 +260,8 @@ TEST_F(TunnelTest, IPv6Unavailable) {
 
 TEST_F(TunnelTest, LocalhostConnection) {
     size_t client_id = vpn.listener_conn_id_generator.get();
-    dst = sockaddr_from_str("127.0.0.1:443");
-    ClientConnectRequest event = {client_id, connection_protocol, (sockaddr *) &src, &dst};
+    dst = SocketAddress("127.0.0.1:443");
+    ClientConnectRequest event = {client_id, connection_protocol, &src, &dst};
     tun.listener_handler(client_listener, CLIENT_EVENT_CONNECT_REQUEST, &event);
     ASSERT_GT(bypass_upstream->connections.size(), 0);
 }
@@ -381,7 +383,7 @@ public:
         TunnelTest::SetUp();
 
         auto address = dns_server->start(
-                sockaddr_from_str("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
+                SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
                     vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
                     ++this->mock_dns_server_completed;
@@ -393,7 +395,7 @@ public:
                 });
         ASSERT_TRUE(address.has_value());
 
-        vpn_network_manager_update_system_dns({.main = {{.address = sockaddr_to_str((sockaddr *) &*address)}}});
+        vpn_network_manager_update_system_dns({.main = {{.address = address->str()}}});
         run_event_loop_once();
 
         tun.fake_upstream = std::make_shared<TestFakeUpstream>(std::move(tun.fake_upstream));
@@ -436,8 +438,8 @@ public:
 
     void do_dns_resolve() {
         uint64_t client_conn_id = vpn.listener_conn_id_generator.get();
-        TunnelAddress resolver_address = sockaddr_from_str("8.8.8.8:53");
-        ClientConnectRequest event = {client_conn_id, IPPROTO_UDP, (sockaddr *) &src, &resolver_address};
+        TunnelAddress resolver_address = SocketAddress("8.8.8.8:53");
+        ClientConnectRequest event = {client_conn_id, IPPROTO_UDP, &src, &resolver_address};
         tun.listener_handler(client_listener, CLIENT_EVENT_CONNECT_REQUEST, &event);
 
         std::optional<VpnConnectAction> action =
@@ -537,7 +539,7 @@ TEST_F(FakeConnectionTest, NonscannablePort) {
     client_id = vpn.listener_conn_id_generator.get();
 
     // 1) Raise the request for connection
-    dst = sockaddr_from_str("1.1.1.2:777");
+    dst = SocketAddress("1.1.1.2:777");
     ASSERT_NO_FATAL_FAILURE(raise_client_connection(client_id));
 
     // 2) Establish the connection through VPN endpoint
@@ -731,7 +733,7 @@ public:
         this->fake_upstream = (TestFakeUpstream *) tun.fake_upstream.get();
 
         ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_SELECTIVE, "http3.is"));
-        vpn.domain_filter.add_exclusion_suspect(std::get<sockaddr_storage>(dst), Secs{500});
+        vpn.domain_filter.add_exclusion_suspect(std::get<SocketAddress>(dst), Secs{500});
     }
 };
 

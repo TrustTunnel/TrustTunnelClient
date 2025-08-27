@@ -8,6 +8,7 @@
 
 #include "common/logger.h"
 #include "common/net_utils.h"
+#include "common/socket_address.h"
 #include "net/socks5_listener.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
@@ -153,7 +154,7 @@ enum ConnectionState {
 };
 
 struct AddressPair {
-    struct sockaddr_storage src;
+    ag::SocketAddress src;
     ag::Socks5ConnectionAddress dst;
 };
 
@@ -224,8 +225,6 @@ struct Connection {
     UdpSpecific udp = {};
 };
 
-extern "C" int evutil_sockaddr_is_loopback_(const struct sockaddr *sa); // NOLINT(readability-identifier-naming)
-
 namespace ag {
 
 static void udp_event_handler(evutil_socket_t fd, short what, void *arg);
@@ -249,9 +248,9 @@ Socks5Listener *socks5_listener_create(const Socks5ListenerConfig *config, const
 
     listener->handler = *handler;
 
-    if (listener->config.listen_address.ss_family == AF_UNSPEC) {
+    if (!listener->config.listen_address.valid()) {
         uint32_t lo = htonl(INADDR_LOOPBACK);
-        listener->config.listen_address = sockaddr_from_raw((uint8_t *) &lo, sizeof(lo), 0);
+        listener->config.listen_address = SocketAddress({(uint8_t *) &lo, sizeof(lo)}, 0);
     }
 
     if (listener->config.username.empty() != listener->config.password.empty()) {
@@ -260,7 +259,7 @@ Socks5Listener *socks5_listener_create(const Socks5ListenerConfig *config, const
         return nullptr;
     }
 
-    if (!evutil_sockaddr_is_loopback_((struct sockaddr *) &listener->config.listen_address)
+    if (!listener->config.listen_address.is_loopback()
             && listener->config.username.empty()) {
         errlog(g_logger, "Username must be set if listening on a non-loopback address");
         socks5_listener_destroy(listener);
@@ -272,7 +271,7 @@ Socks5Listener *socks5_listener_create(const Socks5ListenerConfig *config, const
 
 Socks5ListenerStartResult socks5_listener_start(Socks5Listener *listener) {
     if (listener->evconn_listener == nullptr) {
-        sa_family_t family = listener->config.listen_address.ss_family;
+        sa_family_t family = listener->config.listen_address.c_storage()->sa_family;
         evutil_socket_t fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
         if (fd < 0) {
             errlog(g_logger, "Failed to create socket: {} ({})", strerror(errno), errno);
@@ -305,8 +304,8 @@ Socks5ListenerStartResult socks5_listener_start(Socks5Listener *listener) {
             return SOCKS5L_START_FAILURE;
         }
 
-        const struct sockaddr_storage *sa = &listener->config.listen_address;
-        if (0 != bind(fd, (struct sockaddr *) sa, sockaddr_get_size((struct sockaddr *) sa))) {
+        const SocketAddress *sa = &listener->config.listen_address;
+        if (0 != bind(fd, sa->c_sockaddr(), sa->c_socklen())) {
             int err = evutil_socket_geterror(fd);
             errlog(g_logger, "Failed to bind socket: {} ({})", evutil_socket_error_to_string(err), err);
             Socks5ListenerStartResult error = SOCKS5L_START_FAILURE;
@@ -339,13 +338,12 @@ Socks5ListenerStartResult socks5_listener_start(Socks5Listener *listener) {
         }
     }
 
-    if (sockaddr_get_port((struct sockaddr *) &listener->config.listen_address) == 0) {
-        sockaddr_storage addr = local_sockaddr_from_fd(evconnlistener_get_fd(listener->evconn_listener.get()));
-        sockaddr_set_port(
-                (struct sockaddr *) &listener->config.listen_address, sockaddr_get_port((struct sockaddr *) &addr));
+    if (listener->config.listen_address.port() == 0) {
+        SocketAddress addr = local_socket_address_from_fd(evconnlistener_get_fd(listener->evconn_listener.get()));
+        listener->config.listen_address.set_port(addr.port());
     }
 
-    infolog(g_logger, "Listening on {}", sockaddr_to_str((struct sockaddr *) &listener->config.listen_address));
+    infolog(g_logger, "Listening on {}", listener->config.listen_address);
 
     return SOCKS5L_START_SUCCESS;
 }
@@ -420,7 +418,7 @@ static Socks5AddressType socks_atyp_by_addr(const Socks5ConnectionAddress *addr)
 
     switch (addr->type) {
     case S5CAT_SOCKADDR:
-        type = (addr->ip.ss_family == AF_INET) ? S5AT_IPV4 : S5AT_IPV6;
+        type = (addr->ip.is_ipv4()) ? S5AT_IPV4 : S5AT_IPV6;
         break;
     case S5CAT_DOMAIN_NAME:
         type = S5AT_DOMAINNAME;
@@ -433,7 +431,7 @@ static Socks5AddressType socks_atyp_by_addr(const Socks5ConnectionAddress *addr)
 static size_t socks_addr_size(const Socks5ConnectionAddress *addr) {
     switch (addr->type) {
     case S5CAT_SOCKADDR:
-        return sockaddr_get_ip_size((sockaddr *) &addr->ip);
+        return addr->ip.c_socklen();
     case S5CAT_DOMAIN_NAME:
         return 1 + addr->domain.name.length();
     }
@@ -470,25 +468,24 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     size_t offset = 0;
     switch (atyp) {
     case S5AT_IPV4:
-        memcpy(reply->bnd_addr, sockaddr_get_ip_ptr((struct sockaddr *) &dst->ip), 4);
-        offset = 4;
+    case S5AT_IPV6: {
+        auto dst_addr = dst->ip.addr();
+        memcpy(reply->bnd_addr, dst_addr.data(), dst_addr.size());
+        offset = dst_addr.size();
         break;
+    }
     case S5AT_DOMAINNAME:
         reply->bnd_addr[0] = uint8_t(dst->domain.name.size());
         memcpy(&reply->bnd_addr[1], dst->domain.name.data(), dst->domain.name.size());
         offset = dst->domain.name.size() + 1;
-        break;
-    case S5AT_IPV6:
-        memcpy(reply->bnd_addr, sockaddr_get_ip_ptr((struct sockaddr *) &dst->ip), 16);
-        offset = 16;
         break;
     default:
         assert(0);
         break;
     }
 
-    sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
-    uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
+    SocketAddress local_addr = local_socket_address_from_fd(tcp_socket_get_fd(conn->socket.get()));
+    uint16_t port = htons(local_addr.port());
     memcpy(reply->bnd_addr + offset, &port, 2);
 
     log_conn(listener, conn->id, conn->proto, dbg, "Sending reply");
@@ -626,27 +623,26 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
         size_t offset = 0;
         switch (atyp) {
         case S5AT_IPV4:
-            memcpy(reply->dst_addr, sockaddr_get_ip_ptr((struct sockaddr *) &dst->ip), 4);
-            offset = 4;
+        case S5AT_IPV6: {
+            auto dst_addr = dst->ip.addr();
+            memcpy(reply->dst_addr, dst_addr.data(), dst_addr.size());
+            offset = dst_addr.size();
             break;
-        case S5AT_IPV6:
-            memcpy(reply->dst_addr, sockaddr_get_ip_ptr((struct sockaddr *) &dst->ip), 16);
-            offset = 16;
-            break;
+        }
         default:
             assert(0);
             break;
         }
 
-        uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &dst->ip));
+        uint16_t port = htons(dst->ip.port());
         memcpy(reply->dst_addr + offset, &port, 2);
         offset += 2;
 
         memcpy(reply->dst_addr + offset, data, length);
 
         evutil_socket_t fd = event_get_fd(conn->udp.relay->udp_event.get());
-        r = sendto(fd, (const char *) reply_data.data(), reply_data.size(), 0, (sockaddr *) &conn->addr.src,
-                sockaddr_get_size((sockaddr *) &conn->addr.src));
+        r = sendto(fd, (const char *) reply_data.data(), reply_data.size(), 0, conn->addr.src.c_sockaddr(),
+                conn->addr.src.c_socklen());
         int err = evutil_socket_geterror(fd);
         if (err == 0 || AG_ERR_IS_EAGAIN(err)) {
             r = 0;
@@ -708,7 +704,7 @@ void socks5_listener_close_connection(Socks5Listener *listener, uint64_t id, boo
     }
 }
 
-const struct sockaddr_storage *socks5_listener_listen_address(const Socks5Listener *listener) {
+const SocketAddress *socks5_listener_listen_address(const Socks5Listener *listener) {
     return &listener->config.listen_address;
 }
 
@@ -716,7 +712,7 @@ static void raise_connect_request(Socks5Listener *listener, const Connection *co
     Socks5ConnectRequestEvent event = {};
     event.id = conn->id;
     event.proto = conn->proto;
-    event.src = (struct sockaddr *) &conn->addr.src;
+    event.src = &conn->addr.src;
     event.dst = &conn->addr.dst;
     event.app_name = conn->app_name;
 
@@ -766,7 +762,7 @@ static Socks5ConnectionAddress dst_addr_from_request(Socks5AddressType type, con
     } else {
         addr.type = S5CAT_SOCKADDR;
         size_t addr_len = (type == S5AT_IPV4) ? 4 : 16;
-        addr.ip = sockaddr_from_raw(data, addr_len, *(uint16_t *) (data + addr_len));
+        addr.ip = SocketAddress({data, addr_len}, ntohs(*(uint16_t *)(data + addr_len)));
     }
 
     return addr;
@@ -820,7 +816,7 @@ static uint64_t socks_addr_hash(const Socks5ConnectionAddress *addr) {
 
     switch (addr->type) {
     case S5CAT_SOCKADDR:
-        hash = sockaddr_hash((struct sockaddr *) &addr->ip);
+        hash = socket_address_hash(addr->ip);
         break;
     case S5CAT_DOMAIN_NAME: {
         const std::string &domain = addr->domain.name;
@@ -833,7 +829,7 @@ static uint64_t socks_addr_hash(const Socks5ConnectionAddress *addr) {
 }
 
 static uint64_t socks_addr_pair_hash(const AddressPair *addr) {
-    return hash_pair_combine(sockaddr_hash((struct sockaddr *) &addr->src), socks_addr_hash(&addr->dst));
+    return hash_pair_combine(socket_address_hash(addr->src), socks_addr_hash(&addr->dst));
 }
 
 static int handle_tcp_read(Socks5Listener *listener, Connection *conn, U8View data) {
@@ -884,8 +880,8 @@ static void handle_udp_read(Socks5Listener *listener, Connection *conn, const ui
 }
 
 static EventPtr create_udp_event(Socks5Listener *listener, Connection *conn) {
-    sa_family_t saf = listener->config.listen_address.ss_family;
-    struct sockaddr_storage sa;
+    sa_family_t saf = listener->config.listen_address.c_sockaddr()->sa_family;
+    SocketAddress sa;
     std::unique_ptr<SocketArg> arg;
 
     evutil_socket_t fd = socket(saf, SOCK_DGRAM, 0);
@@ -927,9 +923,9 @@ static EventPtr create_udp_event(Socks5Listener *listener, Connection *conn) {
     }
 
     sa = listener->config.listen_address;
-    sockaddr_set_port((struct sockaddr *) &sa, 0);
+    sa.set_port(0);
 
-    if (0 != bind(fd, (struct sockaddr *) &sa, sockaddr_get_size((struct sockaddr *) &sa))) {
+    if (0 != bind(fd, sa.c_sockaddr(), sa.c_socklen())) {
         int err = evutil_socket_geterror(fd);
         errlog(g_logger, "Failed to bind socket for UDP traffic: {} ({})", evutil_socket_error_to_string(err), err);
         goto fail;
@@ -960,13 +956,13 @@ fail:
 
 static bool complete_udp_association(Socks5Listener *listener, Connection *conn) {
     EventPtr udp_event = create_udp_event(listener, conn);
-    struct sockaddr_storage bound_addr =
-            (udp_event != nullptr) ? local_sockaddr_from_fd(event_get_fd(udp_event.get())) : sockaddr_storage{};
+    SocketAddress bound_addr =
+            (udp_event != nullptr) ? local_socket_address_from_fd(event_get_fd(udp_event.get())) : SocketAddress{};
 
     Socks5AddressType atyp = socks_atyp_by_addr(&conn->addr.dst);
-    if (bound_addr.ss_family == AF_INET) {
+    if (bound_addr.is_ipv4()) {
         atyp = S5AT_IPV4;
-    } else if (bound_addr.ss_family == AF_INET6) {
+    } else if (bound_addr.is_ipv6()) {
         atyp = S5AT_IPV6;
     }
 
@@ -992,24 +988,18 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
     reply->rsv = 0;
     reply->atyp = atyp;
 
-    uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &bound_addr));
-    switch (bound_addr.ss_family) {
-    case AF_UNSPEC:
+    uint16_t port = htons(bound_addr.port());
+    if (!bound_addr.valid()) {
         if (atyp == S5AT_IPV4) {
             uint32_t ip = htonl(INADDR_LOOPBACK);
             memcpy(reply->bnd_addr, &ip, 4);
         } else {
             memcpy(reply->bnd_addr, &in6addr_loopback, 16);
         }
-        break;
-    case AF_INET:
-        memcpy(reply->bnd_addr, sockaddr_get_ip_ptr((struct sockaddr *) &bound_addr), 4);
-        memcpy(reply->bnd_addr + 4, &port, 2);
-        break;
-    case AF_INET6:
-        memcpy(reply->bnd_addr, sockaddr_get_ip_ptr((struct sockaddr *) &bound_addr), 16);
-        memcpy(reply->bnd_addr + 16, &port, 2);
-        break;
+    } else {
+        auto addr = bound_addr.addr();
+        memcpy(reply->bnd_addr, addr.data(), addr.size());
+        memcpy(reply->bnd_addr + addr.size(), &port, 2);
     }
 
     bool has_event = udp_event != nullptr;
@@ -1034,15 +1024,14 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
     } else if (has_event) {
         tcp_socket_set_timeout(conn->socket.get(), Millis{});
         tcp_socket_set_read_enabled(conn->socket.get(), true);
-        log_conn(listener, conn->id, 0, dbg, "UDP association started on port {}...",
-                sockaddr_get_port((struct sockaddr *) &bound_addr));
+        log_conn(listener, conn->id, 0, dbg, "UDP association started on port {}...", bound_addr.port());
     }
 
     return error.code == 0 && has_event;
 }
 
 static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const uint8_t *data, size_t length,
-        const struct sockaddr_storage *src, Connection **out_conn) {
+        const SocketAddress &src, Connection **out_conn) {
     if (length < sizeof(Socks5UdpHeader)) {
         return 0;
     }
@@ -1083,7 +1072,7 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
     Connection *udp_conn = nullptr;
 
     AddressPair key = {};
-    memcpy(&key.src, src, sizeof(*src));
+    key.src = src;
     key.dst = dst_addr_from_request((Socks5AddressType) req->atyp, req->dst_addr);
     khiter_t i = kh_get(connections_by_addr, relay->connections_by_addr.get(), &key);
     if (i == kh_end(relay->connections_by_addr)) {
@@ -1146,7 +1135,7 @@ static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
 
         U8View buffer = {relay->packet_buffer.data(), relay->packet_buffer.size()};
 
-        struct sockaddr_storage src = {};
+        SocketAddressStorage src = {};
         socklen_t src_len = sizeof(src);
 
         ssize_t r = recvfrom(fd, (char *) buffer.data(), buffer.size(), 0, (sockaddr *) &src, &src_len);
@@ -1154,7 +1143,8 @@ static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
         if (r > 0) {
             buffer = {buffer.data(), size_t(r)};
             Connection *conn = nullptr;
-            int processed_bytes = process_udp_header(listener, relay, buffer.data(), buffer.size(), &src, &conn);
+            int processed_bytes =
+                    process_udp_header(listener, relay, buffer.data(), buffer.size(), SocketAddress(src), &conn);
             if (processed_bytes > 0) {
                 buffer.remove_prefix(processed_bytes);
                 handle_udp_read(listener, conn, buffer.data(), buffer.size());
@@ -1444,7 +1434,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
 
             if (req->cmd == S5CMD_CONNECT) {
                 conn->state = S5CONNS_WAITING_CONNECT_RESULT;
-                conn->addr.src = remote_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
+                conn->addr.src = remote_socket_address_from_fd(tcp_socket_get_fd(conn->socket.get()));
                 raise_connect_request(listener, conn);
                 if (kh_get(connections_by_id, listener->connections.get(), conn_id) != kh_end(listener->connections)) {
                     tcp_socket_set_read_enabled(conn->socket.get(), false);
@@ -1472,8 +1462,8 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
             reply->rsv = 0;
             reply->atyp = req->atyp;
             memcpy(reply->bnd_addr, req->dst_addr, addr_len);
-            sockaddr_storage local_addr = local_sockaddr_from_fd(tcp_socket_get_fd(conn->socket.get()));
-            uint16_t port = htons(sockaddr_get_port((struct sockaddr *) &local_addr));
+            SocketAddress local_addr = local_socket_address_from_fd(tcp_socket_get_fd(conn->socket.get()));
+            uint16_t port = htons(local_addr.port());
             memcpy(reply->bnd_addr + addr_len, &port, 2);
 
             error = tcp_socket_write(conn->socket.get(), (uint8_t *) reply_data, reply_size);
@@ -1644,9 +1634,7 @@ static void on_accept(evconnlistener *, evutil_socket_t fd, sockaddr *sa, int, v
     int r = 0;
 
     if (g_logger.is_enabled(ag::LogLevel::LOG_LEVEL_DEBUG)) {
-        char buf[SOCKADDR_STR_BUF_SIZE];
-        sockaddr_to_str(sa, buf, sizeof(buf));
-        dbglog(g_logger, "New connection from client {} fd {}", buf, fd);
+        dbglog(g_logger, "New connection from client {} fd {}", SocketAddress(sa), fd);
     }
 
     uint64_t conn_id = 0;
