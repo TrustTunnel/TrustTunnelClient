@@ -29,26 +29,26 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.6.17@adguard_team/native_libs_common", transitive_headers=True)
-        self.requires("native_libs_common/7.0.29@adguard_team/native_libs_common", force=True, transitive_headers=True)
+        self.requires("dns-libs/2.6.18@adguard/oss", transitive_headers=True)
+        self.requires("native_libs_common/7.0.34@adguard/oss", force=True, transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
         self.requires("http_parser/2.9.4", transitive_headers=True)
-        self.requires("klib/2021-04-06@adguard_team/native_libs_common", transitive_headers=True)
-        self.requires("ldns/2021-03-29@adguard_team/native_libs_common", transitive_headers=True)
-        self.requires("libevent/2.1.11@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("klib/2021-04-06@adguard/oss", transitive_headers=True)
+        self.requires("ldns/2021-03-29@adguard/oss", transitive_headers=True)
+        self.requires("libevent/2.1.11@adguard/oss", transitive_headers=True)
         self.requires("magic_enum/0.9.5", transitive_headers=True)
-        self.requires("nghttp2/1.56.0@adguard_team/native_libs_common", transitive_headers=True)
+        self.requires("nghttp2/1.56.0@adguard/oss", transitive_headers=True)
         self.requires("nlohmann_json/3.10.5")
         self.requires("tomlplusplus/3.3.0")
         self.requires("zlib/1.3.1", transitive_headers=True)
 
         if "mips" not in str(self.settings.arch):
-            self.requires("quiche/0.17.1@adguard_team/native_libs_common", transitive_headers=True)
-            self.requires("openssl/boring-2024-09-13@adguard_team/native_libs_common", transitive_headers=True, force=True)
+            self.requires("quiche/0.17.1@adguard/oss", transitive_headers=True)
+            self.requires("openssl/boring-2024-09-13@adguard/oss", transitive_headers=True, force=True)
         else:
-            self.requires("openssl/3.1.5-quic1@adguard_team/native_libs_common", transitive_headers=True, force=True)
+            self.requires("openssl/3.1.5-quic1@adguard/oss", transitive_headers=True, force=True)
 
     def build_requirements(self):
         self.test_requires("gtest/1.14.0")

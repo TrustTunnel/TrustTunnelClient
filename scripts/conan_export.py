@@ -48,4 +48,4 @@ for version in versions:
         print("HASH is ", the_hash)
         subprocess.run(["git", "checkout", the_hash], check=True)
 
-    subprocess.run(["conan", "export", project_dir, "--user", "adguard_team", "--channel", "native_libs_common", "--version", version])
+    subprocess.run(["conan", "export", project_dir, "--user", "adguard", "--channel", "oss", "--version", version])
