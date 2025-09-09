@@ -220,7 +220,7 @@ uint64_t socket_address_pair_hash(const SocketAddress &src, const SocketAddress 
  * @param str string to parse
  * @return parsed socket address storage
  */
-SocketAddressStorage socket_address_storage_from_string(const char *str);
+SocketAddressStorage sockaddr_from_str(const char *str);
 
 /**
  * Get bound socket address storage from file descriptor

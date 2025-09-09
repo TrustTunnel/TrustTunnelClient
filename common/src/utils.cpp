@@ -54,13 +54,13 @@ uint64_t socket_address_hash(const SocketAddress &addr) {
     return std::hash<SocketAddress>{}(addr);
 }
 
-SocketAddressStorage socket_address_storage_from_string(const char *str) {
+SocketAddressStorage sockaddr_from_str(const char *str) {
     SocketAddress addr(str);
     return *addr.c_storage();
 }
 
-void socket_address_storage_from_str_out(const char *str, struct SocketAddressStorage *result) {
-    SocketAddressStorage local_result = socket_address_storage_from_string(str);
+void sockaddr_from_str_out(const char *str, struct SocketAddressStorage *result) {
+    SocketAddressStorage local_result = sockaddr_from_str(str);
     std::memcpy(result, &local_result, sizeof(SocketAddressStorage));
 }
 

@@ -242,11 +242,11 @@ Error<VpnStandaloneClient::ConnectResultError> VpnStandaloneClient::connect_to_s
             remote_ids.emplace_back("");
         }
         if (endpoint.address.starts_with("|")) {
-            relays.emplace_back(socket_address_storage_from_string(endpoint.address.substr(1).c_str()));
+            relays.emplace_back(sockaddr_from_str(endpoint.address.substr(1).c_str()));
             continue;
         }
         endpoints.emplace_back(VpnEndpoint{
-                .address = socket_address_storage_from_string(endpoint.address.c_str()),
+                .address = sockaddr_from_str(endpoint.address.c_str()),
                 .name = hostnames.back().c_str(),
                 .remote_id = remote_ids.back().c_str(),
                 .has_ipv6 = m_config.location.has_ipv6,

@@ -258,9 +258,9 @@ static void vpn_handler(void *arg, VpnEvent what, void *data) {
 // Check successful connect flow
 TEST_F(VpnManagerTest, SuccessfullConnect) {
     VpnEndpoint endpoints[] = {
-            {socket_address_storage_from_string("127.0.0.1:443"), "localhost"},
-            {socket_address_storage_from_string("127.0.0.2:443"), "localhost"},
-            {socket_address_storage_from_string("127.0.0.3:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.1:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.2:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.3:443"), "localhost"},
     };
     upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
 
@@ -283,9 +283,9 @@ TEST_F(VpnManagerTest, SuccessfullConnect) {
 // in case it has already tried it the configured number of times
 TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsed) {
     VpnEndpoint endpoints[] = {
-            {socket_address_storage_from_string("127.0.0.1:443"), "localhost"},
-            {socket_address_storage_from_string("127.0.0.2:443"), "localhost"},
-            {socket_address_storage_from_string("127.0.0.3:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.1:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.2:443"), "localhost"},
+            {sockaddr_from_str("127.0.0.3:443"), "localhost"},
     };
     upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
 
@@ -303,9 +303,9 @@ TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsed) {
 
 TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsedNetworkLost) {
     VpnEndpoint endpoints[] = {
-        {socket_address_storage_from_string("127.0.0.1:443"), "localhost"},
-        {socket_address_storage_from_string("127.0.0.2:443"), "localhost"},
-        {socket_address_storage_from_string("127.0.0.3:443"), "localhost"},
+        {sockaddr_from_str("127.0.0.1:443"), "localhost"},
+        {sockaddr_from_str("127.0.0.2:443"), "localhost"},
+        {sockaddr_from_str("127.0.0.3:443"), "localhost"},
     };
     upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
 
@@ -334,9 +334,9 @@ TEST_F(VpnManagerTest, FailOnAllConnectAttemptsUsedNetworkLost) {
 class ConnectedVpnManagerTest : public VpnManagerTest {
 protected:
     const std::vector<VpnEndpoint> endpoints = {
-            {socket_address_storage_from_string("127.0.0.1:443"), "localhost1"},
-            {socket_address_storage_from_string("127.0.0.2:443"), "localhost2"},
-            {socket_address_storage_from_string("127.0.0.3:443"), "localhost3"},
+            {sockaddr_from_str("127.0.0.1:443"), "localhost1"},
+            {sockaddr_from_str("127.0.0.2:443"), "localhost2"},
+            {sockaddr_from_str("127.0.0.3:443"), "localhost3"},
     };
 
     void SetUp() override {
@@ -429,12 +429,12 @@ TEST_F(ConnectedVpnManagerTest, NetworkLoss) {
 class AbandonEndpoint : public VpnManagerTest {
 protected:
     const std::vector<VpnEndpoint> endpoints = {
-            {socket_address_storage_from_string("127.0.0.1:443"), "localhost1"},
-            {socket_address_storage_from_string("127.0.0.2:443"), "localhost2"},
-            {socket_address_storage_from_string("127.0.0.3:443"), "localhost3"},
-            {socket_address_storage_from_string("[::4]:443"), "localhost4"},
-            {socket_address_storage_from_string("[::5]:443"), "localhost5"},
-            {socket_address_storage_from_string("[::6]:443"), "localhost6"},
+            {sockaddr_from_str("127.0.0.1:443"), "localhost1"},
+            {sockaddr_from_str("127.0.0.2:443"), "localhost2"},
+            {sockaddr_from_str("127.0.0.3:443"), "localhost3"},
+            {sockaddr_from_str("[::4]:443"), "localhost4"},
+            {sockaddr_from_str("[::5]:443"), "localhost5"},
+            {sockaddr_from_str("[::6]:443"), "localhost6"},
     };
 
     void SetUp() override {

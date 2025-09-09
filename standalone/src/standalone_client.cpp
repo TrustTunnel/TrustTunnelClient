@@ -260,7 +260,7 @@ static std::optional<VpnStandaloneClient::ListenerHelper> make_tun_listener_help
 
 static VpnStandaloneClient::ListenerHelper make_socks_listener_helper(const VpnStandaloneConfig::SocksListener &config) {
     VpnSocksListenerConfig cfg = {
-            .listen_address = socket_address_storage_from_string(config.address.c_str()),
+            .listen_address = sockaddr_from_str(config.address.c_str()),
             .username = config.username.c_str(),
             .password = config.password.c_str(),
     };

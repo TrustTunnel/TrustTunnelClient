@@ -88,7 +88,7 @@ struct VpnClientLive : public ::testing::Test {
     std::unique_ptr<ag::VpnClient> vpn = std::make_unique<ag::VpnClient>(this->parameters);
     ag::vpn_client::EndpointConnectionConfig connection_config = {
             .endpoint = ag::AutoVpnEndpoint{ag::VpnEndpoint{
-                    .address = ag::socket_address_storage_from_string("127.0.0.1:4433"),
+                    .address = ag::sockaddr_from_str("127.0.0.1:4433"),
                     .name = strdup("localhost"),
             }},
             .username = "premium",

@@ -74,7 +74,7 @@ TEST_F(PingTest, Single) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtx test_ctx = generate_test_ctx();
@@ -137,7 +137,7 @@ TEST_F(PingTest, Timeout) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i), .name = i});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i), .name = i});
     }
 
     PingInfo info = {
@@ -189,7 +189,7 @@ TEST_F(PingTest, Multiple) {
 
     std::vector<TestCtx> contexts;
     for (const auto &i : TEST_DATA) {
-        VpnEndpoint addr{.address = socket_address_storage_from_string(i.first), .name = i.first};
+        VpnEndpoint addr{.address = sockaddr_from_str(i.first), .name = i.first};
         TestCtx &test_ctx = contexts.emplace_back(generate_test_ctx());
         PingInfo info = {
                 .loop = test_ctx.loop,
@@ -249,7 +249,7 @@ TEST_F(PingTest, AllAddressesInvalid) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtx test_ctx = generate_test_ctx();
@@ -296,7 +296,7 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtx test_ctx = generate_test_ctx();
@@ -354,7 +354,7 @@ TEST_F(PingTest, DestroyInProgressPing) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtx test_ctx = generate_test_ctx();
@@ -415,7 +415,7 @@ TEST_F(PingTest, MultipleRounds) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtxRounds test_ctx = generate_test_ctx_rounds();
@@ -477,7 +477,7 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
 
     std::vector<VpnEndpoint> addresses;
     for (const auto &i : TEST_DATA) {
-        addresses.push_back(VpnEndpoint{.address = socket_address_storage_from_string(i.first), .name = i.first});
+        addresses.push_back(VpnEndpoint{.address = sockaddr_from_str(i.first), .name = i.first});
     }
 
     TestCtxRounds test_ctx = generate_test_ctx_rounds();

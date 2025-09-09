@@ -12,9 +12,9 @@
 using namespace ag;
 
 static const std::vector<VpnEndpoint> ENDPOINTS = {
-        {socket_address_storage_from_string("127.0.0.1:443"), "localhost1"},
-        {socket_address_storage_from_string("127.0.0.2:443"), "localhost2"},
-        {socket_address_storage_from_string("127.0.0.3:443"), "localhost3"},
+        {sockaddr_from_str("127.0.0.1:443"), "localhost1"},
+        {sockaddr_from_str("127.0.0.2:443"), "localhost2"},
+        {sockaddr_from_str("127.0.0.3:443"), "localhost3"},
 };
 
 struct TestUpstream : public ServerUpstream {
