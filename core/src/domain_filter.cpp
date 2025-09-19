@@ -171,9 +171,7 @@ DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
     if (!found) {
         const Uint8View addr = tag.addr.addr();
         ag::CidrRange addr_cidr(addr, addr.size() * 8);
-        found = std::any_of(m_cidr_ranges.begin(), m_cidr_ranges.upper_bound(addr_cidr), [&](const auto &range) {
-            return range.contains(addr_cidr);
-        });
+        found = m_cidr_ranges.includes(addr_cidr);
     }
 
     if (found) {
