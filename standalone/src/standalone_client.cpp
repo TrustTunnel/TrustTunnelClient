@@ -34,17 +34,10 @@ static std::atomic_bool keep_running{true};
 static std::condition_variable g_waiter;
 static std::mutex g_waiter_mutex;
 static VpnStandaloneClient *g_client;
-static std::unique_ptr<VpnOsTunnel> g_tunnel;
-static DeclPtr<X509_STORE, &X509_STORE_free> g_ca_store;
-#ifdef _WIN32
-    static HMODULE g_wintun;
-#endif
-
 
 static std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const VpnStandaloneConfig &config);
-static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback(const VpnStandaloneConfig &config);
+static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback();
 static std::function<void(VpnStateChangedEvent *)> get_state_changed_callback();
-static std::optional<VpnStandaloneClient::ListenerHelper> make_listener(const VpnStandaloneConfig &config);
 
 static void sighandler(int sig) {
     signal(SIGINT, SIG_DFL);
@@ -132,15 +125,9 @@ int main(int argc, char **argv) {
 
     VpnCallbacks callbacks = {
         .protect_handler = get_protect_socket_callback(config),
-        .verify_handler = get_verify_certificate_callback(config),
+        .verify_handler = get_verify_certificate_callback(),
         .state_changed_handler = get_state_changed_callback()
     };
-
-    auto listener = make_listener(config);
-    if (!listener) {
-        errlog(g_logger, "Failed to create listener helper");
-        return 1;
-    }
 
     g_client = new VpnStandaloneClient(std::move(config), std::move(callbacks));
 
@@ -149,7 +136,7 @@ int main(int argc, char **argv) {
         errlog(g_logger, "{}", res->str());
         return 1;
     }
-    res = g_client->connect(std::chrono::seconds(30), std::move(*listener));
+    res = g_client->connect(std::chrono::seconds(30), VpnStandaloneClient::AutoSetup{});
     if (res) {
         errlog(g_logger, "{}", res->str());
         return 1;
@@ -172,109 +159,8 @@ int main(int argc, char **argv) {
 
     g_client->disconnect();
     delete g_client;
-    if (g_tunnel) {
-        g_tunnel->deinit();
-    }
 
-#ifdef _WIN32
-    FreeLibrary(g_wintun);
-#endif
     return 0;
-}
-
-static std::optional<VpnStandaloneClient::ListenerHelper> make_tun_listener_helper(const VpnStandaloneConfig::TunListener &config, const std::vector<VpnStandaloneConfig::Endpoint> &endpoints, bool killswitch_enabled) {
-    std::vector<const char *> included_routes;
-    included_routes.reserve(config.included_routes.size());
-    for (const auto &route : config.included_routes) {
-        included_routes.emplace_back(route.c_str());
-    }
-
-    std::vector<std::string> complete_excluded_routes = config.excluded_routes;
-    for (const auto &endpoint : endpoints) {
-        auto result = ag::utils::split_host_port(endpoint.address);
-        if (result.has_error()) {
-            errlog(g_logger, "Failed to parse endpoint address: address={}, error={}", endpoint.address,
-                    result.error()->str());
-            return std::nullopt;
-        }
-        auto [host_view, port_view] = result.value();
-        complete_excluded_routes.emplace_back(host_view.data(), host_view.size());
-    }
-
-    std::vector<const char *> excluded_routes;
-    excluded_routes.reserve(complete_excluded_routes.size());
-    for (const auto &route : complete_excluded_routes) {
-        excluded_routes.emplace_back(route.c_str());
-    }
-
-    const VpnOsTunnelSettings *defaults = vpn_os_tunnel_settings_defaults();
-    VpnOsTunnelSettings tunnel_settings = {.ipv4_address = defaults->ipv4_address,
-            .ipv6_address = defaults->ipv6_address,
-            .included_routes = {.data = included_routes.data(), .size = uint32_t(included_routes.size())},
-            .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
-            .mtu = int(config.mtu_size),
-            .dns_servers = defaults->dns_servers,
-    };
-
-    g_tunnel = ag::make_vpn_tunnel();
-    if (g_tunnel == nullptr) {
-        errlog(g_logger, "Tunnel create error");
-        return std::nullopt;
-    }
-
-#ifdef _WIN32
-    g_wintun = LoadLibraryEx(
-            WINTUN_DLL_NAME.data(), nullptr, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    if (g_wintun == nullptr) {
-        errlog(g_logger, "Failed to load wintun: {}", ag::sys::strerror(GetLastError()));
-        return std::nullopt;
-    }
-    VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
-    win_settings.wintun_lib = g_wintun;
-    win_settings.block_inbound = killswitch_enabled;
-    VpnError res = g_tunnel->init(&tunnel_settings, &win_settings);
-#else
-    (void) killswitch_enabled; // Used only in win
-# ifdef __linux__
-    VpnError res = g_tunnel->init(&tunnel_settings, config.netns);
-# else
-    VpnError res = g_tunnel->init(&tunnel_settings);
-# endif
-#endif
-    if (res.code != 0) {
-        errlog(g_logger, "Failed to initialize tunnel: {}", res.text);
-        std::exchange(g_tunnel, nullptr)->deinit();
-        return std::nullopt;
-    }
-
-    VpnTunListenerConfig listener_config = {
-            .fd = g_tunnel->get_fd(),
-#ifdef _WIN32
-            .tunnel = g_tunnel.get(),
-#endif
-            .mtu_size = config.mtu_size,
-    };
-
-    return VpnStandaloneClient::ListenerHelper(listener_config);
-}
-
-static VpnStandaloneClient::ListenerHelper make_socks_listener_helper(const VpnStandaloneConfig::SocksListener &config) {
-    VpnSocksListenerConfig cfg = {
-            .listen_address = sockaddr_from_str(config.address.c_str()),
-            .username = config.username.c_str(),
-            .password = config.password.c_str(),
-    };
-    return VpnStandaloneClient::ListenerHelper(cfg);
-}
-
-static std::optional<VpnStandaloneClient::ListenerHelper> make_listener(const VpnStandaloneConfig &config) {
-    if (const auto *tun = std::get_if<VpnStandaloneConfig::TunListener>(&config.listener)) {
-        return make_tun_listener_helper(*tun, config.location.endpoints, config.killswitch_enabled);
-    }
-    if (const auto *socks = std::get_if<VpnStandaloneConfig::SocksListener>(&config.listener)) {
-        return make_socks_listener_helper(*socks);
-    }
-    return std::nullopt;
 }
 
 std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const VpnStandaloneConfig &config) {
@@ -318,36 +204,9 @@ std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const VpnS
     };
 }
 
-static DeclPtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view pem_certificate) {
-    DeclPtr<BIO, &BIO_free> bio {BIO_new_mem_buf(pem_certificate.data(), (long) pem_certificate.size())};
-
-    DeclPtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
-    if (cert == nullptr) {
-        return nullptr;
-    }
-
-    DeclPtr<X509_STORE, &X509_STORE_free> store{tls_create_ca_store()};
-    if (store == nullptr) {
-        return nullptr;
-    }
-
-    X509_STORE_add_cert(store.get(), cert.get());
-
-    return store;
-}
-
-static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback(const VpnStandaloneConfig &config) {
-    if (config.location.skip_verification) {
-        return [](VpnVerifyCertificateEvent *event) {
-            event->result = VPN_SKIP_VERIFICATION_FLAG;
-        };
-    }
-
-    g_ca_store = config.location.certificate
-                            ? load_certificate(config.location.certificate.value())
-                            : nullptr;
+static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback() {
     return [](VpnVerifyCertificateEvent *event) {
-        const char *err = tls_verify_cert(event->cert, event->chain, g_ca_store.get());
+        const char *err = tls_verify_cert(event->cert, event->chain, nullptr);
         if (err == nullptr) {
             tracelog(g_logger, "Certificate verified successfully");
             event->result = 0;

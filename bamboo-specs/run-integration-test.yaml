@@ -47,6 +47,8 @@ Build binaries:
             export OUTPUT_DIR=${PWD}/output
             export SOURCE_DIR=${PWD}
 
+            trap "rm -rf ${SOURCE_DIR}/vpn-libs ${SOURCE_DIR}/vpn-libs-endpoint" EXIT
+
             export CONAN_REPO_URL=${bamboo.conanRepoUrl}
             vpn-libs/integration-tests/build_client.sh
             vpn-libs/integration-tests/build_endpoint.sh
@@ -171,14 +173,6 @@ Run live test:
             python3 -m pip install conan --upgrade
 
             conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
-        description: conan remote
-    - script:
-        interpreter: SHELL
-        scripts:
-          - |-
-            #!/bin/bash
-
-            set -x -e
 
             SRC_ROOT=${PWD}
             mkdir -p /build_no_asan && cd /build_no_asan

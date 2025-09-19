@@ -86,19 +86,21 @@ endif (APPLE)
 
 ExternalProject_Add(setup_wizard
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/setup_wizard
-        BUILD_IN_SOURCE TRUE
         BUILD_ALWAYS TRUE
         UPDATE_COMMAND ""
         PATCH_COMMAND ""
         CONFIGURE_COMMAND ""
-        BUILD_COMMAND ${CMAKE_COMMAND} -E env cargo build ${CARGO_BUILD_TYPE} ${CARGO_TARGET} --bin setup_wizard
+        BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=<BINARY_DIR> cargo build
+        BUILD_COMMAND     --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
+        BUILD_COMMAND     --bin setup_wizard
         TEST_COMMAND ""
-        INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/setup_wizard/target/${TARGET_SUBDIR}/${WIZARD_EXE_NAME} ${CMAKE_CURRENT_BINARY_DIR}
+        INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${TARGET_SUBDIR}/${WIZARD_EXE_NAME} ${CMAKE_CURRENT_BINARY_DIR}
         )
 
 add_custom_target(run_setup_wizard)
 add_custom_command(
         TARGET run_setup_wizard
+        POST_BUILD
         COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${WIZARD_EXE_NAME}
         USES_TERMINAL TRUE
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}

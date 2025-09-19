@@ -694,8 +694,11 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     U8View endpoint_data = conn->relay->address.sa_family
             ? Uint8View{conn->relay->additional_data.data, conn->relay->additional_data.size}
             : Uint8View{conn->endpoint->additional_data.data, conn->endpoint->additional_data.size};
+    auto client_random_data = conn->relay->address.ss_family
+            ? Uint8View{conn->relay->tls_client_random.data, conn->relay->tls_client_random.size}
+            : Uint8View{conn->endpoint->tls_client_random.data, conn->endpoint->tls_client_random.size};
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
-            conn->use_quic ? MSPT_QUICHE : MSPT_TLS, endpoint_data);
+            conn->use_quic ? MSPT_QUICHE : MSPT_TLS, endpoint_data, client_random_data);
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));
         log_conn(ping, conn, dbg, "Failed to create an SSL object: {}", std::get<std::string>(ssl_result));

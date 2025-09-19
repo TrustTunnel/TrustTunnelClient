@@ -47,10 +47,10 @@ def on_rm_tree_error(func, path, _):
 with open(os.path.join(project_dir, "conanfile.py"), "r") as file:
     for line in map(str.strip, file.readlines()):
         if line.startswith('self.requires("native_libs_common/') \
-                and ('@adguard_team/native_libs_common"' in line):
+                and ('@adguard/oss"' in line):
             nlc_versions.append(line.split('@')[0].split('/')[1])
         elif line.startswith('self.requires("dns-libs/') \
-                and ('@adguard_team/native_libs_common"' in line):
+                and ('@adguard/oss"' in line):
             dns_libs_version = line.split('@')[0].split('/')[1]
 
 dns_libs_dir = os.path.join(work_dir, dns_libs_dir_name)
@@ -59,7 +59,7 @@ os.chdir(dns_libs_dir)
 with open("conanfile.py", "r") as file:
     for line in map(str.strip, file.readlines()):
         if line.startswith('self.requires("native_libs_common/') \
-                and ('@adguard_team/native_libs_common"' in line):
+                and ('@adguard/oss"' in line):
             nlc_versions.append(line.split('@')[0].split('/')[1])
 
 subprocess.run(["python", os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)

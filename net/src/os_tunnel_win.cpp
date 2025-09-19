@@ -300,7 +300,7 @@ static DWORD set_dns_via_registry(std::string_view dns_list, std::string_view if
     } else {
         interfaces_path = WINREG_INTERFACES_PATH_V4;
     }
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, interfaces_path.data(), 0, KEY_ALL_ACCESS, &current_key)
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, interfaces_path.data(), 0, KEY_ALL_ACCESS, &current_key)
             == ERROR_SUCCESS) {
         // set dns for specified interface
         error = RegSetKeyValueA(current_key, if_guid.data(), "NameServer", REG_SZ, dns_list.data(), dns_list.size());

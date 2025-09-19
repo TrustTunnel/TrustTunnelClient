@@ -23,10 +23,11 @@ struct VpnStandaloneConfig {
         std::string username;
         std::string password;
         std::vector<Endpoint> endpoints;
-        bool skip_verification = false;
-        std::optional<std::string> certificate;
+        ag::UniquePtr<X509_STORE, &X509_STORE_free> ca_store;
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
         std::optional<ag::VpnUpstreamProtocol> upstream_fallback_protocol;
+        std::string client_random;
+        bool skip_verification = false;
         bool anti_dpi = false;
         bool has_ipv6 = false;
     };

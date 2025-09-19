@@ -131,6 +131,9 @@ through the endpoint with unreachable code."#)}
         pub username: String,
         #{doc("Password for authorization")}
         pub password: String,
+        #{doc("TLS client random prefix (hex string)")}
+        #[serde(default)]
+        pub client_random: String,
         #{doc(r#"Skip the endpoint certificate verification?
 That is, any certificate is accepted with this one set to true."#)}
         #[serde(default)]
@@ -384,6 +387,12 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                     .into()
             })
             .unwrap(),
+        client_random: endpoint_config.as_ref()
+            .and_then(|x| {
+                x.client_random.clone().into()
+            })
+            .or(opt_field!(template, client_random).cloned())
+            .unwrap_or_default(),
         skip_verification: endpoint_config.as_ref()
             .and_then(|x| {
                 x.skip_verification.into()
@@ -543,6 +552,8 @@ pub struct EndpointConfig {
     username: String,
     #[serde(default)]
     password: String,
+    #[serde(default)]
+    client_random: String,
     #[serde(default)]
     skip_verification: bool,
     #[serde(default)]

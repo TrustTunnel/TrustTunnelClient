@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:testapp/flutter_callbacks_impl.dart';
 import 'package:testapp/native_communication.dart';
 import 'package:flutter_highlight/themes/gruvbox-dark.dart';
+import 'dart:io' show Platform;
 
 import 'config.dart';
 
@@ -171,6 +172,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<bool> ensureNotificationsPermissions(BuildContext context) async {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return true;
+    }
     // Check the status of the notification permission.
     final status = await Permission.notification.status;
 

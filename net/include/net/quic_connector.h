@@ -46,6 +46,7 @@ struct QuicConnectorParameters {
     VpnEventLoop *ev_loop;         // event loop
     QuicConnectorHandler handler;  // events handler
     SocketManager *socket_manager; // socket manager
+    std::string log_prefix;        // prefix to the main log message
 };
 
 struct QuicConnectorConnectParameters {
@@ -80,6 +81,11 @@ VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorCon
  * Return `nullopt` if not ready or if the result object has already been returned once.
  */
 std::optional<QuicConnectorResult> quic_connector_get_result(QuicConnector *connector);
+
+/**
+ * Return the log prefix.
+ */
+std::string quic_connector_get_log_prefix(QuicConnector *connector);
 
 void quic_connector_destroy(QuicConnector *connector);
 

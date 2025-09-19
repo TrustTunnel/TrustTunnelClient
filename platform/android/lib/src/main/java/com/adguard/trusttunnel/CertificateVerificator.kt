@@ -12,9 +12,7 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
-class CertificateVerificator (
-    val certificate: String?
-) {
+class CertificateVerificator {
     private val certificateFactory: CertificateFactory
     private val trustManagerFactory: TrustManagerFactory
     companion object {
@@ -23,13 +21,8 @@ class CertificateVerificator (
     init {
         try {
             this.certificateFactory = CertificateFactory.getInstance("X.509")
-            val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
+            val keyStore = KeyStore.getInstance("AndroidCAStore")
             keyStore.load(null, null)
-
-            if (certificate != null) {
-                val ca = certificateFactory.generateCertificate(certificate.byteInputStream())
-                keyStore.setCertificateEntry("TrustTunnel", ca)
-            }
 
             val tmfAlgorithm = TrustManagerFactory.getDefaultAlgorithm()
             this.trustManagerFactory = TrustManagerFactory.getInstance(tmfAlgorithm)

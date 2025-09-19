@@ -21,14 +21,14 @@ class VpnClient (
     private var nativePtr: Long = 0
     private val sync = Any()
 
-    fun start(vpnTunInterface: ParcelFileDescriptor?, mtuSize: Long): Boolean = synchronized(sync) {
+    fun start(vpnTunInterface: ParcelFileDescriptor?): Boolean = synchronized(sync) {
         nativePtr = createNative(config)
         if (nativePtr.toInt() == 0) {
             LOG.error("Failed to create a native client")
             return false
         }
 
-        return startNative(nativePtr, vpnTunInterface?.detachFd() ?: -1, mtuSize)
+        return startNative(nativePtr, vpnTunInterface?.detachFd() ?: -1)
     }
 
     fun stop() = synchronized(sync) {
@@ -70,7 +70,7 @@ class VpnClient (
 
     // Native methods
     private external fun createNative(config: String): Long;
-    private external fun startNative(nativePtr: Long, tunFd: Int, mtuSize: Long): Boolean;
+    private external fun startNative(nativePtr: Long, tunFd: Int): Boolean;
     private external fun stopNative(nativePtr: Long);
     private external fun notifyNetworkChangeNative(nativePtr: Long, available: Boolean);
     private external fun setSystemDnsServersNative(servers: Array<String>, bootstraps: Array<String>?): Boolean

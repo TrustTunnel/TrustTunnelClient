@@ -1,0 +1,5 @@
+framework module VpnClientFramework {
+    umbrella header "VpnClient.h"
+    export *
+    module * { export * }
+}

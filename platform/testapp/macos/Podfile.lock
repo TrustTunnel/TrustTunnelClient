@@ -1,0 +1,21 @@
+PODS:
+  - FlutterMacOS (1.0.0)
+  - TrustTunnel (1.0.0)
+
+DEPENDENCIES:
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - TrustTunnel (from `../../apple`)
+
+EXTERNAL SOURCES:
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  TrustTunnel:
+    :path: "../../apple"
+
+SPEC CHECKSUMS:
+  FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
+  TrustTunnel: 3c5b39a7e794ef552fb84cddd5cab54162567eb8
+
+PODFILE CHECKSUM: db0496beddc3debbf845f172a85d9f238dc11a72
+
+COCOAPODS: 1.16.2

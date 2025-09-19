@@ -71,6 +71,8 @@ username = ""
 {}
 password = ""
 {}
+client_random = ""
+{}
 skip_verification = false
 {}
 certificate = ""
@@ -88,6 +90,7 @@ anti_dpi = false
     Endpoint::default_has_ipv6(),
     Endpoint::doc_username().to_toml_comment(),
     Endpoint::doc_password().to_toml_comment(),
+    Endpoint::doc_client_random().to_toml_comment(),
     Endpoint::doc_skip_verification().to_toml_comment(),
     Endpoint::doc_certificate().to_toml_comment(),
     Endpoint::doc_upstream_protocol().to_toml_comment(),

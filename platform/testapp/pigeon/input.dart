@@ -6,6 +6,11 @@ import 'package:pigeon/pigeon.dart';
   kotlinOut:
   'android/app/src/main/kotlin/com/adguard/testapp/NativeCommunication.kt',
   kotlinOptions: KotlinOptions(),
+  swiftOut: 'swift_common/generated/NativeCommunication.swift',
+  swiftOptions: SwiftOptions(),
+  cppHeaderOut: 'windows/runner/pigeon/native_communication.h',
+  cppSourceOut: 'windows/runner/pigeon/native_communication.cpp',
+  cppOptions: CppOptions(),
   dartPackageName: 'com_adguard_testapp',
 ))
 

@@ -4,6 +4,10 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+#include "native_vpn_impl.h"
+
+#define WM_RUN_ON_UI (WM_APP + 1)
+
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -36,6 +40,11 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
 
+  auto *messanger = flutter_controller_->engine()->messenger();
+  FlutterCallbacks callbacks(messanger);
+  native_interface_ = std::make_unique<NativeVpnImpl>(this, std::move(callbacks));
+  NativeVpnInterface::SetUp(messanger, native_interface_.get());
+
   return true;
 }
 
@@ -43,6 +52,7 @@ void FlutterWindow::OnDestroy() {
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
+  native_interface_ = nullptr;
 
   Win32Window::OnDestroy();
 }
@@ -65,7 +75,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_RUN_ON_UI:
+      auto *task = reinterpret_cast<std::function<void()>*>(wparam);
+      (*task)();
+      delete task;
+      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+void FlutterWindow::RunOnUIThread(std::function<void()> task) {
+  auto *heap_task = new std::function<void()>(std::move(task));
+  PostMessageW(GetHandle(), WM_RUN_ON_UI,
+               reinterpret_cast<WPARAM>(heap_task), 0);
 }

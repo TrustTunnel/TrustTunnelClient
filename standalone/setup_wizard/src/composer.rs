@@ -54,6 +54,7 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Document {
     endpoint["has_ipv6"] = value(settings.endpoint.has_ipv6);
     endpoint["username"] = value(&settings.endpoint.username);
     endpoint["password"] = value(&settings.endpoint.password);
+    endpoint["client_random"] = value(&settings.endpoint.client_random);
     endpoint["skip_verification"] = value(settings.endpoint.skip_verification);
     endpoint["anti_dpi"] = value(settings.endpoint.anti_dpi);
     endpoint["certificate"] = value(

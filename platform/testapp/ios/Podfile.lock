@@ -1,0 +1,27 @@
+PODS:
+  - Flutter (1.0.0)
+  - permission_handler_apple (9.3.0):
+    - Flutter
+  - TrustTunnel (1.0.0)
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - TrustTunnel (from `../../apple`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  permission_handler_apple:
+    :path: ".symlinks/plugins/permission_handler_apple/ios"
+  TrustTunnel:
+    :path: "../../apple"
+
+SPEC CHECKSUMS:
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
+  TrustTunnel: 3c5b39a7e794ef552fb84cddd5cab54162567eb8
+
+PODFILE CHECKSUM: b498ada625b51cffc0605a6d27e05b7d4855b1b5
+
+COCOAPODS: 1.16.2

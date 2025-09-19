@@ -155,21 +155,15 @@ Java_com_adguard_trusttunnel_VpnClient_createNative(JNIEnv *env, jobject thiz, j
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_adguard_trusttunnel_VpnClient_startNative(JNIEnv *env, jobject thiz, jlong native_ptr, jint tun_fd, jlong mtu_size) {
+Java_com_adguard_trusttunnel_VpnClient_startNative(JNIEnv *env, jobject thiz, jlong native_ptr, jint tun_fd) {
     if (!native_ptr) {
         errlog(g_logger, "Nothing to start, create VpnClient first");
         return (jboolean) false;
     }
     auto ctx = (VpnCtx *) native_ptr;
 
-    ag::VpnTunListenerConfig listener_config = {
-            .fd = tun_fd,
-            .mtu_size = (uint32_t) (mtu_size > 0 ? mtu_size : 0),
-    };
-
-    auto listener = ag::VpnStandaloneClient::ListenerHelper(std::move(listener_config));
-
-    auto error = ctx->get_standalone().connect(std::chrono::seconds(10), std::move(listener));
+    auto error = ctx->get_standalone().connect(std::chrono::seconds(10),
+                                                ag::VpnStandaloneClient::UseTunnelFd{ag::AutoFd{tun_fd}});
     if (error) {
         errlog(g_logger, "Failed to connect: {}", error->pretty_str());
         return (jboolean) false;

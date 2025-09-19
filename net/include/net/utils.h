@@ -50,6 +50,7 @@ struct VpnEndpoint {
     const char *name;         // endpoint host name (used, for example, for TLS handshake)
     const char *remote_id;    // if not NULL or empty, used for server TLS certificate verification instead of `name`
     AG_ARRAY_OF(uint8_t) additional_data; // additional data about the endpoint
+    AG_ARRAY_OF(uint8_t) tls_client_random; // custom client random
     bool has_ipv6; // Whether IPv6 traffic can be routed through the endpoint
     VpnUpstreamProtocol preferred_protocol; // Protocol to use for the endpoint connection.
                                             // @see `VpnUpstreamConfig.main_protocol` for full description.
@@ -60,6 +61,7 @@ typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
 struct VpnRelay {
     SocketAddressStorage address; // relay address
     AG_ARRAY_OF(uint8_t) additional_data; // additional data about the relay
+    AG_ARRAY_OF(uint8_t) tls_client_random; // custom client random
 };
 
 typedef AG_ARRAY_OF(VpnRelay) VpnRelays;
@@ -272,7 +274,8 @@ void dump_session_cache(const std::string &path);
 void load_session_cache(const std::string &path);
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
-        ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{});
+        ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},
+        ag::Uint8View tls_client_random = ag::U8View{});
 
 /**
  * Return name of the group function used in key exchange from OpenSSL NID

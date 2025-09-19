@@ -1,10 +1,13 @@
 #include "net/tls.h"
 #include "vpn/utils.h"
 
+#include <magic_enum/magic_enum.hpp>
+
 #ifndef _WIN32
 #include <netinet/in.h>
 #else
 #include <winsock2.h>
+#include "wincrypt_helper.h"
 #endif
 
 #if defined __APPLE__ && defined __MACH__
@@ -223,7 +226,7 @@ bool tls_verify_cert_ip(X509 *cert, const char *ip) {
     return 1 == X509_check_ip_asc(cert, ip, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
 }
 
-const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *orig_store) {
+static const char *tls_verify_cert_0(X509 *cert, STACK_OF(X509) *chain, X509_STORE *orig_store) {
     const char *err = nullptr;
 
     X509_STORE *store = orig_store;
@@ -232,9 +235,7 @@ const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *orig_
     }
     X509_STORE_CTX *ctx = X509_STORE_CTX_new();
 
-    if (0
-            == X509_STORE_CTX_init(
-                    ctx, store, cert, chain)) {
+    if (0 == X509_STORE_CTX_init(ctx, store, cert, chain)) {
         err = "Can't verify certificate chain: can't initialize STORE_CTX";
         goto finish;
     }
@@ -254,6 +255,27 @@ finish:
     }
     return err;
 }
+
+#ifndef _WIN32
+
+const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *store) {
+    return tls_verify_cert_0(cert, chain, store);
+}
+
+#else // _WIN32
+
+const char *tls_verify_cert(X509 *cert, STACK_OF(X509) *chain, X509_STORE *store) {
+    if (store) {
+        return tls_verify_cert_0(cert, chain, store);
+    }
+    WinCryptValidateError r = wcrypt_validate_cert(cert, chain);
+    if (r == WCRYPT_E_OK) {
+        return nullptr;
+    }
+    return magic_enum::enum_name(r).data();
+}
+
+#endif // _WIN32
 
 typedef enum {
     CT_HANDSHAKE = 22,

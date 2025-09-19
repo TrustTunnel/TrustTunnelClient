@@ -71,6 +71,8 @@ addresses = ["1.2.3.4:443"]
 username = "test"
 # Password for authorization
 password = "test"
+# TLS client random prefix (hex string)
+client_random = ""
 # Skip the endpoint certificate verification?
 # That is, any certificate is accepted with this one set to true.
 skip_verification = false

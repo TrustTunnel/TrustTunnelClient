@@ -154,6 +154,10 @@ std::optional<ag::QuicConnectorResult> ag::quic_connector_get_result(ag::QuicCon
     return std::move(connector->result);
 }
 
+std::string ag::quic_connector_get_log_prefix(ag::QuicConnector *connector) {
+    return connector->parameters.log_prefix;
+}
+
 void drive_connection(ag::QuicConnector *self) {
     int64_t now_ns = ag::get_time_monotonic_nanos();
     int64_t timeout_ns = self->deadline_ns - now_ns;

@@ -493,10 +493,11 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
         return false;
     }
 
-    ag::U8View endpoint_data{config->endpoint->additional_data.data, config->endpoint->additional_data.size};
+    U8View endpoint_data{config->endpoint->additional_data.data, config->endpoint->additional_data.size};
+    U8View client_random_data{config->endpoint->tls_client_random.data, config->endpoint->tls_client_random.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)},
-                config->endpoint->name, /*quic*/ MSPT_TLS, endpoint_data);
+                config->endpoint->name, /*quic*/ MSPT_TLS, endpoint_data, client_random_data);
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

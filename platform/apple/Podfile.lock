@@ -1,0 +1,25 @@
+PODS:
+  - NetTime (0.2.3)
+  - TOMLDecoder (0.1.6):
+    - NetTime (~> 0.2.2)
+    - TOMLDeserializer (~> 0.2.4)
+  - TOMLDeserializer (0.2.5):
+    - NetTime (~> 0.2.2)
+
+DEPENDENCIES:
+  - TOMLDecoder
+
+SPEC REPOS:
+  trunk:
+    - NetTime
+    - TOMLDecoder
+    - TOMLDeserializer
+
+SPEC CHECKSUMS:
+  NetTime: 04390c496f42e3fb6d05247db0396f55e93fdfaa
+  TOMLDecoder: 11cad7f539bbbba8f01eb357f2ed8bd6a6d313d2
+  TOMLDeserializer: 75051dec1e61db37564d44c3e5dc2b75d0ed916e
+
+PODFILE CHECKSUM: f28cae35e552353cc4b6d9bb94aea20b40dc1e55
+
+COCOAPODS: 1.16.2

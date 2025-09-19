@@ -11,7 +11,8 @@
 
 static ag::Logger g_logger{"UDP_SOCKET"};
 
-#define log_sock(s_, lvl_, fmt_, ...) lvl_##log(g_logger, "[{}] " fmt_, (s_)->log_id, ##__VA_ARGS__)
+#define log_sock(s_, lvl_, fmt_, ...)                                                                                  \
+    lvl_##log(g_logger, "[{}] [{}] " fmt_, (s_)->parameters.log_prefix, (s_)->log_id, ##__VA_ARGS__)
 
 static std::atomic_int g_next_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
