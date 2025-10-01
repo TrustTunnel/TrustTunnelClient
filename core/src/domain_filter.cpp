@@ -199,8 +199,7 @@ void DomainFilter::add_exclusion_suspect(const SocketAddress &addr_, std::chrono
     addr.set_port(0);
     log_filter(this, dbg, "{} / {}", addr.host_str(/*ipv6_brackets=*/true), ttl);
 
-    // @todo: fix TTL reduction caused by overwriting it by an entry with a smaller TTL
-    m_exclusion_suspects.insert(addr, 0, ttl);
+    m_exclusion_suspects.insert(addr, 0, ttl, /*preserve_longer_timeout=*/true);
 }
 
 std::vector<std::string_view> DomainFilter::get_resolvable_exclusions() const {
