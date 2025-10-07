@@ -10,6 +10,7 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
+#include "common/move_only_function.h"
 #include "common/utils.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
@@ -85,7 +86,7 @@ struct Vpn {
     void stop_pinging();
     void disconnect();
     bool run_event_loop();
-    void submit(std::function<void()> &&func, std::optional<Millis> defer = std::nullopt);
+    void submit(ag::MoveOnlyFunction<void()> &&func, std::optional<Millis> defer = std::nullopt);
     void complete_postponed_requests();
     void reset_bypassed_connections();
 

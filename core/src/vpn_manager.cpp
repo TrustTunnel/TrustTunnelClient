@@ -9,6 +9,7 @@
 
 #include <magic_enum/magic_enum.hpp>
 
+#include "common/move_only_function.h"
 #include "socks_listener.h"
 #include "tun_device_listener.h"
 #include "vpn/internal/domain_filter.h"
@@ -180,15 +181,15 @@ bool Vpn::run_event_loop() {
     return true;
 }
 
-void Vpn::submit(std::function<void()> &&func, std::optional<Millis> defer) {
+void Vpn::submit(ag::MoveOnlyFunction<void()> &&func, std::optional<Millis> defer) {
     VpnEventLoopTask task = {
-            new std::function(std::move(func)),
+            new ag::MoveOnlyFunction<void()>(std::move(func)),
             [](void *arg, TaskId) {
-                auto *func = (std::function<void()> *) arg;
+                auto *func = (ag::MoveOnlyFunction<void()> *) arg;
                 (*func)();
             },
             [](void *arg) {
-                delete (std::function<void()> *) arg;
+                delete (ag::MoveOnlyFunction<void()> *) arg;
             },
     };
 
@@ -675,14 +676,14 @@ VpnDnsUpstreamValidationStatus vpn_validate_dns_upstream(const char *address) {
 bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
     std::unique_lock l(vpn->stop_guard);
 
-    auto packets_holder = std::make_shared<VpnPacketsHolder>(packets);
+    auto packets_holder = VpnPacketsHolder{packets};
 
     if (!vpn->ev_loop) {
         return false;
     }
 
     vpn->submit([vpn, packets_holder = std::move(packets_holder)]() mutable {
-        auto packets = packets_holder->release();
+        auto packets = packets_holder.release();
         vpn->client.process_client_packets({packets.data(), (uint32_t) packets.size()});
     });
 
