@@ -90,7 +90,7 @@ tunexec curl -6 -sS https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
-tunexec curl -L -O -sS 'https://github.com/spacemeowx2/100mb/raw/master/100mb.bin' --max-time 120 >/dev/null
+tunexec curl -L -O -sS 'https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin' --max-time 120 >/dev/null
 check_error
 
 echo "Check ICMP - ping 1.1.1.1 ..."

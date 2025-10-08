@@ -89,7 +89,7 @@ curl -sS -x socks5h://127.0.0.1:$SOCKS_PORT https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
-curl -sS -x socks5://127.0.0.1:$SOCKS_PORT -L -O 'https://github.com/spacemeowx2/100mb/raw/master/100mb.bin' --max-time 120 >/dev/null
+curl -sS -x socks5://127.0.0.1:$SOCKS_PORT -L -O 'https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin' --max-time 120 >/dev/null
 check_error
 
 if [ $has_error -gt 0 ]
