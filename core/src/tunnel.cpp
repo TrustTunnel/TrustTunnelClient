@@ -1656,6 +1656,8 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             break;
         }
 
+        do_health_check(upstream);
+
         if (conn->flags.test(CONNF_LOOKINGUP_DOMAIN)) {
             bool migrate_to_another_upstream = false;
             AfterLookuperAction alua = pass_through_lookuper(this, conn, DLUPD_OUTGOING, event->data, event->length);
@@ -1778,7 +1780,6 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 log_conn(this, conn, dbg, "Failed to send data from client");
                 // connection will be closed inside listener
             }
-            do_health_check(upstream);
             break;
         }
         case CONNS_CONNECTED_MIGRATING: {
