@@ -2,12 +2,13 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     kotlin("plugin.serialization") version "2.2.0"
+    id("maven-publish")
 }
 
 android {
     namespace = "com.adguard.trusttunnel"
     compileSdk = 35
-    ndkVersion = "29.0.13599879"
+    ndkVersion = "28.1.13356709"
 
     defaultConfig {
         minSdk = 26
@@ -59,4 +60,18 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+
+                groupId = "com.adguard.trusttunnel"
+                artifactId = "trusttunnel"
+                version = "1.0-SNAPSHOT"
+            }
+        }
+    }
 }
