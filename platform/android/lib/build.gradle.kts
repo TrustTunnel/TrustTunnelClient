@@ -5,6 +5,8 @@ plugins {
     id("maven-publish")
 }
 
+version = "0.99.13"
+
 android {
     namespace = "com.adguard.trusttunnel"
     compileSdk = 35
@@ -67,10 +69,22 @@ afterEvaluate {
         publications {
             create<MavenPublication>("release") {
                 from(components["release"])
-
                 groupId = "com.adguard.trusttunnel"
-                artifactId = "trusttunnel"
-                version = "1.0-SNAPSHOT"
+                artifactId = "trusttunnel-android"
+            }
+        }
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/AdguardTeam/VpnLibs")
+                credentials {
+                    username = providers.gradleProperty("gpr.user")
+                        .orElse(providers.environmentVariable("USERNAME"))
+                        .orNull
+                    password = providers.gradleProperty("gpr.key")
+                        .orElse(providers.environmentVariable("TOKEN"))
+                        .orNull
+                }
             }
         }
     }
