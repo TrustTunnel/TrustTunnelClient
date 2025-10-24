@@ -29,21 +29,21 @@ bool hkdf_expand_label(std::span<uint8_t> dest, std::span<const uint8_t> secret,
         std::span<const uint8_t> context) {
 
     std::string full_label = std::string("tls13 ") + label.data();
-    std::basic_string<uint8_t> info;
+    Uint8Vector info;
     // 2 first bytes store out key length
     info.push_back((uint8_t) (dest.size() >> CHAR_BIT));
     info.push_back((uint8_t) dest.size());
     // 3rd byte stores label length
     info.push_back((uint8_t) full_label.size());
-    info.append((uint8_t *) full_label.c_str());
+    info.insert(info.end(), full_label.begin(), full_label.end());
     // Context length
     info.push_back((uint8_t) context.size());
-    info.append(context.data(), context.size());
+    info.insert(info.end(), context.begin(), context.end());
 
     ngtcp2_crypto_ctx ctx;
     ngtcp2_crypto_ctx_initial(&ctx);
     return ngtcp2_crypto_hkdf_expand(dest.data(), dest.size(), &ctx.md, secret.data(), secret.size(),
-                   (uint8_t *) info.data(), info.size()) == 0;
+                   info.data(), info.size()) == 0;
 }
 
 }  // namespace ag::tls13_utils
