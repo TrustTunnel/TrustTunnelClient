@@ -89,11 +89,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = synchronized(SYNC) {
-        if (state == State.Stopped) {
-            LOG.error("VPN service has been already stopped, can't do anything with it")
-            return START_NOT_STICKY
-        }
-
         if (intent == null) {
             LOG.info("Received a null intent, doing nothing")
             stopSelf()
