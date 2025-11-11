@@ -53,7 +53,7 @@ update_apple_version() {
   local old_version=$2
 
   pushd platform/apple/
-    local pbxproj_file="TrustTunnel.xcodeproj/project.pbxproj"
+    local pbxproj_file="TrustTunnelClient.xcodeproj/project.pbxproj"
     sed -i -e "s/CURRENT_PROJECT_VERSION = ${old_version}/CURRENT_PROJECT_VERSION = ${new_version}/" ${pbxproj_file}
     sed -i -e "s/DYLIB_CURRENT_VERSION = ${old_version}/DYLIB_CURRENT_VERSION = ${new_version}/" ${pbxproj_file}
     sed -i -e "s/MARKETING_VERSION = ${old_version}/MARKETING_VERSION = ${new_version}/" ${pbxproj_file}
@@ -63,7 +63,7 @@ update_apple_version() {
     local new_part="VERSION ${new_version}"
     sed -i -e "s/${old_part}/${new_part}/" "${vpn_client_cmake}"
 
-    local spec_file=TrustTunnel.podspec
+    local spec_file="TrustTunnelClient.podspec"
     local old_part="s.version      = \"${old_version}\""
     local new_part="s.version      = \"${new_version}\""
     sed -i -e "s/${old_part}/${new_part}/" "${spec_file}"
@@ -111,4 +111,7 @@ echo "Version increment completed successfully!"
 echo "Updated files:"
 echo "  - conandata.yml"
 echo "  - platform/android/lib/build.gradle.kts"
+echo "  - platform/apple/VpnClient/CMakeLists.txt"
+echo "  - platform/apple/TrustTunnelClient.xcodeproj/project.pbxproj"
+echo "  - platform/apple/TrustTunnelClient.podspec"
 echo "  - CHANGELOG.md"

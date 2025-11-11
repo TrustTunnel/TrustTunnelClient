@@ -45,6 +45,9 @@ Increment version:
             git add conandata.yml
             git add CHANGELOG.md
             git add platform/android/lib/build.gradle.kts
+            git add platform/apple/VpnClient/CMakeLists.txt
+            git add platform/apple/TrustTunnelClient.xcodeproj/project.pbxproj
+            git add platform/apple/TrustTunnelClient.podspec
             git commit -m "skipci: Automatic version increment by Bamboo"
             git push
 
