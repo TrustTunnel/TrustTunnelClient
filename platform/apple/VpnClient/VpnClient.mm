@@ -148,7 +148,7 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 
 @interface VpnClient () {
     std::unique_ptr<ag::VpnStandaloneClient> _native_client;
-    std::unique_ptr<utils::NetworkMonitor> _network_monitor;
+    std::unique_ptr<ag::utils::NetworkMonitor> _network_monitor;
     NEPacketTunnelFlow *_tunnelFlow;
     id _readPacketsHandler;
 }
@@ -224,7 +224,7 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
         };
         self->_native_client = std::make_unique<ag::VpnStandaloneClient>(std::move(*standalone_config), std::move(callbacks));
         __weak typeof(self) weakSelf = self;
-        self->_network_monitor = utils::create_network_monitor(
+        self->_network_monitor = ag::utils::create_network_monitor(
             [weakSelf](const std::string &if_name, bool is_connected) {
                 __strong typeof(self) strongSelf = weakSelf;
                 uint32_t if_index = if_nametoindex(if_name.c_str());
