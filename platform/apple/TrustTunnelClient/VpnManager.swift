@@ -26,6 +26,7 @@ func convertVpnState(_ status: NEVPNStatus) -> Int {
 }
 
 public final class VpnManager {
+    private var queue: DispatchQueue
     private var vpnManager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
     private let stateChangeCallback: (Int) -> Void
@@ -33,21 +34,11 @@ public final class VpnManager {
     private var bundleIdentifier: String
 
     public init(bundleIdentifier: String, stateChangeCallback: @escaping (Int) -> Void) {
+        self.queue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager");
         self.bundleIdentifier = bundleIdentifier
         self.stateChangeCallback = stateChangeCallback
         Task {
-            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-            
-            // Try to find an existing configuration
-            let existingManager = managers.first {
-                ($0.protocolConfiguration as? NETunnelProviderProtocol)?
-                    .providerBundleIdentifier == bundleIdentifier
-            }
-            
-            self.vpnManager = existingManager ?? NETunnelProviderManager()
-            startObservingStatus(manager: self.vpnManager!)
-            self.readyContinuation?.resume(returning: self.vpnManager!)
-            self.readyContinuation = nil
+            startObservingStatus(manager: await self.getManager())
         }
     }
     
@@ -56,11 +47,24 @@ public final class VpnManager {
     }
     
     func getManager() async -> NETunnelProviderManager {
-        if let manager = self.vpnManager {
+        if let manager = (queue.sync { self.vpnManager }) {
             return manager
         }
-        return await withCheckedContinuation { continuation in
-            readyContinuation = continuation
+
+        let managers = try! await NETunnelProviderManager.loadAllFromPreferences()
+
+        // Try to find an existing configuration
+        let existingManager = managers.first {
+            ($0.protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerBundleIdentifier == bundleIdentifier
+        }
+
+        return queue.sync {
+            if let manager = self.vpnManager {
+                return manager
+            }
+            self.vpnManager = existingManager ?? NETunnelProviderManager()
+            return self.vpnManager!
         }
     }
 
