@@ -173,7 +173,8 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
     return _native_client->process_client_packets(nativePackets);
 }
 
-- (instancetype)initWithConfig:(NSString *)config {
+- (instancetype)initWithConfig:(NSString *)config
+            stateChangeHandler:(StateChangeHandler)stateChangeHandler {
     self = [super init];
     if (self) {
 
@@ -218,8 +219,8 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
                     [self->_tunnelFlow writePackets:@[packet] withProtocols:@[@(event->family)]];
                 }
             },
-            .state_changed_handler = [](ag::VpnStateChangedEvent *event) {
-                infolog(g_logger, "New state: {}", (int)event->state);
+            .state_changed_handler = [stateChangeHandler](ag::VpnStateChangedEvent *event) {
+                stateChangeHandler((int)event->state);
             }
         };
         self->_native_client = std::make_unique<ag::VpnStandaloneClient>(std::move(*standalone_config), std::move(callbacks));

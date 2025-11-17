@@ -51,15 +51,11 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8AF8677B2E324617009D1461 /* TrustTunnelClient */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = TrustTunnelClient;
 			sourceTree = "<group>";
 		};
 		8AF868BE2E3BEE46009D1461 /* VpnClient */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = VpnClient;
 			sourceTree = "<group>";
 		};
@@ -361,7 +357,7 @@
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				OTHER_LDFLAGS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.adguard.TrustTunnel.TrustTunnelClient";
+				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.TrustTunnelClient;
 				PRODUCT_NAME = "$(inherited)";
 				SDKROOT = auto;
 				SKIP_INSTALL = NO;
@@ -406,7 +402,7 @@
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				OTHER_LDFLAGS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.adguard.TrustTunnel.TrustTunnelClient";
+				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.TrustTunnelClient;
 				PRODUCT_NAME = "$(inherited)";
 				SDKROOT = auto;
 				SKIP_INSTALL = NO;
@@ -602,7 +598,7 @@
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				OTHER_LDFLAGS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.adguard.TrustTunnel.TrustTunnelClient";
+				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.TrustTunnelClient;
 				PRODUCT_NAME = "$(inherited)";
 				SDKROOT = auto;
 				SKIP_INSTALL = NO;
@@ -646,7 +642,7 @@
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
 				OTHER_LDFLAGS = "$(inherited)";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.adguard.TrustTunnel.TrustTunnelClient";
+				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.TrustTunnelClient;
 				PRODUCT_NAME = "$(inherited)";
 				SDKROOT = auto;
 				SKIP_INSTALL = NO;

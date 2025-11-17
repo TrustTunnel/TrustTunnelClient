@@ -10,8 +10,10 @@ enum TunnelError : Error {
 open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private let clientQueue = DispatchQueue(label: "packet.tunnel.queue", qos: .userInitiated)
     private var vpnClient: VpnClient? = nil
+    private var startProcessed = false
 
-    open override func startTunnel(options: [String : NSObject]? = nil) async throws {
+    open override func startTunnel(options: [String : NSObject]? = nil, completionHandler: @escaping ((any Error)?) -> Void) {
+        self.startProcessed = false
         var config: String?
         if let configuration = protocolConfiguration as? NETunnelProviderProtocol {
             if let conf = configuration.providerConfiguration?["config"] as? String {
@@ -19,14 +21,16 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         if (config == nil) {
-            throw TunnelError.parse_config_failed
+            completionHandler(TunnelError.parse_config_failed)
+            return
         }
         var tunConfig: TunConfig!
         
         do {
             tunConfig = try parseTunnelConfig(from: config!)
         } catch {
-            throw TunnelError.parse_config_failed
+            completionHandler(TunnelError.parse_config_failed)
+            return
         }
         
         let (ipv4Settings, ipv6Settings) = configureIPv4AndIPv6Settings(from: tunConfig)
@@ -39,25 +43,58 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                 NEDNSSettings(servers: ["94.140.14.140", "94.140.14.141"])
         networkSettings.dnsSettings = dnsSettings
         networkSettings.mtu = NSNumber(value: tunConfig.mtu_size)
-        try await setTunnelNetworkSettings(networkSettings)
-        
-        try self.clientQueue.sync {
-            self.vpnClient = VpnClient(config: config!)
-            if (self.vpnClient == nil) {
-                throw TunnelError.create_failed
+        setTunnelNetworkSettings(networkSettings) { error in
+            if let error = error {
+                completionHandler(error)
+                return
             }
-            if (!self.vpnClient!.start(self.packetFlow)) {
-                throw TunnelError.start_failed
+
+            self.clientQueue.async {
+                self.vpnClient = VpnClient(config: config!) { state in
+                    switch (VpnState(rawValue: Int(state))) {
+                    case .disconnected:
+                        self.clientQueue.async {
+                            self.stopVpnClient()
+                            if (!self.startProcessed) {
+                                completionHandler(TunnelError.start_failed)
+                                self.startProcessed = true
+                            } else {
+                                self.cancelTunnelWithError(nil)
+                            }
+                        }
+                        break
+                    case .connected:
+                        if (!self.startProcessed) {
+                            completionHandler(nil)
+                            self.startProcessed = true
+                        }
+                        self.reasserting = false
+                        break
+                    case .waiting_for_recovery:
+                        fallthrough
+                    case .recovering:
+                        self.reasserting = true
+                        break
+                    default:
+                        break
+                    }
+                }
+                if (self.vpnClient == nil) {
+                    completionHandler(TunnelError.create_failed)
+                    return
+                }
+                if (!self.vpnClient!.start(self.packetFlow)) {
+                    completionHandler(TunnelError.start_failed)
+                    return
+                }
             }
         }
     }
     
-    open override func stopTunnel(with reason: NEProviderStopReason) async {
-        self.clientQueue.sync {
-            if (self.vpnClient != nil) {
-                self.vpnClient!.stop()
-                self.vpnClient = nil
-            }
+    open override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        self.clientQueue.async {
+            self.stopVpnClient()
+            completionHandler()
         }
     }
     
@@ -66,11 +103,12 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
         return messageData
     }
     
-    open override func sleep() async {
+    open override func sleep(completionHandler: @escaping () -> Void) {
         self.clientQueue.async {
             if (self.vpnClient != nil) {
                 self.vpnClient!.notify_sleep()
             }
+            completionHandler()
         }
     }
     
@@ -79,6 +117,13 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             if (self.vpnClient != nil) {
                 self.vpnClient!.notify_wake()
             }
+        }
+    }
+
+    private func stopVpnClient() {
+        if (self.vpnClient != nil) {
+            self.vpnClient!.stop()
+            self.vpnClient = nil
         }
     }
 }

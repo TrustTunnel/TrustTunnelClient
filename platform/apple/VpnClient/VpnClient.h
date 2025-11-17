@@ -3,9 +3,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void (^StateChangeHandler)(int state);
+
 @interface VpnClient : NSObject
 
-- (instancetype)initWithConfig:(NSString *)config;
+- (instancetype)initWithConfig:(NSString *)config
+            stateChangeHandler:(StateChangeHandler)stateChangeHandler;
 - (instancetype)init NS_UNAVAILABLE;
 - (bool)start:(NEPacketTunnelFlow *)tunnelFlow;
 - (bool)stop;
