@@ -11,6 +11,7 @@
 #import <net/if.h>
 #import <netinet/in.h>
 #import <ifaddrs.h>
+#import <os/log.h>
 
 static ag::Logger g_logger("VPN_CLIENT");
 
@@ -185,7 +186,8 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
                 [ag::LOG_LEVEL_ERROR] = "ERROR",   [ag::LOG_LEVEL_WARN] = "WARN",   [ag::LOG_LEVEL_INFO] = "INFO",
                 [ag::LOG_LEVEL_DEBUG] = "DEBUG", [ag::LOG_LEVEL_TRACE] = "TRACE",
             };
-            NSLog(@"[%s]\t%.*s", levels[level], (int)message.size(), message.data());
+            static os_log_t log_handle = os_log_create("com.adguard.TrustTunnel.VpnClientFramework", "VpnClient");
+            os_log(log_handle, "[%{public}s]\t%{public}.*s", levels[level], (int)message.size(), message.data());
         });
 
         toml::parse_result parse_result = toml::parse(config.UTF8String);

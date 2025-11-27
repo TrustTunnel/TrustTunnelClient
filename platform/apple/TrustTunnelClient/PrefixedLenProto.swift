@@ -3,6 +3,7 @@ import Foundation
 internal class PrefixedLenProto {
     private static let RecordPrefix: UInt8 = 0xfe
     typealias RecordLength = UInt32
+    private static let logger = Logger(category: "PrefixedLenProto")
 
     public static func append(fileUrl: URL, record: String) -> Bool {
         guard let recordData = record.data(using: .utf8) else { return false }
@@ -12,7 +13,7 @@ internal class PrefixedLenProto {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: fileUrl.path) {
                 if !fileManager.createFile(atPath: fileUrl.path, contents: nil, attributes: nil) {
-                    NSLog("Failed to create file for connection info")
+                    logger.warn("Failed to create file for connection info")
                     return false
                 }
             }
@@ -26,7 +27,7 @@ internal class PrefixedLenProto {
             try fileHandle.close()
             return true
         } catch {
-            NSLog("Faield to append connection info to file: \(error)")
+            logger.warn("Failed to append connection info to file: \(error)")
             return false
         }
     }
@@ -45,7 +46,7 @@ internal class PrefixedLenProto {
 
             while cursor < fileData.count {
                 guard cursor + prefixSize + lengthSize <= fileData.count else {
-                    NSLog("Error: Reached end of file before fully decoding a record.")
+                    logger.warn("Reached end of file before fully decoding a record.")
                     return nil
                 }
 
@@ -54,7 +55,7 @@ internal class PrefixedLenProto {
                 cursor += prefixSize
 
                 guard prefix == RecordPrefix else {
-                    NSLog("Error: Data corruption detected at offset \(cursor - prefixSize). Invalid Magic Byte (\(prefix)). Stopping.")
+                    logger.warn("Data corruption detected at offset \(cursor - prefixSize). Invalid Magic Byte (\(prefix)). Stopping.")
                     return nil
                 }
 
@@ -63,7 +64,7 @@ internal class PrefixedLenProto {
                 cursor += lengthSize
 
                 guard cursor + Int(length) <= fileData.count else {
-                    NSLog("Error: Data corruption detected at offset \(cursor). Record length (\(length)) exceeds file size.")
+                    logger.warn("Data corruption detected at offset \(cursor). Record length (\(length)) exceeds file size.")
                     return nil
                 }
 
@@ -74,10 +75,10 @@ internal class PrefixedLenProto {
                     result.append(record)
                 }
             }
-            NSLog("Successfully decoded \(result.count) records.")
+            logger.debug("Successfully decoded \(result.count) records.")
             return result
         } catch {
-            NSLog("File read/decode failed: \(error)")
+            logger.warn("File read/decode failed: \(error)")
             return nil
         }
     }
@@ -89,7 +90,7 @@ internal class PrefixedLenProto {
                 try FileManager.default.removeItem(at: fileUrl)
             }
         } catch {
-            NSLog("Error: Failed to delete file: \(error)")
+            logger.warn("Failed to delete file: \(error)")
         }
     }
 }

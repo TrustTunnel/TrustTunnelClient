@@ -46,6 +46,7 @@ public final class VpnManager {
     private var readyContinuation: CheckedContinuation<NETunnelProviderManager, Never>?
     private var bundleIdentifier: String
     private var appGroup: String
+    private let logger = Logger(category: "VpnManager")
 
     public init(bundleIdentifier: String, appGroup: String, stateChangeCallback: @escaping (Int) -> Void, connectionInfoCallback: @escaping (String) -> Void) {
         self.apiQueue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager.api", qos: .userInitiated)
@@ -60,7 +61,7 @@ public final class VpnManager {
                 self.setupConnectionInfoListener()
                 self.processConnectionInfo()
             } else {
-                NSLog("Warn: query log processing is disabled because application group is not set")
+                self.logger.warn("Query log processing is disabled because application group is not set")
             }
         }
     }
@@ -141,7 +142,7 @@ public final class VpnManager {
 
     private func logCurrentStatus(prefix: String, manager: NETunnelProviderManager) {
         let status = manager.connection.status
-        NSLog("VPN \(prefix): \(string(for: status))")
+        logger.info("VPN \(prefix): \(string(for: status))")
         if let state = Optional(convertVpnState(manager.connection.status)), state >= 0 {
             stateChangeCallback(state)
         }
@@ -198,7 +199,7 @@ public final class VpnManager {
                 )?.appendingPathComponent(ConnectionInfoParams.fileName)
             }
         guard let fileURL else {
-            NSLog("Failed to get an url for connection info file")
+            logger.warn("Failed to get an url for connection info file")
             return
         }
         let fileCoordinator = NSFileCoordinator()
@@ -213,7 +214,7 @@ public final class VpnManager {
             }
 
         if let error = coordinatorError {
-            NSLog("Error: failed to process connection info file: \(error)")
+            logger.warn("Failed to process connection info file: \(error)")
             return
         }
         for string in result {
@@ -229,7 +230,7 @@ public final class VpnManager {
 
             manager.loadFromPreferences { error in
                 if let error = error {
-                    NSLog("Failed to load preferences: \(error)")
+                    self.logger.error("Failed to load preferences: \(error)")
                     group.leave()
                     return
                 }
@@ -247,13 +248,13 @@ public final class VpnManager {
                 manager.isEnabled = true
                 manager.saveToPreferences { error in
                     if let error = error {
-                        NSLog("Failed to save preferences: \(error)")
+                        self.logger.error("Failed to save preferences: \(error)")
                         group.leave()
                         return
                     }
                     manager.loadFromPreferences { error in
                         if let error = error {
-                            NSLog("Failed to reload preferences: \(error)")
+                            self.logger.error("Failed to reload preferences: \(error)")
                             group.leave()
                             return
                         }
@@ -265,9 +266,9 @@ public final class VpnManager {
 
             do {
                 try manager.connection.startVPNTunnel()
-                NSLog("VPN started")
+                self.logger.info("VPN has been started!")
             } catch {
-                NSLog("Failed to start VPN tunnel: \(error)")
+                self.logger.error("Failed to start VPN tunnel: \(error)")
             }
         }
     }
@@ -299,7 +300,7 @@ public final class VpnManager {
             }
             manager.connection.stopVPNTunnel()
             group.wait()
-            NSLog("Finished!")
+            self.logger.info("VPN has been stopped!")
         }
     }
 }

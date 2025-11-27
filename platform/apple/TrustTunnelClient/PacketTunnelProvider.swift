@@ -14,6 +14,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private var bundleIdentifier = ""
     private var appGroup: String = ""
     private var startProcessed = false
+    private let logger = Logger(category: "PacketTunnel")
 
     open override func startTunnel(options: [String : NSObject]? = nil, completionHandler: @escaping ((any Error)?) -> Void) {
         self.startProcessed = false
@@ -28,7 +29,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                 self.appGroup = appGroup!
                 self.bundleIdentifier = bundleIdentifier!
             } else {
-                NSLog("Warn: query log processing is disabled because either application group or bundle identifier are not provided")
+                logger.warn("Query log processing is disabled because either application group or bundle identifier are not provided")
             }
         }
         if (config == nil) {
@@ -147,14 +148,14 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func processConnectionInfo(json: String) {
-        NSLog("Connection info is being processed!: (\(json))")
+        logger.debug("Connection info is being processed!: (\(json))")
         var fileURL: URL? {
                 return FileManager.default.containerURL(
                     forSecurityApplicationGroupIdentifier: appGroup
                 )?.appendingPathComponent(ConnectionInfoParams.fileName)
             }
         guard let fileURL else {
-            NSLog("Failed to get an url for connection info file")
+            logger.warn("Failed to get an url for connection info file")
             return
         }
         let fileCoordinator = NSFileCoordinator()
@@ -162,13 +163,13 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
         var result = true
         fileCoordinator.coordinate(writingItemAt: fileURL, options: .forReplacing, error: &coordinatorError) { (writeUrl) in
             guard PrefixedLenProto.append(fileUrl: writeUrl, record: json) else {
-                NSLog("Error: failed to append connection info to file")
+                logger.warn("Failed to append connection info to file")
                 result = false
                 return
             }
         }
         if let coordinatorError = coordinatorError {
-            NSLog("Failed to coordinate file access: \(coordinatorError)")
+            logger.warn("Failed to coordinate file access: \(coordinatorError)")
             return
         }
         if result {
@@ -184,6 +185,6 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             notificationName,
             nil, nil, true
         )
-        NSLog("notifyAppOnConnectionInfo done")
+        logger.debug("notifyAppOnConnectionInfo done")
     }
 }
