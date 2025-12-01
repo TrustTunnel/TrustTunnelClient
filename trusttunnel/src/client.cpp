@@ -270,6 +270,9 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
             if (!m_config.location.client_random.empty()) {
                 copy_to_c_buffer(relay.tls_client_random, m_config.location.client_random);
             }
+            if (!m_config.location.client_random_mask.empty()) {
+                copy_to_c_buffer(relay.tls_client_random_mask, m_config.location.client_random_mask);
+            }
             continue;
         }
         auto &last_el = endpoints.emplace_back(VpnEndpoint{
@@ -280,6 +283,9 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
         });
         if (!m_config.location.client_random.empty()) {
             copy_to_c_buffer(last_el.tls_client_random, m_config.location.client_random);
+        }
+        if (!m_config.location.client_random_mask.empty()) {
+            copy_to_c_buffer(last_el.tls_client_random_mask, m_config.location.client_random_mask);
         }
     }
     VpnConnectParameters parameters = {

@@ -131,7 +131,7 @@ through the endpoint with unreachable code."#)}
         pub username: String,
         #{doc("Password for authorization")}
         pub password: String,
-        #{doc("TLS client random prefix (hex string)")}
+        #{doc("TLS client random prefix and mask (hex string, format: prefix[/mask])")}
         #[serde(default)]
         pub client_random: String,
         #{doc(r#"Skip the endpoint certificate verification?

@@ -111,9 +111,12 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
             upstream_config.endpoint->additional_data.data, upstream_config.endpoint->additional_data.size};
     U8View client_random_data{
             upstream_config.endpoint->tls_client_random.data, upstream_config.endpoint->tls_client_random.size};
+    U8View client_random_mask{upstream_config.endpoint->tls_client_random_mask.data,
+            upstream_config.endpoint->tls_client_random_mask.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)},
-                upstream_config.endpoint->name, /*quic*/ MSPT_QUICHE, endpoint_data, client_random_data);
+                upstream_config.endpoint->name, /*quic*/ MSPT_QUICHE, endpoint_data, client_random_data,
+                client_random_mask);
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

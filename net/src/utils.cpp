@@ -190,6 +190,16 @@ AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
         dst->tls_client_random.size = 0;
     }
 
+    data_len = src->tls_client_random_mask.size;
+    if (data_len > 0 && src->tls_client_random_mask.data != nullptr) {
+        dst->tls_client_random_mask.data = static_cast<uint8_t *>(std::malloc(data_len));
+        std::memcpy(dst->tls_client_random_mask.data, src->tls_client_random_mask.data, data_len);
+        dst->tls_client_random_mask.size = data_len;
+    } else {
+        dst->tls_client_random_mask.data = nullptr;
+        dst->tls_client_random_mask.size = 0;
+    }
+
     return dst;
 }
 
@@ -202,6 +212,7 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
     free((char *) endpoint->remote_id);
     free(endpoint->additional_data.data);
     free(endpoint->tls_client_random.data);
+    free(endpoint->tls_client_random_mask.data);
     std::memset(endpoint, 0, sizeof(*endpoint));
 }
 
@@ -221,6 +232,9 @@ void vpn_relay_destroy(VpnRelay *relay) {
     free(relay->tls_client_random.data);
     relay->tls_client_random.data = nullptr;
     relay->tls_client_random.size = 0;
+    free(relay->tls_client_random_mask.data);
+    relay->tls_client_random_mask.data = nullptr;
+    relay->tls_client_random_mask.size = 0;
     std::memset(&relay->address, 0, sizeof(relay->address));
 }
 
@@ -247,6 +261,16 @@ AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
     } else {
         dst->tls_client_random.data = nullptr;
         dst->tls_client_random.size = 0;
+    }
+
+    data_len = src->tls_client_random_mask.size;
+    if (data_len > 0 && src->tls_client_random_mask.data != nullptr) {
+        dst->tls_client_random_mask.data = (uint8_t *) std::malloc(data_len);
+        std::memcpy(dst->tls_client_random_mask.data, src->tls_client_random_mask.data, data_len);
+        dst->tls_client_random_mask.size = data_len;
+    } else {
+        dst->tls_client_random_mask.data = nullptr;
+        dst->tls_client_random_mask.size = 0;
     }
 
     return dst;
@@ -882,7 +906,8 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
 }
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
-        U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random) {
+        U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
+        U8View tls_client_random_mask) {
     bool quic = type == MSPT_QUICHE || type == MSPT_NGTCP2;
     DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
     if (verification_callback && arg) {
@@ -935,7 +960,28 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
 #ifdef SSL_set_custom_client_random
     if (!tls_client_random.empty()) {
-        SSL_set_custom_client_random(ssl.get(), tls_client_random.data(), tls_client_random.size());
+        std::vector<uint8_t> client_random_data(tls_client_random.size());
+        std::vector<uint8_t> mask_data(client_random_data.size(), 0xff);
+
+        std::copy(tls_client_random.data(), tls_client_random.data() + tls_client_random.size(),
+                client_random_data.begin());
+
+        const size_t mask_size = std::min<size_t>(tls_client_random_mask.size(), mask_data.size());
+        if (!tls_client_random_mask.empty()) {
+            std::copy_n(tls_client_random_mask.data(), mask_size, mask_data.begin());
+        }
+
+        // Generate random bytes for the parts not covered by the mask
+        std::vector<uint8_t> rand_bytes(mask_size);
+        if (1 != RAND_bytes(rand_bytes.data(), 32)) {
+            return "Failed to generate random bytes for SSL";
+        }
+
+        for (size_t i = 0; i < mask_size; ++i) {
+            client_random_data[i] = (client_random_data[i] & mask_data[i]) | (rand_bytes[i] & ~mask_data[i]);
+        }
+
+        SSL_set_custom_client_random(ssl.get(), client_random_data.data(), client_random_data.size());
     }
 #endif
 

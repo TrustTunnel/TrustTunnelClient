@@ -122,9 +122,18 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         }
     }
 
-    // Parse client random
+    // Parse client random (format: "prefix[/mask]")
     if (auto client_random = config["client_random"].value<std::string>()) {
-        location.client_random = *client_random;
+        if (auto slash_pos = client_random->find('/'); slash_pos != std::string::npos) {
+            location.client_random = client_random->substr(0, slash_pos);
+            location.client_random_mask = client_random->substr(slash_pos + 1);
+            if (location.client_random_mask.empty()) {
+                errlog(g_logger, "Invalid client_random format: mask can't be empty");
+                return std::nullopt;
+            }
+        } else {
+            location.client_random = *client_random;
+        }
     }
 
     return location;
