@@ -228,7 +228,9 @@ static std::function<void(VpnStateChangedEvent *)> get_state_changed_callback() 
     return [](VpnStateChangedEvent *event) {
         switch (event->state) {
         case VPN_SS_DISCONNECTED:
-            errlog(g_logger, "Error: {} {}", event->error.code, safe_to_string_view(event->error.text));
+            if (event->error.code != 0) {
+                errlog(g_logger, "Error: {} {}", event->error.code, safe_to_string_view(event->error.text));
+            }
             stop_trusttunnel_client();
             break;
         case VPN_SS_WAITING_RECOVERY:

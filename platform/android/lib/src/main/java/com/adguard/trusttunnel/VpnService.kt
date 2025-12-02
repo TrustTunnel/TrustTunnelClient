@@ -27,6 +27,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private lateinit var connectivityManager: ConnectivityManager
         private lateinit var networkRequest: NetworkRequest
         private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
+        private var currentStartId: Int = -1
 
         private var vpnClient: VpnClient? = null
 
@@ -106,11 +107,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         // We run all payload in another thread (not main) to minimize UI lags
         singleThread.execute {
             try {
+                currentStartId = startId
                 val action = intent.action
                 val config = intent.getStringExtra(PARAM_CONFIG)
                 LOG.info("Start executing action=$action flags=$flags startId=$startId")
                 when (action) {
-                    ACTION_START    -> processStarting(config)
+                    ACTION_START    -> processStarting(config, startId)
                     ACTION_STOP     -> close(startId)
                     else            -> LOG.info("Unknown command $action")
                 }
@@ -124,7 +126,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         return START_NOT_STICKY
     }
 
-    private fun processStarting(configStr: String?): Unit = synchronized(SYNC) {
+    private fun processStarting(configStr: String?, startId: Int): Unit = synchronized(SYNC) {
         if (state == State.Started) {
             LOG.info("VPN service has already been started, do nothing")
             return
@@ -152,8 +154,25 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         val vpnTunInterface = createTunInterface(config) ?: return run {
             close()
         }
-
-        vpnClient = VpnClient(configStr, this)
+        // This is required to save startId and pass it to `closeIfLast` in case of DISCONNECTED state event
+        val service = this
+        val proxyClientListener = object : VpnClientListener by service {
+            override fun onStateChanged(state: Int) {
+                try {
+                    val state = VpnState.getByCode(state)
+                    LOG.info("VpnService onStateChanged: ${state.name}")
+                    if (state == VpnState.DISCONNECTED) {
+                        singleThread.execute {
+                            service.closeIfLast(startId)
+                        }
+                    }
+                } catch (e: Exception) {
+                    LOG.warn("Failed to process unknown VPN state $state: $e")
+                }
+                service.onStateChanged(state)
+            }
+        }
+        vpnClient = VpnClient(configStr, proxyClientListener)
 
         networkCallback.startNotifying(vpnClient)
         if (vpnClient?.start(vpnTunInterface) != true) {
@@ -211,6 +230,21 @@ class VpnService : android.net.VpnService(), VpnClientListener {
     }
 
     /**
+     * Closes the VPN TUN interface and stops itself only if the called is the only one who
+     * tries to stop the service.
+     * @param startId start id known to the caller
+     * @return true if the service has been closed successfully
+     *         false if the service hasn't been stopped because startId is too old
+     */
+    private fun closeIfLast(startId: Int): Boolean {
+        if (startId < currentStartId) {
+            return false
+        }
+
+        return close(startId)
+    }
+
+    /**
      * Closes the VPN TUN interface and stops itself
      * @param startId current start id of the service to forward to `stopSelf`
      * @return true if the service has been closed successfully
@@ -260,7 +294,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
     }
 
     override fun onStateChanged(state: Int) {
-        LOG.info("VpnService onStateChanged: $state")
         appNotifier?.onStateChanged(state)
     }
 
