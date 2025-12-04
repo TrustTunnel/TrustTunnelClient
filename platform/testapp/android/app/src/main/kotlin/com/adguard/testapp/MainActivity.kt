@@ -5,6 +5,7 @@ import NativeVpnInterface
 import com.adguard.trusttunnel.VpnService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -14,7 +15,9 @@ class MainActivity : FlutterActivity() {
 
         // Register implementation for native vpn interface
         NativeVpnInterface.setUp(binaryMessenger, NativeVpnImpl(activity))
-        VpnService.setAppNotifier(AppNotifierImpl(FlutterCallbacks(binaryMessenger), this))
+        val connectionInfoFile = File(applicationContext.filesDir, "connection_info.dat")
+        val appNotifier = AppNotifierImpl(FlutterCallbacks(binaryMessenger), this)
+        VpnService.setAppNotifier(connectionInfoFile, appNotifier)
         VpnService.startNetworkManager(activity)
     }
 }

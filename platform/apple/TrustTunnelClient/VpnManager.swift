@@ -38,6 +38,7 @@ public struct AppSettings {
 public final class VpnManager {
     private var apiQueue: DispatchQueue
     private var queue: DispatchQueue
+    private var connectionInfoQueue: DispatchQueue
     private var stopTimer: DispatchSourceTimer?
     private var vpnManager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -46,11 +47,13 @@ public final class VpnManager {
     private var readyContinuation: CheckedContinuation<NETunnelProviderManager, Never>?
     private var bundleIdentifier: String
     private var appGroup: String
+    private var readIndex: UInt32? = nil
     private let logger = Logger(category: "VpnManager")
 
     public init(bundleIdentifier: String, appGroup: String, stateChangeCallback: @escaping (Int) -> Void, connectionInfoCallback: @escaping (String) -> Void) {
         self.apiQueue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager.api", qos: .userInitiated)
         self.queue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager", qos: .userInitiated);
+        self.connectionInfoQueue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager.connectioninfo", qos: .userInitiated);
         self.bundleIdentifier = bundleIdentifier
         self.appGroup = appGroup
         self.stateChangeCallback = stateChangeCallback
@@ -193,32 +196,44 @@ public final class VpnManager {
     }
 
     private func processConnectionInfo() {
-        var fileURL: URL? {
-                return FileManager.default.containerURL(
-                    forSecurityApplicationGroupIdentifier: appGroup
-                )?.appendingPathComponent(ConnectionInfoParams.fileName)
-            }
-        guard let fileURL else {
-            logger.warn("Failed to get an url for connection info file")
-            return
-        }
-        let fileCoordinator = NSFileCoordinator()
-        var coordinatorError: NSError?
-        var result: [String] = []
-        fileCoordinator.coordinate(
-            writingItemAt: fileURL, options: .forDeleting, error: &coordinatorError) { fileUrl in
-                if let records = PrefixedLenProto.read_all(fileUrl: fileUrl) {
-                    result = records
+        self.connectionInfoQueue.async {
+            var fileURL: URL? {
+                    return FileManager.default.containerURL(
+                        forSecurityApplicationGroupIdentifier: self.appGroup
+                    )?.appendingPathComponent(ConnectionInfoParams.fileName)
                 }
-                PrefixedLenProto.clear(fileUrl: fileUrl)
+            guard let fileURL else {
+                self.logger.warn("Failed to get an url for connection info file")
+                return
+            }
+            let fileCoordinator = NSFileCoordinator()
+            var coordinatorError: NSError?
+            var result: [String]? = nil
+            fileCoordinator.coordinate(
+                readingItemAt: fileURL, error: &coordinatorError) { fileUrl in
+                    let (records, newIndex) = PrefixedLenRingProto.read_all(fileUrl: fileUrl, startIndex: self.readIndex)
+                    if let records = records {
+                        result = records
+                        self.readIndex = newIndex
+                    }
+                }
+
+            if let error = coordinatorError {
+                self.logger.warn("Failed to process connection info file: \(error)")
+                return
+            }
+            if result == nil {
+                self.logger.warn("Corrupted connection info file, deleting it")
+                fileCoordinator.coordinate(writingItemAt: fileURL, options: .forDeleting, error: &coordinatorError) { fileUrl in
+                    PrefixedLenRingProto.clear(fileUrl: fileUrl)
+                }
+                self.readIndex = nil
+                return
             }
 
-        if let error = coordinatorError {
-            logger.warn("Failed to process connection info file: \(error)")
-            return
-        }
-        for string in result {
-            self.connectionInfoCallback(string)
+            for string in result! {
+                self.connectionInfoCallback(string)
+            }
         }
     }
 

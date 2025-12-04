@@ -83,16 +83,20 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                             }
                             break
                         case .connected:
-                            if (!self.startProcessed) {
-                                completionHandler(nil)
-                                self.startProcessed = true
+                            self.clientQueue.async {
+                                if (!self.startProcessed) {
+                                    completionHandler(nil)
+                                    self.startProcessed = true
+                                }
+                                self.reasserting = false
                             }
-                            self.reasserting = false
                             break
                         case .waiting_for_recovery:
                             fallthrough
                         case .recovering:
-                            self.reasserting = true
+                            self.clientQueue.async {
+                                self.reasserting = true
+                            }
                             break
                         default:
                             break
@@ -148,32 +152,34 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func processConnectionInfo(json: String) {
-        logger.debug("Connection info is being processed!: (\(json))")
-        var fileURL: URL? {
-                return FileManager.default.containerURL(
-                    forSecurityApplicationGroupIdentifier: appGroup
-                )?.appendingPathComponent(ConnectionInfoParams.fileName)
-            }
-        guard let fileURL else {
-            logger.warn("Failed to get an url for connection info file")
-            return
-        }
-        let fileCoordinator = NSFileCoordinator()
-        var coordinatorError: NSError?
-        var result = true
-        fileCoordinator.coordinate(writingItemAt: fileURL, options: .forReplacing, error: &coordinatorError) { (writeUrl) in
-            guard PrefixedLenProto.append(fileUrl: writeUrl, record: json) else {
-                logger.warn("Failed to append connection info to file")
-                result = false
+        self.clientQueue.async {
+            self.logger.debug("Connection info is being processed!: (\(json))")
+            var fileURL: URL? {
+                    return FileManager.default.containerURL(
+                        forSecurityApplicationGroupIdentifier: self.appGroup
+                    )?.appendingPathComponent(ConnectionInfoParams.fileName)
+                }
+            guard let fileURL else {
+                self.logger.warn("Failed to get an url for connection info file")
                 return
             }
-        }
-        if let coordinatorError = coordinatorError {
-            logger.warn("Failed to coordinate file access: \(coordinatorError)")
-            return
-        }
-        if result {
-            self.notifyAppOnConnectionInfo()
+            let fileCoordinator = NSFileCoordinator()
+            var coordinatorError: NSError?
+            var result = true
+            fileCoordinator.coordinate(writingItemAt: fileURL, options: .forReplacing, error: &coordinatorError) { (writeUrl) in
+                guard PrefixedLenRingProto.append(fileUrl: writeUrl, record: json) else {
+                    self.logger.warn("Failed to append connection info to file")
+                    result = false
+                    return
+                }
+            }
+            if let coordinatorError = coordinatorError {
+                self.logger.warn("Failed to coordinate file access: \(coordinatorError)")
+                return
+            }
+            if result {
+                self.notifyAppOnConnectionInfo()
+            }
         }
     }
     func notifyAppOnConnectionInfo() {

@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.adguard.trusttunnel.log.LoggerManager
 import com.adguard.trusttunnel.utils.NetworkUtils
 import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
+import java.io.File
 
 class VpnService : android.net.VpnService(), VpnClientListener {
 
@@ -27,6 +28,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private lateinit var connectivityManager: ConnectivityManager
         private lateinit var networkRequest: NetworkRequest
         private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
+        private var connectionInfoFile: PrefixedLenRingProto? = null
         private var currentStartId: Int = -1
 
         private var vpnClient: VpnClient? = null
@@ -38,6 +40,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         private fun start(context: Context, intent: Intent, config: String?) {
             try {
+                if (!isPrepared(context)) {
+                    LOG.warn("VPN is not prepared, can't manipulate the service")
+                    return
+                }
                 config?.apply {
                     intent.putExtra(PARAM_CONFIG, config)
                 }
@@ -78,9 +84,23 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         /** Gets an intent instance with [action] */
         private fun getIntent(context: Context, action: String): Intent = Intent(context, VpnService::class.java).setAction(action)
 
+        private val connectionInfoSync = ThreadManager.create("file-sync", 1)
         private var appNotifier: AppNotifier? = null;
-        fun setAppNotifier(notifier: AppNotifier) {
-            appNotifier = notifier;
+        fun setAppNotifier(file: File, notifier: AppNotifier) {
+            connectionInfoFile = PrefixedLenRingProto(file)
+            appNotifier = notifier
+            connectionInfoSync.execute {
+                connectionInfoFile?.apply {
+                    val records = read_all()
+                    if (records == null) {
+                        clear()
+                        return@execute
+                    }
+                    for (record in records) {
+                        appNotifier?.onConnectionInfo(record)
+                    }
+                }
+            }
         }
     }
 
@@ -297,8 +317,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         appNotifier?.onStateChanged(state)
     }
 
-    override fun onConnectionInfo(info: String) {
+    override fun onConnectionInfo(info: String) = connectionInfoSync.execute {
         LOG.debug("VpnService onConnectionInfo event")
+        connectionInfoFile?.apply {
+            if (!append(info)) {
+                clear()
+            }
+        }
         appNotifier?.onConnectionInfo(info)
     }
 
