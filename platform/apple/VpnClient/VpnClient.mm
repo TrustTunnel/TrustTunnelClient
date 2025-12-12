@@ -5,6 +5,7 @@
 #import "common/socket_address.h"
 
 #import <common/network_monitor.h>
+#import <common/cidr_range.h>
 
 #import "toml++/toml.h"
 
@@ -294,6 +295,31 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 }
 - (void)notify_wake {
     _native_client->notify_wake();
+}
+
++ (NSArray<NSString *> *)excludeCidr:(NSArray<NSString *> *)includeRoutes
+                       excludeRoutes:(NSArray<NSString *> *)excludeRoutes {
+    std::vector<ag::CidrRange> includeRanges;
+    includeRanges.reserve(includeRoutes.count);
+    for(NSString *route in includeRoutes) {
+        includeRanges.emplace_back(route.UTF8String);
+    }
+
+    std::vector<ag::CidrRange> excludeRanges;
+    excludeRanges.reserve(excludeRoutes.count);
+    for(NSString *route in excludeRoutes) {
+        excludeRanges.emplace_back(route.UTF8String);
+    }
+
+    std::vector<ag::CidrRange> result = ag::CidrRange::exclude(includeRanges, excludeRanges);
+    NSMutableArray<NSString *> *nsresult = [NSMutableArray arrayWithCapacity:result.size()];
+    for (const auto &range : result) {
+        auto str = range.to_string();
+        NSString *nsstr = [NSString stringWithUTF8String:str.c_str()];
+        [nsresult addObject:nsstr];
+    }
+
+    return nsresult;
 }
 
 

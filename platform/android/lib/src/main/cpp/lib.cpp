@@ -4,6 +4,7 @@
 
 #include "jni_utils.h"
 #include <jni.h>
+#include <common/cidr_range.h>
 
 static ag::Logger g_logger("TrustTunnelJni");
 
@@ -260,4 +261,55 @@ Java_com_adguard_trusttunnel_VpnClient_setSystemDnsServersNative(JNIEnv *env, jo
     }
 
     return ag::vpn_network_manager_update_system_dns(std::move(c_servers));
+}
+extern "C"
+JNIEXPORT jobjectArray JNICALL
+Java_com_adguard_trusttunnel_VpnClient_excludeCidr(JNIEnv *env, jclass clazz,
+                                                   jobjectArray included_routes,
+                                                   jobjectArray excluded_routes) {
+    size_t num_included = env->GetArrayLength(included_routes);
+    std::vector<ag::CidrRange> included_ranges;
+    included_ranges.reserve(num_included);
+    for (size_t i = 0; i < num_included; i++) {
+        LocalRef<jstring> route = {env, (jstring) (env->GetObjectArrayElement(included_routes, (jsize) i))};
+        if (!route) {
+            errlog(g_logger, "Failed to get CIDR ranges to process");
+            return nullptr;
+        }
+        const char *str = env->GetStringUTFChars(route.get(), nullptr);
+        included_ranges.emplace_back(str);
+        env->ReleaseStringUTFChars(route.get(), str);
+    }
+    size_t num_excluded = env->GetArrayLength(excluded_routes);
+    std::vector<ag::CidrRange> excluded_ranges;
+    excluded_ranges.reserve(num_excluded);
+    for (size_t i = 0; i < num_excluded; i++) {
+        LocalRef<jstring> route = {env, (jstring) (env->GetObjectArrayElement(excluded_routes, (jsize) i))};
+        if (!route) {
+            errlog(g_logger, "Failed to get CIDR ranges to process");
+            return nullptr;
+        }
+        const char *str = env->GetStringUTFChars(route.get(), nullptr);
+        excluded_ranges.emplace_back(str);
+        env->ReleaseStringUTFChars(route.get(), str);
+    }
+
+    std::vector<ag::CidrRange> result = ag::CidrRange::exclude(included_ranges, excluded_ranges);
+
+    jclass stringclass = env->FindClass("java/lang/String");
+    if (!stringclass) {
+        errlog(g_logger, "Failed to find string class, can't process CIDR ranges");
+        return nullptr;
+    }
+
+    LocalRef<jobjectArray> jresult{env, env->NewObjectArray((jsize) result.size(), stringclass, nullptr)};
+    if (!jresult) {
+        errlog(g_logger, "Failed to create objectArray class, can't process CIDR ranges");
+        return nullptr;
+    }
+    for (size_t i = 0; i < result.size(); i++) {
+        LocalRef<jstring> str = jni_safe_new_string_utf(env, result[i].to_string());
+        env->SetObjectArrayElement(jresult.get(), i, str.get());
+    }
+    return jresult.release();
 }

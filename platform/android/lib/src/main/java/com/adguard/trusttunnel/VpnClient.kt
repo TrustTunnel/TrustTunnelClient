@@ -18,6 +18,12 @@ class VpnClient (
             NativeLogger.defaultLogLevel = NativeLoggerLevel.INFO
         }
         private val LOG = LoggerManager.getLogger("VpnClient")
+
+        fun excludeCidr(includedRoutes: List<String>, excludedRoutes: List<String>): List<String>? {
+            return excludeCidr(includedRoutes.toTypedArray(), excludedRoutes.toTypedArray())?.toList()
+        }
+        @JvmStatic
+        private external fun excludeCidr(includedRoutes: Array<String>, excludedRoutes: Array<String>): Array<String>?
     }
     private var nativePtr: Long = 0
     private val sync = Any()

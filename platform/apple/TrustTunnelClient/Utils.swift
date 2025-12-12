@@ -1,4 +1,5 @@
 import NetworkExtension
+import VpnClientFramework
 
 internal struct ConnectionInfoParams {
     static let fileName = "connection_info.dat"
@@ -22,11 +23,11 @@ func configureIPv4AndIPv6Settings(from config: TunConfig) -> (NEIPv4Settings, NE
     }
     
     var v4Included: [NEIPv4Route] = []
-    var v4Excluded: [NEIPv4Route] = []
     var v6Included: [NEIPv6Route] = []
-    var v6Excluded: [NEIPv6Route] = []
     
-    for route in config.included_routes {
+    let include_routes = VpnClient.excludeCidr(config.included_routes, excludeRoutes: config.excluded_routes)
+
+    for route in include_routes {
         guard let (ip, prefix) = parseCIDR(route) else { continue }
         if isIPv6Address(ip) {
             v6Included.append(NEIPv6Route(destinationAddress: ip, networkPrefixLength: NSNumber(value: prefix)))
@@ -36,21 +37,9 @@ func configureIPv4AndIPv6Settings(from config: TunConfig) -> (NEIPv4Settings, NE
         }
     }
     
-    for route in config.excluded_routes {
-        guard let (ip, prefix) = parseCIDR(route) else { continue }
-        if isIPv6Address(ip) {
-            v6Excluded.append(NEIPv6Route(destinationAddress: ip, networkPrefixLength: NSNumber(value: prefix)))
-        } else {
-            let mask = ipv4PrefixLengthToMask(prefix)
-            v4Excluded.append(NEIPv4Route(destinationAddress: ip, subnetMask: mask))
-        }
-    }
-    
     ipv4Settings.includedRoutes = v4Included
-    ipv4Settings.excludedRoutes = v4Excluded
     
     ipv6Settings.includedRoutes = v6Included
-    ipv6Settings.excludedRoutes = v6Excluded
     
     return (ipv4Settings, ipv6Settings)
 }

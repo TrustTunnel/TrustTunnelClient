@@ -16,6 +16,8 @@ typedef void (^ConnectionInfoHandler)(NSString *state);
 - (bool)stop;
 - (void)notify_sleep;
 - (void)notify_wake;
++ (NSArray<NSString *> *)excludeCidr:(NSArray<NSString *> *)includeRoutes
+                       excludeRoutes:(NSArray<NSString *> *)excludeRoutes;
 
 @end
 

@@ -223,20 +223,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 .addDnsServer("94.140.14.141")
                 .addDisallowedApplication(applicationContext.packageName)
 
-            config.excludedRoutes.forEach { route ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val r = NetworkUtils.convertCidrToIpPrefix(route)
-                    if (r != null) {
-                        builder.excludeRoute(r)
-                    } else {
-                        throw Exception("Wrong syntax for excluded_routes")
-                    }
-                } else {
-                    LOG.info("Ignoring excluded route for Android versions less than 13 (Tiramisu): $route")
-                }
-            }
-
-            config.includedRoutes.forEach { route ->
+            val routes = VpnClient.excludeCidr(config.includedRoutes, config.excludedRoutes)
+                ?: throw Exception("Failed to process routes")
+            routes.forEach { route ->
                 val r = NetworkUtils.convertCidrToAddressPrefixPair(route)
                 if (r != null) {
                     builder.addRoute(r.first, r.second)
