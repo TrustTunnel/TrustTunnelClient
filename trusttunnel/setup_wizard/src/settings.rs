@@ -439,7 +439,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             (Some(cert.common_name), opt_field!(template, certificate).cloned().flatten())
         } else if let Some(cert) = empty_to_none(ask_for_input::<String>(
             &format!("{}\nEnter a path to certificate:", Endpoint::doc_certificate()),
-            None,
+            Some("".into()),
         )) {
             let contents = fs::read_to_string(& cert).expect("Failed to read certificate");
             match parse_cert(contents.clone()) {

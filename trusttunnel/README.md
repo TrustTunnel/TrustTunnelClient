@@ -1,23 +1,22 @@
-# AdGuard TrustTunnel VPN Client
+# <p align="center">TrustTunnel CLI Client</p>
+<p align="center">Simple, fast and secure CLI client for the TrustTunnel VPN</p>
 
-[![AdGuardVPN.com](https://img.shields.io/badge/AdGuardVPN.com-Visit-007BFF)](https://adguard-vpn.com/)
-
-AdGuard TrustTunnel VPN Client is an application built on top of the AdGuard VPN Libraries.
-It provides an easy-to-use interface to configure and connect to an AdGuard VPN endpoint.
+TrustTunnel CLI Client is an application built on top of the TrustTunnel Client Libraries.
+It provides an easy-to-use interface to configure and connect to an TrustTunnel endpoint.
 The client supports Linux, macOS, and Windows platforms.
 
 ---
 
 ## Building
 
-To build the AdGuard TrustTunnel VPN Client, follow [these steps](../README.md#build-instructions)
+To build the TrustTunnel CLI Client, follow [these steps](../README.md#build-instructions)
 The built executable will be available in the `<project_root>/build/trusttunnel_client` directory.
 
 ---
 
 ## Configuration
 
-The AdGuard TrustTunnel VPN Client accepts a TOML-formatted configuration file.
+The TrustTunnel CLI Client accepts a TOML-formatted configuration file.
 You can use the setup wizard tool to generate a basic configuration file.
 
 ### Setup Wizard Tool
@@ -47,7 +46,7 @@ For a more customized configuration experience, follow the steps below:
 
 ## Usage
 
-To run the AdGuard TrustTunnel VPN Client, execute the following command:
+To run the TrustTunnel CLI Client, execute the following command:
 
 ```shell
 ./trusttunnel_client --config <path/to/configuration/file.toml>
