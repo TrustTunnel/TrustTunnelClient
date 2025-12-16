@@ -109,6 +109,11 @@ Mac build:
             CODESIGN_IDENTITY="Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
             CODESIGN_IDENTIFIER="com.adguard.trusttunnel.client.main"
 
+            python3 -m venv venv
+            . venv/bin/activate
+            pip install conan
+
+            conan remote add --index 0 art ${bamboo_conanRepoUrl} || true
             printf "%b\n" "${bamboo_sshSecretKey}" | ssh-add -
 
             bundle config --local path '.bundle/vendor'
