@@ -8,3 +8,5 @@
   !include 'upload-conan-recipes.yaml'
 ---
   !include 'run-browser-integration-test.yaml'
+---
+  !include 'deploy_cli.yaml'

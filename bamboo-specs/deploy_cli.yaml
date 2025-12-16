@@ -1,0 +1,225 @@
+---
+version: 2
+triggers: [ ]
+
+plan:
+  project-key: CL
+  key: TTCLI
+  name: TrustTunnelClient - Deploy
+
+stages:
+  - Build artifacts:
+      manual: false
+      final: false
+      jobs:
+        - Linux build
+        - Mac build
+  - Deploy artifacts:
+      manual: false
+      final: false
+      jobs:
+        - Deploy artifacts
+
+Linux build:
+  key: BL
+  docker:
+    image: adguard/core-libs:2.6
+    volumes:
+      ${bamboo.working.directory}: ${bamboo.working.directory}
+      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+      ${bamboo.git.cache.directory}: ${bamboo.git.cache.directory}
+      ${system.HOME}/.ssh: /root/.ssh
+    docker-run-arguments: [ ]
+  tasks:
+    - !include docker-clean.yaml
+    - checkout:
+        description: Checkout Default Repository
+        force-clean-build: 'true'
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+            set -x -e
+
+            conan remote add --index 0 art ${bamboo_conanRepoUrl} || true
+            VPNLIBS_ROOT=${PWD}
+            mkdir -p artifacts
+            ARTIFACTS_DIR=${VPNLIBS_ROOT}/artifacts
+
+            VERSION=$(cat conandata.yml | grep "[0-9]*\.[0-9]*." | tail -1 | sed "s/\"//" | sed "s/\"\://" | sed "s/ //g")
+
+            ARCHES=${ARCHES:-x86_64 aarch64 armv7 mips mipsel}
+
+            for ARCH in $ARCHES; do
+              mkdir -p build_${ARCH}
+              SYSTEM_PROCESSOR=${ARCH}
+              EABI=
+              SF=
+              case ${ARCH} in
+                armv7)
+                EABI=eabi
+                ;;
+                mips)
+                SF=sf
+                ;;
+                mipsel)
+                SF=sf
+              esac
+              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+                -DCMAKE_C_COMPILER=${ARCH}-linux-musl${EABI}${SF}-gcc \
+                -DCMAKE_CXX_COMPILER=${ARCH}-linux-musl${EABI}${SF}-g++ \
+                -DCMAKE_SYSTEM_PROCESSOR=${SYSTEM_PROCESSOR} \
+                -DCMAKE_SYSTEM_NAME=Linux \
+                -DCMAKE_CROSSCOMPILING=ON \
+              -S ${VPNLIBS_ROOT} \
+              -B build_${ARCH}
+              cmake --build build_${ARCH} --target trusttunnel_client
+              cmake --build build_${ARCH} --target setup_wizard
+              NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
+              pushd build_${ARCH}
+                tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," trusttunnel/trusttunnel_client trusttunnel/setup_wizard ${VPNLIBS_ROOT}/LICENSE
+                mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
+              popd
+            done
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions: [ ]
+  artifacts:
+    - name: Build for Linux
+      location: artifacts
+      pattern: 'trusttunnel_client-*.tar.gz'
+      required: true
+      shared: true
+
+Mac build:
+  key: BM
+  tasks:
+    - !include docker-clean.yaml
+    - checkout:
+        description: Checkout Default Repository
+        force-clean-build: 'true'
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+            set -x -e
+
+            CODESIGN_IDENTITY="Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
+            CODESIGN_IDENTIFIER="com.adguard.trusttunnel.client.main"
+
+            printf "%b\n" "${bamboo_sshSecretKey}" | ssh-add -
+
+            bundle config --local path '.bundle/vendor'
+            bundle config
+            bundle install
+            export REPO_ROOT=${PWD}
+            bundle exec fastlane remove_certs || true
+            bundle exec fastlane certs
+
+            VERSION=$(cat conandata.yml | grep "[0-9]*\.[0-9]*." | tail -1 | sed "s/\"//" | sed "s/\"\://" | sed "s/ //g")
+
+            ARCHES=${ARCHES:-x86_64 arm64}
+            for ARCH in $ARCHES; do
+              mkdir -p build_${ARCH}
+              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+              -DCMAKE_C_COMPILER=clang \
+              -DCMAKE_CXX_COMPILER=clang++ \
+              -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+              -DCMAKE_OSX_ARCHITECTURES=${ARCH} \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+              -S ${REPO_ROOT} \
+              -B build_${ARCH}
+              cmake --build build_${ARCH} --target trusttunnel_client
+              cmake --build build_${ARCH} --target setup_wizard
+            done
+
+            mkdir -p build_universal
+            pushd build_universal
+              lipo -create -output trusttunnel_client ../build_arm64/trusttunnel/trusttunnel_client ../build_x86_64/trusttunnel/trusttunnel_client
+              lipo -create -output setup_wizard ../build_arm64/trusttunnel/setup_wizard ../build_x86_64/trusttunnel/setup_wizard
+              codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime trusttunnel_client
+              codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime setup_wizard
+              BIN_PATH=${PWD}
+              pushd ${REPO_ROOT}
+                bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/trusttunnel_client"
+                bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/setup_wizard"
+                bundle exec fastlane remove_certs || true
+              popd
+              cp ${REPO_ROOT}/LICENSE .
+              NAME=trusttunnel_client-v${VERSION}-macos-universal
+              tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," trusttunnel_client setup_wizard LICENSE
+            popd
+  requirements:
+    - ephemeral
+    - image: registry.int.agrd.dev/macos/tahoe-build-agent-xcode26.1.1:latest
+  artifact-subscriptions: [ ]
+  artifacts:
+    - name: Build for Mac
+      location: build_universal
+      pattern: 'trusttunnel_client-*.tar.gz'
+      required: true
+      shared: true
+
+Deploy artifacts:
+  key: DA
+  docker:
+    image: adguard/core-libs:2.6
+    volumes:
+      ${bamboo.working.directory}: ${bamboo.working.directory}
+      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+      ${bamboo.git.cache.directory}: ${bamboo.git.cache.directory}
+      ${system.HOME}/.ssh: /root/.ssh
+    docker-run-arguments: [ ]
+  tasks:
+    - checkout:
+        description: Checkout Default Repository
+        force-clean-build: 'true'
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+            set -x -e
+            VERSION=$(cat conandata.yml | grep "[0-9]*\.[0-9]*." | tail -1 | sed "s/\"//" | sed "s/\"\://" | sed "s/ //g")
+            # TODO: change to bamboo_githubPublicRepoPassword when repo become public
+            git clone https://${bamboo_githubPrivateRepoPassword}:@github.com/TrustTunnel/TrustTunnelClient/
+            cd TrustTunnelClient
+            TAG=v${VERSION}-CLI
+            CHANGELOG_URL="https://github.com/TrustTunnel/TrustTunnelClient/blob/${TAG}/CHANGELOG.md"
+            # TODO: change to bamboo_githubPublicRepoPassword when repo become public
+            gh config set -h github.com oauth_token "${bamboo_githubPrivateRepoPassword}" || exit 1
+            gh release delete -y --cleanup-tag ${TAG} || true
+            gh release create ${TAG} -p -t "${TAG}" -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
+
+            LINUX_ARCHES=${LINUX_ARCHES:-x86_64 aarch64 armv7 mips mipsel}
+            for ARCH in $LINUX_ARCHES; do
+              gh release upload ${TAG} ../build/linux/trusttunnel_client-v${VERSION}-linux-${ARCH}.tar.gz
+            done
+            gh release upload ${TAG} ../build/mac/trusttunnel_client-v${VERSION}-macos-universal.tar.gz
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions:
+    - artifact: Build for Linux
+      destination: build/linux
+    - artifact: Build for Mac
+      destination: build/mac
+  artifacts: []
+
+
+repositories:
+  - core-libs/vpn-libs:
+      scope: global
+
+branches:
+  create: manually
+  delete: never
+  link-to-jira: true
+
+notifications: [ ]
+
+labels: [ ]
+
+other:
+  concurrent-build-plugin: system-default

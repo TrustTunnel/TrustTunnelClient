@@ -44,6 +44,15 @@ target_compile_definitions(vpnlibs_trusttunnel PUBLIC TOML_EXCEPTIONS=0)
 target_compile_definitions(vpnlibs_trusttunnel PUBLIC _HAS_EXCEPTIONS=0)
 target_compile_definitions(vpnlibs_trusttunnel PUBLIC CXXOPTS_NO_RTTI=1 CXXOPTS_NO_EXCEPTIONS=1)
 
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "mips.*")
+    target_link_libraries(vpnlibs_trusttunnel atomic)
+endif ()
+
+if (CMAKE_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
+    add_link_options(-static -Wl,--allow-multiple-definition)
+    target_link_libraries(vpnlibs_trusttunnel atomic)
+endif ()
+
 set(EXE_SOURCE_FILES
         src/trusttunnel_client.cpp
 )
