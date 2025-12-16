@@ -77,8 +77,11 @@ Linux build:
               cmake --build build_${ARCH} --target trusttunnel_client
               cmake --build build_${ARCH} --target setup_wizard
               NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
-              pushd build_${ARCH}
-                tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," trusttunnel/trusttunnel_client trusttunnel/setup_wizard ${VPNLIBS_ROOT}/LICENSE
+              pushd build_${ARCH}/trusttunnel
+                llvm-strip trusttunnel_client
+                llvm-strip setup_wizard
+                cp ${VPNLIBS_ROOT}/LICENSE .
+                tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," trusttunnel_client setup_wizard LICENSE
                 mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
               popd
             done
@@ -143,7 +146,9 @@ Mac build:
             mkdir -p build_universal
             pushd build_universal
               lipo -create -output trusttunnel_client ../build_arm64/trusttunnel/trusttunnel_client ../build_x86_64/trusttunnel/trusttunnel_client
+              strip trusttunnel_client
               lipo -create -output setup_wizard ../build_arm64/trusttunnel/setup_wizard ../build_x86_64/trusttunnel/setup_wizard
+              strip setup_wizard
               codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime trusttunnel_client
               codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime setup_wizard
               BIN_PATH=${PWD}
@@ -196,7 +201,7 @@ Deploy artifacts:
             # TODO: change to bamboo_githubPublicRepoPassword when repo become public
             gh config set -h github.com oauth_token "${bamboo_githubPrivateRepoPassword}" || exit 1
             gh release delete -y --cleanup-tag ${TAG} || true
-            gh release create ${TAG} -p -t "${TAG}" -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
+            gh release create ${TAG} -t "${TAG}" -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
 
             LINUX_ARCHES=${LINUX_ARCHES:-x86_64 aarch64 armv7 mips mipsel}
             for ARCH in $LINUX_ARCHES; do
