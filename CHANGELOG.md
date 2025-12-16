@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.99.63
+
 * [Features] Add option to allow inbound connections to the specified UDP/TCP ports when
   `ag::VpnWinTunnelSettings::block_untunneled` is enabled.
     * See `ag::VpnWinTunnelSettings::block_untunneled_exclude_ports`.
