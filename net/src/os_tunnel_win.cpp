@@ -255,8 +255,16 @@ ag::VpnError ag::VpnWinTunnel::init(
         return {-1, "Unable to setup routes for wintun session"};
     }
     if (win_settings->block_untunneled) {
-        if (auto error = m_firewall.block_untunneled(ipv4_address, ipv6_address, ipv4_routes, ipv6_routes)) {
-            errlog(logger, "Failed to block incoming: {}", error->str());
+        std::vector<uint16_t> excl_ports;
+        if (win_settings->block_untunneled_exclude_ports) {
+            for (std::string_view port_str : utils::split_by(win_settings->block_untunneled_exclude_ports, '|')) {
+                if (auto port = utils::to_integer<uint16_t>(port_str)) {
+                    excl_ports.emplace_back(*port);
+                }
+            }
+        }
+        if (auto err = m_firewall.block_untunneled(ipv4_address, ipv6_address, ipv4_routes, ipv6_routes, excl_ports)) {
+            errlog(logger, "Failed to block incoming: {}", err->str());
             return {-1, "Failed to block incoming"};
         }
     }

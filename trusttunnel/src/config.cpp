@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <ranges>
 
 #include <magic_enum/magic_enum.hpp>
 #include <openssl/pem.h>
@@ -238,6 +239,18 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
     }
 
     result.killswitch_enabled = config["killswitch_enabled"].value_or<bool>(false);
+    if (const auto *x = config["killswitch_allow_ports"].as_array(); x != nullptr) {
+        for (const auto &a : *x) {
+            if (const auto *i = a.as_integer()) {
+                result.killswitch_allow_ports += std::to_string(i->get());
+                result.killswitch_allow_ports += "|";
+            }
+        }
+        if (!result.killswitch_allow_ports.empty()) {
+            result.killswitch_allow_ports.pop_back();
+        }
+    }
+
     result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or<bool>(false);
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();

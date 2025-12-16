@@ -1,5 +1,9 @@
 # CHANGELOG
 
+* [Features] Add option to allow inbound connections to the specified UDP/TCP ports when
+  `ag::VpnWinTunnelSettings::block_untunneled` is enabled.
+    * See `ag::VpnWinTunnelSettings::block_untunneled_exclude_ports`.
+
 ## 0.95.31
 
 * [Feature] IPv6 support must now be explicitly specified on each `VpnEndpoint`. Previously, the library assumed

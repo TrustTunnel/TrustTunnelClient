@@ -68,6 +68,10 @@ When enabled, incoming connection requests which should be routed through
 an endpoint will not be routed directly in that case."#)}
         #[serde(default = "Settings::default_killswitch_enabled")]
         pub killswitch_enabled: bool,
+        #{doc(r#"When the kill switch is enabled, on platforms where inbound connections are blocked by the
+kill switch, allow inbound connections to these local ports. An array of integers."#)}
+        #[serde(default = "Settings::default_killswitch_allow_ports")]
+        pub killswitch_allow_ports: Vec<u16>,
         #{doc(r#"When enabled, a post-quantum group may be used for key exchange
 in TLS handshakes initiated by the VPN client."#)}
         #[serde(default = "Settings::default_post_quantum_group_enabled")]
@@ -216,6 +220,10 @@ impl Settings {
         true
     }
 
+    pub fn default_killswitch_allow_ports() -> Vec<u16> {
+        Vec::new()
+    }
+
     pub fn default_post_quantum_group_enabled() -> bool {
         false
     }
@@ -313,6 +321,8 @@ pub fn build(template: Option<&Settings>) -> Settings {
         ).into(),
         killswitch_enabled: opt_field!(template, killswitch_enabled).cloned()
             .unwrap_or_else(Settings::default_killswitch_enabled),
+        killswitch_allow_ports: opt_field!(template, killswitch_allow_ports).cloned()
+            .unwrap_or_else(Settings::default_killswitch_allow_ports),
         post_quantum_group_enabled: opt_field!(template, post_quantum_group_enabled).cloned()
             .unwrap_or_else(Settings::default_post_quantum_group_enabled),
         exclusions: opt_field!(template, exclusions).cloned()

@@ -153,12 +153,14 @@ ag::WfpFirewall::WfpFirewall()
         errlog(g_log, "Failed to register base objects: {}", error->str());
         FwpmEngineClose0(m_impl->engine_handle);
         m_impl->engine_handle = INVALID_HANDLE_VALUE;
+        return;
     }
 
     if (auto error = run_transaction(m_impl->engine_handle, std::move(allow_self))) {
         errlog(g_log, "Failed to allow self through firewall: {}", error->str());
         FwpmEngineClose0(m_impl->engine_handle);
         m_impl->engine_handle = INVALID_HANDLE_VALUE;
+        return;
     }
 }
 
@@ -357,7 +359,7 @@ ag::WfpFirewallError ag::WfpFirewall::block_ipv6() {
 }
 
 ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4, const CidrRange &tunaddr6,
-        std::span<const CidrRange> incl4, std::span<const CidrRange> incl6) {
+        std::span<const CidrRange> incl4, std::span<const CidrRange> incl6, std::span<const uint16_t> excl_ports) {
     if (m_impl->engine_handle == INVALID_HANDLE_VALUE) {
         return make_error(FE_NOT_INITIALIZED);
     }
@@ -410,8 +412,10 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                         }
                     }
 
-                    // Allow traffic to/from `tunaddr4` and loopback.
-                    v4_conditions.emplace_back(FWPM_FILTER_CONDITION0{
+                    // Allow traffic to/from `tunaddr4`, loopback and excluded ports.
+                    auto v4_conditions_allow = v4_conditions;
+
+                    v4_conditions_allow.emplace_back(FWPM_FILTER_CONDITION0{
                             .fieldKey = FWPM_CONDITION_IP_LOCAL_ADDRESS,
                             .matchType = FWP_MATCH_EQUAL,
                             .conditionValue =
@@ -421,7 +425,7 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                                                     &v4_ranges.emplace_back(fwp_v4_range_from_cidr_range(tunaddr4)),
                                     },
                     });
-                    v4_conditions.emplace_back(FWPM_FILTER_CONDITION0{
+                    v4_conditions_allow.emplace_back(FWPM_FILTER_CONDITION0{
                             .fieldKey = FWPM_CONDITION_IP_LOCAL_ADDRESS,
                             .matchType = FWP_MATCH_EQUAL,
                             .conditionValue =
@@ -436,14 +440,44 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                     filter.displayData = {.name = name.data()};
                     filter.action = {.type = FWP_ACTION_PERMIT};
                     filter.weight.uint8 = UNTUNNELED_BLOCK_ALLOW_WEIGHT;
-                    filter.numFilterConditions = v4_conditions.size();
-                    filter.filterCondition = &v4_conditions[0];
+                    filter.numFilterConditions = v4_conditions_allow.size();
+                    filter.filterCondition = v4_conditions_allow.data();
 
                     for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4}) {
                         filter.layerKey = layer_key;
                         if (DWORD error = FwpmFilterAdd0(m_impl->engine_handle, &filter, nullptr, nullptr);
                                 error != ERROR_SUCCESS) {
                             return make_error(FE_WFP_ERROR, AG_FMT("FwpmFilterAdd0 failed with code {:#x}", error));
+                        }
+                    }
+
+                    if (!excl_ports.empty()) {
+                        auto v4_conditions_excl_ports = v4_conditions;
+                        for (uint16_t port : excl_ports) {
+                            v4_conditions_excl_ports.emplace_back(FWPM_FILTER_CONDITION0{
+                                    .fieldKey = FWPM_CONDITION_IP_LOCAL_PORT,
+                                    .matchType = FWP_MATCH_EQUAL,
+                                    .conditionValue =
+                                            {
+                                                    .type = FWP_UINT16,
+                                                    .uint16 = port,
+                                            },
+                            });
+                        }
+
+                        name = L"AdGuard VPN block untunneled IPv4 (allow excluded ports)";
+                        filter.displayData = {.name = name.data()};
+                        filter.action = {.type = FWP_ACTION_PERMIT};
+                        filter.weight.uint8 = UNTUNNELED_BLOCK_ALLOW_WEIGHT;
+                        filter.numFilterConditions = v4_conditions_excl_ports.size();
+                        filter.filterCondition = v4_conditions_excl_ports.data();
+
+                        for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4}) {
+                            filter.layerKey = layer_key;
+                            if (DWORD error = FwpmFilterAdd0(m_impl->engine_handle, &filter, nullptr, nullptr);
+                                    error != ERROR_SUCCESS) {
+                                return make_error(FE_WFP_ERROR, AG_FMT("FwpmFilterAdd0 failed with code {:#x}", error));
+                            }
                         }
                     }
                 }
@@ -495,8 +529,10 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                         }
                     }
 
-                    // Allow traffic to/from `tunaddr6` and loopback.
-                    v6_conditions.emplace_back(FWPM_FILTER_CONDITION0{
+                    // Allow traffic to/from `tunaddr6`, loopback and excluded ports.
+                    auto v6_conditions_allow = v6_conditions;
+
+                    v6_conditions_allow.emplace_back(FWPM_FILTER_CONDITION0{
                             .fieldKey = FWPM_CONDITION_IP_LOCAL_ADDRESS,
                             .matchType = FWP_MATCH_EQUAL,
                             .conditionValue =
@@ -506,7 +542,7 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                                                     &v6_ranges.emplace_back(fwp_v6_range_from_cidr_range(tunaddr6)),
                                     },
                     });
-                    v6_conditions.emplace_back(FWPM_FILTER_CONDITION0{
+                    v6_conditions_allow.emplace_back(FWPM_FILTER_CONDITION0{
                             .fieldKey = FWPM_CONDITION_IP_LOCAL_ADDRESS,
                             .matchType = FWP_MATCH_EQUAL,
                             .conditionValue =
@@ -521,14 +557,44 @@ ag::WfpFirewallError ag::WfpFirewall::block_untunneled(const CidrRange &tunaddr4
                     filter.displayData = {.name = name.data()};
                     filter.action = {.type = FWP_ACTION_PERMIT};
                     filter.weight.uint8 = UNTUNNELED_BLOCK_ALLOW_WEIGHT;
-                    filter.numFilterConditions = v6_conditions.size();
-                    filter.filterCondition = &v6_conditions[0];
+                    filter.numFilterConditions = v6_conditions_allow.size();
+                    filter.filterCondition = &v6_conditions_allow[0];
 
                     for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6}) {
                         filter.layerKey = layer_key;
                         if (DWORD error = FwpmFilterAdd0(m_impl->engine_handle, &filter, nullptr, nullptr);
                                 error != ERROR_SUCCESS) {
                             return make_error(FE_WFP_ERROR, AG_FMT("FwpmFilterAdd0 failed with code {:#x}", error));
+                        }
+                    }
+
+                    if (!excl_ports.empty()) {
+                        auto v6_conditions_excl_ports = v6_conditions;
+                        for (uint16_t port : excl_ports) {
+                            v6_conditions_excl_ports.emplace_back(FWPM_FILTER_CONDITION0{
+                                    .fieldKey = FWPM_CONDITION_IP_LOCAL_PORT,
+                                    .matchType = FWP_MATCH_EQUAL,
+                                    .conditionValue =
+                                            {
+                                                    .type = FWP_UINT16,
+                                                    .uint16 = port,
+                                            },
+                            });
+                        }
+
+                        name = L"AdGuard VPN block untunneled IPv6 (allow excluded ports)";
+                        filter.displayData = {.name = name.data()};
+                        filter.action = {.type = FWP_ACTION_PERMIT};
+                        filter.weight.uint8 = UNTUNNELED_BLOCK_ALLOW_WEIGHT;
+                        filter.numFilterConditions = v6_conditions_excl_ports.size();
+                        filter.filterCondition = v6_conditions_excl_ports.data();
+
+                        for (GUID layer_key : {FWPM_LAYER_ALE_AUTH_CONNECT_V6, FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6}) {
+                            filter.layerKey = layer_key;
+                            if (DWORD error = FwpmFilterAdd0(m_impl->engine_handle, &filter, nullptr, nullptr);
+                                    error != ERROR_SUCCESS) {
+                                return make_error(FE_WFP_ERROR, AG_FMT("FwpmFilterAdd0 failed with code {:#x}", error));
+                            }
                         }
                     }
                 }

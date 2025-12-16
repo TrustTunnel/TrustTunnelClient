@@ -57,7 +57,7 @@ public:
      * Traffic to/from loopback is never blocked.
      */
     WfpFirewallError block_untunneled(const CidrRange &tunaddr4, const CidrRange &tunaddr6,
-            std::span<const CidrRange> incl4, std::span<const CidrRange> incl6);
+            std::span<const CidrRange> incl4, std::span<const CidrRange> incl6, std::span<const uint16_t> excl_ports);
 
 private:
     struct Impl;

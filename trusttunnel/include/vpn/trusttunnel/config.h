@@ -52,6 +52,7 @@ struct TrustTunnelConfig {
     ag::LogLevel loglevel = ag::LOG_LEVEL_INFO;
     ag::VpnMode mode = ag::VPN_MODE_GENERAL;
     bool killswitch_enabled = false;
+    std::string killswitch_allow_ports;
     bool post_quantum_group_enabled = false;
     std::string log_file_path;
     std::string exclusions;

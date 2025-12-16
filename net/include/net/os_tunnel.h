@@ -64,6 +64,11 @@ struct VpnWinTunnelSettings {
      */
     bool block_untunneled;
     /**
+     * List of ports, as decimal numbers separated by pipe `|`, that are excluded from the effect of `block_untunneled`.
+     * Applies to both UDP and TCP. Nullable.
+     */
+    const char *block_untunneled_exclude_ports;
+    /**
      * Defer releasing Wintun packet's memory until the packet is processed.
      * If enabled, Wintun's ring buffer will be larger.
      */
