@@ -259,7 +259,7 @@ public final class VpnManager {
                 ]
                 configuration.serverAddress = "Trust Tunnel"
                 manager.protocolConfiguration = configuration
-                manager.localizedDescription = "TrustTunnel VPN"
+                manager.localizedDescription = "TrustTunnel"
                 manager.isEnabled = true
                 manager.saveToPreferences { error in
                     if let error = error {
