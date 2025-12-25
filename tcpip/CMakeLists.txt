@@ -9,6 +9,8 @@ if(CMAKE_USE_PTHREADS_INIT)
     add_compile_options("-pthread")
 endif()
 
+find_package(cxxopts REQUIRED)
+
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRD_PARTY_DIR ${VPN_LIB_DIR}/third-party)
 set(TCPIP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -82,3 +84,17 @@ include_directories(${LWIP_INCLUDE_DIRS} src)
 
 add_unit_test(test_util "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" FALSE FALSE)
 add_unit_test(test_vpn_packet_pool "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+
+add_executable(test_tun_echo EXCLUDE_FROM_ALL
+    ${TEST_DIR}/test_tun_echo.cpp
+)
+target_include_directories(test_tun_echo PRIVATE ${LWIP_INCLUDE_DIRS} src)
+target_link_libraries(test_tun_echo vpnlibs_tcpip cxxopts::cxxopts)
+
+# Copy test script to the same directory as the binary
+add_custom_command(TARGET test_tun_echo POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${TEST_DIR}/scripts/test_tun_echo.py
+        $<TARGET_FILE_DIR:test_tun_echo>/test_tun_echo.py
+    COMMENT "Copying test_tun_echo.py to binary directory"
+)
