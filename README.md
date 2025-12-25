@@ -83,13 +83,17 @@ Once you have obtained the exported endpoint configuration for the client, refer
     - Linux (Debian/Ubuntu): `apt install cmake`
     - Windows (Chocolatey): `choco install cmake`
 - LLVM 17 or higher
-    - macOS: `brew install llvm`
-        - Add `clang-format` and `clang-tidy` to PATH:
+    - macOS: `brew install llvm@19`
+
+        On macOS LLVM 19 is required for compatibility with the Apple's
+        compiler.
+
+        Also, add `clang-format` and `clang-tidy` to PATH:
 
         ```shell
-        ln -s /opt/homebrew/opt/llvm/bin/clang-format /opt/homebrew/bin/clang-format
-        ln -s /opt/homebrew/opt/llvm/bin/clang-tidy /opt/homebrew/bin/clang-tidy
-        ln -s /opt/homebrew/opt/llvm/bin/run-clang-tidy /opt/homebrew/bin/run-clang-tidy
+        ln -s /opt/homebrew/opt/llvm@19/bin/clang-format /opt/homebrew/bin/clang-format
+        ln -s /opt/homebrew/opt/llvm@19/bin/clang-tidy /opt/homebrew/bin/clang-tidy
+        ln -s /opt/homebrew/opt/llvm@19/bin/run-clang-tidy /opt/homebrew/bin/run-clang-tidy
         ```
 
     - Linux (Debian/Ubuntu): `apt install llvm clang libc++-dev`

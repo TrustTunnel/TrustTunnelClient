@@ -5,6 +5,7 @@ build/
 CmakeUserPresets.json
 pyvenv.cfg
 .clangd/
+/.cache/
 
 # Conan and conan-cmake create some files in-tree by design
 conan.lock

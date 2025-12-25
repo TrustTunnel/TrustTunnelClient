@@ -54,7 +54,7 @@ Checks: '
   -readability-duplicate-include,
   -cert-err33-c,
   -misc-use-anonymous-namespace,
-  
+
   -misc-include-cleaner,
   -*-use-nodiscard,
 
@@ -75,6 +75,7 @@ CheckOptions: [
   { key: readability-identifier-naming.FunctionCase, value: lower_case },
   { key: readability-identifier-naming.MethodCase, value: lower_case },
   { key: readability-identifier-naming.NamespaceCase, value: lower_case },
+  { key: readability-identifier-naming.LocalConstantCase, value: lower_case },
 
   { key: readability-identifier-naming.TemplateParameterCase, value: CamelCase },
   { key: readability-identifier-naming.StructCase, value: CamelCase },

@@ -47,6 +47,8 @@ else
 	-GNinja \
 	..
 endif
+# Prepare compile_commands.json
+cmake -S . -B $(BUILD_DIR) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 .PHONY: build_libs
 ## Build the libraries
@@ -98,8 +100,7 @@ clang-format:
 
 ## Check c++ code formatting with clang-tidy.
 .PHONY: clang-tidy
-clang-tidy:
-	cmake -S . -B $(BUILD_DIR) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy: setup_cmake
 	run-clang-tidy -p $(BUILD_DIR) '^(?!.*(/third-party/)).*\.cpp$$'
 
 ## Lint markdown files.
