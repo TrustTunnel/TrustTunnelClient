@@ -351,7 +351,7 @@ typedef struct {
 
 typedef struct {
     VpnAddressType type;
-    union {
+    union alignas(sizeof(uint64_t)) {
         SocketAddressStorage addr;
         VpnHostPort host;
     };
