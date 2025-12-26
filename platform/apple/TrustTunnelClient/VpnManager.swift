@@ -50,7 +50,10 @@ public final class VpnManager {
     private var readIndex: UInt32? = nil
     private let logger = Logger(category: "VpnManager")
 
-    public init(bundleIdentifier: String, appGroup: String, stateChangeCallback: @escaping (Int) -> Void, connectionInfoCallback: @escaping (String) -> Void) {
+    public init(bundleIdentifier: String,
+                        appGroup: String,
+             stateChangeCallback: @escaping (Int) -> Void,
+          connectionInfoCallback: @escaping (String) -> Void) {
         self.apiQueue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager.api", qos: .userInitiated)
         self.queue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager", qos: .userInitiated);
         self.connectionInfoQueue = DispatchQueue(label: "com.adguard.TrustTunnel.TrustTunnelClient.VpnManager.connectioninfo", qos: .userInitiated);
@@ -126,7 +129,8 @@ public final class VpnManager {
         ) { [weak self] _ in
             guard let self else { return }
             self.queue.sync {
-                if self.stopTimer != nil && (manager.connection.status == .disconnected || manager.connection.status == .invalid) {
+                if self.stopTimer != nil
+                    && (manager.connection.status == .disconnected || manager.connection.status == .invalid) {
                     self.cancelStopTimer()
                 }
             }
@@ -186,7 +190,8 @@ public final class VpnManager {
     }
 
     private func stopConnectionInfoListener() {
-        let notificationName = CFNotificationName("\(self.bundleIdentifier).\(ConnectionInfoParams.notificationName)" as CFString)
+        let notificationName =
+            CFNotificationName("\(self.bundleIdentifier).\(ConnectionInfoParams.notificationName)" as CFString)
         CFNotificationCenterRemoveObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
             Unmanaged.passUnretained(self).toOpaque(),
@@ -211,7 +216,8 @@ public final class VpnManager {
             var result: [String]? = nil
             fileCoordinator.coordinate(
                 readingItemAt: fileURL, error: &coordinatorError) { fileUrl in
-                    let (records, newIndex) = PrefixedLenRingProto.read_all(fileUrl: fileUrl, startIndex: self.readIndex)
+                    let (records, newIndex) =
+                        PrefixedLenRingProto.read_all(fileUrl: fileUrl, startIndex: self.readIndex)
                     if let records = records {
                         result = records
                         self.readIndex = newIndex
@@ -224,7 +230,9 @@ public final class VpnManager {
             }
             if result == nil {
                 self.logger.warn("Corrupted connection info file, deleting it")
-                fileCoordinator.coordinate(writingItemAt: fileURL, options: .forDeleting, error: &coordinatorError) { fileUrl in
+                fileCoordinator.coordinate(writingItemAt: fileURL,
+                                                 options: .forDeleting,
+                                                   error: &coordinatorError) { fileUrl in
                     PrefixedLenRingProto.clear(fileUrl: fileUrl)
                 }
                 self.readIndex = nil
@@ -253,62 +261,144 @@ public final class VpnManager {
         }
     }
 
-    public func start(serverName: String, config: (String)) {
-        apiQueue.async {
-            let manager = self.getManager()
-            let group = DispatchGroup()
-            group.enter()
+    private func updateConfiguration(manager: NETunnelProviderManager,
+                                  serverName: String!,
+                                      config: String!,
+                                 setOnDemand: Bool,
+                           completionHandler: @escaping ((any Error)?) -> Void) {
+        let isAllowedStatus = self.queue.sync {
+            return manager.connection.status == .disconnected
+                || manager.connection.status == .invalid
+        }
+        guard isAllowedStatus else {
+            self.logger.warn("Failed to update configuration: VPN is not in allowed state")
+            completionHandler(nil)
+            return
+        }
+        manager.loadFromPreferences { error in
+            if let error = error {
+                self.logger.error("Failed to load preferences: \(error)")
+                completionHandler(error)
+                return
+            }
+            let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ??
+            NETunnelProviderProtocol()
+            configuration.providerBundleIdentifier = self.bundleIdentifier
+            configuration.providerConfiguration = [
+                "config": config as NSObject,
+                "appGroup": self.appGroup as NSObject,
+                "bundleIdentifier": self.bundleIdentifier as NSObject
+            ]
+            configuration.serverAddress = serverName
+            manager.protocolConfiguration = configuration
+            manager.localizedDescription = "TrustTunnel"
+            manager.isEnabled = true
 
-            manager.loadFromPreferences { error in
-                if let error = error {
-                    self.logger.error("Failed to load preferences: \(error)")
-                    group.leave()
-                    return
-                }
-                let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ??
-                NETunnelProviderProtocol()
-                configuration.providerBundleIdentifier = self.bundleIdentifier
-                configuration.providerConfiguration = [
-                    "config": config as NSObject,
-                    "appGroup": self.appGroup as NSObject,
-                    "bundleIdentifier": self.bundleIdentifier as NSObject
-                ]
-                configuration.serverAddress = serverName
-                manager.protocolConfiguration = configuration
-                manager.localizedDescription = "TrustTunnel"
-                manager.isEnabled = true
-
+            if setOnDemand {
                 var vpnConfig: VpnConfig!
                 do {
                     vpnConfig = try parseVpnConfig(from: config)
                 } catch {
                     self.logger.error("Failed to parse config: \(error)")
-                    group.leave()
+                    completionHandler(error)
                     return
                 }
                 if (vpnConfig.killswitch_enabled) {
                     manager.isOnDemandEnabled = true
                     manager.onDemandRules = [NEOnDemandRuleConnect()]
                 }
-                self.reloadManager(manager: manager) { error in
-                    if let error = error {
-                        self.logger.error("Failed to reload manager: \(error)")
-                    }
-                    group.leave()
+            }
+
+            self.reloadManager(manager: manager) { error in
+                if let error = error {
+                    self.logger.error("Failed to reload manager: \(error)")
+                    completionHandler(error)
+                    return
+                }
+                // Recreate observer to update newly loaded connection object
+                self.stopObservingStatus()
+                self.startObservingStatus(manager: manager)
+                completionHandler(nil)
+            }
+        }
+    }
+
+    private func deleteConfiguration(manager: NETunnelProviderManager,
+                           completionHandler: @escaping ((any Error)?) -> Void) {
+        let isDisconnected = self.queue.sync {
+            return manager.connection.status == .disconnected
+        }
+        guard isDisconnected else {
+            self.logger.warn("Failed to update configuration: VPN is not in disconnected state")
+            return
+        }
+
+        manager.removeFromPreferences { error in
+            if let error = error {
+                self.logger.error("Failed to remove from preferences: \(error)")
+                completionHandler(error)
+                return
+            }
+            completionHandler(nil)
+        }
+    }
+
+    public func updateConfiguration(serverName: String?, config: String?) {
+        apiQueue.async {
+            let manager = self.getManager()
+            let group = DispatchGroup()
+            let timerSource = DispatchSource.makeTimerSource(flags: [], queue: self.queue)
+            timerSource.setCancelHandler {
+                self.stopTimer = nil
+                group.leave()
+            }
+            timerSource.setEventHandler {
+                timerSource.cancel()
+            }
+            group.enter()
+            let timeout = DispatchTime.now() + .seconds(15)
+            timerSource.schedule(deadline: timeout)
+            timerSource.resume()
+            if serverName == nil || config == nil {
+                self.deleteConfiguration(manager: manager) { error in
+                    timerSource.cancel()
+                }
+            } else {
+                self.updateConfiguration(manager: manager,
+                                      serverName: serverName!,
+                                          config: config!,
+                                     setOnDemand: false) { error in
+                    timerSource.cancel()
                 }
             }
             group.wait()
+        }
+    }
 
-            // Recreate observer to update newly loaded connection object
-            self.stopObservingStatus()
-            self.startObservingStatus(manager: manager)
+    public func start(serverName: String, config: (String)) {
+        apiQueue.async {
+            let manager = self.getManager()
+            let group = DispatchGroup()
+            group.enter()
 
-            do {
-                try manager.connection.startVPNTunnel()
-                self.logger.info("VPN has been started!")
-            } catch {
-                self.logger.error("Failed to start VPN tunnel: \(error)")
+            self.updateConfiguration(manager: manager,
+                                  serverName: serverName,
+                                      config: config,
+                                 setOnDemand: true) { error in
+                if let error = error {
+                    self.logger.error("Failed to start VPN tunnel: \(error)")
+                } else {
+                    do {
+                        try manager.connection.startVPNTunnel()
+                        self.logger.info("VPN has been started!")
+                    } catch {
+                        self.logger.error("Failed to start VPN tunnel: \(error)")
+                    }
+                }
+                group.leave()
             }
+
+            group.wait()
         }
     }
 
