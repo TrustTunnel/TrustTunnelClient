@@ -140,4 +140,5 @@ fn fill_tun_listener_table(table: &mut Table, settings: &Settings) {
     table["included_routes"] = value(Array::from_iter(settings.included_routes.iter()));
     table["excluded_routes"] = value(Array::from_iter(settings.excluded_routes.iter()));
     table["mtu_size"] = value(settings.mtu_size as i64);
+    table["change_system_dns"] = value(settings.change_system_dns);
 }

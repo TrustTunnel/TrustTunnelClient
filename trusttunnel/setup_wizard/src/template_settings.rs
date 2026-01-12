@@ -143,6 +143,8 @@ included_routes = [{}]
 excluded_routes = [{}]
 {}
 mtu_size = {}
+{}
+change_system_dns = {}
 "#,
         TunListener::doc_bound_if().to_toml_comment(),
         TunListener::default_bound_if(),
@@ -160,5 +162,7 @@ mtu_size = {}
             .join(OS_LINE_ENDING),
         TunListener::doc_mtu_size().to_toml_comment(),
         TunListener::default_mtu_size(),
+        TunListener::doc_change_system_dns().to_toml_comment(),
+        TunListener::default_change_system_dns(),
     )
 });

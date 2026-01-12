@@ -203,6 +203,9 @@ On Windows, an interface index as shown by `route print`, written as a string, m
         #{doc("MTU size on the interface")}
         #[serde(default = "TunListener::default_mtu_size")]
         pub mtu_size: usize,
+        #{doc("Allow changing system DNS servers")}
+        #[serde(default = "TunListener::default_change_system_dns")]
+        pub change_system_dns: bool,
     }
 }
 
@@ -295,6 +298,10 @@ impl TunListener {
     }
     pub fn default_mtu_size() -> usize {
         1500
+    }
+
+    pub fn default_change_system_dns() -> bool {
+        true
     }
 }
 
@@ -591,6 +598,12 @@ fn build_listener(template: Option<&Listener>) -> Listener {
                 mtu_size: opt_field!(template, mtu_size)
                     .cloned()
                     .unwrap_or_else(TunListener::default_mtu_size),
+                change_system_dns: ask_for_agreement_with_default(
+                    &format!("{}\n", TunListener::doc_change_system_dns()),
+                    opt_field!(template, change_system_dns)
+                        .cloned()
+                        .unwrap_or_else(TunListener::default_change_system_dns),
+                ),
             })
         }
         _ => unreachable!(),

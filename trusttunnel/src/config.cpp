@@ -174,6 +174,7 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
     TrustTunnelConfig::TunListener tun = {
         .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
         .bound_if = std::move(bound_if),
+        .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
         .netns = (*tun_config)["netns"].value<std::string>(),
     };
 

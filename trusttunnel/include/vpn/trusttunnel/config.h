@@ -44,6 +44,7 @@ struct TrustTunnelConfig {
         std::vector<std::string> excluded_routes;
         uint32_t mtu_size = 0;
         std::string bound_if;
+        bool change_system_dns = true;
         std::optional<std::string> netns;
     };
 

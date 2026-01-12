@@ -374,7 +374,7 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .included_routes = {.data = included_routes.data(), .size = uint32_t(included_routes.size())},
             .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
             .mtu = int(config.mtu_size),
-            .dns_servers = defaults->dns_servers};
+            .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{}};
 
     m_tunnel = ag::make_vpn_tunnel();
     if (m_tunnel == nullptr) {
