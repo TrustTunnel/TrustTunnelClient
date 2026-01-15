@@ -1,6 +1,6 @@
 # CHANGELOG
 
-Post-quantum cryptography is now enabled by default
+- Post-quantum cryptography is now enabled by default
 
 ## 0.99.63
 
