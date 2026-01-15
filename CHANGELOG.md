@@ -1,5 +1,7 @@
 # CHANGELOG
 
+Post-quantum cryptography is now enabled by default
+
 ## 0.99.63
 
 - [Features] Add option to allow inbound connections to the specified UDP/TCP ports when
