@@ -229,7 +229,7 @@ impl Settings {
     }
 
     pub fn default_post_quantum_group_enabled() -> bool {
-        false
+        true
     }
 }
 

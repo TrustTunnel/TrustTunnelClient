@@ -253,7 +253,7 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
         }
     }
 
-    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or<bool>(false);
+    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or<bool>(true);
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 

@@ -103,7 +103,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `vpn_mode` | string | `"general"` | Routing policy: `general` (route all except exclusions) or `selective` (route only exclusions) |
 | `killswitch_enabled` | bool | `true` | Block traffic when VPN connection is lost |
 | `killswitch_allow_ports` | array[int] | `[]` | Local ports to allow inbound connections when kill switch is active |
-| `post_quantum_group_enabled` | bool | `false` | Enable post-quantum key exchange in TLS handshakes |
+| `post_quantum_group_enabled` | bool | `true` | Enable post-quantum key exchange in TLS handshakes |
 | `exclusions` | array[string] | `[]` | Domains/IPs to route specially based on `vpn_mode` |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN |
 
@@ -171,7 +171,7 @@ loglevel = "info"
 vpn_mode = "general"
 killswitch_enabled = true
 killswitch_allow_ports = []
-post_quantum_group_enabled = false
+post_quantum_group_enabled = true
 exclusions = []
 dns_upstreams = ["tls://1.1.1.1"]
 

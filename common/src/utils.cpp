@@ -13,7 +13,7 @@
 namespace ag {
 
 static std::atomic_bool g_handler_profiling_enabled = false;
-static std::atomic_bool g_post_quantum_group_enabled = false;
+static std::atomic_bool g_post_quantum_group_enabled = true;
 
 static constexpr uint32_t DEFAULT_HANDLER_PROFILING_THRESHOLD_NS = 5'000'000; // 5 milliseconds
 
