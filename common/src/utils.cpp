@@ -9,11 +9,12 @@
 #include "dns/dnsstamp/dns_stamp.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
+#include "vpn/default_settings.h"
 
 namespace ag {
 
-static std::atomic_bool g_handler_profiling_enabled = false;
-static std::atomic_bool g_post_quantum_group_enabled = true;
+static std::atomic_bool g_handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED;
+static std::atomic_bool g_post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
 
 static constexpr uint32_t DEFAULT_HANDLER_PROFILING_THRESHOLD_NS = 5'000'000; // 5 milliseconds
 
