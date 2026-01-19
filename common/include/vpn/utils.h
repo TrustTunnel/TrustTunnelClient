@@ -15,6 +15,7 @@
 #include "common/defs.h"
 #include "common/socket_address.h"
 #include "vpn/platform.h"
+#include "vpn/default_settings.h"
 
 namespace ag {
 
@@ -390,6 +391,12 @@ WIN_EXPORT void vpn_post_quantum_group_set_enabled(bool enabled);
 
 /** Return `true` if a post-quantum group can be used in TLS handshakes initiated by the library, `false` otherwise. */
 WIN_EXPORT bool vpn_post_quantum_group_enabled();
+
+/**
+ * Get default VPN settings.
+ * @param settings Pointer to VpnDefaultSettings structure to fill
+ */
+WIN_EXPORT void vpn_get_default_settings(VpnDefaultSettings *settings);
 
 } // extern "C"
 } // namespace ag
