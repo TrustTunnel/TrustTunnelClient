@@ -229,6 +229,8 @@ impl Settings {
     }
 
     pub fn default_post_quantum_group_enabled() -> bool {
+        // Keep in sync with common/include/vpn/default_settings.h
+        // VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED
         true
     }
 }
