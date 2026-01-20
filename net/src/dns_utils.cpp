@@ -145,7 +145,7 @@ dns_utils::EncodeResult dns_utils::encode_request(const dns_utils::Request &requ
     }
 
     std::vector<uint8_t> raw = {buffer, buffer + pkt_size};
-    free(buffer);
+    free(buffer); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     return EncodedRequest{ldns_pkt_id(pkt.get()), std::move(raw)};
 }
 

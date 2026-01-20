@@ -15,6 +15,7 @@ struct UpstreamCalledMethods {
     bool do_health_check = false;
 };
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 class TestUpstream : public ServerUpstream {
 public:
     UpstreamReturnValues return_values = {};
@@ -203,3 +204,4 @@ TEST_F(FallbackableUpstreamConnectorTest, BothFail) {
     ASSERT_TRUE(m_raised_result.has_value());
     ASSERT_TRUE(std::holds_alternative<VpnError>(m_raised_result.value())) << m_raised_result->index();
 }
+// NOLINTEND(bugprone-unchecked-optional-access)

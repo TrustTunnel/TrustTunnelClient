@@ -20,9 +20,9 @@ static const char CORRECT_OUTPUT[] = "GET / HTTP/1.1\r\n" NONEMPTY_FIELD_NAME ":
 static const char CORRECT_OUTPUT_RESPONSE[] = "HTTP/1.1 200 OK\r\n" NONEMPTY_FIELD_NAME ": 1\r\n" NONEMPTY_FIELD_NAME
                                               ": 2\r\n" EMPTY_FIELD_NAME "2: \r\n" NONEMPTY_FIELD_NAME "2: 2\r\n\r\n";
 
-#define HTTP_STATUS_OK "OK"
+static constexpr std::string_view HTTP_STATUS_OK_STR = "OK";
 
-int main() {
+int main() { // NOLINT(bugprone-exception-escape)
     HttpHeaders message{.version = HTTP_VER_1_1};
 
     message.method = "GET";
@@ -41,13 +41,11 @@ int main() {
 
     HttpHeaders clone = message;
 
-    clone.status_code = 200;
-    clone.status_string = HTTP_STATUS_OK;
+    clone.status_code = HTTP_STATUS_OK;
+    clone.status_string = HTTP_STATUS_OK_STR;
 
     assert(message.contains_field(ag::utils::to_lower(NONEMPTY_FIELD_NAME)));
 
-    std::string output1 = http_headers_to_http1_message(&message, false);
-    std::string output2 = http_headers_to_http1_message(&clone, false);
-    assert(output1 == CORRECT_OUTPUT);
-    assert(output2 == CORRECT_OUTPUT_RESPONSE);
+    assert(http_headers_to_http1_message(&message, false) == CORRECT_OUTPUT);
+    assert(http_headers_to_http1_message(&clone, false) == CORRECT_OUTPUT_RESPONSE);
 }

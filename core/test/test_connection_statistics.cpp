@@ -31,8 +31,9 @@ protected:
 TEST_F(ConnectionStatisticsMonitor, DontRaiseThrottlingTrafficThresholdReached) {
     static constexpr uint64_t THRESHOLD = 42;
     static constexpr uint64_t ID = 21;
+    static constexpr auto THROTTLING_PERIOD = ag::Millis{1000000};
 
-    ag::ConnectionStatisticsMonitor monitor{m_event_loop.get(), m_handler, ag::Millis{1000000}, THRESHOLD};
+    ag::ConnectionStatisticsMonitor monitor{m_event_loop.get(), m_handler, THROTTLING_PERIOD, THRESHOLD};
     monitor.register_conn(ID);
     monitor.update_upload(ID, 2 * THRESHOLD);
     monitor.update_download(ID, 2 * THRESHOLD);

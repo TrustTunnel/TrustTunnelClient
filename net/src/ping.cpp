@@ -253,6 +253,7 @@ static void do_connect(void *arg, bool shortcut) {
         };
         error = tcp_socket_connect(conn->tcp_socket.get(), &parameters);
         if (error.code == 0) {
+            // NOLINTNEXTLINE(bugprone-unused-return-value)
             (void) conn->ssl.release();
         }
     };
@@ -327,6 +328,7 @@ static void do_report(void *arg) {
             // ping times. As a temporary solution, the following formula is used to reduce peaks while keeping the
             // average values in place.
             // TODO: fix traffic jams
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access,cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
             result.ms = int(pow(double(it->best_result_ms.value()), 0.85) * 1.8) + 1;
         } else {
             result.socket_error = it->socket_error;
@@ -587,8 +589,9 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     }
 
 #ifndef DISABLE_HTTP3
-    self->quic_max_idle_timeout_ms =
-            info->quic_max_idle_timeout_ms ? info->quic_max_idle_timeout_ms : 10 * DEFAULT_PING_TIMEOUT_MS;
+    constexpr auto TIMEOUT_MULTIPLIER = 10;
+    self->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms ? info->quic_max_idle_timeout_ms
+                                                                    : TIMEOUT_MULTIPLIER * DEFAULT_PING_TIMEOUT_MS;
     self->quic_version = info->quic_version ? info->quic_version : QUICHE_PROTOCOL_VERSION;
 #endif
 

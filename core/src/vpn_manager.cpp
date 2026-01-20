@@ -90,10 +90,11 @@ vpn_client::Parameters Vpn::make_client_parameters() const {
 }
 
 vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
-    AutoVpnEndpoint endpoint = vpn_endpoint_clone(
-            this->selected_endpoint.value().endpoint.get()); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    AutoVpnEndpoint endpoint = vpn_endpoint_clone(this->selected_endpoint.value().endpoint.get());
     if (this->selected_endpoint->relay.has_value()) {
         AutoVpnRelay relay = vpn_relay_clone(this->selected_endpoint->relay.value().get());
+        // NOLINTEND(bugprone-unchecked-optional-access)
         endpoint->address = relay->address;
         std::swap(endpoint->additional_data.data, relay->additional_data.data);
         std::swap(endpoint->additional_data.size, relay->additional_data.size);
@@ -184,7 +185,7 @@ bool Vpn::run_event_loop() {
     return true;
 }
 
-void Vpn::submit(ag::MoveOnlyFunction<void()> &&func, std::optional<Millis> defer) {
+void Vpn::submit(ag::MoveOnlyFunction<void()> func, std::optional<Millis> defer) {
     VpnEventLoopTask task = {
             new ag::MoveOnlyFunction<void()>(std::move(func)),
             [](void *arg, TaskId) {
@@ -319,10 +320,10 @@ VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
     vpn->submit([vpn,
                         cfg = std::make_shared<decltype(vpn->upstream_config)>(
                                 vpn_upstream_config_clone(&parameters->upstream_config)),
-                        retry_info = std::move(retry_info)]() mutable {
+                        retry_info = retry_info]() mutable {
         vpn->client.update_parameters(vpn->make_client_parameters());
         vpn->update_upstream_config(std::move(*cfg));
-        vpn->connect_retry_info = std::move(retry_info);
+        vpn->connect_retry_info = retry_info;
         if (auto *several_attempts = std::get_if<vpn_manager::ConnectSeveralAttempts>(&vpn->connect_retry_info);
                 several_attempts != nullptr) {
             several_attempts->attempts_left -= 1;
@@ -431,7 +432,7 @@ void vpn_stop(Vpn *vpn) {
 }
 
 void vpn_close(Vpn *vpn) {
-    if (vpn == NULL) {
+    if (vpn == nullptr) {
         return;
     }
 
@@ -465,7 +466,7 @@ VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {
 
 void vpn_listener_config_destroy(VpnListenerConfig *config) {
     for (size_t i = 0; i < config->dns_upstreams.size; ++i) {
-        free((char *) config->dns_upstreams.data[i]);
+        free((char *) config->dns_upstreams.data[i]); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     }
     delete[] config->dns_upstreams.data;
 
@@ -475,7 +476,7 @@ void vpn_listener_config_destroy(VpnListenerConfig *config) {
 static void vpn_complete_connect_request_task(Vpn *vpn, ConnectRequestResult result) {
     log_vpn(vpn, dbg, "{}", result.to_string());
 
-    result.action = vpn->client.finalize_connect_action(std::move(result));
+    result.action = vpn->client.finalize_connect_action(result);
 
     vpn->fsm.perform_transition(vpn_fsm::CE_COMPLETE_REQUEST, &result);
 }

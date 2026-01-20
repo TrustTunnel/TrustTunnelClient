@@ -44,12 +44,13 @@ struct CompleteConnectRequestCtx {
 // Call `func` for each value in `table`.
 template <typename Func>
 void vpn_connections_foreach(const khash_t(connections_by_id) * table, Func &&func) {
+    auto f = std::forward<Func>(func);
     for (auto it = kh_begin(table); it != kh_end(table); ++it) {
         if (!kh_exist(table, it)) {
             continue;
         }
         VpnConnection *conn = kh_value(table, it);
-        std::forward<Func>(func)(conn);
+        f(conn);
     }
 }
 
@@ -916,7 +917,7 @@ static std::shared_ptr<ServerUpstream> select_upstream(
                 return self->dns_handler;
             }
         }
-        if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
+        if (const SocketAddress * dst; // NOLINT(cppcoreguidelines-init-variables)
                 conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && conn->flags.test(CONNF_SUSPECT_EXCLUSION)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
                 && is_domain_scannable_port(dst->port())) {
@@ -993,7 +994,7 @@ static std::shared_ptr<ServerUpstream> select_upstream(
     self->do_health_check(upstream);
 
     log_conn(self, sw_conn, trace, "Connecting...");
-    return processed;
+    return static_cast<ssize_t>(processed);
 }
 
 std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestResult request_result) const {
@@ -1089,6 +1090,7 @@ static std::optional<SocketAddress> select_resolved_destination_address(
         }
 
         std::shared_ptr<ServerUpstream> upstream = select_upstream(self, action, nullptr);
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         if (upstream != nullptr && upstream->ip_version_availability.test(get_ip_version(address).value())) {
             return address;
         }
@@ -1668,7 +1670,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 break;
             case ALUA_DROP: {
                 log_conn(this, conn, trace, "Dropping packet without closing connection, length: {}", event->length);
-                event->result = event->length;
+                event->result = static_cast<int>(event->length);
                 return;
             }
             case ALUA_WANT_MORE: {
@@ -1678,7 +1680,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 if (conn->lookup_attempts_num++ < MAX_LOOKUP_ATTEMPTS) {
                     log_conn(this, conn, trace, "Adding pending packet, length: {}", event->length);
                     conn->buffered_packets.emplace_back(event->data, event->data + event->length);
-                    event->result = event->length;
+                    event->result = static_cast<int>(event->length);
                     return;
                 }
                 log_conn(this, conn, trace, "Exceeded the number of domain lookup attempts");
@@ -1706,6 +1708,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                     upstream->close_connection(conn->server_id, false, true);
                     break;
                 }
+                // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
                 auto upstream_to_migrate = select_upstream(this, conn->action.value(), conn);
                 log_conn(this, conn, dbg, "Client: Connection had been routed {}, migrating to {}",
                         (upstream.get() == this->vpn->endpoint_upstream.get())         ? "through VPN endpoint"
@@ -1716,6 +1719,7 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                                 : (upstream_to_migrate.get() == this->vpn->bypass_upstream.get()) ? "Bypass upstream"
                                 : (upstream_to_migrate.get() == this->fake_upstream.get())        ? "Fake upstream"
                                                                                                   : "unknown upstream");
+                // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
                 event->result = initiate_connection_migration(
                         this, conn, std::move(upstream_to_migrate), {event->data, event->length});
                 if (event->result < 0) {
@@ -1736,8 +1740,8 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                     encode_to_hex({event->data, std::min(event->length, size_t(517))}));
             conn->flags.reset(CONNF_FAKE_CONNECTION);
             conn->flags.reset(CONNF_SUSPECT_EXCLUSION);
-            event->result = initiate_connection_migration(
-                    this, conn, select_upstream(this, VPN_CA_DEFAULT, conn), {event->data, event->length});
+            event->result = static_cast<int>(initiate_connection_migration(
+                    this, conn, select_upstream(this, VPN_CA_DEFAULT, conn), {event->data, event->length}));
             if (event->result < 0) {
                 listener->turn_read(conn->client_id, false);
                 close_client_side_connection(this, conn, utils::AG_ECONNRESET, /*async*/ true);

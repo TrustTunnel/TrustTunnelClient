@@ -68,7 +68,8 @@ protected:
 };
 
 TEST_F(EventLoopTest, Submit) {
-    TestData tasks[5];
+    constexpr size_t TASKS_NUM = 5;
+    TestData tasks[TASKS_NUM];
 
     for (auto &task : tasks) {
         task.id = vpn_event_loop_submit(m_ev_loop.get(), make_task(task));
@@ -92,8 +93,9 @@ TEST_F(EventLoopTest, Submit) {
 }
 
 TEST_F(EventLoopTest, Schedule) {
-    const Millis POSTPONE{1000};
-    TestData tasks[5];
+    constexpr Millis POSTPONE{1000};
+    constexpr size_t TASKS_NUM = 5;
+    TestData tasks[TASKS_NUM];
 
     for (auto &task : tasks) {
         task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(task), POSTPONE);
@@ -132,7 +134,7 @@ TEST_F(EventLoopTest, CancelSubmitted) {
 }
 
 TEST_F(EventLoopTest, CancelScheduled) {
-    const Millis POSTPONE{1000};
+    constexpr Millis POSTPONE{1000};
     TestData postponed_task = {};
     postponed_task.id = vpn_event_loop_schedule(m_ev_loop.get(), make_task(postponed_task), POSTPONE);
 
@@ -159,8 +161,9 @@ TEST_F(EventLoopTest, CancelScheduled) {
 }
 
 TEST_F(EventLoopTest, CancelByStop) {
-    const Millis POSTPONE{1000};
-    TestData tasks[6];
+    constexpr Millis POSTPONE{1000};
+    constexpr size_t TASKS_NUM = 6;
+    TestData tasks[TASKS_NUM];
 
     for (size_t i = 0; i < std::size(tasks); ++i) {
         if (i % 2 == 0) {

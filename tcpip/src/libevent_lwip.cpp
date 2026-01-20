@@ -118,6 +118,7 @@ void libevent_lwip_free() {
     g_lwip = nullptr;
 }
 
+// NOLINTBEGIN(cert-dcl50-cpp)
 void libevent_lwip_log_debug(const char *message, ...) {
     if (g_lwip == nullptr) {
         return;
@@ -132,6 +133,7 @@ void libevent_lwip_log_debug(const char *message, ...) {
     errlog(g_lwip->logger, "{}", fmt_message);
     va_end(args);
 }
+// NOLINTEND(cert-dcl50-cpp)
 
 static void run_lwip_timer(evutil_socket_t fd, short events, void *arg) {
     LWIP_UNUSED_ARG(fd);

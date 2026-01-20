@@ -192,7 +192,7 @@ ssize_t ag::DnsHandlerServerUpstreamBase::send(uint64_t upstream_conn_id, const 
     if (it->second.proto == IPPROTO_UDP) {
         ++it->second.unanswered_dns_requests;
         on_dns_request(info, {data, length});
-        return length;
+        return length; // NOLINT(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     }
 
     it->second.snd_buf.insert(it->second.snd_buf.end(), data, data + length);
@@ -212,7 +212,7 @@ ssize_t ag::DnsHandlerServerUpstreamBase::send(uint64_t upstream_conn_id, const 
     }
     it->second.snd_buf.erase(it->second.snd_buf.begin(), it->second.snd_buf.begin() + read);
 
-    return length;
+    return length; // NOLINT(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 }
 
 void ag::DnsHandlerServerUpstreamBase::consume(uint64_t /*upstream_conn_id*/, size_t /*length*/) {
@@ -420,7 +420,7 @@ ssize_t ag::DnsHandlerClientListenerBase::send(uint64_t listener_conn_id, const 
 
     if (it->second.proto == IPPROTO_UDP) {
         on_dns_response(it->second.upstream_conn_id, {data, length});
-        return length;
+        return length; // NOLINT(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     }
 
     it->second.rcv_buf.insert(it->second.rcv_buf.end(), data, data + length);
@@ -435,12 +435,12 @@ ssize_t ag::DnsHandlerClientListenerBase::send(uint64_t listener_conn_id, const 
         if (!msg.has_value()) {
             break;
         }
-        read += 2 + msg->size();
+        read += 2 + static_cast<int>(msg->size());
         on_dns_response(it->second.upstream_conn_id, *msg);
     }
     it->second.rcv_buf.erase(it->second.rcv_buf.begin(), it->second.rcv_buf.begin() + read);
 
-    return length;
+    return length; // NOLINT(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 }
 
 void ag::DnsHandlerClientListenerBase::consume(uint64_t /*listener_conn_id*/, size_t /*n*/) {
@@ -666,6 +666,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
     SystemDnsServers servers_v6;
     for (auto it = servers.main.begin(); it != servers.main.end();) {
         SocketAddress address{it->address};
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         if ((it->resolved_host.has_value() && it->resolved_host->is_ipv6()) || (address.valid() && address.is_ipv6())) {
             servers_v6.main.emplace_back(std::move(*it));
             it = servers.main.erase(it);
@@ -709,7 +710,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
         for (auto &server : servers->main) {
             upstreams.emplace_back(DnsProxyAccessor::Upstream{
                     .address = std::move(server.address),
-                    .resolved_host = std::move(server.resolved_host),
+                    .resolved_host = server.resolved_host,
             });
         }
         proxy = std::make_unique<DnsProxyAccessor>(DnsProxyAccessor::Parameters{.upstreams = std::move(upstreams),

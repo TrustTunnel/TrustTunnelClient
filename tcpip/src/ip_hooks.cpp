@@ -24,6 +24,8 @@ static inline int process_icmp6(TcpipCtx *ctx, struct pbuf *p, u16_t header_len,
 #define DROP_PACKET(p) (pbuf_free(p), true)
 #define PACKET_IS_DEFERRED (true)
 
+// We want to ignore these checks due to LWIP API
+// NOLINTBEGIN(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 int ip4_input_hook(struct pbuf *p, struct netif *inp) {
     if (IP_HLEN > p->len) {
         return PASS_PACKET_TO_LWIP(p, 0);
@@ -389,3 +391,4 @@ static inline int process_icmp6(
     }
     return process_icmp_req(ctx, p, header_len, src, dst, iecho->id, iecho->seqno, ttl);
 }
+// NOLINTEND(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)

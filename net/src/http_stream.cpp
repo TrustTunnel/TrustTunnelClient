@@ -28,6 +28,7 @@ struct BrotliStream {
     size_t total_out;
 };
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 int http_stream_decompress_init(HttpStream *stream) {
     log_stream(stream, trace, "");
     // Get content encoding from HTTP headers
@@ -77,6 +78,7 @@ int http_stream_decompress_init(HttpStream *stream) {
     log_stream(stream, trace, "returned {}", r);
     return r;
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 HttpContentEncoding http_stream_get_content_encoding(const HttpHeaders *headers) {
     if (auto value = headers->get_field("Content-Encoding")) {
@@ -202,10 +204,12 @@ finish:
     return r;
 }
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 /** Return TRUE if this is a ZLIB header. */
 static bool is_zlib_hdr(const uint8_t *data) {
     return (data[0] & 0x0f) == 8 && (((data[0] & 0xf0) >> 4) <= 7 && (((uint32_t) data[0] << 8) + data[1]) % 31 == 0);
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 int http_stream_decompress(
         HttpStream *h_stream, const uint8_t *data, size_t length, BodyDataOutputCallback data_output) {
@@ -266,12 +270,14 @@ int http_stream_decompress_end(HttpStream *stream) {
         break;
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     free(stream->decompress_stream);
     stream->decompress_stream = nullptr;
     free(stream->decode_in_buffer);
     stream->decode_in_buffer = nullptr;
     free(stream->decode_out_buffer);
     stream->decode_out_buffer = nullptr;
+    // NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     return result;
 }
 
@@ -289,7 +295,7 @@ void http_stream_reset_state(HttpStream *stream) {
 
 HttpStream *http_stream_new(HttpSession *session, int32_t id) {
     auto *stream = new HttpStream{};
-    stream->id = (uint32_t) id;
+    stream->id = id;
     stream->session = session;
     stream->processed_bytes = 0;
     return stream;

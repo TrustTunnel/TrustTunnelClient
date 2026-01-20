@@ -38,7 +38,7 @@ static constexpr size_t ICMPPKT_REPLY_SIZE =
         ICMPPKT_ID_SIZE + ICMPPKT_ADDR_SIZE + ICMPPKT_TYPE_SIZE + ICMPPKT_CODE_SIZE + ICMPPKT_SEQNO_SIZE;
 
 HttpIcmpMultiplexer::HttpIcmpMultiplexer(HttpIcmpMultiplexerParameters parameters)
-        : m_params(std::move(parameters)) {
+        : m_params(parameters) {
 }
 
 HttpIcmpMultiplexer::~HttpIcmpMultiplexer() = default;
@@ -64,7 +64,6 @@ bool HttpIcmpMultiplexer::send_request(const IcmpEchoRequest &request) {
         if (!m_stream_id.has_value()) {
             return false;
         }
-        m_stream_id = m_stream_id.value();
         m_state = MS_ESTABLISHED;
         [[fallthrough]];
     }
@@ -88,6 +87,7 @@ int HttpIcmpMultiplexer::process_read_event(U8View data) {
         data = this->process_reply_chunk(data);
     }
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     m_params.consume_callback(m_params.parent, m_stream_id.value(), data_size);
     return 0;
 }
@@ -101,6 +101,7 @@ bool HttpIcmpMultiplexer::send_request_established(const IcmpEchoRequest &reques
     writer.put_u8(request.ttl);
     writer.put_u16(request.data_size);
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     int r = m_params.send_data_callback(m_params.parent, m_stream_id.value(), {packet_buffer, sizeof(packet_buffer)});
     return r == 0;
 }
@@ -126,11 +127,13 @@ U8View HttpIcmpMultiplexer::process_reply_chunk(U8View data) {
     wire_utils::Reader reader(raw_reply);
 
     IcmpEchoReply reply = {};
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     reply.id = reader.get_u16().value();
     reply.peer = reader.get_ip_padded().value();
     reply.type = reader.get_u8().value();
     reply.code = reader.get_u8().value();
     reply.seqno = reader.get_u16().value();
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     ServerHandler handler = m_params.parent->handler;
     handler.func(handler.arg, SERVER_EVENT_ECHO_REPLY, &reply);

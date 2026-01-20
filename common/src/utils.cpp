@@ -23,12 +23,14 @@ inline bool IN6_IS_ADDR_UNIQUE_LOCAL(const struct in6_addr *addr) {
 }
 #endif
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 uint64_t hash_pair_combine(uint64_t h1, uint64_t h2) {
     uint64_t hash = 17;
     hash = hash * 31 + h1;
     hash = hash * 31 + h2;
     return hash;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 uint64_t ip_addr_hash(sa_family_t family, const void *addr) {
     uint64_t hash = 0;
@@ -82,6 +84,7 @@ SocketAddress remote_socket_address_from_fd(evutil_socket_t fd) {
     return SocketAddress(addr);
 }
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 uint32_t str_hash32(const char *str, size_t length) {
     uint32_t hash = 5381;
     for (size_t i = 0; i < length; ++i) {
@@ -89,14 +92,16 @@ uint32_t str_hash32(const char *str, size_t length) {
     }
     return hash;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
+// NOLINTBEGIN(cert-dcl50-cpp)
 std::string str_format(const char *fmt, ...) {
     int r;
     std::string s;
     va_list va;
 
     va_start(va, fmt);
-    r = vsnprintf(NULL, 0, fmt, va);
+    r = vsnprintf(nullptr, 0, fmt, va);
     va_end(va);
     if (r < 0) {
         return {};
@@ -104,7 +109,7 @@ std::string str_format(const char *fmt, ...) {
     s.resize(r + 1);
 
     va_start(va, fmt);
-    r = vsnprintf(&s[0], s.capacity(), fmt, va);
+    r = vsnprintf(s.data(), s.capacity(), fmt, va);
     va_end(va);
     if (r < 0) {
         return {};
@@ -113,6 +118,7 @@ std::string str_format(const char *fmt, ...) {
 
     return s;
 }
+// NOLINTEND(cert-dcl50-cpp)
 
 std::string encode_to_hex(U8View data) {
     static constexpr char TABLE[] = "0123456789abcdef";
@@ -191,6 +197,7 @@ static const char *marshal_str(const std::string &str) {
     return str.empty() ? nullptr : strdup(str.c_str());
 }
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 static VpnBuffer marshal_buffer(U8View v) {
     VpnBuffer c_buffer;
     c_buffer.size = v.size();
@@ -288,6 +295,7 @@ const char *vpn_dns_stamp_prettier_url(VpnDnsStamp *c_stamp) {
 void vpn_string_free(const char *s) {
     std::free((void *) s);
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 uint32_t ntoh_24(uint32_t x) {
     const auto *b = (uint8_t *) &x;

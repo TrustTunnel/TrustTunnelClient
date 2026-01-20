@@ -47,7 +47,7 @@ UpstreamMultiplexer::UpstreamMultiplexer(
         int id, const VpnUpstreamProtocolConfig &protocol_config, size_t upstreams_num, MakeUpstream make_upstream)
         : ServerUpstream(id, protocol_config)
         , m_max_upstreams_num((upstreams_num == 0) ? DEFAULT_UPSTREAMS_NUM : upstreams_num)
-        , m_make_upstream(std::move(make_upstream)) {
+        , m_make_upstream(make_upstream) {
     m_upstreams_pool.reserve(m_max_upstreams_num);
 }
 
@@ -177,7 +177,7 @@ size_t UpstreamMultiplexer::available_to_send(uint64_t id) {
 
     MultiplexableUpstream *upstream = get_upstream_by_conn(id);
     if (upstream != nullptr) {
-        result = upstream->available_to_send(id);
+        result = static_cast<ssize_t>(upstream->available_to_send(id));
     } else {
         log_conn(this, id, dbg, "Connection was not found");
     }
@@ -274,6 +274,7 @@ void UpstreamMultiplexer::close_upstream(int upstream_id) {
     log_mux(this, dbg, "All child upstreams are closed");
     m_session_open = false;
     if (m_pending_error.has_value()) {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         ServerError error = {NON_ID, std::exchange(m_pending_error, std::nullopt).value()};
         this->handler.func(this->handler.arg, SERVER_EVENT_ERROR, &error);
     } else {
@@ -444,6 +445,7 @@ bool UpstreamMultiplexer::open_new_upstream(int id, std::optional<Millis> timeou
 
     std::unique_ptr<UpstreamCtx> ctx = std::make_unique<UpstreamCtx>(UpstreamCtx{this, id});
     std::unique_ptr<UpstreamInfo> info = std::make_unique<UpstreamInfo>(
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             m_make_upstream, this->PROTOCOL_CONFIG.value(), id, this->vpn, &child_upstream_handler, std::move(ctx));
     if (!info->upstream->open_session(timeout)) {
         log_ups(this, id, warn, "Failed to open session");

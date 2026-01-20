@@ -92,6 +92,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     }
 
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const VpnHttp3UpstreamConfig &h3_config = this->PROTOCOL_CONFIG->http3;
 
     // Let the connection live long enough to perform a health check.
@@ -468,7 +469,8 @@ VpnConnectionStats Http3Upstream::get_connection_stats() const {
 
     return {
             .rtt_us = uint32_t(rtt_ns / 1000),
-            .packet_loss_ratio = (stats.sent > 0) ? (double) stats.lost / stats.sent : 0,
+            .packet_loss_ratio =
+                    (stats.sent > 0) ? static_cast<double>(stats.lost) / static_cast<double>(stats.sent) : 0,
     };
 }
 
@@ -851,6 +853,7 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
             m_icmp_mux.close();
         } else if (is_health_check_stream(stream_id)) {
             assert(this->vpn->upstream_config.timeout >= this->vpn->upstream_config.health_check_timeout);
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             if (m_health_check_info->error.code == VPN_EC_NOERROR) {
                 stream_close_code = H3_NO_ERROR;
             } else {
@@ -900,12 +903,14 @@ void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *heade
     }
 
     if (is_health_check_stream(stream_id)) {
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         if (headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
             m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
         } else if (headers->status_code != HTTP_OK_STATUS) {
             m_health_check_info->error = {VPN_EC_ERROR, "Bad response code"};
         }
         m_health_check_info->timeout_task_id.reset();
+        // NOLINTEND(bugprone-unchecked-optional-access)
         return;
     }
 
@@ -946,9 +951,9 @@ void Http3Upstream::close_stream(uint64_t stream_id, Http3ErrorCode err) {
     this->flush_pending_quic_data();
 }
 
-ssize_t Http3Upstream::read_out_h3_data(uint64_t stream_id, uint8_t *buf, size_t cap) {
+ssize_t Http3Upstream::read_out_h3_data(uint64_t stream_id, const uint8_t *buf, size_t cap) {
     U8View buffer = {buf, cap};
-    while (buffer.size() > 0) {
+    while (!buffer.empty()) {
         ssize_t r = quiche_h3_recv_body(
                 m_h3_conn.get(), m_quic_conn.get(), stream_id, (uint8_t *) buffer.data(), buffer.size());
         if (r >= 0) {
@@ -961,7 +966,7 @@ ssize_t Http3Upstream::read_out_h3_data(uint64_t stream_id, uint8_t *buf, size_t
             return r;
         }
     }
-    return cap - buffer.size();
+    return static_cast<ssize_t>(cap - buffer.size());
 }
 
 void Http3Upstream::process_pending_data(uint64_t stream_id) {
@@ -1357,6 +1362,7 @@ void Http3Upstream::handle_wake() {
     log_upstream(this, dbg, "Done");
 }
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 bool ag::Http3Upstream::continue_connecting() {
     assert(m_quic_connector);
 
@@ -1404,6 +1410,7 @@ bool ag::Http3Upstream::continue_connecting() {
 
     return true;
 }
+// NOLINTEND(bugprone-unchecked-optional-access)
 
 int Http3Upstream::kex_group_nid() const {
     return m_kex_group_nid;

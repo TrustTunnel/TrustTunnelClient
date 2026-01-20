@@ -6,6 +6,7 @@
 #include <ngtcp2/ngtcp2.h>
 #include <thread>
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 static int parse_hex_char(int c) {
     if (c >= '0' && c <= '9') {
         return c - 0x30;
@@ -18,6 +19,7 @@ static int parse_hex_char(int c) {
     }
     return -1;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 static std::vector<uint8_t> decode_from_hex(std::string_view hex) {
     if (hex.size() & 1) {
@@ -302,7 +304,7 @@ TEST(QuicUtilsTest, ExtractClientHello) {
                 continue;
             }
         }
-        std::cout << "Hostname: " << tls.tls_hostname << std::endl;
+        std::cout << "Hostname: " << tls.tls_hostname << '\n';
         ASSERT_TRUE(got_sni);
     }
 }
@@ -315,6 +317,7 @@ TEST(QuicUtilsTest, ExtractClientHelloFailed) {
 
     auto hd = ag::quic_utils::parse_quic_header(ag::as_u8v(pkt));
     ASSERT_TRUE(hd);
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     auto payload = ag::quic_utils::decrypt_initial({pkt.data(), pkt.size()}, *hd);
 
     ASSERT_FALSE(payload);

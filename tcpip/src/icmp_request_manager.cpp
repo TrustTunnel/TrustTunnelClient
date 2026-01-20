@@ -35,7 +35,7 @@ void icmp_rm_close(TcpipCtx *ctx) {
     icmp_rm_clean_up(ctx);
 
     kh_destroy(icmp_requests, ctx->icmp.requests);
-    ctx->icmp.requests = NULL;
+    ctx->icmp.requests = nullptr;
 
     log_manager(ctx, dbg, "Closed");
 }
@@ -53,12 +53,12 @@ void icmp_rm_clean_up(TcpipCtx *ctx) {
 
 IcmpRequestDescriptor *icmp_rm_create_descriptor(TcpipCtx *ctx, const ip_addr_t *src, const ip_addr_t *dst, u16_t id,
         u16_t seqno, u16_t ttl, struct pbuf *buffer) {
-    if (NULL != icmp_rm_find_descriptor(ctx, id, seqno)) {
-        return NULL;
+    if (nullptr != icmp_rm_find_descriptor(ctx, id, seqno)) {
+        return nullptr;
     }
 
     IcmpRequestDescriptor *request = icmp_request_create(src, dst, id, seqno, u8_t(ttl), buffer);
-    if (request != NULL && ctx->icmp.log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
+    if (request != nullptr && ctx->icmp.log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
         char dst_ip_str[INET6_ADDRSTRLEN];
         ipaddr_ntoa_r_pretty(dst, dst_ip_str, sizeof(dst_ip_str));
         log_req(ctx, request, trace, "Destination={} ttl={}", dst_ip_str, ttl);
@@ -67,7 +67,7 @@ IcmpRequestDescriptor *icmp_rm_create_descriptor(TcpipCtx *ctx, const ip_addr_t 
     if (!register_new_request(ctx, request)) {
         log_req(ctx, request, dbg, "Failed to register request");
         icmp_rm_close_descriptor(ctx, request);
-        request = NULL;
+        request = nullptr;
     }
 
     return request;
@@ -77,7 +77,7 @@ IcmpRequestDescriptor *icmp_rm_find_descriptor(const TcpipCtx *ctx, u16_t id, u1
     IcmpRequestKey key = icmp_request_key_create(id, seqno);
     khiter_t req_it = kh_get(icmp_requests, ctx->icmp.requests, &key);
     if (req_it == kh_end(ctx->icmp.requests)) {
-        return NULL;
+        return nullptr;
     }
 
     return kh_value(ctx->icmp.requests, req_it);
@@ -108,7 +108,7 @@ int icmp_rm_start_request(TcpipCtx *ctx, IcmpRequestDescriptor *request) {
 
 void icmp_rm_process_reply(TcpipCtx *ctx, const IcmpEchoReply *reply) {
     IcmpRequestDescriptor *request = icmp_rm_find_descriptor(ctx, reply->id, reply->seqno);
-    if (request == NULL) {
+    if (request == nullptr) {
         log_manager(ctx, dbg, "Request is not found");
         return;
     }

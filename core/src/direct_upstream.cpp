@@ -301,6 +301,7 @@ uint64_t DirectUpstream::open_connection(const TunnelAddressPair *addr, int prot
         return NON_ID;
     }
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     switch (ipproto_to_transport_protocol(proto).value()) {
     case utils::TP_TCP:
         id = open_tcp_connection(*peer);

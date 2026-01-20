@@ -1,6 +1,5 @@
-Checks: '
+Checks: >-
   *,
-
   -abseil-*,
   -altera-*,
   -android-*,
@@ -10,17 +9,13 @@ Checks: '
   -llvm-*,
   -llvmlibc-*,
   -zircon-*,
-
   -readability-convert-member-functions-to-static,
   -modernize-use-trailing-return-type,
-
   -cppcoreguidelines-pro-type-vararg,
   -hicpp-vararg,
-
   -hicpp-uppercase-literal-suffix,
   -readability-uppercase-literal-suffix,
   -cert-dcl16-c,
-
   -cppcoreguidelines-macro-usage,
   -cppcoreguidelines-pro-type-cstyle-cast,
   -cppcoreguidelines-avoid-c-arrays,
@@ -28,10 +23,8 @@ Checks: '
   -bugprone-unhandled-exception-at-new,
   -bugprone-lambda-function-name,
   -readability-identifier-length,
-
   -cert-err58-cpp,
   -hicpp-avoid-c-arrays,
-
   -misc-non-private-member-variables-in-classes,
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -google-runtime-int,
@@ -54,12 +47,57 @@ Checks: '
   -readability-duplicate-include,
   -cert-err33-c,
   -misc-use-anonymous-namespace,
-
   -misc-include-cleaner,
   -*-use-nodiscard,
-
-  -performance-enum-size
-  '
+  -performance-enum-size,
+  -modernize-use-designated-initializers,
+  -cppcoreguidelines-avoid-goto,
+  -hicpp-avoid-goto,
+  -google-build-using-namespace,
+  -hicpp-use-auto,
+  -modernize-use-auto,
+  -modernize-use-ranges,
+  -boost-use-ranges,
+  -misc-use-internal-linkage,
+  -readability-redundant-member-init,
+  -readability-qualified-auto,
+  -readability-else-after-return,
+  -readability-avoid-unconditional-preprocessor-if,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-avoid-do-while,
+  -readability-math-missing-parentheses,
+  -hicpp-multiway-paths-covered,
+  -readability-avoid-nested-conditional-operator,
+  -modernize-loop-convert,
+  -cppcoreguidelines-special-member-functions,
+  -hicpp-special-member-functions,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-pro-type-member-init,
+  -hicpp-member-init,
+  -readability-inconsistent-declaration-parameter-name,
+  -clang-analyzer-*,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-macro-parentheses,
+  -readability-static-accessed-through-instance,
+  -misc-unused-parameters,
+  -misc-no-recursion,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -modernize-use-using,
+  -performance-unnecessary-value-param,
+  -bugprone-suspicious-stringview-data-usage,
+  -readability-simplify-boolean-expr,
+  -readability-redundant-string-cstr,
+  -readability-redundant-casting,
+  -performance-inefficient-vector-operation,
+  -bugprone-branch-clone,
+  -readability-make-member-function-const,
+  -hicpp-use-equals-default,
+  -modernize-use-equals-default,
+  -bugprone-switch-missing-default-case,
+  -google-readability-todo,
+  -readability-identifier-naming,
+  -concurrency-mt-unsafe
 
 WarningsAsErrors: '*'
 
@@ -76,6 +114,8 @@ CheckOptions: [
   { key: readability-identifier-naming.MethodCase, value: lower_case },
   { key: readability-identifier-naming.NamespaceCase, value: lower_case },
   { key: readability-identifier-naming.LocalConstantCase, value: lower_case },
+  { key: readability-identifier-naming.LocalConstexprVariableCase, value: UPPER_CASE },
+  { key: readability-identifier-naming.StaticConstantCase, value: UPPER_CASE },
 
   { key: readability-identifier-naming.TemplateParameterCase, value: CamelCase },
   { key: readability-identifier-naming.StructCase, value: CamelCase },
@@ -88,8 +128,20 @@ CheckOptions: [
   { key: readability-identifier-naming.ConstantCase, value: UPPER_CASE },
   { key: readability-identifier-naming.ValueTemplateParameterCase, value: UPPER_CASE },
 
+  { key: readability-magic-numbers.IgnorePowersOf2IntegerValues, value: true },
+  { key: readability-magic-numbers.IgnoredIntegerValues, value: '3;5;6;7;9;10;443;1000' },
+  { key: readability-magic-numbers.IgnoredFloatingPointValues, value: '1000000.0' },
+
+  { key: cppcoreguidelines-avoid-magic-numbers.IgnorePowersOf2IntegerValues, value: true },
+  { key: cppcoreguidelines-avoid-magic-numbers.IgnoredIntegerValues, value: '3;5;6;7;9;10;443;1000' },
+  { key: cppcoreguidelines-avoid-magic-numbers.IgnoredFloatingPointValues, value: '1000000.0' },
+
+  { key: cppcoreguidelines-pro-type-member-init.IgnoreArrays, value: true },
+
   { key: cppcoreguidelines-avoid-do-while.IgnoreMacros, value: true },
   { key: misc-const-correctness.AnalyzeValues, value: false },
 
   { key: performance-move-const-arg.CheckTriviallyCopyableMove, value: false },
+
+  { key: concurrency-mt-unsafe.FunctionSet, value: 'glibc' },
 ]

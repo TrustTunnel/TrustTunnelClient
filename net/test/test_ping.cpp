@@ -13,6 +13,9 @@
 
 using namespace ag;
 
+constexpr uint32_t SHORT_PING_TIMEOUT_MS = 500;
+constexpr uint32_t LONG_PING_TIMEOUT_MS = 5000;
+
 struct TestCtx {
     VpnEventLoop *loop = nullptr;
     VpnNetworkManager *network_manager = nullptr;
@@ -82,7 +85,7 @@ TEST_F(PingTest, Single) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 5000,
+            .timeout_ms = LONG_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
     test_ctx.ping.reset(ping_start(&info,
@@ -144,7 +147,7 @@ TEST_F(PingTest, Timeout) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 500,
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
     test_ctx.ping.reset(ping_start(&info,
@@ -186,6 +189,7 @@ TEST_F(PingTest, Multiple) {
 #endif
             {"0.0.0.0:12", PING_SOCKET_ERROR},
     };
+    static constexpr uint32_t TIMEOUT = 1500;
 
     std::vector<TestCtx> contexts;
     for (const auto &i : TEST_DATA) {
@@ -195,7 +199,7 @@ TEST_F(PingTest, Multiple) {
                 .loop = test_ctx.loop,
                 .network_manager = test_ctx.network_manager,
                 .endpoints = {&addr, 1},
-                .timeout_ms = 1500, /* windows will refuse connection to ::1 after 2 s*/
+                .timeout_ms = TIMEOUT, /* windows will refuse connection to ::1 after 2 s*/
                 .nrounds = 1,
         };
         test_ctx.ping.reset(ping_start(&info,
@@ -257,7 +261,7 @@ TEST_F(PingTest, AllAddressesInvalid) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 500,
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
     test_ctx.ping.reset(ping_start(&info,
@@ -304,7 +308,7 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 500,
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
     test_ctx.ping.reset(ping_start(&info,
@@ -362,7 +366,7 @@ TEST_F(PingTest, DestroyInProgressPing) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 500,
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
 
@@ -423,7 +427,7 @@ TEST_F(PingTest, MultipleRounds) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 5000,
+            .timeout_ms = LONG_PING_TIMEOUT_MS,
             .nrounds = ROUNDS,
     };
     test_ctx.ping.reset(ping_start(&info,
@@ -486,7 +490,7 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
             .loop = test_ctx.loop,
             .network_manager = test_ctx.network_manager,
             .endpoints = {addresses.data(), addresses.size()},
-            .timeout_ms = 500,
+            .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .interfaces_to_query = {interfaces.data(), interfaces.size()},
             .nrounds = 1,
     };

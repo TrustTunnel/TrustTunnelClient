@@ -50,7 +50,7 @@ static VpnTunListenerConfig clone_config(const VpnTunListenerConfig *config) {
 }
 
 static void destroy_cloned_config(VpnTunListenerConfig *config) {
-    free((void *) config->pcap_filename);
+    free((void *) config->pcap_filename); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     *config = {};
 }
 
@@ -156,7 +156,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
     case TCPIP_EVENT_CONNECT_REQUEST: {
         auto *tcp_event = (TcpipConnectRequestEvent *) data;
 
-        auto [i, ok] = listener->m_connections.emplace(std::make_pair(tcp_event->id, Connection{}));
+        auto [i, ok] = listener->m_connections.emplace(tcp_event->id, Connection{});
         assert(ok);
         i->second.proto = tcp_event->proto;
 
@@ -227,7 +227,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
                     total_length, std::accumulate(iov.begin(), iov.end(), 0, [](size_t acc, evbuffer_iovec v) {
                         return acc + v.iov_len;
                     }));
-            tcp_event->result = total_length;
+            tcp_event->result = static_cast<int>(total_length);
         } else if (tcp_event->result >= 0) {
             // not completely sent
             std::for_each(iov.begin(), iov.end(), [&pending](const evbuffer_iovec &vec) {
@@ -247,7 +247,7 @@ void TunListener::tcpip_handler(void *arg, TcpipEvent what, void *data) {
 
         Connection *conn = &i->second;
         conn->sent_since_last_event += tcp_event->length;
-        conn->scheduled_to_send -= tcp_event->length;
+        conn->scheduled_to_send -= static_cast<ssize_t>(tcp_event->length);
 
         ClientDataSentEvent event = {tcp_event->id, conn->sent_since_last_event};
         conn->sent_since_last_event = 0;

@@ -6,6 +6,7 @@
 
 using namespace ag;
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access))
 class MemfileBufferTest : public testing::Test {
 protected:
     const std::string FILE_PATH = "./test.dat";
@@ -128,3 +129,4 @@ TEST_F(MemfileBufferTest, FileContent) {
 
     file::close(fd);
 }
+// NOLINTEND(bugprone-unchecked-optional-access)

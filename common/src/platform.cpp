@@ -85,7 +85,7 @@ int last_error() {
 }
 
 const char *strerror(int code) {
-    return ::strerror(code); // NOLINT(concurrency-mt-unsafe)
+    return ::strerror(code);
 }
 
 #endif

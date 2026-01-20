@@ -16,6 +16,20 @@ BUILD_DIR = build
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
+# Common CMake flags
+ifeq ($(OS), Windows_NT)
+CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+	-DCMAKE_C_COMPILER="cl.exe" \
+	-DCMAKE_CXX_COMPILER="cl.exe" \
+	-G "Ninja"
+else
+CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) \
+	-DCMAKE_C_COMPILER="clang" \
+	-DCMAKE_CXX_COMPILER="clang++" \
+	-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+	-GNinja
+endif
+
 .PHONY: init
 ## Initialize the development environment (git hooks, etc.)
 init:
@@ -41,26 +55,14 @@ setup_cmake:
 else
 setup_cmake: bootstrap_deps
 endif
-ifeq ($(OS), Windows_NT)
-	cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
-		-DCMAKE_C_COMPILER="cl.exe" ^
-		-DCMAKE_CXX_COMPILER="cl.exe" ^
-		-G "Ninja" ^
-		..
-else
-	mkdir -p $(BUILD_DIR) && cd $(BUILD_DIR) && \
-	cmake -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) \
-	-DCMAKE_C_COMPILER="clang" \
-	-DCMAKE_CXX_COMPILER="clang++" \
-	-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
-	-GNinja \
-	..
-endif
+	mkdir -p $(BUILD_DIR) && cmake -S . -B $(BUILD_DIR) $(CMAKE_FLAGS)
 
 .PHONY: compile_commands
 ## Generate compile_commands.json
 compile_commands:
-	mkdir -p $(BUILD_DIR) && cmake -S . -B $(BUILD_DIR) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	mkdir -p $(BUILD_DIR) && cmake -S . -B $(BUILD_DIR) \
+		$(CMAKE_FLAGS) \
+		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 .PHONY: build_libs
 ## Build the libraries
@@ -98,9 +100,8 @@ clean:
 lint: lint-md lint-rust lint-cpp
 
 ## Lint c++ files.
-## TODO: enable clang-tidy
 .PHONY: lint-cpp
-lint-cpp: clang-format
+lint-cpp: clang-format clang-tidy
 
 ## Check c++ code formatting with clang-format.
 .PHONY: clang-format

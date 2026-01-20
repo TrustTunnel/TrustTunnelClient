@@ -159,7 +159,7 @@ static bool configure_tun_interface(const std::string &tun_name) {
     std::string cmd = AG_FMT("ifconfig {} 1.2.3.3 1.2.3.3 netmask 255.255.255.0 up", tun_name);
     dbglog(g_test_log, "Executing: {}", cmd);
 
-    int result = system(cmd.c_str());
+    int result = system(cmd.c_str()); // NOLINT(cert-env33-c)
     if (result != 0) {
         errlog(g_test_log, "Failed to configure interface, exit code: {}", WEXITSTATUS(result));
         return false;
@@ -169,7 +169,7 @@ static bool configure_tun_interface(const std::string &tun_name) {
     cmd = AG_FMT("route add 1.2.3.4 -iface {}", tun_name);
     dbglog(g_test_log, "Executing: {}", cmd);
 
-    result = system(cmd.c_str());
+    result = system(cmd.c_str()); // NOLINT(cert-env33-c)
     if (result != 0) {
         errlog(g_test_log, "Failed to add route, exit code: {}", WEXITSTATUS(result));
         return false;
@@ -292,7 +292,7 @@ static void tcpip_event_handler(void *arg, TcpipEvent event, void *data) {
             sent += result;
         }
 
-        read_event->result = sent;
+        read_event->result = static_cast<int>(sent);
         break;
     }
 
@@ -360,7 +360,7 @@ static void print_usage() {
     fmt::println("=================================================================");
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) { // NOLINT(bugprone-exception-escape)
     setup_signal_handler();
 
     // Parse command line arguments
@@ -441,7 +441,7 @@ int main(int argc, char *argv[]) {
     TcpipParameters params{};
     params.tun_fd = tun_fd;
     params.event_loop = g_event_loop;
-    params.mtu_size = 1500;
+    params.mtu_size = 1500; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     params.pcap_filename = pcap_filename;
     params.handler.handler = tcpip_event_handler;
     params.handler.arg = nullptr;
@@ -469,6 +469,7 @@ int main(int argc, char *argv[]) {
     });
 
     while (g_keep_running.load()) {
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 

@@ -25,11 +25,13 @@ static constexpr std::string_view DEFAULT_IPV6_ROUTE_UNICAST = "2000::/3";
 void ag::tunnel_utils::split_default_route(std::vector<ag::CidrRange> &routes, ag::CidrRange route) {
     for (size_t idx = 0; idx < routes.size(); ++idx) {
         if (routes[idx] == route) {
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
             routes.erase(routes.begin() + idx);
 
-            auto split = route.split();
-            routes.push_back(split.value().first);
-            routes.push_back(split.value().second);
+            if (auto split = route.split()) {
+                routes.push_back(split.value().first);
+                routes.push_back(split.value().second);
+            }
         }
     }
 }
@@ -151,23 +153,24 @@ ag::CidrRange ag::tunnel_utils::get_address_for_index(const char *address, uint3
     return {as_u8v(addr), addr.size() * 8};
 }
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_clone(const ag::VpnOsTunnelSettings *settings) {
     ag::VpnOsTunnelSettings *dst = new VpnOsTunnelSettings{};
     dst->ipv4_address = safe_strdup(settings->ipv4_address);
     dst->ipv6_address = safe_strdup(settings->ipv6_address);
     dst->included_routes.size = settings->included_routes.size;
-    dst->included_routes.data = new const char *[settings->included_routes.size]{};
+    dst->included_routes.data = new const char *[settings->included_routes.size] {};
     for (size_t i = 0; i != dst->included_routes.size; i++) {
         dst->included_routes.data[i] = safe_strdup(settings->included_routes.data[i]);
     }
     dst->excluded_routes.size = settings->excluded_routes.size;
-    dst->excluded_routes.data = new const char *[settings->excluded_routes.size]{};
+    dst->excluded_routes.data = new const char *[settings->excluded_routes.size] {};
     for (size_t i = 0; i != dst->excluded_routes.size; i++) {
         dst->excluded_routes.data[i] = safe_strdup(settings->excluded_routes.data[i]);
     }
     dst->mtu = settings->mtu;
     dst->dns_servers.size = settings->dns_servers.size;
-    dst->dns_servers.data = new const char *[settings->dns_servers.size]{};
+    dst->dns_servers.data = new const char *[settings->dns_servers.size] {};
     for (size_t i = 0; i != dst->dns_servers.size; i++) {
         dst->dns_servers.data[i] = safe_strdup(settings->dns_servers.data[i]);
     }
@@ -194,6 +197,7 @@ void ag::vpn_os_tunnel_settings_destroy(ag::VpnOsTunnelSettings *settings) {
     delete[] settings->dns_servers.data;
     delete settings;
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
     static const char *included_routes[] = {"0.0.0.0/0", "2000::/3"};

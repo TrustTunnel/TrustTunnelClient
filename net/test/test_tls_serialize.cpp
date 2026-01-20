@@ -21,7 +21,7 @@ static RSA *gen_rsa(int bits) {
         RSA_free(rsa);
         return nullptr;
     }
-    if (!RSA_generate_key_ex(rsa, bits, e, NULL)) {
+    if (!RSA_generate_key_ex(rsa, bits, e, nullptr)) {
         BN_free(e);
         RSA_free(rsa);
         return nullptr;
@@ -38,6 +38,8 @@ X509 *make_cert() {
     ag::DeclPtr<EVP_PKEY, &EVP_PKEY_free> pkey{EVP_PKEY_new()};
     EVP_PKEY_assign_RSA(pkey.get(), rsa);
 
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast,
+    // cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     if (!cert || //
             !X509_set_version(cert.get(), X509_VERSION_3)
             || !X509_NAME_add_entry_by_txt(X509_get_issuer_name(cert.get()), "CN", MBSTRING_UTF8,
@@ -49,11 +51,13 @@ X509 *make_cert() {
             || !ASN1_TIME_adj(X509_getm_notAfter(cert.get()), 1474934400, 1, 0)) {
         return nullptr;
     }
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast,
+    // cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     ag::DeclPtr<BASIC_CONSTRAINTS, &BASIC_CONSTRAINTS_free> bc(BASIC_CONSTRAINTS_new());
     if (!bc) {
         return nullptr;
     }
-    bc->ca = true ? 0xff : 0x00;
+    bc->ca = true ? 0xff : 0x00; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     if (!X509_add1_ext_i2d(cert.get(), NID_basic_constraints, bc.get(),
                 /*crit=*/1, /*flags=*/0)) {
         return nullptr;

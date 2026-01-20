@@ -141,7 +141,7 @@ private:
     void handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_id);
     void handle_response(uint64_t stream_id, const HttpHeaders *headers);
     void close_stream(uint64_t stream_id, Http3ErrorCode error);
-    ssize_t read_out_h3_data(uint64_t stream_id, uint8_t *buffer, size_t cap);
+    ssize_t read_out_h3_data(uint64_t stream_id, const uint8_t *buffer, size_t cap);
     void process_pending_data(uint64_t stream_id);
     void close_session_inner();
     SendConnectRequestResult send_connect_request(const TunnelAddress *dst_addr, std::string_view app_name);

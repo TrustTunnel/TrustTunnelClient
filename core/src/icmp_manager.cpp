@@ -76,7 +76,7 @@ IcmpManagerMessageStatus IcmpManager::register_request(const IcmpEchoRequest &re
 
     RequestInfoPtr &info = m_requests[IcmpRequestKey::make(request)];
     if (info == nullptr) {
-        info.reset(new RequestInfo{});
+        info = std::make_unique<RequestInfo>();
         info->original_peer = request.peer;
     }
 
@@ -89,6 +89,8 @@ IcmpManagerMessageStatus IcmpManager::register_request(const IcmpEchoRequest &re
         return IM_MSGS_DROP;
     }
 
+    // request_timeout is guaranteed to have a value
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     info->tries.emplace_back(RequestAttempt{
             request.seqno,
             steady_clock::time_point(steady_clock::now() + m_parameters.request_timeout.value()),
@@ -99,6 +101,7 @@ IcmpManagerMessageStatus IcmpManager::register_request(const IcmpEchoRequest &re
         const timeval tv = ms_to_timeval(uint32_t(m_parameters.request_timeout.value().count() / 10));
         event_add(m_timer.get(), &tv);
     }
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     return IM_MSGS_PASS;
 }
@@ -163,7 +166,7 @@ void IcmpManager::timer_callback(evutil_socket_t, short, void *arg) {
         const IcmpRequestKey &key = i->first;
         RequestInfo &info = *i->second;
         for (auto j = info.tries.begin(); j != info.tries.end();) {
-            RequestAttempt &req_try = *j;
+            const RequestAttempt &req_try = *j;
             if (now < req_try.timeout_ts) {
                 ++j;
                 continue;

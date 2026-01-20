@@ -15,10 +15,12 @@ static int cert_verify_handler(
     return 1;
 }
 
+constexpr uint64_t DUMMY_UPSTREAM_ID = 42;
+
 class HttpUdpMultiplexer : public ::testing::Test, public ag::ServerUpstream {
 public:
     HttpUdpMultiplexer()
-            : ag::ServerUpstream(42) {
+            : ag::ServerUpstream(DUMMY_UPSTREAM_ID) {
         ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
     }
 
@@ -72,7 +74,7 @@ protected:
         if (what == ag::SERVER_EVENT_READ) {
             auto *event = (ag::ServerReadEvent *) data;
             self->decoded_data.insert(self->decoded_data.end(), event->data, event->data + event->length);
-            event->result = event->length;
+            event->result = static_cast<int>(event->length);
         }
     }
 
@@ -89,12 +91,12 @@ protected:
     void close_connection(uint64_t, bool, bool) override {
     }
     ssize_t send(uint64_t, const uint8_t *, size_t length) override {
-        return length;
+        return static_cast<ssize_t>(length);
     }
     void consume(uint64_t, size_t) override {
     }
     size_t available_to_send(uint64_t) override {
-        return 42;
+        return DUMMY_UPSTREAM_ID;
     }
     void update_flow_control(uint64_t, ag::TcpFlowCtrlInfo) override {
     }
@@ -141,7 +143,7 @@ TEST_F(HttpUdpMultiplexer, Encoding) {
     loop_once();
 
     ag::HttpHeaders response;
-    response.status_code = 200;
+    response.status_code = ag::HTTP_STATUS_200_OK;
     mux.handle_response(&response);
 
     ASSERT_EQ(PACKET.length(), mux.send(CONNECTION_ID, {(uint8_t *) PACKET.data(), PACKET.length()}));
@@ -177,7 +179,7 @@ protected:
         loop_once();
 
         ag::HttpHeaders response;
-        response.status_code = 200;
+        response.status_code = ag::HTTP_STATUS_200_OK;
         mux.handle_response(&response);
 
         ASSERT_EQ(OUTGOING_PACKET.length(),
@@ -188,7 +190,7 @@ protected:
 
 TEST_F(HttpUdpMultiplexerDecoding, UnknownAddressPair) {
     std::vector<uint8_t> incoming_packet(std::begin(INCOMING_PACKET), std::end(INCOMING_PACKET));
-    incoming_packet[4 + 16] = 42;
+    incoming_packet[4 + 16] = 42; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     ASSERT_EQ(0, mux.process_read_event({incoming_packet.data(), incoming_packet.size()}));
     ASSERT_TRUE(decoded_data.empty()) << ag::encode_to_hex({decoded_data.data(), decoded_data.size()});
 }
@@ -201,7 +203,7 @@ TEST_F(HttpUdpMultiplexerDecoding, SinglePacketSingleChunk) {
 
 TEST_F(HttpUdpMultiplexerDecoding, SuccessfulAfterUnknownAddressPair) {
     std::vector<uint8_t> incoming_packet(std::begin(INCOMING_PACKET), std::end(INCOMING_PACKET));
-    incoming_packet[4 + 16] = 42;
+    incoming_packet[4 + 16] = 42; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     ASSERT_EQ(0, mux.process_read_event({incoming_packet.data(), incoming_packet.size()}));
     ASSERT_TRUE(decoded_data.empty()) << ag::encode_to_hex({decoded_data.data(), decoded_data.size()});
 

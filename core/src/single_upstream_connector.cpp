@@ -159,6 +159,7 @@ struct SingleUpstreamConnector::Impl {
 
         VpnError e = {};
         if (self->pending_error.has_value()) {
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             e = std::exchange(self->pending_error, std::nullopt).value();
         } else if (data != nullptr) {
             e = *(VpnError *) data;
@@ -207,6 +208,7 @@ VpnError SingleUpstreamConnector::connect(std::optional<Millis> timeout) {
 
     m_impl->fsm.perform_transition(E_RUN_CONNECT, &timeout);
     if (m_impl->pending_error.has_value()) {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         VpnError e = std::exchange(m_impl->pending_error, std::nullopt).value();
         this->disconnect();
         log_connector(m_impl, dbg, "Failed: {} ({})", e.text, e.code);

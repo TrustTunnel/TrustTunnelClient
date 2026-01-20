@@ -77,6 +77,8 @@ static constexpr uint8_t QUIC_INITIAL[] = {
         0x8d, 0x16, 0x9a, 0x44, 0xe5, 0x5c, 0x88, 0xd4, 0xa9, 0xa7, 0xf9, 0x47, 0x42, 0x41, 0xe2, 0x21, 0xaf, 0x44,
         0x86, 0x00, 0x18, 0xab, 0x08, 0x56, 0x97, 0x2e, 0x19, 0x4c, 0xd9, 0x34};
 
+static constexpr size_t START_CONNECTION_ID = 1000000;
+
 class TestUpstream : public ServerUpstream {
 public:
     static int g_next_upstream_id;
@@ -117,7 +119,7 @@ public:
 
     ssize_t send(uint64_t, const uint8_t *, size_t length) override {
         last_send = length;
-        return length;
+        return static_cast<ssize_t>(length);
     }
     void consume(uint64_t id, size_t length) override {
     }
@@ -181,7 +183,7 @@ public:
     }
 
     ssize_t send(uint64_t, const uint8_t *, size_t length) override {
-        return length;
+        return static_cast<ssize_t>(length);
     }
 
     void consume(uint64_t id, size_t n) override {
@@ -190,7 +192,7 @@ public:
         return {DEFAULT_SEND_BUFFER_SIZE, DEFAULT_SEND_WINDOW_SIZE};
     }
     void turn_read(uint64_t id, bool on) override {
-        if (connections.count(id) != 0) {
+        if (connections.contains(id)) {
             connections[id].read_enabled = on;
         }
     }
@@ -200,7 +202,7 @@ public:
 };
 
 int TestUpstream::g_next_upstream_id = 0;
-size_t TestListener::g_next_connection_id = 1000000;
+size_t TestListener::g_next_connection_id = START_CONNECTION_ID;
 static vpn_client::Event g_last_raised_vpn_event;
 
 static int cert_verify_handler(

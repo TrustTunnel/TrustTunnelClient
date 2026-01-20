@@ -21,6 +21,9 @@
 
 #include <openssl/x509v3.h>
 
+// Size of 24-bit length field used in TLS handshake messages and certificates
+constexpr int TLS_LENGTH_24_SIZE = 3;
+
 namespace ag {
 
 #if defined __APPLE__ && defined __MACH__ && TARGET_OS_IPHONE
@@ -305,7 +308,7 @@ typedef struct {
 
 typedef struct {
     uint8_t type; // enum hshake_type_t
-    uint8_t len[3];
+    uint8_t len[TLS_LENGTH_24_SIZE];
     uint8_t data[0];
 } Hshake;
 
@@ -368,14 +371,14 @@ static int datalen16(const uint8_t *d, const uint8_t *end) {
 }
 
 static int datalen24(const uint8_t *d, const uint8_t *end) {
-    if (3 > end - d) {
+    if (TLS_LENGTH_24_SIZE > end - d) {
         return -1;
     }
 
     uint32_t x = 0;
-    std::memcpy(&x, d, 3);
+    std::memcpy(&x, d, TLS_LENGTH_24_SIZE);
     uint32_t n = ntoh_24(x);
-    if (d + 3 + n > end) {
+    if (d + TLS_LENGTH_24_SIZE + n > end) {
         return -1;
     }
 
@@ -400,7 +403,7 @@ static int rec_parse(TlsReader *reader, U8View data) {
     }
 
     int ver = ntohs(rec->ver);
-    if (ver < 0x0301) {
+    if (ver < 0x0301) { // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
         return -1;
     }
 
@@ -418,8 +421,8 @@ static int hshake_parse(TlsReader *reader, U8View data) {
 
     const auto *h = (Hshake *) data.data();
     uint32_t x = 0;
-    static_assert(sizeof(std::declval<decltype(h)>()->len) == 3);
-    std::memcpy(&x, (void *) h->len, 3);
+    static_assert(sizeof(std::declval<decltype(h)>()->len) == TLS_LENGTH_24_SIZE);
+    std::memcpy(&x, (void *) h->len, TLS_LENGTH_24_SIZE);
     uint32_t n = ntoh_24(x);
     if (n > data.size() - 1) {
         return 0;
@@ -549,7 +552,7 @@ static X509 *ossl_cert_decode(const uint8_t *data, size_t len) {
         return nullptr;
     }
 
-    BIO_write(b, data, len);
+    BIO_write(b, data, static_cast<int>(len));
     X509 *x = d2i_X509_bio(b, nullptr);
     BIO_free(b);
     return x;
@@ -584,7 +587,7 @@ static int certs_parse(TlsReader *reader, U8View data) {
         return 0;
     }
 
-    const uint8_t *d = data.data() + 3;
+    const uint8_t *d = data.data() + TLS_LENGTH_24_SIZE;
     end = d + size;
 
     size = datalen24(d, end);
@@ -592,7 +595,7 @@ static int certs_parse(TlsReader *reader, U8View data) {
         return 0;
     }
 
-    d += 3;
+    d += TLS_LENGTH_24_SIZE;
 
     X509 *x = ossl_cert_decode(d, size);
     if (x == nullptr) {

@@ -169,6 +169,7 @@ void FallbackableUpstreamConnector::start_fallback_connection() {
     if (m_connect_timeout.has_value()) {
         timeout = std::make_optional<Millis>(
                 m_connect_timeout.value() - duration_cast<Millis>(steady_clock::now() - m_main.start_ts));
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
         timeout = std::max(timeout.value(), m_connect_timeout.value() / 10);
     }
     VpnError error = m_fallback.connector->connect(timeout);

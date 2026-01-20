@@ -127,7 +127,7 @@ TEST_F(LocationsPingerTest, WholeLocationFailed) {
 
     TestCtx test_ctx = generate_test_ctx();
     test_ctx.info.locations = {&location, 1};
-    test_ctx.info.timeout_ms = 500;
+    test_ctx.info.timeout_ms = 500; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
@@ -231,7 +231,7 @@ TEST_F(LocationsPingerTest, DISABLED_Timeout) {
     }
 
     TestCtx test_ctx = generate_test_ctx();
-    test_ctx.info.timeout_ms = 100;
+    test_ctx.info.timeout_ms = 100; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     test_ctx.info.locations = {locations.data(), uint32_t(locations.size())};
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,

@@ -67,7 +67,7 @@ std::optional<ag::SocketAddress> ag::MockDnsServer::start(ag::SocketAddress bind
         bind_addr = SocketAddress(storage);
         assert(bind_addrlen == bind_addr.c_socklen());
         m_listener.reset(evconnlistener_new_bind(vpn_event_loop_get_base(event_loop), listener_handler, this,
-                LEV_OPT_CLOSE_ON_FREE, -1, bind_addr.c_sockaddr(), bind_addrlen));
+                LEV_OPT_CLOSE_ON_FREE, -1, bind_addr.c_sockaddr(), (int) bind_addrlen));
         if (!m_listener) {
             evutil_closesocket(fd);
             // There's a small chance that the bound port will already be in use by TCP.
@@ -103,7 +103,7 @@ void ag::MockDnsServer::udp_handler(evutil_socket_t fd, short /*what*/, void *ar
     uint8_t buf[UINT16_MAX];
     SocketAddressStorage from{};
     ev_socklen_t fromlen = sizeof(from);
-    int ret = recvfrom(fd, (char *) buf, sizeof(buf), 0, (sockaddr *) &from, &fromlen);
+    auto ret = recvfrom(fd, (char *) buf, sizeof(buf), 0, (sockaddr *) &from, &fromlen);
     if (ret < 0) {
         int error = evutil_socket_geterror(fd);
         infolog(g_logger, "recvfrom(): ({}) {}", error, evutil_socket_error_to_string(error));
@@ -126,7 +126,7 @@ void ag::MockDnsServer::listener_handler(
     TcpSocketParameters parameters{
             .ev_loop = self->m_event_loop,
             .handler = {.handler = tcp_handler, .arg = &conn},
-            .timeout = Secs{30},
+            .timeout = Secs{30}, // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
             .socket_manager = self->m_socket_manager,
     };
     conn.socket.reset(tcp_socket_create(&parameters));
@@ -179,6 +179,7 @@ void ag::MockDnsServer::tcp_handler(void *arg, TcpSocketEvent what, void *data) 
             if (!msg_data) {
                 break;
             }
+            // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
             read += 2 + msg_data->size();
             if (auto response = conn->server->on_dns_message(*msg_data, /*tcp*/ true)) {
                 uint16_t size = response->size();

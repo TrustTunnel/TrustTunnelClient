@@ -34,6 +34,9 @@ static ag::Logger g_logger{"SOCKS5_LISTENER"};
 static const uint32_t SOCKS5_VER = 0x05;
 static const uint32_t USERNAME_PASSWORD_VER = 0x01;
 
+static constexpr int64_t IPV4_ADDR_SIZE = 4;
+static constexpr int64_t IPV6_ADDR_SIZE = 16;
+
 using EventPtr = ag::DeclPtr<event, event_free>;
 
 enum Socks5AuthMethod {
@@ -444,13 +447,13 @@ static void complete_tcp_connection(Socks5Listener *listener, Connection *conn, 
     size_t reply_size = sizeof(Socks5Reply);
     switch (atyp) {
     case S5AT_IPV4:
-        reply_size += 4;
+        reply_size += IPV4_ADDR_SIZE;
         break;
     case S5AT_DOMAINNAME:
         reply_size += 1 + dst->domain.name.size();
         break;
     case S5AT_IPV6:
-        reply_size += 16;
+        reply_size += IPV6_ADDR_SIZE;
         break;
     default:
         assert(0);
@@ -600,10 +603,10 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
         size_t reply_size = sizeof(Socks5UdpHeader);
         switch (atyp) {
         case S5AT_IPV4:
-            reply_size += 4;
+            reply_size += IPV4_ADDR_SIZE;
             break;
         case S5AT_IPV6:
-            reply_size += 16;
+            reply_size += IPV6_ADDR_SIZE;
             break;
         default:
             assert(0);
@@ -640,8 +643,8 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
         memcpy(reply->dst_addr + offset, data, length);
 
         evutil_socket_t fd = event_get_fd(conn->udp.relay->udp_event.get());
-        r = sendto(fd, (const char *) reply_data.data(), reply_data.size(), 0, conn->addr.src.c_sockaddr(),
-                conn->addr.src.c_socklen());
+        r = static_cast<int>(sendto(fd, (const char *) reply_data.data(), reply_data.size(), 0,
+                conn->addr.src.c_sockaddr(), conn->addr.src.c_socklen()));
         int err = evutil_socket_geterror(fd);
         if (err == 0 || AG_ERR_IS_EAGAIN(err)) {
             r = 0;
@@ -722,17 +725,17 @@ static void raise_connect_request(Socks5Listener *listener, const Connection *co
 static int64_t addr_length_from_request(Socks5AddressType type, const uint8_t *data, size_t length) {
     switch (type) {
     case S5AT_IPV4:
-        return 4;
+        return IPV4_ADDR_SIZE;
     case S5AT_DOMAINNAME:
         return (length == 0) ? -1 : 1 + data[0];
     case S5AT_IPV6:
-        return 16;
+        return IPV6_ADDR_SIZE;
     case S5AT_IPV4_APPNAME:
-        return (length == 0) ? -1 : 1 + data[0] + 4;
+        return (length == 0) ? -1 : 1 + data[0] + IPV4_ADDR_SIZE;
     case S5AT_DOMAINNAME_APPNAME:
         return (length == 0 || length < size_t(data[0] + 2)) ? -1 : 1 + data[0] + 1 + data[data[0] + 1];
     case S5AT_IPV6_APPNAME:
-        return (length == 0) ? -1 : 1 + data[0] + 16;
+        return (length == 0) ? -1 : 1 + data[0] + IPV6_ADDR_SIZE;
     }
     return 0;
 }
@@ -751,6 +754,7 @@ static Socks5ConnectionAddress dst_addr_from_request(Socks5AddressType type, con
 
     if (type == S5AT_DOMAINNAME_APPNAME || type == S5AT_IPV4_APPNAME || type == S5AT_IPV6_APPNAME) {
         data += data[0] + 1;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
         type = (Socks5AddressType) (type ^ 0xf0); // Remove the _APP part
     }
 
@@ -760,7 +764,7 @@ static Socks5ConnectionAddress dst_addr_from_request(Socks5AddressType type, con
         addr.domain.port = ntohs(*(uint16_t *) &data[data[0] + 1]);
     } else {
         addr.type = S5CAT_SOCKADDR;
-        size_t addr_len = (type == S5AT_IPV4) ? 4 : 16;
+        size_t addr_len = (type == S5AT_IPV4) ? IPV4_ADDR_SIZE : IPV6_ADDR_SIZE;
         addr.ip = SocketAddress({data, addr_len}, ntohs(*(uint16_t *) (data + addr_len)));
     }
 
@@ -933,8 +937,8 @@ static EventPtr create_udp_event(Socks5Listener *listener, Connection *conn) {
     arg = std::make_unique<SocketArg>();
     arg->listener = listener;
     arg->id = conn->id;
-    event.reset(event_new(
-            vpn_event_loop_get_base(listener->config.ev_loop), fd, EV_READ | EV_PERSIST, udp_event_handler, arg.get()));
+    event.reset(event_new(vpn_event_loop_get_base(listener->config.ev_loop), fd, EV_READ | EV_PERSIST,
+            udp_event_handler, arg.release()));
     if (event == nullptr) {
         errlog(g_logger, "Failed to create event for UDP traffic");
         goto fail;
@@ -945,7 +949,6 @@ static EventPtr create_udp_event(Socks5Listener *listener, Connection *conn) {
         goto fail;
     }
 
-    (void) arg.release();
     return event;
 
 fail:
@@ -970,10 +973,10 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
     size_t reply_size = sizeof(Socks5Reply);
     switch (atyp) {
     case S5AT_IPV4:
-        reply_size += 4;
+        reply_size += IPV4_ADDR_SIZE;
         break;
     case S5AT_IPV6:
-        reply_size += 16;
+        reply_size += IPV6_ADDR_SIZE;
         break;
     default:
         assert(0);
@@ -991,9 +994,9 @@ static bool complete_udp_association(Socks5Listener *listener, Connection *conn)
     if (!bound_addr.valid()) {
         if (atyp == S5AT_IPV4) {
             uint32_t ip = htonl(INADDR_LOOPBACK);
-            memcpy(reply->bnd_addr, &ip, 4);
+            memcpy(reply->bnd_addr, &ip, IPV4_ADDR_SIZE);
         } else {
-            memcpy(reply->bnd_addr, &in6addr_loopback, 16);
+            memcpy(reply->bnd_addr, &in6addr_loopback, IPV6_ADDR_SIZE);
         }
     } else {
         auto addr = bound_addr.addr();
@@ -1110,7 +1113,7 @@ static int process_udp_header(Socks5Listener *listener, UdpRelay *relay, const u
     }
 
     *out_conn = udp_conn;
-    return sizeof(Socks5UdpHeader) + addr_len + 2;
+    return static_cast<int>(sizeof(Socks5UdpHeader) + addr_len + 2);
 }
 
 static void udp_event_handler(evutil_socket_t fd, short what, void *arg) {
@@ -1285,6 +1288,7 @@ static void sock_handler(void *arg, TcpSocketEvent what, void *data) {
                     chosen_method = method;
                     continue; // Maybe next method will be more preferable
                 }
+                // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
                 if (method == supported_method + 0x80) { // _APPNAME version is more preferable
                     chosen_method = method;
                     break;

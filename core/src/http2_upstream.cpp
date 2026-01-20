@@ -108,7 +108,7 @@ void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
             return;
         }
 
-        if (http_event->headers->status_code == 200) {
+        if (http_event->headers->status_code == HTTP_STATUS_200_OK) {
             handler->func(handler->arg, SERVER_EVENT_CONNECTION_OPENED, &found.first);
         } else {
             TcpConnection *conn = found.second;
@@ -434,7 +434,8 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
         }
 
         if (std::optional stream_id = upstream->m_udp_mux.get_stream_id(); stream_id.has_value()
-                && 0 < http_session_available_to_write(upstream->m_session.get(), stream_id.value())) {
+                && 0 < http_session_available_to_write(
+                           upstream->m_session.get(), static_cast<int32_t>(stream_id.value()))) {
             upstream->m_udp_mux.report_sent_bytes();
         }
 

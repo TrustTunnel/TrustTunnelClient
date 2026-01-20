@@ -65,7 +65,7 @@ void test_ip_addr_to_socket_address() {
     {
         // Set
         ip_addr_t ip4;
-        uint16_t ip4_port = 12334;
+        constexpr uint16_t ip4_port = 12334;
         ASSERT(ipaddr_aton("192.0.2.2", &ip4));
 
         // Convert
@@ -86,7 +86,7 @@ void test_ip_addr_to_socket_address() {
     {
         // Set
         ip_addr_t ip6;
-        uint16_t ip6_port = 12335;
+        constexpr uint16_t ip6_port = 12335;
         ASSERT(ipaddr_aton("2001:db8:2017::2", &ip6));
 
         // Convert

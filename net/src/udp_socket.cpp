@@ -20,6 +20,8 @@ static std::atomic_int g_next_id = 0; // NOLINT(cppcoreguidelines-avoid-non-cons
 static constexpr int MAX_DATAGRAM_PROCESS_DELAY_SECS = 10;
 #endif
 
+static constexpr size_t LOG_ID_PREFIX_SIZE = 11;
+
 namespace ag {
 
 struct UdpSocket {
@@ -27,7 +29,7 @@ struct UdpSocket {
     struct timeval timeout_ts;
     UdpSocketParameters parameters;
     std::optional<int> subscribe_id;
-    char log_id[11 + SOCKADDR_STR_BUF_SIZE];
+    char log_id[LOG_ID_PREFIX_SIZE + SOCKADDR_STR_BUF_SIZE];
 };
 
 extern "C" {
@@ -211,7 +213,7 @@ VpnError udp_socket_write(UdpSocket *socket, const uint8_t *data, size_t length)
     VpnError error = {};
 
     evutil_socket_t fd = event_get_fd(socket->event);
-    int r = send(fd, (const char *) data, length, 0);
+    auto r = send(fd, (const char *) data, length, 0);
     if (r < 0) {
         int err_code = evutil_socket_geterror(fd);
         if (AG_ERR_IS_EAGAIN(err_code)) {
@@ -249,7 +251,9 @@ ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap) {
                 .msg_controllen = CMSG_LEN(sizeof(struct timeval))};
         ret = recvmsg(fd, &msg, 0);
         if (ret > 0) {
-            struct timeval time_receive = {}, time_now = {}, time_diff_receive = {};
+            timeval time_receive = {};
+            timeval time_now = {};
+            timeval time_diff_receive = {};
             evutil_gettimeofday(&time_now, nullptr);
 
             for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)) {

@@ -24,9 +24,10 @@ bool icmp_request_key_equals(const IcmpRequestKey *lh, const IcmpRequestKey *rh)
 IcmpRequestDescriptor *icmp_request_create(
         const ip_addr_t *src, const ip_addr_t *dst, u16_t id, u16_t seqno, u8_t ttl, struct pbuf *buffer) {
     static_assert(std::is_trivial_v<IcmpRequestDescriptor>);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     IcmpRequestDescriptor *request = (IcmpRequestDescriptor *) calloc(1, sizeof(IcmpRequestDescriptor));
-    if (NULL == request) {
-        return NULL;
+    if (nullptr == request) {
+        return nullptr;
     }
 
     request->key = icmp_request_key_create(id, seqno);
@@ -39,16 +40,16 @@ IcmpRequestDescriptor *icmp_request_create(
 }
 
 void icmp_request_destroy(IcmpRequestDescriptor *request) {
-    if (request == NULL) {
+    if (request == nullptr) {
         return;
     }
 
-    if (request->buffer != NULL) {
+    if (request->buffer != nullptr) {
         pbuf_free(request->buffer);
-        request->buffer = NULL;
+        request->buffer = nullptr;
     }
 
-    free(request);
+    free(request); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
 
 } // namespace ag

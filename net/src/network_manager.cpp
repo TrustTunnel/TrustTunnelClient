@@ -20,6 +20,7 @@ namespace ag {
 static Logger g_logger{"NETWORK_MANAGER"};
 
 static struct NetworkManagerHolder {
+    static constexpr auto DEFAULT_CACHE_SIZE = 100;
     VpnNetworkManager manager = {
             .dns = dns_manager_create(), // single DNS manager for all VPN clients
             .socket = nullptr,           // each VPN client has its own socket manager
@@ -29,7 +30,7 @@ static struct NetworkManagerHolder {
     std::atomic<uint32_t> outbound_interface = 0;
 
     NetworkManagerHolder()
-            : app_domain_cache(100, std::chrono::minutes(10)) {
+            : app_domain_cache(DEFAULT_CACHE_SIZE, std::chrono::minutes(10)) {
     }
 
     ~NetworkManagerHolder() {

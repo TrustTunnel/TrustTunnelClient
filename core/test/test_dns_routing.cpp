@@ -19,6 +19,9 @@
 
 using namespace ag; // NOLINT(google-build-using-namespace)
 
+constexpr auto DEFAULT_EVENT_LOOP_EXIT_TIMEOUT = ag::Millis{100};
+constexpr auto DEFAULT_TIMEOUT = ag::Millis{30000};
+
 static int cert_verify_handler(
         const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
     return 1;
@@ -221,15 +224,16 @@ public:
         auto system_address = mock_system_dns_server->start(
                 SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_complete;
                 },
                 [this](std::optional<MockDnsServer::Request>, MockDnsServer::Request) {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_unexpected;
                     return std::nullopt;
                 });
         ASSERT_TRUE(system_address.has_value());
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         vpn_network_manager_update_system_dns({.main = {{.address = system_address->str()}}});
         run_event_loop_once();
     }
@@ -298,7 +302,7 @@ TEST_P(NoProxy, Test) {
                                 .qname = AG_FMT("{}.", domain),
                         },
         });
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         ASSERT_EQ(1, this->system_complete);
         ASSERT_EQ(0, this->system_unexpected);
@@ -339,7 +343,7 @@ TEST_F(AppInitiatedDnsRouting, MatchingDomain) {
     this->mock_system_dns_server->expect({
             .request = MockDnsServer::Request{.tcp = false, .qtype = 1, .qname = "forward-to-system.example.com."},
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     ASSERT_EQ(1, this->system_complete);
     ASSERT_EQ(0, this->system_unexpected);
@@ -348,8 +352,9 @@ TEST_F(AppInitiatedDnsRouting, MatchingDomain) {
 }
 
 TEST_F(AppInitiatedDnsRouting, NonMatchingDomain) {
+    constexpr auto TIMEOUT = ag::Millis{1000};
     ASSERT_NO_FATAL_FAILURE(raise_dns_request("example.org"));
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{1000});
+    vpn_event_loop_exit(this->ev_loop.get(), TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     ASSERT_EQ(0, this->system_complete);
     ASSERT_EQ(0, this->system_unexpected);
@@ -374,15 +379,16 @@ public:
         auto system_address = mock_system_dns_server->start(
                 SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_complete;
                 },
                 [this](std::optional<MockDnsServer::Request>, MockDnsServer::Request) {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_unexpected;
                     return std::nullopt;
                 });
         ASSERT_TRUE(system_address.has_value());
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         vpn_network_manager_update_system_dns({.main = {{.address = system_address->str()}}});
         run_event_loop_once();
     }
@@ -443,7 +449,7 @@ TEST_P(DnsAddressExcluded, CheckCreatedUpstreams) {
                                 .qname = AG_FMT("{}.", domain),
                         },
         });
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         ASSERT_EQ(1, this->system_complete);
         ASSERT_EQ(0, this->system_unexpected);
@@ -583,7 +589,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         auto user_server_addr = user_server->start(
                 SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->user_complete;
                 },
                 [this](std::optional<MockDnsServer::Request> expected, MockDnsServer::Request actual) {
@@ -599,11 +605,12 @@ struct DnsRoutingAllProxies : public ::testing::Test {
                                         .c_str(),
                                 stderr);
                     }
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->user_unexpected;
                     return std::nullopt;
                 });
         ASSERT_TRUE(user_server_addr.has_value());
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         std::string user_server_addr_str = user_server_addr->str();
         const char *upstream = user_server_addr_str.c_str();
         VpnListenerConfig listener_config{.dns_upstreams = {.data = &upstream, .size = 1}};
@@ -619,11 +626,11 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         auto system_server_addr = system_server->start(
                 SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_complete;
                 },
                 [this](std::optional<MockDnsServer::Request>, MockDnsServer::Request) {
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_unexpected;
                     return std::nullopt;
                 });
@@ -631,16 +638,17 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         auto system_server_ipv6_addr = system_ipv6_server->start(
                 SocketAddress("::1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_ipv6_complete;
                 },
                 [this](std::optional<MockDnsServer::Request>, MockDnsServer::Request) {
-                    this->schedule_exit(Millis{100});
+                    this->schedule_exit(DEFAULT_EVENT_LOOP_EXIT_TIMEOUT);
                     ++this->system_ipv6_unexpected;
                     return std::nullopt;
                 });
         ASSERT_TRUE(system_server_ipv6_addr.has_value());
 
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         vpn_network_manager_update_system_dns({
                 .main =
                         {
@@ -648,6 +656,7 @@ struct DnsRoutingAllProxies : public ::testing::Test {
                                 {.address = system_server_ipv6_addr->str()},
                         },
         });
+        // NOLINTEND(bugprone-unchecked-optional-access)
 
         vpn_event_loop_exit(this->ev_loop.get(), Millis{0});
         vpn_event_loop_run(this->ev_loop.get());
@@ -770,7 +779,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
                         },
         });
 
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         vpn_event_loop_finalize_exit(this->ev_loop.get());
 
@@ -802,7 +811,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsSystem) {
                         },
         });
 
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         vpn_event_loop_finalize_exit(this->ev_loop.get());
 
@@ -887,7 +896,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
                         },
         });
 
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         vpn_event_loop_finalize_exit(this->ev_loop.get());
 
@@ -919,7 +928,7 @@ TEST_F(DnsRoutingAllProxies, IpVersionsUser) {
                         },
         });
 
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         vpn_event_loop_finalize_exit(this->ev_loop.get());
 
@@ -950,7 +959,7 @@ TEST_F(DnsRoutingAllProxies, RecordTypes) {
                 .response = MockDnsServer::Response{.rcode = LDNS_RCODE_REFUSED},
         });
         int complete_before = this->user_complete;
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
         vpn_event_loop_finalize_exit(this->ev_loop.get());
         ASSERT_EQ(complete_before + 1, this->user_complete);
@@ -981,7 +990,7 @@ TEST_F(DnsRoutingAllProxies, ExclusionSuspectsGeneral) {
                             .answer = {"example.org. 60 IN A 1.2.3.4"},
                     },
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     vpn_event_loop_finalize_exit(this->ev_loop.get());
     ASSERT_EQ(1, this->system_complete);
@@ -1013,7 +1022,7 @@ TEST_F(DnsRoutingAllProxies, ExclusionSuspectsSelective) {
                             .answer = {"example.org. 60 IN A 1.2.3.4"},
                     },
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     vpn_event_loop_finalize_exit(this->ev_loop.get());
     ASSERT_EQ(1, this->user_complete);
@@ -1047,7 +1056,7 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
                                        "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA\n"},
                     },
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     vpn_event_loop_finalize_exit(this->ev_loop.get());
     ASSERT_EQ(0, this->system_unexpected);
@@ -1056,9 +1065,11 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(1, this->user_complete);
     ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
     ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     dns_utils::LdnsPktPtr pkt =
             dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
                     this->client_listener->closed_connections[udp_event.id].last_send->size()});
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     DeclPtr<char, &free> str{ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0))};
@@ -1087,7 +1098,7 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
                                        "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA"},
                     },
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     vpn_event_loop_finalize_exit(this->ev_loop.get());
     ASSERT_EQ(0, this->system_unexpected);
@@ -1096,8 +1107,10 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(1, this->system_complete);
     ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
     ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     pkt = dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
             this->client_listener->closed_connections[udp_event.id].last_send->size()});
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));
@@ -1124,7 +1137,7 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
                                        "PIggYXcR5JF0gYk3dCRioBW8uJq9H4mKAAIAAEAAQABAANAEnB1YmxpYy50bHMtZWNoLmRldgAA"},
                     },
     });
-    vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
     vpn_event_loop_run(this->ev_loop.get());
     vpn_event_loop_finalize_exit(this->ev_loop.get());
     ASSERT_EQ(0, this->system_unexpected);
@@ -1133,8 +1146,10 @@ TEST_F(DnsRoutingAllProxies, RemoveSvcParamsEchConfig) {
     ASSERT_EQ(2, this->user_complete);
     ASSERT_TRUE(this->client_listener->closed_connections.contains(udp_event.id));
     ASSERT_TRUE(this->client_listener->closed_connections[udp_event.id].last_send);
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     pkt = dns_utils::decode_pkt({this->client_listener->closed_connections[udp_event.id].last_send->data(),
             this->client_listener->closed_connections[udp_event.id].last_send->size()});
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_TRUE(pkt);
     ASSERT_EQ(1, ldns_rr_list_rr_count(ldns_pkt_answer(pkt.get())));
     str.reset(ldns_rr2str(ldns_rr_list_rr(ldns_pkt_answer(pkt.get()), 0)));
