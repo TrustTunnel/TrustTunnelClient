@@ -41,7 +41,7 @@ int main() { // NOLINT(bugprone-exception-escape)
 
     HttpHeaders clone = message;
 
-    clone.status_code = HTTP_STATUS_OK;
+    clone.status_code = HTTP_STATUS_200_OK;
     clone.status_string = HTTP_STATUS_OK_STR;
 
     assert(message.contains_field(ag::utils::to_lower(NONEMPTY_FIELD_NAME)));
