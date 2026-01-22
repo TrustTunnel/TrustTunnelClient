@@ -9,7 +9,8 @@
 #include "dns/dnsstamp/dns_stamp.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
-#include "vpn/default_settings.h"
+
+#include "default_settings.h"
 
 namespace ag {
 

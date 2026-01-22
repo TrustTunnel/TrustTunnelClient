@@ -15,7 +15,6 @@
 #include "common/defs.h"
 #include "common/socket_address.h"
 #include "vpn/platform.h"
-#include "vpn/default_settings.h"
 
 namespace ag {
 
@@ -167,6 +166,14 @@ public:
 
 private:
     std::vector<VpnPacket> m_packets;
+};
+
+/**
+ * Default settings for vpn
+ */
+struct VpnDefaultSettings {
+    bool post_quantum_group_enabled;    /**< Default state for post-quantum group in TLS handshakes */
+    bool handler_profiling_enabled;     /**< Default state for handler profiling */
 };
 
 /**

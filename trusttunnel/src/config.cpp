@@ -12,8 +12,8 @@
 
 #include "net/tls.h"
 #include "utils.h"
-#include "vpn/default_settings.h"
 #include "vpn/trusttunnel/config.h"
+#include "vpn/utils.h"
 
 #ifndef _WIN32
 #include <sys/types.h>
@@ -224,6 +224,7 @@ static std::optional<TrustTunnelConfig::Listener> build_listener_config(const to
 
 std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::table &config) {
     TrustTunnelConfig result;
+    UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> default_settings{vpn_get_default_settings()};
 
     if (std::optional lvl = config["loglevel"].value<std::string_view>(); lvl.has_value()) {
         if (auto loglevel = TrustTunnelCliUtils::parse_loglevel(lvl.value())) {
@@ -253,9 +254,8 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
             result.killswitch_allow_ports.pop_back();
         }
     }
-
-    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or<bool>(
-            VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED);
+    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or(
+            default_settings->post_quantum_group_enabled);
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 

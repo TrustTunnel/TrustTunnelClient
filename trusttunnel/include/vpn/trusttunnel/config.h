@@ -54,7 +54,7 @@ struct TrustTunnelConfig {
     ag::VpnMode mode = ag::VPN_MODE_GENERAL;
     bool killswitch_enabled = false;
     std::string killswitch_allow_ports;
-    bool post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
+    bool post_quantum_group_enabled = true;
     std::string log_file_path;
     std::string exclusions;
     std::optional<std::string> ssl_session_storage_path;
