@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.99.92
+
+- [Feature] Added prebuilt trusttunnel_client binaries for Windows
+
 ## 0.99.63
 
 - [Features] Add option to allow inbound connections to the specified UDP/TCP ports when
