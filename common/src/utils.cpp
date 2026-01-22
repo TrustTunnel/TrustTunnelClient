@@ -315,12 +315,22 @@ bool vpn_post_quantum_group_enabled() {
     return g_post_quantum_group_enabled.load(std::memory_order_relaxed);
 }
 
-void vpn_get_default_settings(VpnDefaultSettings *settings) {
-    VpnDefaultSettings s = {
-        .post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED,
-        .handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED,
-    };
-    memcpy(settings, &s, sizeof(s));
+VpnDefaultSettings *vpn_get_default_settings() {
+    auto *settings = (VpnDefaultSettings *) malloc(sizeof(VpnDefaultSettings));
+    if (settings == nullptr) {
+        return nullptr;
+    }
+    settings->post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
+    settings->handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED;
+    return settings;
+}
+
+void vpn_free_default_settings(VpnDefaultSettings *settings) {
+    if (settings == nullptr) {
+        return;
+    }
+    
+    free(settings);
 }
 
 } // namespace ag

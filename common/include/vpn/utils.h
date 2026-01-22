@@ -394,9 +394,15 @@ WIN_EXPORT bool vpn_post_quantum_group_enabled();
 
 /**
  * Get default VPN settings.
- * @param settings Pointer to VpnDefaultSettings structure to fill
+ * @return Pointer to allocated VpnDefaultSettings structure
  */
-WIN_EXPORT void vpn_get_default_settings(VpnDefaultSettings *settings);
+WIN_EXPORT VpnDefaultSettings *vpn_get_default_settings();
+
+/**
+ * Free VpnDefaultSettings structure
+ * @param settings Pointer to VpnDefaultSettings structure to free
+ */
+WIN_EXPORT void vpn_free_default_settings(VpnDefaultSettings *settings);
 
 } // extern "C"
 } // namespace ag
