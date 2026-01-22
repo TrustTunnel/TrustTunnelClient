@@ -1,6 +1,6 @@
 ﻿1 VERSIONINFO
-    FILEVERSION 0,99,90,0
-    PRODUCTVERSION 0,99,90,0
+    FILEVERSION 0,99,91,0
+    PRODUCTVERSION 0,99,91,0
     FILEFLAGSMASK 0x17L
  FILEFLAGS 0x0L
  FILEOS 0x4L
@@ -15,8 +15,8 @@ BEGIN
                         VALUE "LegalCopyright", "Copyright © Adguard Software Limited 2009-2026"
                         VALUE "CompanyName", "Adguard Software Ltd"
                         VALUE "ProductName", "TrustTunnel command-line client"
-                        VALUE "FileVersion", "0.99.90"
-                        VALUE "ProductVersion", "0.99.90"
+                        VALUE "FileVersion", "0.99.91"
+                        VALUE "ProductVersion", "0.99.91"
                         VALUE "OriginalFilename", "trusttunnel_client.exe"
                         VALUE "InternalName", "trusttunnel_client"
                 END
