@@ -316,7 +316,7 @@ bool vpn_post_quantum_group_enabled() {
 }
 
 VpnDefaultSettings *vpn_get_default_settings() {
-    auto *settings = (VpnDefaultSettings *) malloc(sizeof(VpnDefaultSettings));
+    auto *settings = (VpnDefaultSettings *) std::malloc(sizeof(VpnDefaultSettings));
     if (settings == nullptr) {
         return nullptr;
     }
@@ -329,8 +329,7 @@ void vpn_free_default_settings(VpnDefaultSettings *settings) {
     if (settings == nullptr) {
         return;
     }
-    
-    free(settings);
+    std::free(settings);
 }
 
 } // namespace ag
