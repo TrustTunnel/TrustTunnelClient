@@ -180,7 +180,7 @@ static bool configure_tun_interface(const std::string &tun_name) {
     std::string cmd = AG_FMT("ip addr add 1.2.3.3/24 dev {}", tun_name);
     dbglog(g_test_log, "Executing: {}", cmd);
 
-    int result = system(cmd.c_str());
+    int result = system(cmd.c_str()); // NOLINT(cert-env33-c)
     if (result != 0) {
         errlog(g_test_log, "Failed to configure interface, exit code: {}", WEXITSTATUS(result));
         return false;
@@ -190,7 +190,7 @@ static bool configure_tun_interface(const std::string &tun_name) {
     cmd = AG_FMT("ip link set {} up", tun_name);
     dbglog(g_test_log, "Executing: {}", cmd);
 
-    result = system(cmd.c_str());
+    result = system(cmd.c_str()); // NOLINT(cert-env33-c)
     if (result != 0) {
         errlog(g_test_log, "Failed to bring interface up, exit code: {}", WEXITSTATUS(result));
         return false;
@@ -200,7 +200,7 @@ static bool configure_tun_interface(const std::string &tun_name) {
     cmd = AG_FMT("ip route add 1.2.3.4 dev {}", tun_name);
     dbglog(g_test_log, "Executing: {}", cmd);
 
-    result = system(cmd.c_str());
+    result = system(cmd.c_str()); // NOLINT(cert-env33-c)
     if (result != 0) {
         errlog(g_test_log, "Failed to add route, exit code: {}", WEXITSTATUS(result));
         return false;

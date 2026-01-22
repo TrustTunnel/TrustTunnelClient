@@ -165,7 +165,8 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 
 #elif defined EVTHREAD_USE_PTHREADS_IMPLEMENTED
     // Block SIGPIPE
-    sigset_t sigset, oldset;
+    sigset_t sigset;
+    sigset_t oldset;
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGPIPE);
     pthread_sigmask(SIG_BLOCK, &sigset, &oldset);

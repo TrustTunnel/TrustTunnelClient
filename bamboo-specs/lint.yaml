@@ -34,7 +34,9 @@ Lint Markdown:
         scripts:
           - |-
             set -x -e
-            echo "Lint markdown skipped"
+            
+            npm install -g markdownlint-cli
+            make lint-md
         description: Lint Markdown files
         working-dir: vpn-libs
   requirements:
@@ -61,7 +63,10 @@ Lint Rust:
         scripts:
           - |-
             set -x -e
-            echo "Lint Rust skipped"
+            
+            rustup component add rustfmt clippy
+            
+            make lint-rust
         description: Lint Rust code
         working-dir: vpn-libs
   requirements:

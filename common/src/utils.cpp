@@ -19,6 +19,7 @@ static constexpr uint32_t DEFAULT_HANDLER_PROFILING_THRESHOLD_NS = 5'000'000; //
 
 #ifndef IN6_IS_ADDR_UNIQUE_LOCAL
 inline bool IN6_IS_ADDR_UNIQUE_LOCAL(const struct in6_addr *addr) {
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     return ((addr->s6_addr[0] == 0xfc) || (addr->s6_addr[0] == 0xfd));
 }
 #endif

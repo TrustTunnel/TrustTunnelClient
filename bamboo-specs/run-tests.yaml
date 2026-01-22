@@ -39,10 +39,31 @@ Run tests on Linux:
         scripts:
           - |-
             set -x -e
-
+            
             python3 -m pip install conan --upgrade
-
+            
             conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
+
+            LLVM_MAJOR_VER="$(
+              for d in /usr/lib/llvm-*; do
+                v="${d##*/llvm-}"
+                case "$v" in
+                  (*[!0-9]*|'') : ;;
+                  (*) echo "$v" ;;
+                esac
+              done | sort -n | tail -1
+            )"
+            
+            apt install -y "clang-format-$LLVM_MAJOR_VER" "clang-tidy-$LLVM_MAJOR_VER"
+
+            make lint-cpp
+        description: Lint C++ code
+        working-dir: vpn-libs
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x -e
 
             export VL_ROOT=${PWD}
             trap "git clean -d -x -f ${VL_ROOT} --exclude '**/Testing/*/*.xml'" EXIT
@@ -155,7 +176,6 @@ Run tests on macOS:
         description: Checkout Default Repository
         force-clean-build: 'true'
     - script:
-        description: Build tests
         interpreter: SHELL
         scripts:
           - |-
@@ -165,6 +185,26 @@ Run tests on macOS:
             python3 -m venv venv
             source ./venv/bin/activate
             python3 -m pip install conan
+        description: Install dependencies
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x -e
+
+            source ./venv/bin/activate
+            # LLVM should be installed using brew
+            export PATH=$PATH:/opt/homebrew/bin
+            # TODO: enable the linter after updating LLVM to 21
+            # make lint-cpp
+        description: Lint C++ code
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -e -x
+
+            source ./venv/bin/activate
 
             # Clean up local cache
             conan remove -c "*"
@@ -191,6 +231,7 @@ Run tests on macOS:
             export ASAN_OPTIONS=detect_container_overflow=0
             ninja tests
             ctest -D ExperimentalTest --no-compress-output
+        description: Build and run tests
   final-tasks:
     - any-task:
         plugin-key: fr.cstb.bamboo.plugins.ctest.bamboo-ctest-plugin:test

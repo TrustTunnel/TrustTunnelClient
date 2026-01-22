@@ -21,7 +21,7 @@ jobs:
   Linux:
     runs-on: ubuntu-latest
     env:
-      LLVM_MAJOR_VER: 17
+      LLVM_MAJOR_VER: 21
     if: "!startsWith(github.event.head_commit.message, 'skipci:')"
     steps:
       - name: Checkout source code
@@ -43,6 +43,7 @@ jobs:
           sudo ./llvm.sh $LLVM_MAJOR_VER
           rm ./llvm.sh
           sudo apt install -y libc++-${LLVM_MAJOR_VER}-dev libclang-rt-${LLVM_MAJOR_VER}-dev
+          sudo apt install clang-tidy-${LLVM_MAJOR_VER}
           echo "/usr/lib/llvm-$LLVM_MAJOR_VER/bin" >> $GITHUB_PATH
           ## Add python's bin dir to path to ensure the correct clang-format version
           PY_BIN=$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")
@@ -128,10 +129,10 @@ jobs:
 
       - name: Install packages
         run: |
-          brew install ninja llvm@19
+          brew install ninja llvm@21
           pip install conan~=$CONAN_VER
           pip install clang-format~=$CLANG_FORMAT_VER
-          echo "/opt/homebrew/opt/llvm@19/bin" >> $GITHUB_PATH
+          echo "/opt/homebrew/opt/llvm@21/bin" >> $GITHUB_PATH
           ## Add python's bin dir to path to ensure the correct clang-format version
           PY_BIN=$(python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))")
           echo "$PY_BIN" >> $GITHUB_PATH
