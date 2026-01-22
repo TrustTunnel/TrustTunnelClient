@@ -728,6 +728,11 @@ std::optional<uint32_t> Http2Upstream::get_stream_id(uint64_t id) const {
 
 void Http2Upstream::consume(uint64_t id, size_t length) {
     log_conn(this, id, trace, "{}", length);
+    if (m_udp_mux.check_connection(id)) {
+        // Prevent double consuming
+        log_conn(this, id, trace, "Skipping manual consumung for udp_mux connection");
+        return;
+    }
 
     std::optional<uint32_t> stream_id = get_stream_id(id);
     if (!stream_id.has_value()) {
