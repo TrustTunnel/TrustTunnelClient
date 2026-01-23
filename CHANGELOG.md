@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- [Fix] Fixed setup_wizard architecture in Linux builds #5
+
 ## 0.99.92
 
 - [Feature] Added prebuilt trusttunnel_client binaries for Windows
