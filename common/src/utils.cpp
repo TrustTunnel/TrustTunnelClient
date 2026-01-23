@@ -298,6 +298,23 @@ const char *vpn_dns_stamp_prettier_url(VpnDnsStamp *c_stamp) {
 void vpn_string_free(const char *s) {
     std::free((void *) s);
 }
+
+VpnDefaultSettings *vpn_get_default_settings() {
+    auto *settings = (VpnDefaultSettings *) std::malloc(sizeof(VpnDefaultSettings));
+    if (settings == nullptr) {
+        return nullptr;
+    }
+    settings->post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
+    settings->handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED;
+    return settings;
+}
+
+void vpn_free_default_settings(VpnDefaultSettings *settings) {
+    if (settings == nullptr) {
+        return;
+    }
+    std::free(settings);
+}
 // NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 uint32_t ntoh_24(uint32_t x) {
@@ -323,23 +340,6 @@ void vpn_post_quantum_group_set_enabled(bool enabled) {
 
 bool vpn_post_quantum_group_enabled() {
     return g_post_quantum_group_enabled.load(std::memory_order_relaxed);
-}
-
-VpnDefaultSettings *vpn_get_default_settings() {
-    auto *settings = (VpnDefaultSettings *) std::malloc(sizeof(VpnDefaultSettings));
-    if (settings == nullptr) {
-        return nullptr;
-    }
-    settings->post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
-    settings->handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED;
-    return settings;
-}
-
-void vpn_free_default_settings(VpnDefaultSettings *settings) {
-    if (settings == nullptr) {
-        return;
-    }
-    std::free(settings);
 }
 
 } // namespace ag
