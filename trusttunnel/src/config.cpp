@@ -254,8 +254,8 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
             result.killswitch_allow_ports.pop_back();
         }
     }
-    result.post_quantum_group_enabled = config["post_quantum_group_enabled"].value_or(
-            default_settings->post_quantum_group_enabled);
+    result.post_quantum_group_enabled =
+            config["post_quantum_group_enabled"].value_or(default_settings->post_quantum_group_enabled);
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 

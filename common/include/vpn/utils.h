@@ -172,8 +172,8 @@ private:
  * Default settings for vpn
  */
 struct VpnDefaultSettings {
-    bool post_quantum_group_enabled;    /**< Default state for post-quantum group in TLS handshakes */
-    bool handler_profiling_enabled;     /**< Default state for handler profiling */
+    bool post_quantum_group_enabled; /**< Default state for post-quantum group in TLS handshakes */
+    bool handler_profiling_enabled;  /**< Default state for handler profiling */
 };
 
 /**
