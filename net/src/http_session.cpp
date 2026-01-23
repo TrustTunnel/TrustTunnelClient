@@ -14,6 +14,7 @@ static ag::Logger g_logger{"HTTP"};
 
 HttpSession *http_session_open(const HttpSessionParams *params) {
     static_assert(std::is_trivial_v<HttpSession>);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     auto *session = (HttpSession *) calloc(1, sizeof(HttpSession));
     if (session == nullptr) {
         return nullptr;
@@ -73,7 +74,7 @@ int http_session_close(HttpSession *session) {
             break;
         }
 
-        free(session);
+        free(session); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     }
     return r;
 }

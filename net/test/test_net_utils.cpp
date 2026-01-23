@@ -70,10 +70,13 @@ TEST(NetUtils, JA4Quic) {
         for (const std::vector<uint8_t> &initial : initials) {
             auto header = ag::quic_utils::parse_quic_header({initial.data(), initial.size()});
             ASSERT_TRUE(header);
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             auto decrypted = ag::quic_utils::decrypt_initial({initial.data(), initial.size()}, *header);
             ASSERT_TRUE(decrypted);
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             auto reassembled = ag::quic_utils::reassemble_initial_crypto_frames({decrypted->data(), decrypted->size()});
             ASSERT_TRUE(reassembled);
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             handshake.insert(handshake.end(), reassembled->begin(), reassembled->end());
         }
         auto fingerprint = ag::ja4::compute({handshake.data(), handshake.size()}, /*quic*/ true);

@@ -52,7 +52,7 @@ static std::vector<uint8_t> compose_udp_packet(const SocketAddress *src, const S
 }
 
 HttpUdpMultiplexer::HttpUdpMultiplexer(HttpUdpMultiplexerParameters parameters)
-        : m_params(std::move(parameters))
+        : m_params(parameters)
         , m_id(g_next_mux_id++) {
 }
 
@@ -231,7 +231,7 @@ ssize_t HttpUdpMultiplexer::send(uint64_t id, U8View data) {
     if (r == 0) {
         conn->timeout = steady_clock::now() + milliseconds(VPN_DEFAULT_UDP_TIMEOUT_MS);
         conn->sent_bytes_since_flush += data.size();
-        return data.size();
+        return static_cast<ssize_t>(data.size());
     }
 
     return -1;
@@ -244,16 +244,19 @@ HttpUdpMultiplexer::PacketInfo HttpUdpMultiplexer::read_prefix(const std::vector
 
     wire_utils::Reader reader({data.data(), UDPPKT_IN_PREFIX_SIZE});
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     uint32_t length = reader.get_u32().value();
     if (length < (UDPPKT_IN_PREFIX_SIZE - UDPPKT_LENGTH_SIZE)) {
         log_mux(this, dbg, "Drop packet as its length less than the prefix size ({})", length);
         return info;
     }
 
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     SocketAddress src_addr = reader.get_ip_padded().value();
     src_addr.set_port(reader.get_u16().value());
     SocketAddress dst_addr = reader.get_ip_padded().value();
     dst_addr.set_port(reader.get_u16().value());
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     log_mux(this, trace, "Got UDP packet: {}->{} len={}", src_addr, dst_addr, length);
 

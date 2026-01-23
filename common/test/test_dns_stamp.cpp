@@ -39,7 +39,7 @@ TEST(VpnDnsStampTest, DnsStampManipulationWorks) {
     stamp->hashes.data = &hash;
     stamp->hashes.size = 1;
     *stamp->properties = VDSIP_NO_FILTER;
-    stamp->path = NULL;
+    stamp->path = nullptr;
 
     ASSERT_STREQ(StrPtr(vpn_dns_stamp_pretty_url(stamp)).get(), "quic://dns.adguard.com");
     ASSERT_STREQ(StrPtr(vpn_dns_stamp_prettier_url(stamp)).get(), "quic://dns.adguard.com");

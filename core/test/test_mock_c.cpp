@@ -20,6 +20,7 @@ void MockedTest::reset_infos() {
     }
 }
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 static void free_locations_pinger_info(ag::LocationsPingerInfo *info) {
     if (info == nullptr) {
         return;
@@ -63,6 +64,7 @@ static test_mock::LocationsPingerInfo make_deep_copy(const ag::LocationsPingerIn
 
     return dst;
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 LocationsPinger *ag::locations_pinger_start(const ag::LocationsPingerInfo *info, LocationsPingerHandler handler,
         VpnEventLoop *ev_loop, VpnNetworkManager *network_manager) {

@@ -4,6 +4,7 @@
 
 using namespace ag;
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 class MemoryBufferTest : public testing::Test {
 protected:
     const std::string TEST_DATA_1 = "tratata";
@@ -86,3 +87,4 @@ TEST_F(MemoryBufferTest, Drain2) {
 
     ASSERT_TRUE(expected_data.empty()) << expected_data;
 }
+// NOLINTEND(bugprone-unchecked-optional-access)

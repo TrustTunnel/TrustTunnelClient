@@ -81,6 +81,7 @@ int pcap_write_header(int fd) {
             .sigfigs = 0,
             .snaplen = MAX_SUPPORTED_MTU,
             .linktype = LINKTYPE_RAW};
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     return write(fd, &pcap_header, sizeof(pcap_header));
 }
 
@@ -97,7 +98,7 @@ static inline int writev_file(int fd, const evbuffer_iovec *iov, int iov_cnt) {
     }
     return r;
 #else
-    return writev(fd, iov, iov_cnt);
+    return writev(fd, iov, iov_cnt); // NOLINT(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 #endif
 }
 
@@ -117,7 +118,7 @@ int pcap_write_packet_iovec(int fd, struct timeval *tv, const evbuffer_iovec *io
     }
     rec.len = rec.caplen;
 
-    return writev_file(fd, iovec_pcap.data(), iovec_pcap.size());
+    return writev_file(fd, iovec_pcap.data(), static_cast<int>(iovec_pcap.size()));
 }
 
 size_t get_approx_headers_size(size_t bytes_transfered, uint8_t proto_id, uint16_t mtu_size) {

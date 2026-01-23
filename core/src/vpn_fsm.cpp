@@ -297,6 +297,7 @@ static void run_ping(void *ctx, void *) {
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
     if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay.has_value()
             && vpn->recovery.start_ts != time_point<steady_clock>{}) {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         pinger_info.relay_parallel = vpn->selected_endpoint->relay->get();
     }
 
@@ -471,7 +472,9 @@ static void raise_state(void *ctx, void *) {
         int kex_group_nid = vpn->client.endpoint_upstream->kex_group_nid();
         kex_group_name = kex_group_name_by_nid(kex_group_nid);
         event.connected_info = {
+                // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
                 .endpoint = vpn->selected_endpoint->endpoint.get(),
+                // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
                 .relay = vpn->selected_endpoint->relay.has_value() ? vpn->selected_endpoint->relay->get() : nullptr,
                 .protocol = vpn->client.endpoint_upstream->get_protocol(),
                 .kex_group = kex_group_name.c_str(),

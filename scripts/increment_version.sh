@@ -70,6 +70,26 @@ update_apple_version() {
   popd
 }
 
+update_trusttunnel_windows_rc_versions() {
+  local new_version=$1
+  local rc_file=$2
+
+  if [ -f "$rc_file" ]; then
+    echo "Updating Windows rc version in ${rc_file} to ${new_version}"
+
+    local version_commas
+    version_commas=$(echo "${new_version}" | sed 's/\./,/g'),0
+
+    sed -i -e "s/^[[:space:]]*FILEVERSION .*/    FILEVERSION ${version_commas}/" "$rc_file"
+    sed -i -e "s/^[[:space:]]*PRODUCTVERSION .*/    PRODUCTVERSION ${version_commas}/" "$rc_file"
+
+    sed -i -e "s/\(VALUE \"FileVersion\", \"\)[0-9]*\.[0-9]*\.[0-9]*\(\"\)/\1${new_version}\2/" "$rc_file"
+    sed -i -e "s/\(VALUE \"ProductVersion\", \"\)[0-9]*\.[0-9]*\.[0-9]*\(\"\)/\1${new_version}\2/" "$rc_file"
+  else
+    echo "Warning: TrustTunnel Windows rc file not found at ${rc_file}"
+  fi
+}
+
 argument_version=$1
 if [ -z "$argument_version" ]
 then
@@ -104,6 +124,10 @@ update_android_version "${NEW_VERSION}"
 
 update_apple_version "${NEW_VERSION}" "${VERSION}"
 
+# Update TrustTunnel Windows resources versions
+update_trusttunnel_windows_rc_versions "${NEW_VERSION}" "trusttunnel/trusttunnel_client.rc"
+update_trusttunnel_windows_rc_versions "${NEW_VERSION}" "trusttunnel/setup_wizard/resources/setup_wizard.rc"
+
 # Update changelog
 sed -i -e '3{s/##/##/;t;s/^/## '${NEW_VERSION}'\n\n/}' CHANGELOG.md
 
@@ -114,4 +138,6 @@ echo "  - platform/android/lib/build.gradle.kts"
 echo "  - platform/apple/VpnClient/CMakeLists.txt"
 echo "  - platform/apple/TrustTunnelClient.xcodeproj/project.pbxproj"
 echo "  - platform/apple/TrustTunnelClient.podspec"
+echo "  - trusttunnel/trusttunnel_client.rc"
+echo "  - trusttunnel/setup_wizard/resources/setup_wizard.rc"
 echo "  - CHANGELOG.md"

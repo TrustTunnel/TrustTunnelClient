@@ -121,7 +121,7 @@ TEST_F(LocationsPingerRunnerTest, WholeLocationFailed) {
 
     TestCtx test_ctx = generate_test_ctx();
     test_ctx.info.locations = {&location, 1};
-    test_ctx.info.timeout_ms = 500;
+    test_ctx.info.timeout_ms = 500; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
             {
@@ -208,7 +208,7 @@ TEST_F(LocationsPingerRunnerTest, Timeout) {
     }
 
     TestCtx test_ctx = generate_test_ctx();
-    test_ctx.info.timeout_ms = 100;
+    test_ctx.info.timeout_ms = 100; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     test_ctx.info.locations = {locations.data(), uint32_t(locations.size())};
 
     test_ctx.runner.reset(locations_pinger_runner_create(&test_ctx.info,
@@ -568,6 +568,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                 "{}/{}", json_loc["country_name"].get<std::string>(), json_loc["city_name"].get<std::string>())
                         .c_str());
         static_assert(std::is_trivial_v<VpnEndpoint>);
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
         location.endpoints.data = (VpnEndpoint *) malloc(2 * json_loc["endpoints"].size() * sizeof(VpnEndpoint));
         location.endpoints.size = 0;
         for (auto &ep : json_loc["endpoints"]) {

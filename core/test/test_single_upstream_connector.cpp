@@ -99,6 +99,7 @@ protected:
     }
 };
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 TEST_F(SingleUpstreamConnectorTest, Successful) {
     VpnError err = m_connector->connect(std::nullopt);
     ASSERT_EQ(err.code, VPN_EC_NOERROR) << err.text;
@@ -131,3 +132,4 @@ TEST_F(SingleUpstreamConnectorTest, OpenSessionFailed) {
     ASSERT_TRUE(m_raised_result.has_value());
     ASSERT_TRUE(std::holds_alternative<VpnError>(m_raised_result.value())) << m_raised_result->index();
 }
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -7,7 +7,7 @@ set -e
 
 # Variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_IMAGE="adguard/core-libs:2.6"
+DOCKER_IMAGE="adguard/core-libs:2.8"
 
 # Default Git URLs
 VPN_LIBS_GIT_URL="${VPN_LIBS_GIT_URL:-https://github.com/TrustTunnel/TrustTunnelClient}"

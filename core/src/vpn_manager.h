@@ -86,7 +86,7 @@ struct Vpn {
     void stop_pinging();
     void disconnect();
     bool run_event_loop();
-    void submit(ag::MoveOnlyFunction<void()> &&func, std::optional<Millis> defer = std::nullopt);
+    void submit(ag::MoveOnlyFunction<void()> func, std::optional<Millis> defer = std::nullopt);
     void complete_postponed_requests();
     void reset_bypassed_connections();
 

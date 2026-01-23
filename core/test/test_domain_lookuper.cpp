@@ -49,6 +49,7 @@ public:
     }
 };
 
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 TEST_P(OutgoingDataUdp, Test) {
     const TestParam &param = GetParam();
 
@@ -62,11 +63,13 @@ TEST_P(OutgoingDataUdp, Test) {
     ASSERT_EQ(result.status, param.expected_status) << result.domain;
     ASSERT_EQ(result.domain, param.expected_domain);
 }
+// NOLINTEND(bugprone-unchecked-optional-access)
 
 static std::vector<uint8_t> string_view_to_vector(std::string_view str) {
     return std::vector<uint8_t>{(uint8_t *) str.data(), (uint8_t *) str.data() + str.length() + 1};
 }
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 static int parse_hex_char(int c) {
     if (c >= '0' && c <= '9') {
         return c - 0x30;
@@ -79,6 +82,7 @@ static int parse_hex_char(int c) {
     }
     return -1;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 static std::vector<uint8_t> decode_from_hex(std::string_view hex) {
     if (hex.size() & 1) {

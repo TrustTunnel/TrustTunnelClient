@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM adguard/core-libs:2.6
+FROM adguard/core-libs:2.8
 
 # Install the required utilities
 RUN apt update --allow-releaseinfo-change && \

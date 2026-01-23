@@ -41,6 +41,7 @@ static err_t tcp_raw_poll(void *arg, struct tcp_pcb *tpcb);
 static err_t tcp_raw_sent(void *arg, struct tcp_pcb *tpcb, u16_t len);
 static err_t tcp_raw_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 static void tcp_raw_error(void *arg, err_t err) {
     auto *ctx = (ConnCtx *) arg;
 
@@ -314,5 +315,6 @@ void tcp_raw_slide_window(struct tcp_pcb *pcb, size_t sent) {
         sent -= to_slide;
     }
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 } // namespace ag

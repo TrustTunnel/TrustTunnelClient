@@ -30,6 +30,7 @@ std::string make_buffer_file_path(const char *base_path, uint64_t id) {
 
 static bool is_conn_buffer_file(const char *fname) {
     uint64_t tmp;
+    // NOLINTNEXTLINE(cert-err34-c)
     return 2 == std::sscanf(fname, CONN_BUFFER_FILE_NAME_FMT, &tmp, &tmp);
 }
 
@@ -69,8 +70,10 @@ AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> vpn_upstream_config_clon
 
 void vpn_upstream_config_destroy(VpnUpstreamConfig *config) {
     vpn_location_destroy(&config->location);
+    // NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     free((void *) config->username);
     free((void *) config->password);
+    // NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     *config = {};
 }
 
@@ -113,7 +116,7 @@ enum VpnWarnCode {
 
 VpnError bad_http_response_to_connect_error(const HttpHeaders *response) {
     VpnError err = {ag::utils::AG_ECONNREFUSED, "Bad response status"};
-    if (response->status_code != 502) {
+    if (response->status_code != HTTP_STATUS_502_BAD_GATEWAY) {
         return err;
     }
 

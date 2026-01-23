@@ -104,7 +104,7 @@ uint64_t DirectUpstream::open_connection(const TunnelAddressPair *, int, std::st
 void DirectUpstream::close_connection(uint64_t id, bool graceful, bool async) {
 }
 ssize_t DirectUpstream::send(uint64_t, const uint8_t *, size_t length) {
-    return length;
+    return static_cast<ssize_t>(length);
 }
 void DirectUpstream::consume(uint64_t id, size_t length) {
 }
@@ -162,7 +162,7 @@ uint64_t UpstreamMultiplexer::open_connection(const TunnelAddressPair *, int, st
 void UpstreamMultiplexer::close_connection(uint64_t id, bool graceful, bool async) {
 }
 ssize_t UpstreamMultiplexer::send(uint64_t, const uint8_t *, size_t length) {
-    return length;
+    return static_cast<ssize_t>(length);
 }
 void UpstreamMultiplexer::consume(uint64_t id, size_t length) {
 }
@@ -233,7 +233,7 @@ void SocksListener::complete_connect_request(uint64_t, ClientConnectResult resul
 void SocksListener::close_connection(uint64_t id, bool graceful, bool async) {
 }
 ssize_t SocksListener::send(uint64_t, const uint8_t *, size_t length) {
-    return length;
+    return static_cast<ssize_t>(length);
 }
 void SocksListener::consume(uint64_t id, size_t n) {
 }

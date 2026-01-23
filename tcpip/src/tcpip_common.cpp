@@ -109,7 +109,7 @@ static err_t tun_output_to_fd(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks) {
     err_t err = ERR_OK;
 
     /* Write packet to TUN */
-    ssize_t written = writev(ctx->parameters.tun_fd, chunks.data(), chunks.size());
+    ssize_t written = writev(ctx->parameters.tun_fd, chunks.data(), static_cast<int>(chunks.size()));
     if (-1 == written) {
         if (errno == EWOULDBLOCK) {
             err = ERR_MEM;
@@ -344,7 +344,7 @@ static void release_resources(TcpipCtx *ctx) {
         close(ctx->pcap_fd);
     }
 
-    free(ctx->tun_input_buffer);
+    free(ctx->tun_input_buffer); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
     delete ctx;
 }
@@ -377,6 +377,7 @@ TcpipCtx *tcpip_init_internal(const TcpipParameters *params) {
         goto error;
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     ctx->tun_input_buffer = (uint8_t *) malloc(ctx->parameters.mtu_size);
     static_assert(std::is_trivial_v<netif>);
     ctx->netif = (netif *) calloc(1, sizeof(struct netif));
@@ -384,6 +385,7 @@ TcpipCtx *tcpip_init_internal(const TcpipParameters *params) {
         errlog(ctx->logger, "init: no memory for operation");
         goto error;
     }
+    // NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
     if (libevent_lwip_init(ctx) != ERR_OK) {
         errlog(ctx->logger, "lwip init failed");
@@ -412,7 +414,7 @@ error:
 
 static void release_lwip_resources(TcpipCtx *ctx) {
     netif_remove(ctx->netif);
-    free(ctx->netif);
+    free(ctx->netif); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     libevent_lwip_free();
 }
 
@@ -454,7 +456,7 @@ static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len) 
 static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks) {
     struct timeval tv;
     event_base_gettimeofday_cached(vpn_event_loop_get_base(ctx->parameters.event_loop), &tv);
-    if (pcap_write_packet_iovec(ctx->pcap_fd, &tv, chunks.data(), chunks.size()) < 0) {
+    if (pcap_write_packet_iovec(ctx->pcap_fd, &tv, chunks.data(), static_cast<int>(chunks.size())) < 0) {
         dbglog(ctx->logger, "pcap: failed to write packet to file");
         close(ctx->pcap_fd);
         ctx->pcap_fd = -1;
@@ -472,6 +474,7 @@ static void open_pcap_file(TcpipCtx *ctx, const char *pcap_filename) {
     ctx->pcap_fd = _wopen(ag::utils::to_wstring(pcap_filename).c_str(), flags, 0664);
 #else
     int flags = O_WRONLY | O_CREAT | O_TRUNC;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     ctx->pcap_fd = open(pcap_filename, flags, 0664);
 #endif
     if (ctx->pcap_fd == -1) {

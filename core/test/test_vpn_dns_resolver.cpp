@@ -12,6 +12,7 @@
 
 using namespace ag;
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 class VpnDnsResolverTest : public testing::Test {
 public:
     VpnDnsResolverTest() {
@@ -46,7 +47,7 @@ public:
         }
         case CLIENT_EVENT_READ: {
             auto *event = (ClientRead *) data;
-            self->raised_reads.push_back({event->id, std::vector<uint8_t>{event->data, event->data + event->length}});
+            self->raised_reads.emplace_back(event->id, std::vector<uint8_t>{event->data, event->data + event->length});
             event->result = (int) event->length;
             break;
         }
@@ -87,6 +88,7 @@ TEST_F(VpnDnsResolverTest, ResolveV4Only) {
     this->run_event_loop_once();
     ASSERT_TRUE(this->raised_result.has_value());
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 1);
@@ -121,6 +123,7 @@ TEST_F(VpnDnsResolverTest, ResultV6) {
     this->run_event_loop_once();
     ASSERT_TRUE(this->raised_result.has_value());
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 2);
@@ -147,6 +150,7 @@ TEST_F(VpnDnsResolverTest, Cancel) {
             this->raised_reads[0].second[0], this->raised_reads[0].second[1], EXAMPLE_ORG_A_REPLY_NO_ID};
     this->raised_reads.clear();
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ((VpnDnsResolver *) this->resolver.get())->cancel(id.value());
 
     ASSERT_EQ(this->resolver->send(connection_id, REPLY, std::size(REPLY)), std::size(REPLY));
@@ -228,6 +232,7 @@ TEST_F(VpnDnsResolverTest, QueryTimeout) {
 
     this->run_event_loop_once();
     ASSERT_TRUE(this->raised_result.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const auto *result = std::get_if<VpnDnsResolverSuccess>(&this->raised_result->second);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(result->addresses.size(), 1);
@@ -254,5 +259,7 @@ TEST_F(VpnDnsResolverTest, ConnectionTimeout) {
 
     this->run_event_loop_once();
     ASSERT_TRUE(this->raised_result.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_TRUE(std::holds_alternative<VpnDnsResolverFailure>(this->raised_result->second));
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)

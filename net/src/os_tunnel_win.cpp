@@ -384,7 +384,7 @@ bool ag::VpnWinTunnel::setup_dns() {
         } else {
             continue;
         }
-        routes->emplace_back(dns_server.addr(), dns_server.c_socklen());
+        routes->emplace_back(dns_server.addr(), dns_server.addr().size() * CHAR_BIT);
     }
 
     if (auto error = m_firewall.restrict_dns_to(ipv4_routes, ipv6_routes)) {

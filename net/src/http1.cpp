@@ -124,8 +124,8 @@ static int on_headers_complete(http_parser *parser) {
     }
 
     headers->has_body = (parser->flags & F_CHUNKED);
-    if (parser->status_code == 100 || parser->status_code == 103) {
-        headers->has_body = 0;
+    if (parser->status_code == HTTP_STATUS_100_CONTINUE || parser->status_code == HTTP_STATUS_103_EARLY_HINTS) {
+        headers->has_body = false;
     } else {
         headers->has_body |= !(parser->flags & F_CONTENTLENGTH) || parser->content_length != 0;
     }
@@ -138,8 +138,8 @@ static int on_headers_complete(http_parser *parser) {
 
     // If server responds before request is sent, it is not HTTP/1.1
     // https://github.com/AdguardTeam/CoreLibs/issues/441
-    bool pseudo_http =
-            (stream->flags & STREAM_REQ_SENT) == 0 && headers->status_code != 100 && headers->status_code != 103;
+    bool pseudo_http = (stream->flags & STREAM_REQ_SENT) == 0 && headers->status_code != HTTP_STATUS_100_CONTINUE
+            && headers->status_code != HTTP_STATUS_103_EARLY_HINTS;
 
     int skip = (stream->flags & STREAM_DONT_EXPECT_RESPONSE_BODY) ? 1 : 0;
     if (parser->upgrade || pseudo_http) {
@@ -252,6 +252,7 @@ Http1Session *http1_session_init(HttpSession *session) {
     h1s->stream.session = session;
 
     static_assert(std::is_trivial_v<http_parser>);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     h1s->parser = (http_parser *) malloc(sizeof(http_parser));
     h1s->parser->data = session;
     parser_reset(session, h1s);
@@ -322,7 +323,7 @@ int http1_session_close(HttpSession *session) {
     int r = 0;
 
     parser_reset(session, session->h1);
-    free(session->h1->parser);
+    free(session->h1->parser); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     session->h1->parser = nullptr;
     delete session->h1;
     session->h1 = nullptr;
@@ -355,10 +356,10 @@ int http1_session_send_headers(HttpSession *session, int32_t stream_id, const Ht
         session->h1->stream.flags = (HttpStreamFlags) (session->h1->stream.flags | STREAM_DONT_EXPECT_RESPONSE_BODY);
     }
 
-    bool cant_have_body = headers->status_code / 100 == 1 /* 1xx e.g. Continue */
-            || headers->status_code == 204                /* No Content */
-            || headers->status_code == 205                /* Reset Content */
-            || headers->status_code == 304;
+    bool cant_have_body = headers->status_code / HTTP_STATUS_100_CONTINUE == 1 /* 1xx e.g. Continue */
+            || headers->status_code == HTTP_STATUS_204_NO_CONTENT
+            || headers->status_code == HTTP_STATUS_205_RESET_CONTENT
+            || headers->status_code == HTTP_STATUS_304_NOT_MODIFIED;
     bool empty_msg = cant_have_body || session->h1->clength == 0 || session->h1->clength == CLEN_UNSET;
     if (empty_msg) {
         session->h1->stream.flags = (HttpStreamFlags) (session->h1->stream.flags | STREAM_REQ_SENT);
@@ -381,8 +382,9 @@ int http1_session_send_data(HttpSession *session, int32_t stream_id, const uint8
     HttpSessionHandler *callbacks = &session->params.handler;
     bool chunked = (session->h1->clength == CLEN_CHUNKED);
     if (chunked) {
-        char chunk_header[16];
-        r = snprintf(chunk_header, 16, "%X\r\n", (int) len);
+        constexpr size_t HEADER_SIZE = 16;
+        char chunk_header[HEADER_SIZE];
+        r = snprintf(chunk_header, HEADER_SIZE, "%X\r\n", (int) len);
         HttpOutputEvent event = {(uint8_t *) chunk_header, (size_t) r};
         callbacks->handler(callbacks->arg, HTTP_EVENT_OUTPUT, &event);
     }

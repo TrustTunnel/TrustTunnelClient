@@ -134,7 +134,7 @@ static ssize_t on_send_callback(
     callbacks->handler(callbacks->arg, HTTP_EVENT_OUTPUT, &event);
 
     log_sess(session, trace, "returned length {}", length);
-    return length;
+    return static_cast<ssize_t>(length);
 }
 
 static int on_frame_recv_callback(nghttp2_session *ngsession, const nghttp2_frame *frame, void *user_data) {
@@ -453,6 +453,7 @@ Http2Session *http2_session_init(HttpSession *ctx) {
     }
 
     static_assert(std::is_trivial_v<Http2Session>);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     session = (Http2Session *) calloc(1, sizeof(Http2Session));
     session->ngsession = ngsession;
     session->streams = kh_init(h2_streams_ht);
@@ -464,7 +465,7 @@ finish:
 int http2_session_input(HttpSession *session, const uint8_t *data, size_t len) {
     log_sess(session, trace, "(len={})", len);
 
-    int r = nghttp2_session_mem_recv(session->h2->ngsession, data, len);
+    auto r = nghttp2_session_mem_recv(session->h2->ngsession, data, len);
     if (r < 0) {
         log_sess(session, err, "nghttp2 error: {}", nghttp2_strerror(r));
     } else if (nghttp2_session_want_write(session->h2->ngsession)) {
@@ -472,7 +473,7 @@ int http2_session_input(HttpSession *session, const uint8_t *data, size_t len) {
     }
 
     log_sess(session, trace, "returned {}", r);
-    return r;
+    return static_cast<int>(r);
 }
 
 int http2_session_close(HttpSession *session) {
@@ -497,7 +498,7 @@ int http2_session_close(HttpSession *session) {
     }
     kh_destroy(h2_streams_ht, h2_session->streams);
 
-    free(h2_session);
+    free(h2_session); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
     session->h2 = nullptr;
 
@@ -514,6 +515,7 @@ int http_session_send_settings(HttpSession *session) {
             {NGHTTP2_SETTINGS_ENABLE_PUSH, false},
             {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 1000 /* Chrome constant */},
             {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, (uint32_t) session->params.stream_window_size},
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
             {NGHTTP2_SETTINGS_MAX_FRAME_SIZE, 1 << 14 /* Firefox constant */},
     };
 
@@ -759,6 +761,7 @@ int http_session_set_recv_window(HttpSession *session, int32_t stream_id, size_t
 static DataSource *data_source_create() {
     // Create non-pull data source
     static_assert(std::is_trivial_v<DataSource>);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     DataSource *source = (DataSource *) calloc(1, sizeof(DataSource));
     source->buf = evbuffer_new();
     return source;
@@ -817,7 +820,7 @@ static ssize_t data_source_readcb(nghttp2_session *ngsession, int32_t stream_id,
             (unsigned int) nghttp2_session_get_local_window_size(ngsession),
             (unsigned int) nghttp2_session_get_stream_local_window_size(ngsession, stream_id));
 
-    return event.length;
+    return static_cast<ssize_t>(event.length);
 }
 
 static int data_source_add(HttpStream *stream, const uint8_t *data, size_t len, bool eof) {
@@ -863,7 +866,7 @@ static void data_source_free(DataSource *source) {
         return;
     }
     evbuffer_free(source->buf);
-    free(source);
+    free(source); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 }
 
 static void stream_destroy(HttpStream *stream) {

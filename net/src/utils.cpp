@@ -50,6 +50,7 @@
 #include <ngtcp2/ngtcp2_crypto_quictls.h>
 #endif
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 namespace ag {
 
 static const Logger g_logger("NET_UTILS");
@@ -163,6 +164,7 @@ int http_version_get_minor(HttpVersion v) {
     return v & 0xff;
 }
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
     AutoVpnEndpoint dst;
     std::memcpy(dst.get(), src, sizeof(*src));
@@ -337,6 +339,7 @@ void vpn_location_destroy(VpnLocation *location) {
 
     std::memset(location, 0, sizeof(*location));
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 #ifdef __MACH__
 std::vector<uint32_t> collect_operable_network_interfaces() {
@@ -1067,5 +1070,6 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
     return ssl;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 } // namespace ag

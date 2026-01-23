@@ -21,8 +21,7 @@
 #include <fmt/format.h>
 #include <openssl/sha.h>
 
-#include "common/defs.h"
-
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 enum TlsReaderState {
     I_REC,
     I_HSHAKE,
@@ -36,7 +35,7 @@ using U8View = ag::Uint8View;
 
 static uint32_t ntoh_24(uint32_t x) {
     const auto *b = (uint8_t *) &x;
-    return (b[0] << 16) | (b[1] << 8) | b[2]; // NOLINT(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    return (b[0] << 16) | (b[1] << 8) | b[2];
 }
 
 enum TlsParseResult {
@@ -577,7 +576,7 @@ static std::string to_ja4(TlsReader *reader, bool quic) {
 /** Setup to parse a handshake record. */
 #define tls_input_hshake(t, d, s) (t)->rec = {(uint8_t *) (d), size_t(s)}, (t)->state = I_HSHAKE
 
-std::string ag::ja4::compute(std::basic_string_view<uint8_t> data, bool quic) {
+std::string ag::ja4::compute(ag::Uint8View data, bool quic) {
     TlsReader reader{.in = data};
     if (quic) {
         tls_input_hshake(&reader, data.data(), data.size());
@@ -591,3 +590,4 @@ std::string ag::ja4::compute(std::basic_string_view<uint8_t> data, bool quic) {
 
     return to_ja4(&reader, quic);
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)

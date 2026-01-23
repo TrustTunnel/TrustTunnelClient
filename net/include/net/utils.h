@@ -362,7 +362,7 @@ struct fmt::formatter<ag::IcmpEchoRequest> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::IcmpEchoRequest &request, FormatContext &ctx) {
+    auto format(const ag::IcmpEchoRequest &request, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "peer={}, id={}, seqno={}, ttl={}, data_size={}",
                 ag::SocketAddress(request.peer).host_str(/*ipv6_brackets=*/true), request.id, request.seqno,
                 request.ttl, request.data_size);
@@ -377,7 +377,7 @@ struct fmt::formatter<ag::IcmpEchoReply> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::IcmpEchoReply &reply, FormatContext &ctx) {
+    auto format(const ag::IcmpEchoReply &reply, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "peer={}, id={}, seqno={}, type={}, code={}",
                 ag::SocketAddress(reply.peer).host_str(/*ipv6_brackets=*/true), reply.id, reply.seqno, reply.type,
                 reply.code);
@@ -392,7 +392,7 @@ struct fmt::formatter<ag::VpnEndpoint> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::VpnEndpoint &endpoint, FormatContext &ctx) {
+    auto format(const ag::VpnEndpoint &endpoint, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "name={}, address={}", endpoint.name, ag::SocketAddress(endpoint.address));
     }
 };

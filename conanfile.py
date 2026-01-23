@@ -29,8 +29,8 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.8.8@adguard/oss", transitive_headers=True)
-        self.requires("native_libs_common/8.0.5@adguard/oss", force=True, transitive_headers=True)
+        self.requires("dns-libs/2.8.13@adguard/oss", transitive_headers=True)
+        self.requires("native_libs_common/8.0.12@adguard/oss", transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
@@ -52,7 +52,7 @@ class VpnLibsConan(ConanFile):
 
     def build_requirements(self):
         self.test_requires("gtest/1.14.0")
-        self.test_requires("fmt/10.1.1")
+        self.test_requires("fmt/12.1.0")
 
     def configure(self):
         self.options["gtest"].build_gmock = False

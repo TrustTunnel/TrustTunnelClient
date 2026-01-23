@@ -38,10 +38,11 @@ static Logger g_logger{"TCP_SOCKET"};
 #define UNKNOWN_ADDR_STR "unknown"
 #define LOG_ID_PREADDR_FMT "id=%d/"
 
-static const size_t MAX_WRITE_BUFFER_LEN = 128 * 1024;
-static const size_t MAX_READ_SIZE = 128 * 1024;
+static constexpr size_t LOG_ID_PREFIX_SIZE = 11;
+static constexpr size_t MAX_WRITE_BUFFER_LEN = 128 * 1024;
+static constexpr size_t MAX_READ_SIZE = 128 * 1024;
 
-static const size_t SSL_READ_SIZE = 4096;
+static constexpr size_t SSL_READ_SIZE = 4096;
 
 static std::atomic_int g_next_id = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
@@ -75,7 +76,7 @@ struct SslBuf {
 struct TcpSocket {
     bufferevent *bev = nullptr;
     TcpSocketParameters parameters{};
-    char log_id[11 + SOCKADDR_STR_BUF_SIZE]{};
+    char log_id[LOG_ID_PREFIX_SIZE + SOCKADDR_STR_BUF_SIZE]{};
     int id = 0;
     event_loop::AutoTaskId complete_read_task_id;
     uint32_t flags; // see `SocketFlags`
@@ -856,7 +857,8 @@ VpnConnectionStats tcp_socket_get_stats(const TcpSocket *socket) {
         // looks like microseconds
         // http://gitlab.placoid.cn/facebook/wangle/blob/a676e9d358d72ad908cb51a923ba089b35086fb7/wangle/acceptor/TransportInfo.cpp#L135
         stats.rtt_us = ti.tcpi_srtt * 1000;
-        stats.packet_loss_ratio = (ti.tcpi_txbytes > 0) ? (double) ti.tcpi_txretransmitbytes / ti.tcpi_txbytes : 0;
+        stats.packet_loss_ratio =
+                (ti.tcpi_txbytes > 0) ? (double) ti.tcpi_txretransmitbytes / (double) ti.tcpi_txbytes : 0;
     } else if (r < 0) {
         int err = evutil_socket_geterror(tcp_socket_get_fd(socket));
         log_sock(socket, dbg, "Failed to get TCP socket info from system: {} ({})", evutil_socket_error_to_string(err),
@@ -1164,7 +1166,7 @@ VpnError do_handshake(TcpSocket *socket) {
         assert(std::holds_alternative<tcp_socket::Chunk>(result));
         auto chunk = std::get<tcp_socket::Chunk>(result);
 
-        int ret = BIO_write(SSL_get_rbio(socket->ssl.get()), chunk.data(), chunk.size());
+        int ret = BIO_write(SSL_get_rbio(socket->ssl.get()), chunk.data(), static_cast<int>(chunk.size()));
         if (ret < 0) {
             return err_log_wrapper(-1, "BIO_write failed");
         }

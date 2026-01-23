@@ -18,7 +18,7 @@ struct VpnPacketPool::VpnPacketPoolState {
     }
 };
 
-VpnPacketPool::VpnPacketPool(size_t size, int mtu)
+VpnPacketPool::VpnPacketPool(size_t size, uint32_t mtu)
         : m_capacity(size)
         , m_mtu(mtu)
         , m_state(new VpnPacketPoolState{this, 1, true}) {
@@ -66,7 +66,7 @@ void VpnPacketPool::return_packet_data(uint8_t *packet) {
     m_state->release();
 }
 
-int VpnPacketPool::get_size() {
+size_t VpnPacketPool::get_size() {
     return m_packets.size();
 }
 

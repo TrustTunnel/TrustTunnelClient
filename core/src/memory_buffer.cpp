@@ -47,6 +47,7 @@ void MemoryBuffer::drain(size_t length) {
 
         std::vector<uint8_t> &front = m_chunks.front();
         size_t to_remove = std::min(front.size(), length);
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         front.erase(front.begin(), front.begin() + to_remove);
 
         length -= to_remove;

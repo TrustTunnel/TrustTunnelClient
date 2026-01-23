@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "common/defs.h"
+
 namespace ag::ja4 {
 
 /**
@@ -14,6 +16,6 @@ namespace ag::ja4 {
  * @param quic Whether `data` has been received, or is to be sent, over QUIC.
  * @return A JA4 fingerprint or an empty string in case of an error.
  */
-std::string compute(std::basic_string_view<uint8_t> data, bool quic);
+std::string compute(ag::Uint8View data, bool quic);
 
 } // namespace ag::ja4

@@ -14,6 +14,16 @@ enum HttpVersion {
     HTTP_VER_3_0 = 0x0300,
 };
 
+enum HttpStatusCode {
+    HTTP_STATUS_100_CONTINUE = 100,
+    HTTP_STATUS_103_EARLY_HINTS = 103,
+    HTTP_STATUS_200_OK = 200,
+    HTTP_STATUS_204_NO_CONTENT = 204,
+    HTTP_STATUS_205_RESET_CONTENT = 205,
+    HTTP_STATUS_304_NOT_MODIFIED = 304,
+    HTTP_STATUS_502_BAD_GATEWAY = 502,
+};
+
 struct HttpHeaderField {
     std::string name;
     std::string value;

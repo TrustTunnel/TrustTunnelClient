@@ -27,6 +27,8 @@ namespace ag {
 
 #define UDP_MAX_DATAGRAM_SIZE 65535
 #define UDP_SND_QUEUE_LIMIT TCP_WND
+constexpr auto MAX_IP_HEADER_SIZE = 60;
+constexpr auto UDP_HEADER_SIZE = 8;
 
 #define log_conn(conn_, lvl_, fmt_, ...)                                                                               \
     do {                                                                                                               \
@@ -60,7 +62,7 @@ int udp_cm_send_data(UdpConnDescriptor *connection, const uint8_t *data, size_t 
     TcpipDataSentEvent event = {connection->common.id, length};
     callbacks->handler(callbacks->arg, TCPIP_EVENT_DATA_SENT, &event);
 
-    return length;
+    return static_cast<int>(length);
 }
 
 static void process_new_connection(UdpConnDescriptor *connection) {
@@ -173,6 +175,7 @@ bool udp_cm_init(TcpipCtx *ctx) {
         return false;
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
     ctx->udp.input_buffer = (uint8_t *) malloc(UDP_MAX_DATAGRAM_SIZE);
     if (nullptr == ctx->udp.input_buffer) {
         errlog(ctx->udp.log, "No memory for operation");
@@ -191,7 +194,7 @@ void udp_cm_close(TcpipCtx *ctx) {
 
     udp_raw_close(ctx);
 
-    free(ctx->udp.input_buffer);
+    free(ctx->udp.input_buffer); // NOLINT(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
     kh_destroy(connections_by_id, ctx->udp.connections.by_id);
     ctx->udp.connections.by_id = nullptr;
@@ -240,7 +243,7 @@ void udp_cm_close_descriptor(TcpipCtx *ctx, uint64_t id) {
 
 void udp_cm_enqueue_incoming_packet(UdpConnDescriptor *connection, struct pbuf *buffer, u16_t header_len) {
     // Restore IP header
-    pbuf_header_force(buffer, header_len);
+    pbuf_header_force(buffer, static_cast<s16_t>(header_len));
 
     if (connection->pending_packets_bytes + buffer->tot_len <= UDP_SND_QUEUE_LIMIT) {
         connection->pending_packets_bytes += buffer->tot_len;
@@ -320,7 +323,8 @@ void udp_cm_timer_tick(TcpipCtx *ctx) {
 TcpFlowCtrlInfo udp_cm_flow_ctrl_info(const UdpConnDescriptor *connection) {
     return {
             // MTU — (Max IP Header Size) — (UDP Header Size)
-            .send_buffer_size = connection->common.parent_ctx->parameters.mtu_size - 60 - 8,
+            .send_buffer_size =
+                    connection->common.parent_ctx->parameters.mtu_size - MAX_IP_HEADER_SIZE - UDP_HEADER_SIZE,
             .send_window_size = DEFAULT_SEND_WINDOW_SIZE,
     };
 }

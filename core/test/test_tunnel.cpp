@@ -75,7 +75,7 @@ public:
 
     ssize_t send(uint64_t, const uint8_t *, size_t length) override {
         last_send = length;
-        return length;
+        return static_cast<ssize_t>(length);
     }
     void consume(uint64_t id, size_t length) override {
     }
@@ -137,7 +137,7 @@ public:
     }
 
     ssize_t send(uint64_t, const uint8_t *, size_t length) override {
-        return length;
+        return static_cast<ssize_t>(length);
     }
 
     void consume(uint64_t id, size_t n) override {
@@ -146,7 +146,7 @@ public:
         return {DEFAULT_SEND_BUFFER_SIZE, DEFAULT_SEND_WINDOW_SIZE};
     }
     void turn_read(uint64_t id, bool on) override {
-        if (connections.count(id) != 0) {
+        if (connections.contains(id)) {
             connections[id].read_enabled = on;
         }
     }
@@ -369,6 +369,7 @@ public:
 class FakeConnectionTest : public TunnelTest {
 public:
     static constexpr uint8_t ANSWER_TTL_SEC = 1;
+    static constexpr auto TIMEOUT = ag::Millis{100};
 
     uint64_t client_id = NON_ID;
     uint64_t redirect_id = NON_ID;
@@ -384,16 +385,17 @@ public:
         auto address = dns_server->start(
                 SocketAddress("127.0.0.1"), this->ev_loop.get(), this->network_manager->socket,
                 [this] {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), TIMEOUT);
                     ++this->mock_dns_server_completed;
                 },
                 [this](std::optional<MockDnsServer::Request> /*expected*/, MockDnsServer::Request /*actual*/) {
-                    vpn_event_loop_exit(this->ev_loop.get(), Millis{100});
+                    vpn_event_loop_exit(this->ev_loop.get(), TIMEOUT);
                     ++this->mock_dns_server_unexpected;
                     return std::nullopt;
                 });
         ASSERT_TRUE(address.has_value());
 
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         vpn_network_manager_update_system_dns({.main = {{.address = address->str()}}});
         run_event_loop_once();
 
@@ -436,6 +438,7 @@ public:
     }
 
     void do_dns_resolve() {
+        constexpr auto EXIT_TIMEOUT = ag::Millis{30000};
         uint64_t client_conn_id = vpn.listener_conn_id_generator.get();
         TunnelAddress resolver_address = SocketAddress("8.8.8.8:53");
         ClientConnectRequest event = {client_conn_id, IPPROTO_UDP, &src, &resolver_address};
@@ -465,7 +468,7 @@ public:
                         .answer = {AG_FMT("localhost. {} IN A 1.1.1.2", ANSWER_TTL_SEC)}},
         });
 
-        vpn_event_loop_exit(this->ev_loop.get(), Millis{30000});
+        vpn_event_loop_exit(this->ev_loop.get(), EXIT_TIMEOUT);
         vpn_event_loop_run(this->ev_loop.get());
 
         ASSERT_EQ(1, this->mock_dns_server_completed);
@@ -486,7 +489,7 @@ TEST_F(FakeConnectionTest, ExcludedDomain) {
 
     ASSERT_EQ(fake_upstream->closing_connections.size(), 1);
     tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &fake_upstream->closing_connections[0]);
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, fake_upstream->closing_connections.data());
 
     ASSERT_TRUE(client_listener->connections[client_id].read_enabled);
 }
@@ -508,7 +511,7 @@ TEST_F(FakeConnectionTest, ExcludedDomainWithAntiDpiImitation) {
 
     ASSERT_EQ(fake_upstream->closing_connections.size(), 1);
     tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &fake_upstream->closing_connections[0]);
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, fake_upstream->closing_connections.data());
 
     // Read=off while buffered_packets is pending.
     ASSERT_FALSE(client_listener->connections[client_id].read_enabled);
@@ -529,7 +532,7 @@ TEST_F(FakeConnectionTest, MissingDomain) {
 
     ASSERT_EQ(fake_upstream->closing_connections.size(), 1);
     tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &fake_upstream->closing_connections[0]);
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, fake_upstream->closing_connections.data());
 
     ASSERT_TRUE(client_listener->connections[client_id].read_enabled);
 }
@@ -569,7 +572,7 @@ TEST_F(FakeConnectionTest, NonexcludedDomain) {
 
     ASSERT_EQ(fake_upstream->closing_connections.size(), 1);
     tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &fake_upstream->closing_connections[0]);
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, fake_upstream->closing_connections.data());
 
     ASSERT_TRUE(client_listener->connections[client_id].read_enabled);
 }
@@ -718,6 +721,8 @@ static constexpr uint8_t HTTP3_IS_QUIC_SHORT_PKT[] = "\x28\x87\xba\x31\x1e\x2e\x
 
 class UdpRebindingTest : public TunnelTest {
 public:
+    static constexpr auto TTL = ag::Secs{500};
+
     uint64_t client_id = NON_ID;
     TestFakeUpstream *fake_upstream = nullptr;
 
@@ -730,7 +735,7 @@ public:
         this->fake_upstream = (TestFakeUpstream *) tun.fake_upstream.get();
 
         ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_SELECTIVE, "http3.is"));
-        vpn.domain_filter.add_exclusion_suspect(std::get<SocketAddress>(dst), Secs{500});
+        vpn.domain_filter.add_exclusion_suspect(std::get<SocketAddress>(dst), TTL);
     }
 };
 
@@ -764,7 +769,7 @@ TEST_F(UdpRebindingTest, CachedUdpParams) {
 
     ASSERT_EQ(1, fake_upstream->closing_connections.size());
     tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &fake_upstream->closing_connections[0]);
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, fake_upstream->closing_connections.data());
 
     client_id = ~0;
 

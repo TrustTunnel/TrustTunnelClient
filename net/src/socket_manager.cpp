@@ -260,6 +260,7 @@ void SocketManager::clear_writes() {
     this->deferred_writes.by_fd.clear();
     this->deferred_writes.deadlines.clear();
     if (this->deferred_writes.timer_id.has_value()) {
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         socket_manager_timer_unsubscribe(this, std::exchange(this->deferred_writes.timer_id, std::nullopt).value());
     }
 }

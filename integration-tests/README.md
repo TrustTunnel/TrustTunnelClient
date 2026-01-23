@@ -228,7 +228,7 @@ Build artifacts will be placed in the `output` directory (or the directory speci
 
 ## Docker Image
 
-The build process uses the `adguard/core-libs:2.6` Docker image, which contains all necessary build dependencies.
+The build process uses the `adguard/core-libs:2.8` Docker image, which contains all necessary build dependencies.
 
 ### Building Custom Docker Image
 

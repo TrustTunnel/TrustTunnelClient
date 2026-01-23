@@ -99,11 +99,13 @@ static VpnSocksListenerConfig clone_config(const VpnSocksListenerConfig *config)
     };
 }
 
+// NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 static void destroy_cloned_config(VpnSocksListenerConfig *config) {
     free((void *) config->username);
     free((void *) config->password);
     *config = {};
 }
+// NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
 
 SocksListener::SocksListener(const VpnSocksListenerConfig *config)
         : m_config(clone_config(config)) {

@@ -251,6 +251,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
         if (data_len == 0) {
             return;
         }
+        // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
         dst.data = static_cast<uint8_t *>(std::malloc(data_len));
         std::memcpy(dst.data, decoded.data(), data_len);
     };

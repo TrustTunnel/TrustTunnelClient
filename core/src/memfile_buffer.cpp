@@ -128,6 +128,7 @@ std::vector<uint8_t> MemfileBuffer::transfer_mem2mem(std::vector<uint8_t> data) 
     }
 
     if (std::optional<std::string> err = m_mem_buffer->push(chunk); !err.has_value()) {
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         data.erase(data.begin(), data.begin() + chunk.size());
     }
 
@@ -175,8 +176,7 @@ static std::optional<std::string> transfer_file2file(file::Handle dst, file::Han
 
     buf_pos = 0;
     while (buf_pos < buf.size()) {
-        int r = file::write(dst, buf.data(), buf.size() - buf_pos);
-        if (r > 0) {
+        if (auto r = file::write(dst, buf.data(), buf.size() - buf_pos); r > 0) {
             buf_pos += r;
         } else {
             return str_format("%s (%d)", sys::strerror(sys::last_error()), sys::last_error());

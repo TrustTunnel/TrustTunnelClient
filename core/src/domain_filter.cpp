@@ -22,13 +22,11 @@ DomainFilter::~DomainFilter() = default;
 
 DomainFilterValidationStatus DomainFilter::validate_entry(std::string_view entry) {
     ParseResult result = parse_entry(entry);
-    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_ADDR, ParseResult>::type, SocketAddress>);
-    static_assert(std::is_same_v<typename std::variant_alternative<DFVS_OK_CIDR, ParseResult>::type, CidrRange>);
-    static_assert(
-            std::is_same_v<typename std::variant_alternative<DFVS_OK_DOMAIN, ParseResult>::type, DomainEntryInfo>);
-    static_assert(
-            std::is_same_v<typename std::variant_alternative<DFVS_MALFORMED, ParseResult>::type, DomainEntryMalformed>);
-    static_assert(std::variant_size<ParseResult>::value == 4);
+    static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_ADDR, ParseResult>, SocketAddress>);
+    static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_CIDR, ParseResult>, CidrRange>);
+    static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_DOMAIN, ParseResult>, DomainEntryInfo>);
+    static_assert(std::is_same_v<std::variant_alternative_t<DFVS_MALFORMED, ParseResult>, DomainEntryMalformed>);
+    static_assert(std::variant_size_v<ParseResult> == 4);
 
     return DomainFilterValidationStatus(result.index());
 }
@@ -165,9 +163,9 @@ DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
     SocketAddress addr_no_port = tag.addr;
     addr_no_port.set_port(0);
 
-    bool found = m_addresses.end() != m_addresses.find(tag.addr);
+    bool found = m_addresses.contains(tag.addr);
     if (!found) {
-        found = m_addresses.end() != m_addresses.find(addr_no_port);
+        found = m_addresses.contains(addr_no_port);
     }
 
     if (!found) {

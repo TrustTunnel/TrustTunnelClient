@@ -6,6 +6,8 @@ namespace test_mock {
 MockedVpnClient g_client = {};
 }
 
+constexpr int DUMMY_UPSTREAM_ID = 42;
+
 VpnClient::VpnClient(vpn_client::Parameters parameters)
         : fsm({})
         , parameters(parameters) {
@@ -72,7 +74,7 @@ bool VpnClient::may_send_icmp_request() const {
     return true;
 }
 int VpnClient::next_upstream_id() {
-    static int id = 42;
+    static int id = DUMMY_UPSTREAM_ID;
     return id++;
 }
 std::string_view VpnClient::dns_health_check_domain() {

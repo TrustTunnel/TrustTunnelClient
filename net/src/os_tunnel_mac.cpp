@@ -6,8 +6,6 @@
 #include <sys/kern_control.h>
 #include <sys/kern_event.h>
 
-extern "C" int evutil_make_socket_closeonexec(evutil_socket_t sock);
-
 static const ag::Logger logger("OS_TUNNEL_MAC");
 
 static bool sys_cmd_bool(std::string cmd) {

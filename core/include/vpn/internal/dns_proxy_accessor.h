@@ -93,7 +93,7 @@ struct fmt::formatter<ag::DnsProxyAccessor::Upstream> {
     }
 
     template <typename FormatContext>
-    auto format(const ag::DnsProxyAccessor::Upstream &u, FormatContext &ctx) {
+    auto format(const ag::DnsProxyAccessor::Upstream &u, FormatContext &ctx) const {
         return fmt::format_to(ctx.out(), "address={}, resolved_host={}", u.address,
                 u.resolved_host.has_value() ? u.resolved_host->host_str() : "<none>");
     }

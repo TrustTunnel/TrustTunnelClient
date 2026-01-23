@@ -16,6 +16,7 @@ static std::mutex log_guard;
 static std::condition_variable log_waker;
 static std::string log_storage;
 
+// NOLINTBEGIN(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
 class TestListener : public ag::ClientListener {
 public:
     TestListener() = default;
@@ -209,6 +210,7 @@ TEST_F(VpnClientLive, Connect) {
         return this->vpn->connect(std::move(connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -228,6 +230,7 @@ TEST_F(VpnClientLive, DnsBeingHealthCheckedListenBeforeConnected) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -241,6 +244,7 @@ TEST_F(VpnClientLive, DnsBeingHealthCheckedListenAfterConnected) {
         return this->vpn->connect(std::move(connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -254,6 +258,7 @@ TEST_F(VpnClientLive, DnsBeingHealthCheckedListenAfterConnected) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_NO_FATAL_FAILURE(wait_log("ipv4only.arpa"));
@@ -268,6 +273,7 @@ TEST_F(VpnClientLive, ExclusionsUpdateDoesNotBreakDnsHealthCheck) {
         return this->vpn->connect(std::move(this->connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     error = this->run_sync_on_ev_loop<ag::VpnError>([this]() {
@@ -278,6 +284,7 @@ TEST_F(VpnClientLive, ExclusionsUpdateDoesNotBreakDnsHealthCheck) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -298,6 +305,7 @@ TEST_F(VpnClientLive, DnsUnavailableOnTimeout) {
         return this->vpn->connect(std::move(this->connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     error = this->run_sync_on_ev_loop<ag::VpnError>([this]() {
@@ -308,6 +316,7 @@ TEST_F(VpnClientLive, DnsUnavailableOnTimeout) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -324,6 +333,7 @@ TEST_F(VpnClientLive, DisconnectDoesNotCauseDnsUnavailable) {
         return this->vpn->connect(std::move(this->connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     error = this->run_sync_on_ev_loop<ag::VpnError>([this]() {
@@ -334,6 +344,7 @@ TEST_F(VpnClientLive, DisconnectDoesNotCauseDnsUnavailable) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -357,6 +368,7 @@ TEST_F(VpnClientLive, SystemDnsAbsenceDoesNotCauseDnsUnavailable) {
         return this->vpn->connect(std::move(this->connection_config));
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     error = this->run_sync_on_ev_loop<ag::VpnError>([this]() {
@@ -367,6 +379,7 @@ TEST_F(VpnClientLive, SystemDnsAbsenceDoesNotCauseDnsUnavailable) {
         return this->vpn->listen(std::make_unique<TestListener>(), &listener_config);
     });
     ASSERT_TRUE(error.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     ASSERT_EQ(error->code, ag::VPN_EC_NOERROR) << error->text;
 
     ASSERT_TRUE(this->wait_event(ag::vpn_client::EVENT_CONNECTED));
@@ -378,3 +391,4 @@ TEST_F(VpnClientLive, SystemDnsAbsenceDoesNotCauseDnsUnavailable) {
 
     ASSERT_FALSE(this->wait_event(ag::vpn_client::EVENT_DNS_UPSTREAM_UNAVAILABLE, 3 * DNS_TIMEOUT / 2));
 }
+// NOLINTEND(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)

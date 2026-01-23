@@ -99,6 +99,7 @@ static bool decrypt_quic_payload(uint8_t *dest, const uint8_t *payload_key, cons
 
 static constexpr auto MIN_CLIENT_INITIAL_LEN = 1200;
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 std::optional<std::vector<uint8_t>> quic_utils::decrypt_initial(
         U8View initial_packet, const quic_utils::QuicPacketHeader &hd) {
 
@@ -191,6 +192,7 @@ std::optional<std::vector<uint8_t>> quic_utils::decrypt_initial(
     size_t decrypted_size = payload_len + payload_offset - max_overhead;
     // remove info before payload start position
     decrypted_packet.resize(decrypted_size);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
     decrypted_packet.erase(decrypted_packet.begin(), decrypted_packet.begin() + payload_offset);
     return decrypted_packet;
 }
@@ -200,7 +202,7 @@ static uint64_t get_varint(size_t *length, const uint8_t *buf) {
     uint16_t n16 = 0;
     uint32_t n32 = 0;
     uint64_t n64 = 0;
-    *length = (size_t) (1u << (*buf >> 6));
+    *length = 1u << (*buf >> 6);
 
     switch (*length) {
     case 1:
@@ -287,6 +289,7 @@ loop_exit:
     }
     return ret;
 }
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
 std::optional<quic_utils::QuicPacketHeader> quic_utils::parse_quic_header(U8View initial_packet) {
     if (initial_packet.empty()) {
@@ -295,7 +298,8 @@ std::optional<quic_utils::QuicPacketHeader> quic_utils::parse_quic_header(U8View
 
     // Extract data needed for decryption of initial packet
     ngtcp2_pkt_hd pkt_hd{};
-    int pkt_num_offset = ngtcp2_pkt_decode_hd_long(&pkt_hd, initial_packet.data(), initial_packet.size());
+    auto pkt_num_offset =
+            static_cast<int>(ngtcp2_pkt_decode_hd_long(&pkt_hd, initial_packet.data(), initial_packet.size()));
     ag::quic_utils::QuicPacketHeader hd{};
     if (pkt_num_offset < 0) {
         hd.type = QuicPacketType::SHORT;

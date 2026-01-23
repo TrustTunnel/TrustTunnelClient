@@ -739,11 +739,11 @@ std::optional<VpnConnectAction> VpnClient::finalize_connect_action(ConnectReques
 
 // NOLINT(readability-make-member-function-const)
 void VpnClient::complete_connect_request(uint64_t id, std::optional<VpnConnectAction> action) {
-    return this->tunnel->complete_connect_request(id, action);
+    this->tunnel->complete_connect_request(id, action);
 }
 
 void VpnClient::reject_connect_request(uint64_t id) { // NOLINT(readability-make-member-function-const)
-    return this->client_listener->complete_connect_request(id, CCR_REJECT);
+    this->client_listener->complete_connect_request(id, CCR_REJECT);
 }
 
 void VpnClient::reset_connection(uint64_t id) { // NOLINT(readability-make-member-function-const)

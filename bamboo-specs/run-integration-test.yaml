@@ -20,7 +20,7 @@ Build binaries:
   key: BB
   description: Build client and endpoint binaries
   docker:
-    image: adguard/core-libs:2.6
+    image: adguard/core-libs:2.8
   tasks:
     - !include docker-clean.yaml
     - checkout:
@@ -68,7 +68,7 @@ Run integration test:
   key: JOB1
   description: Runs integration tests
   docker:
-    image: adguard/core-libs-testing:2.6.0
+    image: adguard/core-libs-testing:2.8.1
     docker-run-arguments: [ --privileged, --device=/dev/net/tun ]
   artifact-subscriptions:
     - artifact: trusttunnel_client
@@ -146,7 +146,7 @@ Run live test:
   key: JOB2
   description: Runs C++ live tests
   docker:
-    image: adguard/core-libs:2.6
+    image: adguard/core-libs:2.8
     volumes:
       ${bamboo.working.directory}: ${bamboo.working.directory}
       ${bamboo.tmp.directory}: ${bamboo.tmp.directory}

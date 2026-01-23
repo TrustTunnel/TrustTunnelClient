@@ -1,0 +1,95 @@
+---
+version: 2
+
+plan:
+  project-key: CL
+  key: VLLINT
+  name: VpnLibs - Lint
+
+stages:
+  - Default Stage:
+      manual: false
+      final: false
+      jobs:
+        - Lint Markdown
+        - Lint Rust
+
+Lint Markdown:
+  key: LMD
+  docker:
+    image: adguard/core-libs:2.8
+    volumes:
+      ${bamboo.working.directory}: ${bamboo.working.directory}
+      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+    docker-run-arguments: [ ]
+  tasks:
+    - !include docker-clean.yaml
+    - checkout:
+        force-clean-build: 'true'
+        repository: core-libs/vpn-libs
+        path: vpn-libs
+        description: Checkout Default Repository
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x -e
+            
+            npm install -g markdownlint-cli
+            make lint-md
+        description: Lint Markdown files
+        working-dir: vpn-libs
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions: [ ]
+
+Lint Rust:
+  key: LRS
+  docker:
+    image: adguard/core-libs:2.8
+    volumes:
+      ${bamboo.working.directory}: ${bamboo.working.directory}
+      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+    docker-run-arguments: [ ]
+  tasks:
+    - !include docker-clean.yaml
+    - checkout:
+        force-clean-build: 'true'
+        repository: core-libs/vpn-libs
+        path: vpn-libs
+        description: Checkout Default Repository
+    - script:
+        interpreter: SHELL
+        scripts:
+          - |-
+            set -x -e
+            
+            rustup component add rustfmt clippy
+            
+            make lint-rust
+        description: Lint Rust code
+        working-dir: vpn-libs
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions: [ ]
+
+repositories:
+  - core-libs/vpn-libs:
+      scope: global
+
+branches:
+  create: for-pull-request
+  delete:
+    after-deleted-days: 4
+    after-inactive-days: 30
+  integration:
+    push-on-success: false
+    merge-from: VpnLibs - Lint
+  link-to-jira: true
+
+notifications: [ ]
+
+labels: [ ]
+
+other:
+  concurrent-build-plugin: system-default
