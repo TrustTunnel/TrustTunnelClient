@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <list>
 #include <memory>
@@ -256,8 +257,12 @@ private:
     std::unordered_map<uint16_t, uint64_t> m_upstream_conn_id_by_system_client_id;
     std::unordered_map<uint16_t, uint64_t> m_upstream_conn_id_by_system_client_ipv6_id;
 
+    size_t m_user_dns_failure_count = 0;
+    std::chrono::steady_clock::time_point m_last_user_dns_restart{};
+
     bool start_dns_proxy();
     bool start_system_dns_proxy();
+    void handle_user_dns_proxy_failure();
 
     static void client_handler(void *arg, DnsClientEvent what, void *data);
     static void system_client_handler(void *arg, DnsClientEvent what, void *data);
