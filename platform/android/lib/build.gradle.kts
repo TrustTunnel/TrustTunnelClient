@@ -76,7 +76,7 @@ afterEvaluate {
         repositories {
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/TrustTunnel/TrustTunnelClient")
+                url = uri("https://maven.pkg.github.com/zerox80/TrustTunnelClient")
                 credentials {
                     username = providers.gradleProperty("gpr.user")
                         .orElse(providers.environmentVariable("USERNAME"))
