@@ -239,10 +239,24 @@ def ensure_gpr_credentials():
     props = read_gradle_properties(gradle_props)
     if "gpr.user" in props and "gpr.key" in props:
         return
-    raise RuntimeError(
-        "Missing gpr.user/gpr.key in ~/.gradle/gradle.properties. "
-        "Add your GitHub username and PAT there."
-    )
+
+    log("Missing GitHub Package Registry (GPR) credentials in ~/.gradle/gradle.properties.")
+    log("Please enter your GitHub credentials to configure them now.")
+    
+    user = input("GitHub Username: ").strip()
+    while not user:
+        user = input("GitHub Username: ").strip()
+        
+    token = input("GitHub Personal Access Token (PAT): ").strip()
+    while not token:
+        token = input("GitHub Personal Access Token (PAT): ").strip()
+        
+    if not gradle_props.parent.exists():
+        gradle_props.parent.mkdir(parents=True, exist_ok=True)
+        
+    upsert_property(gradle_props, "gpr.user", user)
+    upsert_property(gradle_props, "gpr.key", token)
+    log(f"Credentials saved to {gradle_props}")
 
 
 def main():
