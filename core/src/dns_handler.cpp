@@ -1,6 +1,7 @@
 #include "dns_handler.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cassert>
 #include <tuple>
 #include <utility>
@@ -17,6 +18,8 @@ static ag::Logger g_logger{"DNS_HANDLER"};
 static constexpr auto DNS_CLIENT_TIMEOUT = ag::Secs{30};
 static constexpr size_t CONN_MAX_BUFFERED = 128 * 1024;
 static constexpr size_t MAX_UDP_QUEUE_SIZE = 10;
+static constexpr size_t USER_DNS_FAILURE_RESTART_THRESHOLD = 3;
+static constexpr auto USER_DNS_RESTART_MIN_INTERVAL = ag::Secs{30};
 
 #define log_upstream(ups_, lvl_, fmt_, ...) lvl_##log(g_logger, "[upstream] " fmt_, ##__VA_ARGS__)
 #define log_listener(ups_, lvl_, fmt_, ...) lvl_##log(g_logger, "[listener] " fmt_, ##__VA_ARGS__)
@@ -595,6 +598,7 @@ bool ag::DnsHandler::update_parameters(DnsHandlerParameters parameters) {
 }
 
 bool ag::DnsHandler::start_dns_proxy() {
+    m_user_dns_failure_count = 0;
     m_upstream_conn_id_by_client_id.clear();
     m_client.reset();
     if (m_dns_proxy) {
@@ -753,6 +757,30 @@ bool ag::DnsHandler::start_system_dns_proxy() {
     return true;
 }
 
+void ag::DnsHandler::handle_user_dns_proxy_failure() {
+    if (m_parameters.dns_upstreams.empty()) {
+        return;
+    }
+
+    m_user_dns_failure_count += 1;
+    if (m_user_dns_failure_count < USER_DNS_FAILURE_RESTART_THRESHOLD) {
+        return;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    if (now - m_last_user_dns_restart < USER_DNS_RESTART_MIN_INTERVAL) {
+        return;
+    }
+
+    m_last_user_dns_restart = now;
+    m_user_dns_failure_count = 0;
+    log_handler(this, warn, "Restarting user DNS proxy after {} consecutive failures",
+            USER_DNS_FAILURE_RESTART_THRESHOLD);
+    if (!start_dns_proxy()) {
+        log_handler(this, err, "Failed to restart user DNS proxy after failures");
+    }
+}
+
 void ag::DnsHandler::client_handler(void *arg, DnsClientEvent what, void *data) {
     auto *self = (DnsHandler *) arg;
     self->client_handler(self->m_upstream_conn_id_by_client_id, what, data);
@@ -771,10 +799,14 @@ void ag::DnsHandler::system_client_ipv6_handler(void *arg, DnsClientEvent what, 
 void ag::DnsHandler::client_handler(std::unordered_map<uint16_t, uint64_t> &map, DnsClientEvent what, void *data) {
     switch (what) {
     case DNS_CLIENT_RESPONSE: {
+        const bool is_user_proxy = (&map == &m_upstream_conn_id_by_client_id);
         auto *event = (DnsClientResponse *) data;
         auto node = map.extract(event->id);
         assert(!node.empty());
         if (!event->data.empty()) {
+            if (is_user_proxy) {
+                m_user_dns_failure_count = 0;
+            }
             on_dns_response(node.mapped(), event->data);
         } else {
             log_handler(this, info, "{}DNS proxy request id={} failed",
@@ -782,6 +814,9 @@ void ag::DnsHandler::client_handler(std::unordered_map<uint16_t, uint64_t> &map,
                             : &map == &m_upstream_conn_id_by_system_client_ipv6_id ? "System (IPv6) "
                                                                                    : "",
                     event->id);
+            if (is_user_proxy) {
+                handle_user_dns_proxy_failure();
+            }
         }
         break;
     }
@@ -801,8 +836,11 @@ void ag::DnsHandler::on_dns_change(void *arg) {
 void ag::DnsHandler::on_network_change() {
     // System proxy has to be restarted with a new `outbound_interface`.
     // Assume `vpn_network_manager_set_outbound_interface` has been called before `vpn_notify_network_change`.
-    log_handler(this, info, "Restarting system DNS proxy");
+    log_handler(this, info, "Restarting DNS proxies after network change");
     start_system_dns_proxy();
+    if (!m_parameters.dns_upstreams.empty() && !start_dns_proxy()) {
+        log_handler(this, err, "Failed to restart user DNS proxy after network change");
+    }
 }
 
 void ag::DnsHandler::on_upstream_connection_closed(uint64_t upstream_conn_id) {
