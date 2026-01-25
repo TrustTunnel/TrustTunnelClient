@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
     kotlin("plugin.serialization") version "2.2.0"
     id("maven-publish")
 }
@@ -57,12 +58,23 @@ dependencies {
     // Logging
     implementation("org.slf4j:slf4j-api:1.7.25")
     implementation("com.github.tony19:logback-android:2.0.0")
-    implementation("io.reactivex.rxjava3:rxandroid:3.0.0")
 
     implementation("com.akuleshov7:ktoml-core:0.7.0")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Activity KTX
+    implementation(libs.androidx.activity.ktx)
+
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
