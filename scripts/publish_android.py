@@ -70,7 +70,20 @@ def install_rustup_windows(env):
     add_to_path(env, cargo_bin)
 
 
+def ensure_rustup(env):
+    cargo_bin = Path.home() / ".cargo" / "bin"
+    if cargo_bin.exists():
+        add_to_path(env, cargo_bin)
+    if shutil.which("rustup", path=env.get("PATH", "")) is None:
+        if is_windows():
+            install_rustup_windows(env)
+        else:
+            raise RuntimeError("rustup not found; install rustup and retry")
+    run(["rustup", "--version"], env=env)
+
+
 def ensure_cargo_and_ndk(env):
+    ensure_rustup(env)
     if shutil.which("cargo", path=env.get("PATH", "")) is None:
         if is_windows():
             install_rustup_windows(env)
@@ -84,7 +97,31 @@ def ensure_cargo_and_ndk(env):
         run(["cargo", "ndk", "--version"], env=env)
 
 
-def ensure_rust_targets(env):
+def read_rust_toolchain(root):
+    toml_path = root / "rust-toolchain.toml"
+    if toml_path.exists():
+        for raw in toml_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            match = re.search(r'^\s*channel\s*=\s*"([^"]+)"', raw)
+            if match:
+                return match.group(1)
+    legacy_path = root / "rust-toolchain"
+    if legacy_path.exists():
+        for raw in legacy_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if line and not line.startswith("#"):
+                return line
+    return None
+
+
+def ensure_rust_toolchain(env, toolchain):
+    if not toolchain:
+        return None
+    log(f"Ensuring Rust toolchain {toolchain} is installed...")
+    run(["rustup", "toolchain", "install", toolchain], env=env)
+    return toolchain
+
+
+def ensure_rust_targets(env, toolchain=None):
     required_targets = {
         "aarch64-linux-android",
         "armv7-linux-androideabi",
@@ -93,19 +130,26 @@ def ensure_rust_targets(env):
     }
     
     log("Checking installed Rust targets...")
+    cmd = ["rustup", "target", "list", "--installed"]
+    if toolchain:
+        cmd += ["--toolchain", toolchain]
     result = run(
-        ["rustup", "target", "list", "--installed"], 
+        cmd, 
         env=env, 
         check=True, 
         stdout=subprocess.PIPE
     )
     installed_targets = set(result.stdout.decode().splitlines())
     
-    missing_targets = required_targets - installed_targets
+    missing_targets = sorted(required_targets - installed_targets)
     
     if missing_targets:
         log(f"Installing missing Rust targets: {', '.join(missing_targets)}")
-        run(["rustup", "target", "add"] + list(missing_targets), env=env)
+        cmd = ["rustup", "target", "add"]
+        if toolchain:
+            cmd += ["--toolchain", toolchain]
+        cmd += list(missing_targets)
+        run(cmd, env=env)
     else:
         log("All required Android Rust targets are installed.")
 
@@ -277,7 +321,11 @@ def main():
     ensure_java(env)
     ensure_cmake(env, android_dir)
     ensure_cargo_and_ndk(env)
-    ensure_rust_targets(env)
+    toolchain = read_rust_toolchain(root)
+    if toolchain:
+        ensure_rust_toolchain(env, toolchain)
+        env["RUSTUP_TOOLCHAIN"] = toolchain
+    ensure_rust_targets(env, toolchain)
     ensure_gpr_credentials()
 
     run([str(vpy), str(root / "scripts" / "bootstrap_conan_deps.py")], env=env, cwd=str(root))
@@ -288,10 +336,10 @@ def main():
 
     if is_windows():
         run(["cmd", "/c", "gradlew.bat --stop"], cwd=str(android_dir), env=env, check=False)
-        run(["cmd", "/c", "gradlew.bat :lib:publish --no-daemon"], cwd=str(android_dir), env=env)
+        run(["cmd", "/c", "gradlew.bat :lib:publish --no-daemon --info"], cwd=str(android_dir), env=env)
     else:
         run(["./gradlew", "--stop"], cwd=str(android_dir), env=env, check=False)
-        run(["./gradlew", ":lib:publish", "--no-daemon"], cwd=str(android_dir), env=env)
+        run(["./gradlew", ":lib:publish", "--no-daemon", "--info"], cwd=str(android_dir), env=env)
 
     log("Publish completed.")
 
