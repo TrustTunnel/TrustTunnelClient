@@ -62,7 +62,7 @@ with open("conanfile.py", "r") as file:
                 and ('@adguard/oss"' in line):
             nlc_versions.append(line.split('@')[0].split('/')[1])
 
-subprocess.run(["python3", os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)
+subprocess.run([sys.executable, os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)
 # Not leaving directory causes used-by-another-process error
 os.chdir("..")
 shutil.rmtree(dns_libs_dir, onerror=on_rm_tree_error)
@@ -82,7 +82,7 @@ with open("conandata.yml", "r") as file:
 for v in nlc_versions: # [k for k in items.keys() if k >= min_nlc_version]:
     subprocess.run(["git", "checkout", "master"], check=True)
     try:
-        subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
+        subprocess.run([sys.executable, os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
     except:
         if v in nlc_versions:
             raise
