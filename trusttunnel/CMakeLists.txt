@@ -89,6 +89,7 @@ else ()
     set(TARGET_SUBDIR release)
 endif ()
 
+set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=")
 if (APPLE)
     if (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
         set(CARGO_TARGET --target x86_64-apple-darwin)
@@ -115,14 +116,46 @@ if (WIN32 AND MSVC)
         set(RUST_TARGET_TRIPLE x86_64-pc-windows-msvc)
     endif ()
 
-    message("Rust target triple: ${RUST_TARGET_TRIPLE}")
     set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
     set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
-endif ()
-
-if (WIN32 AND MSVC)
     set(CARGO_ENV_RUSTFLAGS RUSTFLAGS=-Ctarget-feature=+crt-static)
 endif ()
+
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        if (CMAKE_C_COMPILER MATCHES "armv7.*-linux-musleabi")
+            set(MUSL_ARCH "armv7")
+        elseif (CMAKE_C_COMPILER MATCHES "aarch64.*-linux-musl")
+            set(MUSL_ARCH "aarch64")
+        elseif (CMAKE_C_COMPILER MATCHES "x86_64.*-linux-musl")
+            set(MUSL_ARCH "x86_64")
+        elseif (CMAKE_C_COMPILER MATCHES "mipsel.*-linux-musl")
+            set(MUSL_ARCH "mipsel")
+            set(CARGO_CHANNEL "+nightly")
+            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+        elseif (CMAKE_C_COMPILER MATCHES "mips.*-linux-musl")
+            set(MUSL_ARCH "mips")
+            set(CARGO_CHANNEL "+nightly")
+            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+        endif ()
+
+        if (MUSL_ARCH)
+            if (MUSL_ARCH MATCHES "armv7")
+                set(RUST_TARGET_TRIPLE "armv7-unknown-linux-musleabi")
+            else ()
+                set(RUST_TARGET_TRIPLE "${MUSL_ARCH}-unknown-linux-musl")
+            endif ()
+            set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
+            set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
+            set(CARGO_ENV_CC CC=${CMAKE_C_COMPILER})
+            set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${CMAKE_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
+        endif()
+    elseif (CMAKE_CROSSCOMPILING)
+        message(WARNING "Unexpected compiler, setup_wizard won't be cross-compiled")
+    endif ()
+endif ()
+
+message("Rust target triple: ${RUST_TARGET_TRIPLE}")
 
 ExternalProject_Add(setup_wizard
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/setup_wizard
@@ -130,7 +163,8 @@ ExternalProject_Add(setup_wizard
         UPDATE_COMMAND ""
         PATCH_COMMAND ""
         CONFIGURE_COMMAND ""
-        BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=<BINARY_DIR> ${CARGO_ENV_RUSTFLAGS} cargo build
+        BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=<BINARY_DIR> ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
+        BUILD_COMMAND     cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
         BUILD_COMMAND     --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
         BUILD_COMMAND     --bin setup_wizard
         TEST_COMMAND ""

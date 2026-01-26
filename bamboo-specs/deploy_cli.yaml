@@ -52,6 +52,8 @@ Linux build:
 
             ARCHES=${ARCHES:-x86_64 aarch64 armv7 mips mipsel}
 
+            rustup +nightly component add rust-src
+
             for ARCH in $ARCHES; do
               mkdir -p build_${ARCH}
               SYSTEM_PROCESSOR=${ARCH}
@@ -67,6 +69,10 @@ Linux build:
                 mipsel)
                 SF=sf
               esac
+
+              # Rust adds -lunwind when statically linking even when there's no backtrace code, and GCC has backtrace implementation in other library
+              p="$(${ARCH}-linux-musl${EABI}${SF}-gcc -print-file-name=libgcc_eh.a)" && [ "$p" != "libgcc_eh.a" ] && ln -sf "$(basename "$p")" "$(dirname "$p")/libunwind.a"
+
               cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
                 -DCMAKE_C_COMPILER=${ARCH}-linux-musl${EABI}${SF}-gcc \
                 -DCMAKE_CXX_COMPILER=${ARCH}-linux-musl${EABI}${SF}-g++ \
@@ -86,6 +92,10 @@ Linux build:
                 mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
               popd
             done
+  final-tasks:
+    - script:
+        file: bamboo-specs/scripts/conan_upload_and_cleanup.sh
+        description: Conan upload and cleanup
   requirements:
     - adg-privileged-docker
   artifact-subscriptions: [ ]
@@ -162,6 +172,14 @@ Mac build:
               NAME=trusttunnel_client-v${VERSION}-macos-universal
               tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," trusttunnel_client setup_wizard LICENSE
             popd
+    - script:
+        scripts:
+          - |-
+            python3 -m venv venv
+            . venv/bin/activate
+            pip install conan
+            bamboo-specs/scripts/conan_upload_and_cleanup.sh
+        description: Conan upload and cleanup
   requirements:
     - ephemeral
     - image: registry.int.agrd.dev/macos/tahoe-build-agent-xcode26.1.1:latest

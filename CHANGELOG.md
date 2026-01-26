@@ -4,6 +4,10 @@
 - [Feature] Add functions to get default VPN settings and free allocated resources.
     - See `vpn_get_default_settings` and `vpn_free_default_settings`.
 
+## 0.99.93
+
+- [Fix] Fixed setup_wizard architecture in Linux builds #5
+
 ## 0.99.92
 
 - [Feature] Added prebuilt trusttunnel_client binaries for Windows
