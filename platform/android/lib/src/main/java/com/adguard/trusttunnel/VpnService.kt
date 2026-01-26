@@ -29,9 +29,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private val LOG = LoggerManager.getLogger("VpnService")
 
         // Network monitoring
-        private lateinit var connectivityManager: ConnectivityManager
-        private lateinit var networkRequest: NetworkRequest
-        private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
+        private var connectivityManager: ConnectivityManager? = null
+        private var networkRequest: NetworkRequest? = null
+        private var networkCallback: NetworkUtils.Companion.NetworkCollector? = null
         
         // Removed: connectionInfoFile (replaced by DB)
         // Removed: currentStartId (lifecycle managed by Service)
@@ -52,8 +52,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         private fun start(context: Context, intent: Intent, config: String?) {
             try {
-                if (!isPrepared(context)) {
-                    LOG.warn("VPN is not prepared, can't manipulate the service")
+                val action = intent.action
+                if (action == ACTION_START && !isPrepared(context)) {
+                    LOG.warn("VPN is not prepared, can't start the service")
                     return
                 }
                 config?.apply {
@@ -69,13 +70,35 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             }
         }
 
-        fun stop(context: Context)                  = start(context, ACTION_STOP, null)
+        fun stop(context: Context) {
+             val intent = getIntent(context, ACTION_STOP)
+             try {
+                 // Try starting as a normal service first (works if app is in foreground)
+                 context.startService(intent)
+             } catch (e: IllegalStateException) {
+                 // App is in background. If service is NOT running, we don't need to do anything.
+                 // But we can't easily check if it's running.
+                 // As a fallback, use startForegroundService but acceptable risk if we are just stopping.
+                 try {
+                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                         context.startForegroundService(intent)
+                     } else {
+                         context.startService(intent)
+                     }
+                 } catch (e2: Exception) {
+                     LOG.error("Failed to stop service", e2)
+                 }
+             }
+        }
+
         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
         private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
 
         fun startNetworkManager(context: Context) {
-            connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            networkRequest = NetworkRequest.Builder()
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager = cm
+            
+            val nr = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
@@ -83,9 +106,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                 .addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH)
                 .build()
+            networkRequest = nr
 
-            networkCallback = NetworkUtils.Companion.NetworkCollector()
-            connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+            val nc = NetworkUtils.Companion.NetworkCollector()
+            networkCallback = nc
+            cm.registerNetworkCallback(nr, nc)
         }
 
         fun isPrepared(context: Context): Boolean {
@@ -131,7 +156,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 startForeground(
                     NOTIFICATION_ID, 
                     notification, 
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_VIRTUAL_MEETING // More appropriate for standard VPN than SYSTEM_EXEMPTED
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC // Matches Manifest permission
                 )
             } else {
                 startForeground(NOTIFICATION_ID, notification)
@@ -213,7 +238,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         }
         vpnClient = VpnClient(configStr, proxyClientListener)
 
-        networkCallback.startNotifying(vpnClient)
+        if (networkCallback == null) {
+            LOG.warn("NetworkManager not started, starting now")
+            startNetworkManager(this.applicationContext)
+        }
+        networkCallback?.startNotifying(vpnClient)
         if (vpnClient?.start(vpnTunInterface) != true) {
             LOG.error("Failed to start Vpn client");
             close();
@@ -252,15 +281,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             dnsServers.forEach { server ->
                 builder.addDnsServer(server)
             }
-            // TODO: Avoid hardcoded routes logic if possible, fetch from config
+            // Ensure connectivity is routed through the tunnel by default
+            builder.addRoute("0.0.0.0", 0)
+            builder.addRoute("::", 0)
+
             val routes = VpnClient.excludeCidr(tunConfig.includedRoutes, tunConfig.excludedRoutes + IPV4_NON_ROUTABLE)
-                ?: throw Exception("Failed to process routes")
-            routes.forEach { route ->
+            routes?.forEach { route ->
                 val r = NetworkUtils.convertCidrToAddressPrefixPair(route)
                 if (r != null) {
                     builder.addRoute(r.first, r.second)
-                } else {
-                    throw Exception("Wrong syntax for included_routes")
                 }
             }
 
@@ -283,7 +312,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         LOG.info("Closing VPN service")
 
-        networkCallback.stopNotifying()
+        networkCallback?.stopNotifying()
         vpnClient?.stop()
         vpnClient?.close()
         vpnClient = null

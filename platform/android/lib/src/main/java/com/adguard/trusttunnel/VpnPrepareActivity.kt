@@ -25,11 +25,35 @@ class VpnPrepareActivity : ComponentActivity() {
         finish()
     }
 
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
+        if (isGranted) {
+            LOG.info("Notification permission granted")
+        } else {
+            LOG.warn("Notification permission denied")
+        }
+        // Proceed to VPN prepare even if notification denied (service can still run, just invisible)
+        prepareVpn()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         // No UI needed
         
+        // Check for Notification Permission on Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                LOG.info("Requesting POST_NOTIFICATIONS permission")
+                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                prepareVpn()
+            }
+        } else {
+             prepareVpn()
+        }
+    }
+
+    private fun prepareVpn() {
         LOG.info("Checking VPN permission")
         val intent = VpnService.prepare(this)
         if (intent != null) {

@@ -40,21 +40,28 @@ class VpnClient (
 
     fun stop() = synchronized(sync) {
         if (nativePtr.toInt() == 0) {
-            LOG.error("Can't stop native client because it was not created")
+            LOG.warn("Can't stop native client because it was not created or already closed")
             return;
         }
-        stopNative(nativePtr);
+        try {
+            stopNative(nativePtr)
+        } catch (e: Exception) {
+            LOG.error("Error stopping native client", e)
+        }
     }
 
     fun notifyNetworkChange(available: Boolean) = synchronized(sync) {
         if (nativePtr.toInt() == 0) {
-            LOG.error("Can't call notifyNetworkChange, native client is not initialized")
+            LOG.warn("Skipping notifyNetworkChange, native client is not initialized")
             return;
         }
-        notifyNetworkChangeNative(nativePtr, available);
+        notifyNetworkChangeNative(nativePtr, available)
     }
 
     fun setSystemDnsServers(servers: Array<String>, bootstraps: Array<String>?): Boolean = synchronized(sync) {
+        if (nativePtr.toInt() == 0) {
+            return false
+        }
         return setSystemDnsServersNative(servers, bootstraps)
     }
 

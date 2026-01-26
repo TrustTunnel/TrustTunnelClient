@@ -15,3 +15,8 @@ conaninfo.txt
 graph_info.json
 conan/
 cmake/conan_provider.cmake
+
+# Scripts dependencies
+scripts/dns-libs
+env/
+platform/android/.kotlin/

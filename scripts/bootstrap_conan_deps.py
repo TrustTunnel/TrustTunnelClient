@@ -44,6 +44,28 @@ def on_rm_tree_error(func, path, _):
         raise
 
 
+def robust_clone(url, path):
+    """
+    Clones the repo if not exists, or updates it if it does.
+    If update/delete fails, it tries to proceed.
+    """
+    if os.path.exists(path):
+        try:
+            shutil.rmtree(path, onerror=on_rm_tree_error)
+        except OSError:
+            print(f"Warning: Could not remove {path}, attempting to update existing repo...")
+            pass
+    
+    if not os.path.exists(path):
+        subprocess.run(["git", "clone", url, path], check=True)
+    else:
+        # If we couldn't delete it, update it
+        try:
+            subprocess.run(["git", "fetch", "--all"], cwd=path, check=True)
+        except subprocess.CalledProcessError:
+            print(f"Warning: Failed to fetch {path}, proceeding anyway...")
+
+
 with open(os.path.join(project_dir, "conanfile.py"), "r") as file:
     for line in map(str.strip, file.readlines()):
         if line.startswith('self.requires("native_libs_common/') \
@@ -54,7 +76,7 @@ with open(os.path.join(project_dir, "conanfile.py"), "r") as file:
             dns_libs_version = line.split('@')[0].split('/')[1]
 
 dns_libs_dir = os.path.join(work_dir, dns_libs_dir_name)
-subprocess.run(["git", "clone", dns_libs_url, dns_libs_dir], check=True)
+robust_clone(dns_libs_url, dns_libs_dir)
 os.chdir(dns_libs_dir)
 with open("conanfile.py", "r") as file:
     for line in map(str.strip, file.readlines()):
@@ -65,11 +87,14 @@ with open("conanfile.py", "r") as file:
 subprocess.run([sys.executable, os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)
 # Not leaving directory causes used-by-another-process error
 os.chdir("..")
-shutil.rmtree(dns_libs_dir, onerror=on_rm_tree_error)
+try:
+    shutil.rmtree(dns_libs_dir, onerror=on_rm_tree_error)
+except OSError:
+    print(f"Warning: Could not remove {dns_libs_dir}, likely locked. Leaving it.")
 
 os.chdir(work_dir)
 nlc_dir = os.path.join(work_dir, nlc_dir_name)
-subprocess.run(["git", "clone", nlc_url, nlc_dir], check=True)
+robust_clone(nlc_url, nlc_dir)
 os.chdir(nlc_dir)
 
 # Reduce the chances of missing a necessary dependency exported with NLC
@@ -92,4 +117,7 @@ for v in nlc_versions: # [k for k in items.keys() if k >= min_nlc_version]:
 
 # Not leaving directory causes used-by-another-process error
 os.chdir("..")
-shutil.rmtree(nlc_dir, onerror=on_rm_tree_error)
+try:
+    shutil.rmtree(nlc_dir, onerror=on_rm_tree_error)
+except OSError:
+    print(f"Warning: Could not remove {nlc_dir}, likely locked. Leaving it.")
