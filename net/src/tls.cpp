@@ -136,6 +136,8 @@ X509_STORE *tls_create_ca_store() {
     } else if (!lookup_f
             || (!X509_LOOKUP_load_file(lookup_f, "/etc/ssl/cert.pem", X509_FILETYPE_PEM)
                     && !X509_LOOKUP_load_file(lookup_f, "/etc/pki/tls/cert.pem", X509_FILETYPE_PEM)
+                    && !X509_LOOKUP_load_file(lookup_f, "/etc/ssl/certs/ca-certificates.crt", X509_FILETYPE_PEM)
+                    && !X509_LOOKUP_load_file(lookup_f, "/etc/ssl/certs/ca-bundle.crt", X509_FILETYPE_PEM)
                     && !X509_LOOKUP_load_file(lookup_f, "/opt/etc/ssl/cert.pem", X509_FILETYPE_PEM)
                     && !X509_LOOKUP_load_file(lookup_f, "/opt/etc/ssl/certs/ca-certificates.crt", X509_FILETYPE_PEM))) {
         // Otherwise, add the first non-empty dir:

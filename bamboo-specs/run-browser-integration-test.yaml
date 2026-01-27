@@ -96,7 +96,7 @@ Run integration test:
 
             # Download agvpn_helper from artifactory
             curl -O https://art.int.agrd.dev/artifactory/adguard-pods/binaries/agvpn_helper/agvpn_helper-linux.tar.gz
-            tar -C ${OUTPUT_DIR} -xvf agvpn_helper-linux.tar.gz
+            tar -C ${OUTPUT_DIR} --strip-components=1 -xvf agvpn_helper-linux.tar.gz
 
             ${TEST_DIR}/browser/run.sh ${bamboo.vpnLibsAppId} ${bamboo.vpnLibsTokenSecret}
   final-tasks:

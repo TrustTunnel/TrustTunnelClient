@@ -144,10 +144,12 @@ WinCryptValidateError wcrypt_validate_cert(X509 *leaf, STACK_OF(X509) * chain) {
         return WCRYPT_E_CERT_GET_CERTIFICATE_CHAIN;
     }
 
-    DWORD trust_status = chain_context->TrustStatus.dwErrorStatus;
-    trust_status &= ~(CERT_TRUST_REVOCATION_STATUS_UNKNOWN | CERT_TRUST_IS_OFFLINE_REVOCATION);
+    // We reset these flags here, otherwise CertVerifyCertificateChainPolicy() will return with
+    // CRYPT_E_REVOCATION_OFFLINE (0x80092013) error.
+    ((CERT_CHAIN_CONTEXT *) chain_context)->TrustStatus.dwErrorStatus &=
+            ~(CERT_TRUST_REVOCATION_STATUS_UNKNOWN | CERT_TRUST_IS_OFFLINE_REVOCATION);
 
-    if (trust_status != 0) {
+    if (chain_context->TrustStatus.dwErrorStatus != 0) {
         return WCRYPT_E_TRUST_STATUS;
     }
 
