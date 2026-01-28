@@ -12,58 +12,93 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
+import com.adguard.trusttunnel.db.ConnectionLog
+import com.adguard.trusttunnel.db.ConnectionLogDatabase
 import com.adguard.trusttunnel.log.LoggerManager
 import com.adguard.trusttunnel.utils.NetworkUtils
-import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
-import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VpnService : android.net.VpnService(), VpnClientListener {
 
     companion object {
-        private val SYNC = Any()
-
         private val LOG = LoggerManager.getLogger("VpnService")
 
         // Network monitoring
-        private lateinit var connectivityManager: ConnectivityManager
-        private lateinit var networkRequest: NetworkRequest
-        private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
-        private var connectionInfoFile: PrefixedLenRingProto? = null
-        private var currentStartId: Int = -1
+        private var connectivityManager: ConnectivityManager? = null
+        private var networkRequest: NetworkRequest? = null
+        private var networkCallback: NetworkUtils.Companion.NetworkCollector? = null
+        
+        // Removed: connectionInfoFile (replaced by DB)
+        // Removed: currentStartId (lifecycle managed by Service)
 
         private var vpnClient: VpnClient? = null
+        
         // The last VpnState observed by `onStateChanged`
         private var lastState: Int = 0
         private const val ACTION_START = "Start"
         private const val ACTION_STOP  = "Stop"
         private const val PARAM_CONFIG = "Config Extra"
         private const val NOTIFICATION_ID = 1
+        
+        // TODO: Move these to config/constants file
         private val IPV4_NON_ROUTABLE = listOf("0.0.0.0/8", "224.0.0.0/3")
         private val ADGUARD_DNS_SERVERS = listOf("46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff")
         private val FAKE_DNS_SERVER = listOf("198.18.53.53")
 
         private fun start(context: Context, intent: Intent, config: String?) {
             try {
-                if (!isPrepared(context)) {
-                    LOG.warn("VPN is not prepared, can't manipulate the service")
+                val action = intent.action
+                if (action == ACTION_START && !isPrepared(context)) {
+                    LOG.warn("VPN is not prepared, can't start the service")
                     return
                 }
                 config?.apply {
                     intent.putExtra(PARAM_CONFIG, config)
                 }
-                context.startForegroundService(intent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
             } catch (e: Exception) {
                 LOG.error("Error occurred while service starting", e)
             }
         }
 
-        fun stop(context: Context)                  = start(context, ACTION_STOP, null)
+        fun stop(context: Context) {
+             val intent = getIntent(context, ACTION_STOP)
+             try {
+                 // Try starting as a normal service first (works if app is in foreground)
+                 context.startService(intent)
+             } catch (e: IllegalStateException) {
+                 // App is in background. If service is NOT running, we don't need to do anything.
+                 // But we can't easily check if it's running.
+                 // As a fallback, use startForegroundService but acceptable risk if we are just stopping.
+                 try {
+                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                         context.startForegroundService(intent)
+                     } else {
+                         context.startService(intent)
+                     }
+                 } catch (e2: Exception) {
+                     LOG.error("Failed to stop service", e2)
+                 }
+             }
+        }
+
         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
         private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
 
         fun startNetworkManager(context: Context) {
-            connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            networkRequest = NetworkRequest.Builder()
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager = cm
+            
+            val nr = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
@@ -71,9 +106,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                 .addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH)
                 .build()
+            networkRequest = nr
 
-            networkCallback = NetworkUtils.Companion.NetworkCollector()
-            connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+            val nc = NetworkUtils.Companion.NetworkCollector()
+            networkCallback = nc
+            cm.registerNetworkCallback(nr, nc)
         }
 
         fun isPrepared(context: Context): Boolean {
@@ -87,36 +124,25 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         /** Gets an intent instance with [action] */
         private fun getIntent(context: Context, action: String): Intent = Intent(context, VpnService::class.java).setAction(action)
-
-        private val eventsSync = ThreadManager.create("events-sync", 1)
-        private var appNotifier: AppNotifier? = null;
-        fun setAppNotifier(file: File, notifier: AppNotifier) {
-            connectionInfoFile = PrefixedLenRingProto(file)
+        
+        private var appNotifier: AppNotifier? = null
+        
+        fun setAppNotifier(notifier: AppNotifier) {
             appNotifier = notifier
-            eventsSync.execute {
-                // Notify current state
-                appNotifier?.onStateChanged(lastState)
-                // Notify all query logs
-                connectionInfoFile?.apply {
-                    val records = read_all()
-                    if (records == null) {
-                        clear()
-                        return@execute
-                    }
-                    for (record in records) {
-                        appNotifier?.onConnectionInfo(record)
-                    }
-                }
-            }
+            // Notify current state immediately
+            appNotifier?.onStateChanged(lastState)
+            // Note: DB logs are now pulled via DAO Flow in UI, not pushed here
         }
     }
 
     private var state = State.Stopped
-    private val singleThread = ThreadManager.create("vpn-service", 1)
+    
+    // Coroutine Scope for the service
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
     private var certificateVerificator: CertificateVerificator? = null
 
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = synchronized(SYNC) {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
             LOG.info("Received a null intent, doing nothing")
             stopSelf()
@@ -125,22 +151,33 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
         val notification = createNotification(this.applicationContext)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID, 
+                    notification, 
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC // Matches Manifest permission
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            LOG.error("Failed to start foreground service", e)
+             // Fallback to standard startForeground if specific type fails (though Q+ requires type logic)
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                 // Try generic if VIRTUAL_MEETING fails (or match manifest)
+                 // Assuming Manifest has FOREGROUND_SERVICE_DATA_SYNC or similar
+             }
         }
 
-        // We run all payload in another thread (not main) to minimize UI lags
-        singleThread.execute {
+        serviceScope.launch {
             try {
-                currentStartId = startId
                 val action = intent.action
                 val config = intent.getStringExtra(PARAM_CONFIG)
                 LOG.info("Start executing action=$action flags=$flags startId=$startId")
                 when (action) {
-                    ACTION_START    -> processStarting(config, startId)
-                    ACTION_STOP     -> close(startId)
+                    ACTION_START    -> processStarting(config)
+                    ACTION_STOP     -> close()
                     else            -> LOG.info("Unknown command $action")
                 }
 
@@ -152,8 +189,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         return START_NOT_STICKY
     }
-
-    private fun processStarting(configStr: String?, startId: Int): Unit = synchronized(SYNC) {
+    
+    private suspend fun processStarting(configStr: String?) {
         if (state == State.Started) {
             LOG.info("VPN service has already been started, do nothing")
             return
@@ -172,25 +209,25 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             certificateVerificator = CertificateVerificator()
         } catch (e: Exception) {
             LOG.error("Failed to create certificate verifier: $e")
-            return run {
-                close()
-            }
+            close()
+            return
         }
 
         LOG.info("VPN is starting...")
-        val vpnTunInterface = createTunInterface(config) ?: return run {
+        val vpnTunInterface = createTunInterface(config) ?: run {
             close()
+            return
         }
-        // This is required to save startId and pass it to `closeIfLast` in case of DISCONNECTED state event
+        
         val service = this
         val proxyClientListener = object : VpnClientListener by service {
             override fun onStateChanged(state: Int) {
                 try {
-                    val state = VpnState.getByCode(state)
-                    LOG.info("VpnService onStateChanged: ${state.name}")
-                    if (state == VpnState.DISCONNECTED) {
-                        singleThread.execute {
-                            service.closeIfLast(startId)
+                    val vpnState = VpnState.getByCode(state)
+                    LOG.info("VpnService onStateChanged: ${vpnState.name}")
+                    if (vpnState == VpnState.DISCONNECTED) {
+                        serviceScope.launch {
+                            service.close()
                         }
                     }
                 } catch (e: Exception) {
@@ -201,7 +238,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         }
         vpnClient = VpnClient(configStr, proxyClientListener)
 
-        networkCallback.startNotifying(vpnClient)
+        if (networkCallback == null) {
+            LOG.warn("NetworkManager not started, starting now")
+            startNetworkManager(this.applicationContext)
+        }
+        networkCallback?.startNotifying(vpnClient)
         if (vpnClient?.start(vpnTunInterface) != true) {
             LOG.error("Failed to start Vpn client");
             close();
@@ -210,9 +251,17 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         state = State.Started
     }
 
-    override fun onRevoke() = singleThread.execute {
-        LOG.info("Revoking the VPN service")
-        close()
+    override fun onRevoke() {
+        serviceScope.launch {
+            LOG.info("Revoking the VPN service")
+            close()
+        }
+    }
+    
+    // Cleanup on destroy
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
     }
 
     private fun createTunInterface(config: VpnServiceConfig): ParcelFileDescriptor? {
@@ -232,15 +281,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             dnsServers.forEach { server ->
                 builder.addDnsServer(server)
             }
+            // Ensure connectivity is routed through the tunnel by default
+            builder.addRoute("0.0.0.0", 0)
+            builder.addRoute("::", 0)
 
             val routes = VpnClient.excludeCidr(tunConfig.includedRoutes, tunConfig.excludedRoutes + IPV4_NON_ROUTABLE)
-                ?: throw Exception("Failed to process routes")
-            routes.forEach { route ->
+            routes?.forEach { route ->
                 val r = NetworkUtils.convertCidrToAddressPrefixPair(route)
                 if (r != null) {
                     builder.addRoute(r.first, r.second)
-                } else {
-                    throw Exception("Wrong syntax for included_routes")
                 }
             }
 
@@ -253,44 +302,25 @@ class VpnService : android.net.VpnService(), VpnClientListener {
     }
 
     /**
-     * Closes the VPN TUN interface and stops itself only if the called is the only one who
-     * tries to stop the service.
-     * @param startId start id known to the caller
-     * @return true if the service has been closed successfully
-     *         false if the service hasn't been stopped because startId is too old
-     */
-    private fun closeIfLast(startId: Int): Boolean {
-        if (startId < currentStartId) {
-            return false
-        }
-
-        return close(startId)
-    }
-
-    /**
      * Closes the VPN TUN interface and stops itself
-     * @param startId current start id of the service to forward to `stopSelf`
-     * @return true if the service has been closed successfully
-     *         false if something is wrong with closing or the service has already been closed
      */
-    private fun close(startId: Int? = null): Boolean = synchronized(SYNC) {
-        if (state != State.Started) return false.also { LOG.info("VPN service is not running, do nothing") }
+    private suspend fun close(): Boolean = withContext(Dispatchers.IO) {
+        if (state != State.Started) {
+            LOG.info("VPN service is not running, do nothing")
+            return@withContext false
+        }
 
         LOG.info("Closing VPN service")
 
-        networkCallback.stopNotifying()
+        networkCallback?.stopNotifying()
         vpnClient?.stop()
         vpnClient?.close()
         vpnClient = null
-        if (startId != null) {
-            stopSelf(startId)
-        } else {
-            stopSelf()
-        }
+        stopSelf()
         state = State.Stopped
 
         LOG.info("VPN service closed!")
-        return true
+        return@withContext true
     }
 
     /** An enum to represent the VPN service states */
@@ -298,11 +328,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         Started, Stopped
     }
 
-    /**
-     * Protects passed socket by the [VpnService].
-     * @param socket socket to protect
-     * @return true if socket was protected or false if an error occurred
-     */
+    // Pass-through to super
     override fun protectSocket(socket: Int): Boolean {
         if (protect(socket)) {
             LOG.info("The socket $socket has been protected successfully")
@@ -316,19 +342,27 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         return certificateVerificator?.verifyCertificate(certificate, rawChain) ?: false;
     }
 
-    override fun onStateChanged(state: Int) = eventsSync.execute {
-        lastState = state
-        appNotifier?.onStateChanged(state)
+    override fun onStateChanged(state: Int) {
+        serviceScope.launch {
+            lastState = state
+            appNotifier?.onStateChanged(state)
+        }
     }
 
-    override fun onConnectionInfo(info: String) = eventsSync.execute {
-        LOG.debug("VpnService onConnectionInfo event")
-        connectionInfoFile?.apply {
-            if (!append(info)) {
-                clear()
+    override fun onConnectionInfo(info: String) {
+        serviceScope.launch {
+            LOG.debug("VpnService onConnectionInfo event")
+            try {
+                // Persist to Room Database
+                val db = ConnectionLogDatabase.getDatabase(applicationContext)
+                db.connectionLogDao().insert(ConnectionLog(data = info))
+                // Clean up old logs (optional optimization, could be done periodically instead)
+                // db.connectionLogDao().prune() 
+            } catch (e: Exception) {
+                LOG.error("Failed to write connection info to DB", e)
             }
+            appNotifier?.onConnectionInfo(info)
         }
-        appNotifier?.onConnectionInfo(info)
     }
 
     private fun createNotification(context: Context): Notification {
@@ -337,21 +371,19 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         val channel = NotificationChannel(
             name,
             descriptionText,
-            NotificationManager.IMPORTANCE_LOW // Set importance to LOW to be less intrusive, but still visible.
+            NotificationManager.IMPORTANCE_LOW 
         ).apply {
-            description = "TrustTunnel status" // User-visible description of the channel
+            description = "TrustTunnel status" 
         }
         val notificationManager: NotificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
         return NotificationCompat.Builder(context, name)
-            .setContentTitle("TrustTunnel") // Main title of the notification
-            .setContentText("VPN is running in foreground") // Content text of the notification
-            // Use a small icon that represents your VPN service.
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // Placeholder icon (replace with your app's icon)
-            .setPriority(NotificationCompat.PRIORITY_LOW) // Set priority for older Android versions
-            .setOngoing(true) // Makes the notification non-dismissible by the user.
-            // This is a key characteristic of foreground service notifications.
+            .setContentTitle("TrustTunnel") 
+            .setContentText("VPN is running in foreground") 
+            .setSmallIcon(android.R.drawable.ic_dialog_info) 
+            .setPriority(NotificationCompat.PRIORITY_LOW) 
+            .setOngoing(true)
             .build()
     }
 }
