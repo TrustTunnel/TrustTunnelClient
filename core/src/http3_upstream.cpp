@@ -893,6 +893,13 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
 }
 
 void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *headers) {
+    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error
+    if (headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
+        VpnError error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
+        this->handler.func(this->handler.arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &error);
+        return;
+    }
+
     if (m_udp_mux.get_stream_id() == stream_id) {
         m_udp_mux.handle_response(headers);
         return;
@@ -905,9 +912,7 @@ void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *heade
 
     if (is_health_check_stream(stream_id)) {
         // NOLINTBEGIN(bugprone-unchecked-optional-access)
-        if (headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
-            m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
-        } else if (headers->status_code != HTTP_OK_STATUS) {
+        if (headers->status_code != HTTP_OK_STATUS) {
             m_health_check_info->error = {VPN_EC_ERROR, "Bad response code"};
         }
         m_health_check_info->timeout_task_id.reset();

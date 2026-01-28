@@ -88,15 +88,20 @@ std::pair<uint64_t, Http2Upstream::TcpConnection *> Http2Upstream::get_conn_by_s
 void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
     ServerHandler *handler = &this->handler;
 
+    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error
+    if (http_event->headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
+        VpnError error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
+        handler->func(handler->arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &error);
+        return;
+    }
+
     uint32_t stream_id = http_event->stream_id;
     if (stream_id == m_udp_mux.get_stream_id()) {
         m_udp_mux.handle_response(http_event->headers);
     } else if (stream_id == m_icmp_mux.get_stream_id()) {
         m_icmp_mux.handle_response(http_event->headers);
     } else if (m_health_check_info.has_value() && m_health_check_info->stream_id == stream_id) {
-        if (http_event->headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
-            m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
-        } else if (http_event->headers->status_code != HTTP_OK_STATUS) {
+        if (http_event->headers->status_code != HTTP_OK_STATUS) {
             m_health_check_info->error = {VPN_EC_ERROR, "Bad response code"};
         }
     } else {
