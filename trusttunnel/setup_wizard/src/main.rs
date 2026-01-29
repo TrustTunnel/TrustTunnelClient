@@ -1,6 +1,7 @@
 use crate::settings::{Endpoint, Settings};
 use crate::user_interaction::{ask_for_input, checked_overwrite, select_index};
 use std::fs;
+use std::io::IsTerminal;
 use std::ops::Not;
 use std::sync::{Mutex, MutexGuard};
 
@@ -165,6 +166,13 @@ Required in non-interactive mode."#),
         MODE_INTERACTIVE => Mode::Interactive,
         _ => unreachable!(),
     };
+
+    if get_mode() == Mode::Interactive && !std::io::stdin().is_terminal() {
+        eprintln!("Error: Interactive mode requires a terminal (TTY).");
+        eprintln!("Please run setup_wizard from a terminal, or use non-interactive mode:");
+        eprintln!("  {} --help", std::env::args().next().unwrap_or_default());
+        std::process::exit(1);
+    }
 
     if get_mode() == Mode::NonInteractive
         && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME) || args.contains_id(HOSTNAME_PARAM_NAME))
