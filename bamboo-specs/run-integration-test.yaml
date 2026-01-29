@@ -199,7 +199,7 @@ Run live test:
             ENDPOINT_HOSTNAME="localhost"
 
             cargo run --config net.git-fetch-with-cli=true --release --bin setup_wizard -- --mode non-interactive  \
-              --address "0.0.0.0:4433" \
+              --address "127.0.0.1:4433" \
               --creds premium:premium  \
               --hostname "$ENDPOINT_HOSTNAME"  \
               --lib-settings vpn.toml  \
