@@ -222,7 +222,7 @@ Run live test:
             cd vpn-libs-endpoint
             ./target/release/trusttunnel_endpoint vpn.toml tls_hosts.toml > /dev/null 2>&1 &
             echo "Start endpoint"
-            sleep 3
+            sleep 6
 
             /build_no_asan/core/test_vpn_client_live
   final-tasks:
