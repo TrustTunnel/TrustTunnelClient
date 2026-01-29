@@ -121,6 +121,8 @@ clang-tidy: compile_commands
 ##    Linux: `npm install -g markdownlint-cli`
 .PHONY: lint-md
 lint-md:
+	echo markdownlint version:
+	markdownlint --version
 	markdownlint .
 
 ## Check Rust code formatting with rustfmt.
