@@ -220,10 +220,19 @@ Run live test:
             export SRC_ROOT=${PWD}
 
             cd vpn-libs-endpoint
-            ./target/release/trusttunnel_endpoint vpn.toml tls_hosts.toml > /dev/null 2>&1 &
+            touch endpoint_logs.log
+            ./target/release/trusttunnel_endpoint vpn.toml tls_hosts.toml > ./endpoint_logs.log 2>&1 &
+            ENDPOINT_PID=$!
             echo "Start endpoint"
             sleep 6
-
+            
+            echo "Print debug info about the endpoint"
+            if ! ps -p "$ENDPOINT_PID" >/dev/null; then
+              echo "Endpoint died"
+            fi
+            cat endpoint_logs.log
+            
+            echo "Run live tests"
             /build_no_asan/core/test_vpn_client_live
   final-tasks:
     - script:
