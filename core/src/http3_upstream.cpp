@@ -681,7 +681,9 @@ void Http3Upstream::on_udp_packet() {
         // Data receival indicates that the connection is alive.
         // Cancelling the health check now should reduce the probability
         // of bogus health check failures due to a slow remote.
-        cancel_health_check();
+        if (!m_health_check_info.has_value() || m_health_check_info->error.code != VPN_EC_AUTH_REQUIRED) {
+            cancel_health_check();
+        }
 
         if (quiche_conn_is_closed(quic_conn)) {
             log_upstream(this, dbg, "QUIC connection closed");
@@ -893,10 +895,17 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
 }
 
 void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *headers) {
-    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error
+    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error.
+    // We report it via m_health_check_info in QUICHE_H3_EVENT_FINISHED/RESET event to avoid unsafe
+    // callback calls directly from handle_response.
     if (headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
-        VpnError error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
-        this->handler.func(this->handler.arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &error);
+        log_stream(this, stream_id, dbg, "Proxy authentication required");
+        if (!m_health_check_info.has_value() || m_health_check_info->stream_id != stream_id) {
+            m_health_check_info = HealthCheckInfo{
+                    .stream_id = stream_id,
+            };
+        }
+        m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
         return;
     }
 

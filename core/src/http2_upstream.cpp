@@ -86,16 +86,25 @@ std::pair<uint64_t, Http2Upstream::TcpConnection *> Http2Upstream::get_conn_by_s
 }
 
 void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
-    ServerHandler *handler = &this->handler;
+    uint32_t stream_id = http_event->stream_id;
 
-    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error
+    // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error.
+    // We report it via m_health_check_info in STREAM_PROCESSED event to avoid unsafe
+    // callback calls directly from handle_response.
     if (http_event->headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
-        VpnError error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
-        handler->func(handler->arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &error);
+        log_upstream(this, dbg, "[SID:{}] Proxy authentication required", stream_id);
+        if (!m_health_check_info.has_value() || m_health_check_info->stream_id != stream_id) {
+            m_health_check_info = HealthCheckInfo{
+                    .stream_id = stream_id,
+                    .need_result = true,
+            };
+        }
+        m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
         return;
     }
 
-    uint32_t stream_id = http_event->stream_id;
+    ServerHandler *handler = &this->handler;
+
     if (stream_id == m_udp_mux.get_stream_id()) {
         m_udp_mux.handle_response(http_event->headers);
     } else if (stream_id == m_icmp_mux.get_stream_id()) {
@@ -403,7 +412,10 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
             // Data receival indicates that the connection is alive.
             // Cancelling the health check now should reduce the probability
             // of bogus health check failures due to a slow remote.
-            upstream->cancel_health_check();
+            if (!upstream->m_health_check_info.has_value()
+                    || upstream->m_health_check_info->error.code != VPN_EC_AUTH_REQUIRED) {
+                upstream->cancel_health_check();
+            }
 
             for (uint32_t stream_id : upstream->m_streams_to_reset) {
                 http_session_reset_stream(upstream->m_session.get(), (int32_t) stream_id, NGHTTP2_CANCEL);
