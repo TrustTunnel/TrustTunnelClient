@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.99.104
+
 - [Feature] Add GPG signing for TrustTunnel executables.
 
 ## 0.99.102
