@@ -94,13 +94,13 @@ Linux build:
                 llvm-strip trusttunnel_client
                 llvm-strip setup_wizard
                 # Sign binaries with GPG
-                gpg --default_key "${GPG_KEY}" \
-                    --detach_sig \
+                gpg --default-key "${GPG_KEY}" \
+                    --detach-sig \
                     --passphrase "${bamboo.gpgPassword}" \
                     --pinentry-mode loopback \
                     trusttunnel_client
-                gpg --default_key "${GPG_KEY}" \
-                    --detach_sig \
+                gpg --default-key "${GPG_KEY}" \
+                    --detach-sig \
                     --passphrase "${bamboo.gpgPassword}" \
                     --pinentry-mode loopback \
                     setup_wizard
@@ -193,13 +193,13 @@ Mac build:
                 bundle exec fastlane remove_certs || true
               popd
               # Sign binaries with GPG
-                gpg --default_key "${GPG_KEY}" \
-                    --detach_sig \
+                gpg --default-key "${GPG_KEY}" \
+                    --detach-sig \
                     --passphrase "${bamboo.gpgPassword}" \
                     --pinentry-mode loopback \
                     trusttunnel_client
-                gpg --default_key "${GPG_KEY}" \
-                    --detach_sig \
+                gpg --default-key "${GPG_KEY}" \
+                    --detach-sig \
                     --passphrase "${bamboo.gpgPassword}" \
                     --pinentry-mode loopback \
                     setup_wizard
