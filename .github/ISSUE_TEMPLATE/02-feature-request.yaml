@@ -1,5 +1,5 @@
 name: 🚀 Feature request
-description: If you know how TrustTunnel can be improved
+description: If you know how TrustTunnel client can be improved
 labels: ["Feature request"]
 body:
   - type: textarea
@@ -31,4 +31,4 @@ body:
     attributes:
       value: |
         ---
-        Upvote [important issues](https://github.com/TrustTunnel/TrustTunnelFlutterClient/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc+) with a :+1:
+        Upvote [important issues](https://github.com/TrustTunnel/TrustTunnelClient/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc+) with a :+1:
