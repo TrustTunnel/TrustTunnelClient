@@ -1,6 +1,6 @@
 ﻿1 VERSIONINFO
-    FILEVERSION 0,99,107,0
-    PRODUCTVERSION 0,99,107,0
+    FILEVERSION 0,99,108,0
+    PRODUCTVERSION 0,99,108,0
     FILEFLAGSMASK 0x17L
  FILEFLAGS 0x0L
  FILEOS 0x4L
@@ -15,8 +15,8 @@ BEGIN
                         VALUE "LegalCopyright", "Copyright © Adguard Software Limited 2009-2026"
                         VALUE "CompanyName", "Adguard Software Ltd"
                         VALUE "ProductName", "TrustTunnel command-line client setup wizard"
-                        VALUE "FileVersion", "0.99.107"
-                        VALUE "ProductVersion", "0.99.107"
+                        VALUE "FileVersion", "0.99.108"
+                        VALUE "ProductVersion", "0.99.108"
                         VALUE "OriginalFilename", "setup_wizard.exe"
                         VALUE "InternalName", "setup_wizard"
                 END
