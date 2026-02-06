@@ -1,0 +1,8 @@
+CompileFlags:
+  # TODO: Remove when https://github.com/clangd/clangd/issues/1167 will be fixed
+  Add: [-Wno-unknown-pragmas]
+Diagnostics:
+  # Available in clangd-14
+  UnusedIncludes: None
+  # Requires clangd-17
+  MissingIncludes: None

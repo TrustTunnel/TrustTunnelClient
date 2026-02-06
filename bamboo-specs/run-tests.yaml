@@ -40,6 +40,7 @@ Run tests on Linux:
           - |-
             set -x -e
             
+            python3 -m pip install -r requirements.txt
             python3 -m pip install conan --upgrade
             
             conan remote add --index 0 art ${bamboo.conanRepoUrl} || true

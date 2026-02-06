@@ -13,6 +13,7 @@ ifeq ($(origin MSVC_YEAR), undefined)
 	endif
 endif
 BUILD_DIR = build
+COMPILE_COMMANDS = $(BUILD_DIR)/compile_commands.json
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
@@ -101,7 +102,7 @@ lint: lint-md lint-rust lint-cpp
 
 ## Lint c++ files.
 .PHONY: lint-cpp
-lint-cpp: clang-format clang-tidy
+lint-cpp: clang-format clangd-tidy
 
 ## Check c++ code formatting with clang-format.
 .PHONY: clang-format
@@ -113,7 +114,15 @@ clang-format:
 ## Check c++ code formatting with clang-tidy.
 .PHONY: clang-tidy
 clang-tidy: compile_commands
-	run-clang-tidy -p $(BUILD_DIR) '^(?!.*(/third-party/)).*\.cpp$$'
+	run-clang-tidy -p $(BUILD_DIR) -config-file='.clang-tidy' '^(?!.*(/third-party/)).*\.cpp$$'
+
+## Check c++ code formatting with clangd-tidy.
+.PHONY: clangd-tidy
+clangd-tidy: compile_commands
+	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
+		| grep -vE '(^|/)(third-party)(/|$$)' \
+		| sort -u \
+		| xargs clangd-tidy -p $(BUILD_DIR)
 
 ## Lint markdown files.
 ## `markdownlint-cli` should be installed:

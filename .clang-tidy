@@ -101,7 +101,9 @@ Checks: >-
   -cppcoreguidelines-use-enum-class,
   -portability-template-virtual-member-function,
   -modernize-use-integer-sign-comparison,
-  -misc-const-correctness
+  -misc-const-correctness,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers
 
 WarningsAsErrors: '*'
 

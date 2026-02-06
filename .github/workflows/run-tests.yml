@@ -35,6 +35,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt install -y ninja-build
+          pip install -r requirements.txt
           pip install conan~=$CONAN_VER
           pip install clang-format~=$CLANG_FORMAT_VER
           ## Install LLVM
@@ -130,6 +131,7 @@ jobs:
       - name: Install packages
         run: |
           brew install ninja llvm@21
+          pip install -r requirements.txt
           pip install conan~=$CONAN_VER
           pip install clang-format~=$CLANG_FORMAT_VER
           echo "/opt/homebrew/opt/llvm@21/bin" >> $GITHUB_PATH
