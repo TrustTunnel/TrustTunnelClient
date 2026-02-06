@@ -93,6 +93,7 @@ private:
     std::optional<HealthCheckInfo> m_health_check_info;
     bool m_in_handler = false;
     bool m_closed = false; // @todo: seems like it can be replaced by a separate state
+    std::optional<VpnError> m_pending_session_error;
     ag::Logger m_log{"H3_UPSTREAM"};
     DeclPtr<QuicConnector, &quic_connector_destroy> m_quic_connector;
     void *m_ssl_object = nullptr; // A non-owning pointer to SSL used by QuicConnector and Quiche.
@@ -143,7 +144,7 @@ private:
     void close_stream(uint64_t stream_id, Http3ErrorCode error);
     ssize_t read_out_h3_data(uint64_t stream_id, const uint8_t *buffer, size_t cap);
     void process_pending_data(uint64_t stream_id);
-    void close_session_inner();
+    void close_session_inner(std::optional<VpnError> error = std::nullopt);
     SendConnectRequestResult send_connect_request(const TunnelAddress *dst_addr, std::string_view app_name);
     void close_tcp_connection(uint64_t id, bool graceful);
     void clean_tcp_connection_data(uint64_t id);

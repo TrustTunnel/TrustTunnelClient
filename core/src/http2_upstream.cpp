@@ -89,17 +89,10 @@ void Http2Upstream::handle_response(const HttpHeadersEvent *http_event) {
     uint32_t stream_id = http_event->stream_id;
 
     // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error.
-    // We report it via m_health_check_info in STREAM_PROCESSED event to avoid unsafe
-    // callback calls directly from handle_response.
+    // We defer the error reporting to avoid unsafe callback calls directly from handle_response.
     if (http_event->headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
         log_upstream(this, dbg, "[SID:{}] Proxy authentication required", stream_id);
-        if (!m_health_check_info.has_value() || m_health_check_info->stream_id != stream_id) {
-            m_health_check_info = HealthCheckInfo{
-                    .stream_id = stream_id,
-                    .need_result = true,
-            };
-        }
-        m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
+        close_session_inner(VpnError{VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG});
         return;
     }
 
@@ -412,10 +405,7 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
             // Data receival indicates that the connection is alive.
             // Cancelling the health check now should reduce the probability
             // of bogus health check failures due to a slow remote.
-            if (!upstream->m_health_check_info.has_value()
-                    || upstream->m_health_check_info->error.code != VPN_EC_AUTH_REQUIRED) {
-                upstream->cancel_health_check();
-            }
+            upstream->cancel_health_check();
 
             for (uint32_t stream_id : upstream->m_streams_to_reset) {
                 http_session_reset_stream(upstream->m_session.get(), (int32_t) stream_id, NGHTTP2_CANCEL);

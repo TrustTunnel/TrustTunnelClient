@@ -681,9 +681,7 @@ void Http3Upstream::on_udp_packet() {
         // Data receival indicates that the connection is alive.
         // Cancelling the health check now should reduce the probability
         // of bogus health check failures due to a slow remote.
-        if (!m_health_check_info.has_value() || m_health_check_info->error.code != VPN_EC_AUTH_REQUIRED) {
-            cancel_health_check();
-        }
+        cancel_health_check();
 
         if (quiche_conn_is_closed(quic_conn)) {
             log_upstream(this, dbg, "QUIC connection closed");
@@ -788,7 +786,7 @@ void Http3Upstream::on_udp_packet() {
 
     m_in_handler = false;
     if (m_closed) {
-        close_session_inner();
+        close_session_inner(std::exchange(m_pending_session_error, std::nullopt));
     }
 }
 
@@ -896,16 +894,10 @@ void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_i
 
 void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *headers) {
     // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error.
-    // We report it via m_health_check_info in QUICHE_H3_EVENT_FINISHED/RESET event to avoid unsafe
-    // callback calls directly from handle_response.
+    // We defer the error reporting to avoid unsafe callback calls directly from handle_response.
     if (headers->status_code == HTTP_AUTH_REQUIRED_STATUS) {
         log_stream(this, stream_id, dbg, "Proxy authentication required");
-        if (!m_health_check_info.has_value() || m_health_check_info->stream_id != stream_id) {
-            m_health_check_info = HealthCheckInfo{
-                    .stream_id = stream_id,
-            };
-        }
-        m_health_check_info->error = {VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
+        close_session_inner(VpnError{VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG});
         return;
     }
 
@@ -1054,14 +1046,15 @@ void Http3Upstream::process_pending_data(uint64_t stream_id) {
     }
 }
 
-void Http3Upstream::close_session_inner() {
+void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
     if (m_in_handler) {
         m_closed = true;
+        m_pending_session_error = error;
         return;
     }
 
-    std::optional<VpnError> error;
-    if (m_quic_conn != nullptr) {
+    // If no explicit error provided, try to get it from QUIC peer error
+    if (!error.has_value() && m_quic_conn != nullptr) {
         uint64_t code;
         bool is_app;
         const uint8_t *reason_bytes;
