@@ -60,13 +60,6 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Document {
     endpoint["anti_dpi"] = value(settings.endpoint.anti_dpi);
     endpoint["certificate"] = value(settings.endpoint.certificate.as_deref().unwrap_or_default());
     endpoint["upstream_protocol"] = value(&settings.endpoint.upstream_protocol);
-    endpoint["upstream_fallback_protocol"] = value(
-        settings
-            .endpoint
-            .upstream_fallback_protocol
-            .as_deref()
-            .unwrap_or_default(),
-    );
 
     doc
 }

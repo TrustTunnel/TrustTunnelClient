@@ -92,8 +92,6 @@ IID3ebZflKrRWfh/NHq3u+AFoadv
 '''
 # Protocol to be used to communicate with the endpoint [http2, http3]
 upstream_protocol = "http2"
-# Fallback protocol to be used in case the main one fails [<none>, http2, http3]
-upstream_fallback_protocol = ""
 # Is anti-DPI measures should be enabled
 anti_dpi = false
 

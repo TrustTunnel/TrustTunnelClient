@@ -57,7 +57,6 @@ username = "$USERNAME"
 password = "$PASSWORD"
 skip_verification = true
 upstream_protocol = "$PROTOCOL"
-upstream_fallback_protocol = "$PROTOCOL"
 client_random = "$CLIENT_RANDOM"
 END
 )

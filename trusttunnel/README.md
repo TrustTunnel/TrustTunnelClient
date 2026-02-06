@@ -120,7 +120,6 @@ The configuration file uses TOML format. Below are all available settings.
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
-| `upstream_fallback_protocol` | string | `""` | Fallback protocol if main fails: `http2`, `http3`, or empty |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
 
 ### TUN Listener Settings (`[listener.tun]`)
@@ -185,7 +184,6 @@ client_random = ""
 skip_verification = false
 certificate = ""
 upstream_protocol = "http2"
-upstream_fallback_protocol = ""
 anti_dpi = false
 
 [listener.tun]

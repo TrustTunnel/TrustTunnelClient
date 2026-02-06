@@ -114,16 +114,6 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
                 streamable_to_string(config["upstream_protocol"].node()));
         return std::nullopt;
     }
-    if (auto upstream_fallback_protocol = config["upstream_fallback_protocol"].value<std::string_view>();
-            upstream_fallback_protocol && !upstream_fallback_protocol->empty()) {
-        if (UPSTREAM_PROTO_MAP.contains(*upstream_fallback_protocol)) {
-            location.upstream_fallback_protocol = UPSTREAM_PROTO_MAP.at(*upstream_fallback_protocol);
-        } else {
-            errlog(g_logger, "Unexpected endpoint upstream fallback protocol value: {}",
-                    streamable_to_string(config["upstream_protocol"].node()));
-            return std::nullopt;
-        }
-    }
 
     // Parse client random (format: "prefix[/mask]")
     if (auto client_random = config["client_random"].value<std::string>()) {
