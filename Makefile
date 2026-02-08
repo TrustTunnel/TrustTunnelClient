@@ -17,6 +17,12 @@ COMPILE_COMMANDS = $(BUILD_DIR)/compile_commands.json
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
+ifeq ($(OS), Windows_NT)
+NPROC ?= $(or $(NUMBER_OF_PROCESSORS),8)
+else
+NPROC ?= $(shell (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8) | tr -d '\n')
+endif
+
 # Common CMake flags
 ifeq ($(OS), Windows_NT)
 CMAKE_FLAGS = -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -122,7 +128,7 @@ clangd-tidy: compile_commands
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j8
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(NPROC)
 
 ## Lint markdown files.
 ## `markdownlint-cli` should be installed:
