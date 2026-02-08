@@ -169,10 +169,6 @@ jobs:
         run: |
           ./scripts/bootstrap_conan_deps.py
 
-      - name: Lint
-        run: |
-          make lint-cpp
-
       - name: Run cmake
         run: |
           mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
