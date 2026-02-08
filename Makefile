@@ -122,7 +122,7 @@ clangd-tidy: compile_commands
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR)
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j8
 
 ## Lint markdown files.
 ## `markdownlint-cli` should be installed:
