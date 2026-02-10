@@ -104,8 +104,7 @@ anti_dpi = false
 
 [listener.tun]
 # Name of the interface used for connections made by the VPN client.
-# On Linux and Windows, it is detected automatically if not specified.
-# On macOS, it defaults to `en0` if not specified.
+# On Linux, Windows and macOS, it is detected automatically if not specified.
 # On Windows, an interface index as shown by `route print`, written as a string, may be used instead of a name.
 bound_if = ""
 # Routes in CIDR notation to set to the virtual interface

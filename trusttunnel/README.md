@@ -126,7 +126,7 @@ The configuration file uses TOML format. Below are all available settings.
 
 | Variable | Type | Default | Description |
 | -------- | ---- | ------- | ----------- |
-| `bound_if` | string | auto-detected | Network interface for VPN client connections (Linux/Windows: auto, macOS: `en0`) |
+| `bound_if` | string | auto-detected | Network interface for VPN client connections (Linux/Windows/macOS: auto) |
 | `included_routes` | array[string] | `["0.0.0.0/0", "2000::/3"]` | Routes in CIDR notation to set to the virtual interface |
 | `excluded_routes` | array[string] | `["0.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"]` | Routes in CIDR notation to exclude from VPN routing |
 | `mtu_size` | int | `1280` | MTU size on the virtual interface |
