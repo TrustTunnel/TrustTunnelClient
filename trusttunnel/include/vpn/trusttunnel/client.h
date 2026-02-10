@@ -97,7 +97,6 @@ private:
     Error<ConnectResultError> connect_to_server();
 
     void vpn_protect_socket(SocketProtectEvent *event);
-    int set_outbound_interface();
 
     VpnListener *make_tun_listener(ListenerSettings listener_settings);
     VpnListener *make_socks_listener(ListenerSettings listener_settings);

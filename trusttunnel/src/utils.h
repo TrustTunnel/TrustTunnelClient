@@ -15,7 +15,5 @@ public:
     static std::optional<ag::LogLevel> parse_loglevel(std::string_view level);
 
     static bool apply_cmd_args(TrustTunnelConfig &config, const cxxopts::ParseResult &args);
-
-    static void detect_bound_if(TrustTunnelConfig &config);
 };
 } // namespace ag

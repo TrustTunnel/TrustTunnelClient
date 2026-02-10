@@ -124,7 +124,6 @@ int main(int argc, char **argv) {
     if (!TrustTunnelCliUtils::apply_cmd_args(config, result)) {
         return 1;
     }
-    TrustTunnelCliUtils::detect_bound_if(config);
     ag::Logger::set_log_level(config.loglevel);
 
     vpn_post_quantum_group_set_enabled(config.post_quantum_group_enabled);
