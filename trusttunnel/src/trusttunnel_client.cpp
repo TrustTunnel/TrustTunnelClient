@@ -34,7 +34,7 @@ static const ag::Logger g_logger("TRUSTTUNNEL_CLIENT_APP");
 static std::atomic_bool keep_running{true};
 static std::condition_variable g_waiter;
 static std::mutex g_waiter_mutex;
-static TrustTunnelClient *g_client;
+static std::weak_ptr<TrustTunnelClient> g_client;
 
 static std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const TrustTunnelConfig &config);
 static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback();
@@ -50,13 +50,13 @@ static void sighandler(int sig) {
     signal(SIGINT, SIG_DFL);
     signal(SIGTERM, SIG_DFL);
 
-    if (g_client) {
+    if (auto client = g_client.lock()) {
 #ifndef _WIN32
         if (sig == SIGHUP) {
-            g_client->notify_network_change(ag::VPN_NS_NOT_CONNECTED);
-            std::thread t([]() {
+            client->notify_network_change(ag::VPN_NS_NOT_CONNECTED);
+            std::thread t([client]() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
-                g_client->notify_network_change(ag::VPN_NS_CONNECTED);
+                client->notify_network_change(ag::VPN_NS_CONNECTED);
             });
             t.detach();
             return;
@@ -135,14 +135,15 @@ int main(int argc, char **argv) {
             .connection_info_handler = get_connection_info_callback(),
     };
 
-    g_client = new TrustTunnelClient(std::move(config), std::move(callbacks));
+    auto client = std::make_shared<TrustTunnelClient>(std::move(config), std::move(callbacks));
+    g_client = client;
 
-    auto res = g_client->set_system_dns();
+    auto res = client->set_system_dns();
     if (res) {
         errlog(g_logger, "{}", res->str());
         return 1;
     }
-    res = g_client->connect(TrustTunnelClient::AutoSetup{});
+    res = client->connect(TrustTunnelClient::AutoSetup{});
     if (res) {
         errlog(g_logger, "{}", res->str());
         return 1;
@@ -167,8 +168,7 @@ int main(int argc, char **argv) {
     sleep_notifier.reset();
 #endif
 
-    g_client->disconnect();
-    delete g_client;
+    client->disconnect();
 
     return 0;
 }
