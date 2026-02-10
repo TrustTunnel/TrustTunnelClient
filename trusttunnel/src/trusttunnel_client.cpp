@@ -19,6 +19,7 @@
 #include "net/network_manager.h"
 #include "net/tls.h"
 #include "utils.h"
+#include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
 
@@ -137,6 +138,11 @@ int main(int argc, char **argv) {
 
     auto client = std::make_shared<TrustTunnelClient>(std::move(config), std::move(callbacks));
     g_client = client;
+    AutoNetworkMonitor network_monitor(client);
+    if (!network_monitor.start()) {
+        errlog(g_logger, "Failed to start network monitor");
+        return 1;
+    }
 
     auto res = client->set_system_dns();
     if (res) {
