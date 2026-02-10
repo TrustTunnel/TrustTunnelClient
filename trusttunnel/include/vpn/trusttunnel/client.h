@@ -87,6 +87,8 @@ public:
 
     bool process_client_packets(VpnPackets packets);
 
+    std::string_view get_bound_if() const;
+
     ~TrustTunnelClient();
 
 private:

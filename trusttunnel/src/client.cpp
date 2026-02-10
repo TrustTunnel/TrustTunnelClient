@@ -92,6 +92,13 @@ bool TrustTunnelClient::process_client_packets(VpnPackets packets) {
     return m_vpn && vpn_process_client_packets(m_vpn, packets);
 }
 
+std::string_view TrustTunnelClient::get_bound_if() const {
+    if (const auto *tun = std::get_if<TrustTunnelConfig::TunListener>(&m_config.listener)) {
+        return tun->bound_if;
+    }
+    return {};
+}
+
 void TrustTunnelClient::vpn_protect_socket(SocketProtectEvent *event) {
     const auto *tun = std::get_if<TrustTunnelConfig::TunListener>(&m_config.listener);
     if (tun == nullptr) {
