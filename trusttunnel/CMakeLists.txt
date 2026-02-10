@@ -19,6 +19,7 @@ set(SOURCE_FILES
         src/client.cpp
         src/utils.cpp
         src/connection_info.cpp
+        src/auto_network_monitor.cpp
         )
 
 add_library(vpnlibs_trusttunnel EXCLUDE_FROM_ALL ${SOURCE_FILES})
