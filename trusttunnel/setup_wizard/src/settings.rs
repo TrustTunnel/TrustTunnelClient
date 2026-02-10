@@ -277,7 +277,7 @@ impl SocksListener {
 
 impl TunListener {
     pub fn default_bound_if() -> String {
-        if cfg!(target_os = "macos") { "en0" } else { "" }.into()
+        "".into()
     }
 
     pub fn default_included_routes() -> Vec<String> {
