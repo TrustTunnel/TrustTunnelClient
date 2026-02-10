@@ -1,10 +1,10 @@
 #import "VpnClient.h"
+#import "vpn/trusttunnel/auto_network_monitor.h"
 #import "vpn/trusttunnel/client.h"
 #import "vpn/trusttunnel/connection_info.h"
 #import "net/network_manager.h"
 #import "common/socket_address.h"
 
-#import <common/network_monitor.h>
 #import <common/cidr_range.h>
 
 #import "toml++/toml.h"
@@ -17,13 +17,6 @@
 static ag::Logger g_logger("VPN_CLIENT");
 
 NS_ASSUME_NONNULL_BEGIN
-
-static void update_interface(const std::string &if_name) {
-    uint32_t if_index = if_nametoindex(if_name.c_str());
-    if (if_index != 0) {
-        ag::vpn_network_manager_set_outbound_interface(if_index);
-    }
-}
 
 #if TARGET_OS_IPHONE
 static ag::SocketAddress get_interface_address(const char *if_name, int family) {
@@ -157,8 +150,8 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 }
 
 @interface VpnClient () {
-    std::unique_ptr<ag::TrustTunnelClient> _native_client;
-    std::unique_ptr<ag::utils::NetworkMonitor> _network_monitor;
+    std::shared_ptr<ag::TrustTunnelClient> _native_client;
+    std::unique_ptr<ag::AutoNetworkMonitor> _network_monitor;
     NEPacketTunnelFlow *_tunnelFlow;
     id _readPacketsHandler;
 }
@@ -241,26 +234,19 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
                 connectionInfoHandler(str);
             }
         };
-        self->_native_client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
+        self->_native_client = std::make_shared<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
         __weak typeof(self) weakSelf = self;
-        self->_network_monitor = ag::utils::create_network_monitor(
-            [weakSelf](const std::string &if_name, bool is_connected) {
-                update_interface(if_name);
-                __strong typeof(self) strongSelf = weakSelf;
-                if (strongSelf->_native_client) {
-                    strongSelf->_native_client->notify_network_change(is_connected ? ag::VPN_NS_CONNECTED : ag::VPN_NS_NOT_CONNECTED);
-                }
-            }
-        );
-        self->_network_monitor->start(nullptr);
-        std::string if_name = self->_network_monitor->get_default_interface();
-        update_interface(if_name);
+        self->_network_monitor = std::make_unique<ag::AutoNetworkMonitor>(self->_native_client);
+        if (!self->_network_monitor->start()) {
+            errlog(g_logger, "Failed to start network monitor");
+            return nil;
+        }
     }
     return self;
 }
 
 - (void)dealloc {
-    _network_monitor->stop(); // shuts down monitor before self is gone
+    _network_monitor->stop();
     _network_monitor = nullptr;
 }
 
