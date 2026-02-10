@@ -157,11 +157,15 @@ int main(int argc, char **argv) {
 
 #ifdef __APPLE__
     auto sleep_notifier = std::make_unique<AppleSleepNotifier>(
-            [] {
-                g_client->notify_sleep();
+            [client_weak = std::weak_ptr(client)] {
+                if (auto client = client_weak.lock()) {
+                    client->notify_sleep();
+                }
             },
-            [] {
-                g_client->notify_wake();
+            [client_weak = std::weak_ptr(client)] {
+                if (auto client = client_weak.lock()) {
+                    client->notify_wake();
+                }
             });
 #endif
 
