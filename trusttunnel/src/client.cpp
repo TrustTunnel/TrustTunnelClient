@@ -81,44 +81,6 @@ std::string_view TrustTunnelClient::get_bound_if() const {
     return {};
 }
 
-void TrustTunnelClient::vpn_protect_socket(SocketProtectEvent *event) {
-    const auto *tun = std::get_if<TrustTunnelConfig::TunListener>(&m_config.listener);
-    if (tun == nullptr) {
-        return;
-    }
-#ifdef __APPLE__
-    uint32_t idx = vpn_network_manager_get_outbound_interface();
-    if (idx == 0) {
-        return;
-    }
-    if (event->peer->sa_family == AF_INET) {
-        if (setsockopt(event->fd, IPPROTO_IP, IP_BOUND_IF, &idx, sizeof(idx)) != 0) {
-            event->result = -1;
-        }
-    } else if (event->peer->sa_family == AF_INET6) {
-        if (setsockopt(event->fd, IPPROTO_IPV6, IPV6_BOUND_IF, &idx, sizeof(idx)) != 0) {
-            event->result = -1;
-        }
-    }
-#endif // __APPLE__
-
-#ifdef __linux__
-    if (!tun->bound_if.empty()) {
-        if (setsockopt(event->fd, SOL_SOCKET, SO_BINDTODEVICE, tun->bound_if.data(), (socklen_t) tun->bound_if.size())
-                != 0) {
-            event->result = -1;
-        }
-    }
-#endif
-
-#ifdef _WIN32
-    bool protect_success = vpn_win_socket_protect(event->fd, event->peer);
-    if (!protect_success) {
-        event->result = -1;
-    }
-#endif
-}
-
 Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::set_system_dns() {
 #ifdef _WIN32
     uint32_t if_index = vpn_win_detect_active_if();
