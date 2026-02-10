@@ -235,7 +235,6 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
             }
         };
         self->_native_client = std::make_shared<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
-        __weak typeof(self) weakSelf = self;
         self->_network_monitor = std::make_unique<ag::AutoNetworkMonitor>(self->_native_client);
         if (!self->_network_monitor->start()) {
             errlog(g_logger, "Failed to start network monitor");
