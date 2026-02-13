@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 0.99.118
+
 - [Feature] Add a new error code, `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, indicating that an endpoint's certificate
             could not be verified. This is a recoverable error which may be handled by re-requesting information from
             the backend and reconnecting, similar to codes `VPN_EC_AUTH_REQUIRED` and `VPN_EC_LOCATION_UNAVAILABLE`.
