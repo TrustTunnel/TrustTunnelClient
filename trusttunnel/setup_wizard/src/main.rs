@@ -20,6 +20,7 @@ const CREDENTIALS_PARAM_NAME: &str = "creds";
 const CERTIFICATE_FILE_PARAM_NAME: &str = "cert";
 const SETTINGS_FILE_PARAM_NAME: &str = "settings";
 const ENDPOINT_CONFIG_PARAM_NAME: &str = "endpoint_config";
+const CUSTOM_SNI_PARAM_NAME: &str = "custom_sni";
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Mode {
@@ -37,6 +38,7 @@ pub fn get_mode() -> Mode {
 pub struct PredefinedParameters {
     endpoint_addresses: Option<Vec<String>>,
     hostname: Option<String>,
+    custom_sni: Option<String>,
     credentials: Option<(String, String)>,
     certificate: Option<String>,
     endpoint_config: Option<String>,
@@ -56,6 +58,7 @@ impl PredefinedParameters {
                 .map(|x| x.splitn(2, ':'))
                 .and_then(|mut x| x.next().zip(x.next()))
                 .map(|(a, b)| (a.to_string(), b.to_string())),
+            custom_sni: args.get_one::<String>(CUSTOM_SNI_PARAM_NAME).cloned(),
             certificate: args.get_one::<String>(CERTIFICATE_FILE_PARAM_NAME).cloned(),
             endpoint_config: args.get_one::<String>(ENDPOINT_CONFIG_PARAM_NAME).cloned(),
             settings_file: args.get_one::<String>(SETTINGS_FILE_PARAM_NAME).cloned(),
@@ -144,6 +147,10 @@ Values of each parameter occurence are gathered into a list."#,
                 .required_if_eq(MODE_PARAM_NAME, MODE_NON_INTERACTIVE)
                 .help(r#"Path to store the library settings file.
 Required in non-interactive mode."#),
+            clap::Arg::new(CUSTOM_SNI_PARAM_NAME)
+                .long("custom_sni")
+                .action(clap::ArgAction::Set)
+                .help(format!("{}.", Endpoint::doc_custom_sni())),
             clap::Arg::new(ENDPOINT_CONFIG_PARAM_NAME)
                 .long("endpoint_config")
                 .short('e')

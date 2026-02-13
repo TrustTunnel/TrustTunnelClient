@@ -87,6 +87,8 @@ certificate = ""
 upstream_protocol = "{}"
 {}
 anti_dpi = false
+{}
+custom_sni = ""
 "#,
         Endpoint::doc().to_toml_comment(),
         Endpoint::doc_hostname().to_toml_comment(),
@@ -101,6 +103,7 @@ anti_dpi = false
         Endpoint::doc_upstream_protocol().to_toml_comment(),
         Endpoint::default_upstream_protocol(),
         Endpoint::doc_anti_dpi().to_toml_comment(),
+        Endpoint::doc_custom_sni().to_toml_comment(),
     )
 });
 

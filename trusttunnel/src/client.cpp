@@ -257,9 +257,17 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
     };
 
     for (const auto &endpoint : m_config.location.endpoints) {
-        if (auto pos = endpoint.hostname.find('|'); pos != std::string::npos) {
-            hostnames.emplace_back(endpoint.hostname.substr(0, pos));
-            remote_ids.emplace_back(endpoint.hostname.substr(pos + 1));
+        auto pipe_pos = endpoint.hostname.find('|');
+        if (!endpoint.custom_sni.empty() && pipe_pos != std::string::npos) {
+            return make_error(
+                    ConnectResultError{}, "Both custom_sni and pipe syntax in hostname are specified, use only one");
+        }
+        if (!endpoint.custom_sni.empty()) {
+            hostnames.emplace_back(endpoint.custom_sni);
+            remote_ids.emplace_back(endpoint.hostname);
+        } else if (pipe_pos != std::string::npos) {
+            hostnames.emplace_back(endpoint.hostname.substr(0, pipe_pos));
+            remote_ids.emplace_back(endpoint.hostname.substr(pipe_pos + 1));
         } else {
             hostnames.emplace_back(endpoint.hostname);
             remote_ids.emplace_back("");

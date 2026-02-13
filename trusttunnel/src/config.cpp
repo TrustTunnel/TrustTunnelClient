@@ -72,11 +72,13 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         return std::nullopt;
     }
 
+    auto custom_sni = config["custom_sni"].value_or(std::string{});
+
     if (const auto *x = config["addresses"].as_array(); x != nullptr) {
         for (const auto &a : *x) {
             if (std::optional addr = a.value<std::string_view>(); addr.has_value() && !addr->empty()) {
-                location.endpoints.emplace_back(
-                        TrustTunnelConfig::Endpoint{.hostname = *hostname, .address = std::string(addr.value())});
+                location.endpoints.emplace_back(TrustTunnelConfig::Endpoint{
+                        .hostname = *hostname, .address = std::string(addr.value()), .custom_sni = custom_sni});
             }
         }
     }

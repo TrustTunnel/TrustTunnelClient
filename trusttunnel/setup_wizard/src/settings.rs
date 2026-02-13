@@ -152,6 +152,10 @@ If not specified, the endpoint certificate is verified using the system storage.
         #{doc("Is anti-DPI measures should be enabled")}
         #[serde(default)]
         pub anti_dpi: bool,
+        #{doc(r#"Custom SNI value for TLS handshake.
+If set, this value is used as the TLS SNI instead of the hostname."#)}
+        #[serde(default)]
+        pub custom_sni: String,
     }
 }
 
@@ -443,6 +447,10 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .and_then(|x| x.anti_dpi.into())
             .or(opt_field!(template, anti_dpi).cloned())
             .unwrap_or_else(Endpoint::default_anti_dpi),
+        custom_sni: endpoint_config
+            .as_ref()
+            .and_then(|x| empty_to_none(x.custom_sni.clone()))
+            .unwrap_or_default(),
         ..Default::default()
     };
 
@@ -497,6 +505,14 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 .or(opt_field!(template, hostname).cloned())
                 .or(hostname),
         );
+        x.custom_sni = empty_to_none(ask_for_input(
+            &format!("{}\nLeave empty if not needed.", Endpoint::doc_custom_sni()),
+            predefined_params
+                .custom_sni
+                .or(opt_field!(template, custom_sni).cloned())
+                .or(Some("".to_string())),
+        ))
+        .unwrap_or_default();
         x.certificate = certificate;
     }
 
@@ -628,6 +644,8 @@ pub struct EndpointConfig {
     upstream_protocol: String,
     #[serde(default)]
     anti_dpi: bool,
+    #[serde(default)]
+    custom_sni: String,
 }
 
 #[derive(Debug)]
