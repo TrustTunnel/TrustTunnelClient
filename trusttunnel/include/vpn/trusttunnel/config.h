@@ -17,6 +17,7 @@ struct TrustTunnelConfig {
     struct Endpoint {
         std::string hostname;
         std::string address;
+        std::string custom_sni;
     };
 
     struct Location {

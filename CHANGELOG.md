@@ -1,5 +1,10 @@
 # CHANGELOG
 
+- [Feature] Add `custom_sni` field to the endpoint configuration.
+  This allows specifying the TLS SNI value separately from the hostname, replacing the
+  pipe (`|`) syntax in the `hostname` field. The old syntax is still supported for backward compatibility,
+  but using both simultaneously is now an error.
+
 ## 0.99.118
 
 - [Feature] Add a new error code, `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, indicating that an endpoint's certificate

@@ -72,6 +72,8 @@ hostname = ""
 {}
 addresses = []
 {}
+custom_sni = ""
+{}
 has_ipv6 = {}
 {}
 username = ""
@@ -91,6 +93,7 @@ anti_dpi = false
         Endpoint::doc().to_toml_comment(),
         Endpoint::doc_hostname().to_toml_comment(),
         Endpoint::doc_addresses().to_toml_comment(),
+        Endpoint::doc_custom_sni().to_toml_comment(),
         Endpoint::doc_has_ipv6().to_toml_comment(),
         Endpoint::default_has_ipv6(),
         Endpoint::doc_username().to_toml_comment(),
