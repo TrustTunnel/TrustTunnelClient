@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 1.0.6
+
 - [Feature] Support hostnames in endpoint addresses. Hostnames are resolved via DNS at connect time,
             producing multiple endpoints for each resolved IP address.
 
