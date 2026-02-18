@@ -32,6 +32,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private var currentStartId: Int = -1
 
         private var vpnClient: VpnClient? = null
+        private var configStorage: VpnConfigStorage? = null
         // The last VpnState observed by `onStateChanged`
         private var lastState: Int = 0
         private const val ACTION_START = "Start"
@@ -42,6 +43,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private val ADGUARD_DNS_SERVERS = listOf("46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff")
         private val FAKE_DNS_SERVER = listOf("198.18.53.53")
 
+        private fun getConfigStorage(context: Context): VpnConfigStorage {
+            return configStorage ?: VpnConfigStorage(context).also { configStorage = it }
+        }
+
         private fun start(context: Context, intent: Intent, config: String?) {
             try {
                 if (!isPrepared(context)) {
@@ -49,6 +54,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                     return
                 }
                 config?.apply {
+                    getConfigStorage(context).save(config)
                     intent.putExtra(PARAM_CONFIG, config)
                 }
                 context.startForegroundService(intent)
@@ -57,7 +63,10 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             }
         }
 
-        fun stop(context: Context)                  = start(context, ACTION_STOP, null)
+        fun stop(context: Context) {
+            getConfigStorage(context).clear()
+            start(context, ACTION_STOP, null)
+        }
         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
         private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
 
@@ -117,10 +126,15 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = synchronized(SYNC) {
-        if (intent == null) {
-            LOG.info("Received a null intent, doing nothing")
-            stopSelf()
-            return START_NOT_STICKY
+        val action: String?
+        val config: String?
+        if (intent == null || (intent.action == null && intent.getStringExtra(PARAM_CONFIG) == null)) {
+            LOG.info("System-triggered start (Always-On VPN), loading persisted config")
+            action = ACTION_START
+            config = getConfigStorage(applicationContext).load()
+        } else {
+            action = intent.action
+            config = intent.getStringExtra(PARAM_CONFIG)
         }
 
         // Foreground service must spawn its notification in the first 5 seconds of the service lifetime
@@ -135,8 +149,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         singleThread.execute {
             try {
                 currentStartId = startId
-                val action = intent.action
-                val config = intent.getStringExtra(PARAM_CONFIG)
                 LOG.info("Start executing action=$action flags=$flags startId=$startId")
                 when (action) {
                     ACTION_START    -> processStarting(config, startId)
