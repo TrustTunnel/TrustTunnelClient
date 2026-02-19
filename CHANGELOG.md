@@ -1,5 +1,9 @@
 # CHANGELOG
 
+- [Feature] Support [deep-link](https://github.com/TrustTunnel/TrustTunnel/blob/master/DEEP_LINK.md) config import.
+    - Add `--deeplink` flag to setup_wizard non-interactive mode.
+    - Add an interactive menu option to import config from a deep-link.
+
 ## 1.0.6
 
 - [Feature] Support hostnames in endpoint addresses. Hostnames are resolved via DNS at connect time,

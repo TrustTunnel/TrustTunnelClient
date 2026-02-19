@@ -304,6 +304,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "indexmap"
 version = "2.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -586,6 +592,7 @@ dependencies = [
  "serde",
  "toml",
  "toml_edit",
+ "trusttunnel-deeplink",
  "windres",
  "x509-parser",
 ]
@@ -737,6 +744,17 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "trusttunnel-deeplink"
+version = "0.1.0"
+source = "git+https://github.com/TrustTunnel/TrustTunnel#8d5f207a38a7be66e7cb5dfa5f41cb9e24edd507"
+dependencies = [
+ "base64",
+ "hex",
+ "rustls-pemfile",
+ "thiserror",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ const CERTIFICATE_FILE_PARAM_NAME: &str = "cert";
 const SETTINGS_FILE_PARAM_NAME: &str = "settings";
 const ENDPOINT_CONFIG_PARAM_NAME: &str = "endpoint_config";
 const CUSTOM_SNI_PARAM_NAME: &str = "custom_sni";
+const DEEPLINK_PARAM_NAME: &str = "deeplink";
 
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Mode {
@@ -43,6 +44,7 @@ pub struct PredefinedParameters {
     certificate: Option<String>,
     endpoint_config: Option<String>,
     settings_file: Option<String>,
+    pub deeplink: Option<String>,
 }
 
 impl PredefinedParameters {
@@ -62,6 +64,7 @@ impl PredefinedParameters {
             certificate: args.get_one::<String>(CERTIFICATE_FILE_PARAM_NAME).cloned(),
             endpoint_config: args.get_one::<String>(ENDPOINT_CONFIG_PARAM_NAME).cloned(),
             settings_file: args.get_one::<String>(SETTINGS_FILE_PARAM_NAME).cloned(),
+            deeplink: args.get_one::<String>(DEEPLINK_PARAM_NAME).cloned(),
         }
     }
 }
@@ -82,9 +85,12 @@ fn main() {
 
 TYPICAL WORKFLOW:
 1. Get the endpoint config file from your TrustTunnel endpoint server
-   (generated via: ./trusttunnel_endpoint vpn.toml hosts.toml -c <user> -a <ip>)
+   (generated via: ./trusttunnel_endpoint vpn.toml hosts.toml -c <user> -a <ip> -f toml)
 2. Run: ./setup_wizard --mode non-interactive --endpoint_config <config> --settings trusttunnel_client.toml
 3. Start client: ./trusttunnel_client -c trusttunnel_client.toml
+
+Alternatively, import from a deep-link URI:
+  ./setup_wizard --mode non-interactive --deeplink "tt://..." --settings trusttunnel_client.toml
 
 For advanced settings (vpn_mode, killswitch, DNS upstreams, exclusions),
 edit the generated TOML file directly. See README.md for all options."#)
@@ -94,6 +100,9 @@ edit the generated TOML file directly. See README.md for all options."#)
 
     # Non-interactive with endpoint config:
     ./setup_wizard -m non-interactive -e endpoint_config.toml --settings client.toml
+
+    # Non-interactive with deep-link URI:
+    ./setup_wizard -m non-interactive -d "tt://..." --settings client.toml
 
     # Non-interactive with manual parameters:
     ./setup_wizard -m non-interactive \
@@ -156,7 +165,15 @@ Required in non-interactive mode."#),
                 .short('e')
                 .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .conflicts_with("separate_options")
-                .help(format!("Path to the client config that was generated on endpoint\nConflicts with --{}, --{}, --{}", HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME)),
+                .conflicts_with(DEEPLINK_PARAM_NAME)
+                .help(format!("Path to the client config that was generated on endpoint\nConflicts with --{}, --{}, --{}, --{}", HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME, DEEPLINK_PARAM_NAME)),
+            clap::Arg::new(DEEPLINK_PARAM_NAME)
+                .long("deeplink")
+                .short('d')
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .conflicts_with("separate_options")
+                .conflicts_with(ENDPOINT_CONFIG_PARAM_NAME)
+                .help(format!("A tt:// deep-link URI containing the endpoint configuration.\nConflicts with --endpoint_config and manual options (--{}, --{}, --{}).", ENDPOINT_ADDRESS_PARAM_NAME, HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME)),
         ])
         .group(
             clap::ArgGroup::new("separate_options")
@@ -184,7 +201,9 @@ Required in non-interactive mode."#),
     }
 
     if get_mode() == Mode::NonInteractive
-        && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME) || args.contains_id(HOSTNAME_PARAM_NAME))
+        && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME)
+            || args.contains_id(HOSTNAME_PARAM_NAME)
+            || args.contains_id(DEEPLINK_PARAM_NAME))
     {
         command
             .error(
@@ -192,14 +211,18 @@ Required in non-interactive mode."#),
                 r#"Additional arguments required for non-interactive mode
 
 Must be provided either:
-1. All required options separatelly:
+1. All required options separately:
    --address <address> --hostname <host> --creds <username>:<password>
 
 OR
 2. A configuration file generated on endpoint:
    --endpoint_config <endpoint_config>
 
-Note: Cannot mix both variants"#,
+OR
+3. A deep-link URI:
+   --deeplink "tt://..."
+
+Note: Cannot mix these variants"#,
             )
             .exit();
     }

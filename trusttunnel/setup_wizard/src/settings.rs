@@ -4,6 +4,7 @@ use crate::user_interaction::{
 };
 use crate::Mode;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::ops::Not;
 use x509_parser::extensions::GeneralName;
@@ -351,20 +352,61 @@ pub fn build(template: Option<&Settings>) -> Settings {
 
 fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
     let predefined_params = crate::get_predefined_params().clone();
-    let endpoint_config: Option<EndpointConfig> = empty_to_none(ask_for_input(
-        "Path to endpoint config, empty if no",
-        predefined_params.endpoint_config.or(Some("".to_string())),
-    ))
-    .and_then(|x| {
-        fs::read_to_string(&x)
-            .map_err(|e| panic!("Failed to read endpoint config file:\n{}", e))
-            .ok()
-    })
-    .and_then(|x| {
-        toml::de::from_str(x.as_str())
-            .map_err(|e| panic!("Failed to parse endpoint config:\n{}", e))
-            .ok()
-    });
+
+    // Deep-link import: if provided via CLI, decode and return immediately
+    if let Some(ref deeplink_uri) = predefined_params.deeplink {
+        return endpoint_from_deeplink(deeplink_uri);
+    }
+
+    // In interactive mode, offer a choice between config file and deep-link
+    let endpoint_config: Option<EndpointConfig> =
+        if crate::get_mode() == Mode::Interactive && predefined_params.endpoint_config.is_none() {
+            let selection = crate::user_interaction::select_index(
+                "How would you like to provide endpoint configuration?",
+                &["Endpoint config file", "Deep-link URI (tt://...)"],
+                Some(0),
+            );
+            match selection {
+                0 => {
+                    // Endpoint config file path
+                    empty_to_none(ask_for_input(
+                        "Path to endpoint config, empty if no",
+                        Some("".to_string()),
+                    ))
+                    .and_then(|x| {
+                        fs::read_to_string(&x)
+                            .map_err(|e| panic!("Failed to read endpoint config file:\n{}", e))
+                            .ok()
+                    })
+                    .and_then(|x| {
+                        toml::de::from_str(x.as_str())
+                            .map_err(|e| panic!("Failed to parse endpoint config:\n{}", e))
+                            .ok()
+                    })
+                }
+                1 => {
+                    // Deep-link URI
+                    let uri = ask_for_input::<String>("Paste deep-link URI", None);
+                    return endpoint_from_deeplink(&uri);
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            empty_to_none(ask_for_input(
+                "Path to endpoint config, empty if no",
+                predefined_params.endpoint_config.or(Some("".to_string())),
+            ))
+            .and_then(|x| {
+                fs::read_to_string(&x)
+                    .map_err(|e| panic!("Failed to read endpoint config file:\n{}", e))
+                    .ok()
+            })
+            .and_then(|x| {
+                toml::de::from_str(x.as_str())
+                    .map_err(|e| panic!("Failed to parse endpoint config:\n{}", e))
+                    .ok()
+            })
+        };
     let mut x = Endpoint {
         addresses: endpoint_config
             .as_ref()
@@ -686,4 +728,223 @@ fn parse_cert(contents: String) -> Option<Cert> {
             .unwrap_or_default(),
         expiration_date: cert.validity.not_after.to_string(),
     })
+}
+
+#[derive(Debug)]
+pub struct CertInfo {
+    pub common_name: String,
+    pub expiration_date: String,
+}
+
+/// Helper struct for pretty-printing Endpoint
+pub struct EndpointSummary<'a> {
+    endpoint: &'a Endpoint,
+    cert_infos: &'a [CertInfo],
+}
+
+impl<'a> EndpointSummary<'a> {
+    pub fn new(endpoint: &'a Endpoint, cert_infos: &'a [CertInfo]) -> Self {
+        Self {
+            endpoint,
+            cert_infos,
+        }
+    }
+}
+
+impl fmt::Display for EndpointSummary<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ep = self.endpoint;
+
+        let addresses = ep.addresses.join(", ");
+        let custom_sni = if ep.custom_sni.is_empty() {
+            "(none)"
+        } else {
+            &ep.custom_sni
+        };
+        let client_random = if ep.client_random.is_empty() {
+            "(none)"
+        } else {
+            &ep.client_random
+        };
+
+        let cert_display = if self.cert_infos.is_empty() {
+            if ep.certificate.is_some() {
+                "(present)".to_string()
+            } else {
+                "(none)".to_string()
+            }
+        } else {
+            self.cert_infos
+                .iter()
+                .map(|c| format!("CN={} (expires {})", c.common_name, c.expiration_date))
+                .collect::<Vec<_>>()
+                .join("\n                     ")
+        };
+
+        write!(
+            f,
+            "
+  Hostname:          {}
+  Addresses:         {}
+  Custom SNI:        {}
+  IPv6:              {}
+  Username:          {}
+  Password:          ******
+  Client random:     {}
+  Skip verification: {}
+  Certificate:       {}
+  Protocol:          {}
+  Anti-DPI:          {}",
+            ep.hostname,
+            addresses,
+            custom_sni,
+            if ep.has_ipv6 { "yes" } else { "no" },
+            ep.username,
+            client_random,
+            if ep.skip_verification { "yes" } else { "no" },
+            cert_display,
+            ep.upstream_protocol,
+            if ep.anti_dpi { "yes" } else { "no" },
+        )
+    }
+}
+
+fn verify_deeplink_certificates(der_bytes: &[u8]) -> Vec<CertInfo> {
+    let pem = trusttunnel_deeplink::cert::der_to_pem(der_bytes)
+        .expect("Failed to convert deep-link certificate from DER to PEM");
+
+    let certs = rustls_pemfile::certs(&mut pem.as_bytes())
+        .expect("Failed to parse PEM certificates from deep-link");
+
+    if certs.is_empty() {
+        panic!("Deep-link certificate field contains no valid certificates");
+    }
+
+    let mut cert_infos = Vec::new();
+    for (i, cert_der) in certs.iter().enumerate() {
+        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
+            .unwrap_or_else(|e| panic!("Failed to parse certificate #{}: {}", i + 1, e));
+
+        if !cert.validity.is_valid() {
+            panic!(
+                "Certificate #{} (CN={}) is not valid: not_before={}, not_after={}",
+                i + 1,
+                cert.subject,
+                cert.validity.not_before,
+                cert.validity.not_after
+            );
+        }
+
+        let cn = {
+            let subj = cert.subject.to_string();
+            subj.strip_prefix("CN=").map(String::from).unwrap_or(subj)
+        };
+
+        cert_infos.push(CertInfo {
+            common_name: cn,
+            expiration_date: cert.validity.not_after.to_string(),
+        });
+    }
+
+    cert_infos
+}
+
+fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) {
+    println!("{}\n", EndpointSummary::new(endpoint, cert_infos));
+
+    if crate::get_mode() == Mode::Interactive
+        && !ask_for_agreement_with_default("Accept this configuration?", false)
+    {
+        eprintln!("Deep-link configuration declined by user.");
+        std::process::exit(1);
+    }
+}
+
+pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
+    let config = trusttunnel_deeplink::decode(uri)
+        .unwrap_or_else(|e| panic!("Failed to decode deep-link URI: {}", e));
+
+    let cert_infos = config
+        .certificate
+        .as_ref()
+        .map(|der| verify_deeplink_certificates(der))
+        .unwrap_or_default();
+
+    let certificate_pem = config.certificate.as_ref().map(|der| {
+        trusttunnel_deeplink::cert::der_to_pem(der)
+            .expect("Failed to convert deep-link certificate from DER to PEM")
+    });
+
+    let endpoint = Endpoint {
+        hostname: config.hostname,
+        addresses: config.addresses.iter().map(|a| a.to_string()).collect(),
+        has_ipv6: config.has_ipv6,
+        username: config.username,
+        password: config.password,
+        client_random: config.client_random_prefix.unwrap_or_default(),
+        skip_verification: config.skip_verification,
+        certificate: certificate_pem,
+        upstream_protocol: config.upstream_protocol.to_string(),
+        anti_dpi: config.anti_dpi,
+        custom_sni: config.custom_sni.unwrap_or_default(),
+    };
+
+    display_and_confirm_endpoint(&endpoint, &cert_infos);
+
+    endpoint
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::SocketAddr;
+    use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
+
+    #[test]
+    fn test_deeplink_field_mapping() {
+        // Encode a config, then decode it and verify the field mapping
+        let config = DeepLinkConfig {
+            hostname: "test.host".to_string(),
+            addresses: vec![
+                "10.0.0.1:443".parse::<SocketAddr>().unwrap(),
+                "[::1]:8443".parse::<SocketAddr>().unwrap(),
+            ],
+            username: "user1".to_string(),
+            password: "pass1".to_string(),
+            client_random_prefix: Some("aabb".to_string()),
+            custom_sni: Some("sni.host".to_string()),
+            has_ipv6: false,
+            skip_verification: true,
+            certificate: None,
+            upstream_protocol: Protocol::Http3,
+            anti_dpi: true,
+        };
+
+        let uri = trusttunnel_deeplink::encode(&config).unwrap();
+        let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
+
+        assert_eq!(decoded.hostname, "test.host");
+        assert_eq!(decoded.addresses.len(), 2);
+        assert_eq!(decoded.username, "user1");
+        assert_eq!(decoded.password, "pass1");
+        assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
+        assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
+        assert!(!decoded.has_ipv6);
+        assert!(decoded.skip_verification);
+        assert!(decoded.certificate.is_none());
+        assert_eq!(decoded.upstream_protocol, Protocol::Http3);
+        assert!(decoded.anti_dpi);
+    }
+
+    #[test]
+    fn test_verify_deeplink_certificates_empty() {
+        let result = std::panic::catch_unwind(|| verify_deeplink_certificates(&[]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_deeplink_certificates_invalid_der() {
+        let result = std::panic::catch_unwind(|| verify_deeplink_certificates(&[0xFF, 0x00, 0x01]));
+        assert!(result.is_err());
+    }
 }
