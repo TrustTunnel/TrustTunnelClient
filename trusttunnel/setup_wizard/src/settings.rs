@@ -1,3 +1,5 @@
+pub use trusttunnel_settings::Endpoint;
+
 use crate::user_interaction::{
     ask_for_agreement, ask_for_agreement_with_default, ask_for_input, ask_for_password,
     select_variant,
@@ -119,48 +121,6 @@ One of the following kinds:
     }
 }
 
-docgen! {
-    #{doc("The set of endpoint connection settings")}
-    #[derive(Default, Deserialize, Serialize)]
-    pub struct Endpoint {
-        #{doc("Endpoint host name, used for TLS session establishment")}
-        pub hostname: String,
-        #{doc(r#"Endpoint addresses (IP:port or hostname:port).
-The exact address is selected by the pinger. Hostnames are resolved via DNS
-at connect time. Absence of IPv6 addresses in the list makes the VPN client
-reject IPv6 connections which must be routed through the endpoint with
-unreachable code."#)}
-        pub addresses: Vec<String>,
-        #{doc("Whether IPv6 traffic can be routed through the endpoint")}
-        #[serde(default = "Endpoint::default_has_ipv6")]
-        pub has_ipv6: bool,
-        #{doc("Username for authorization")}
-        pub username: String,
-        #{doc("Password for authorization")}
-        pub password: String,
-        #{doc("TLS client random prefix and mask (hex string, format: prefix[/mask])")}
-        #[serde(default)]
-        pub client_random: String,
-        #{doc(r#"Skip the endpoint certificate verification?
-That is, any certificate is accepted with this one set to true."#)}
-        #[serde(default)]
-        pub skip_verification: bool,
-        #{doc(r#"Endpoint certificate in PEM format.
-If not specified, the endpoint certificate is verified using the system storage."#)}
-        pub certificate: Option<String>,
-        #{doc("Protocol to be used to communicate with the endpoint [http2, http3]")}
-        #[serde(default)]
-        pub upstream_protocol: String,
-        #{doc("Is anti-DPI measures should be enabled")}
-        #[serde(default)]
-        pub anti_dpi: bool,
-        #{doc(r#"Custom SNI value for TLS handshake.
-If set, this value is used as the TLS SNI instead of the hostname."#)}
-        #[serde(default)]
-        pub custom_sni: String,
-    }
-}
-
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Listener {
@@ -235,24 +195,6 @@ impl Settings {
         // Keep in sync with common/include/vpn/default_settings.h
         // VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED
         true
-    }
-}
-
-impl Endpoint {
-    pub fn default_upstream_protocol() -> String {
-        "http2".into()
-    }
-
-    pub fn default_has_ipv6() -> bool {
-        true
-    }
-
-    pub fn default_anti_dpi() -> bool {
-        false
-    }
-
-    pub fn default_skip_verification() -> bool {
-        false
     }
 }
 
@@ -870,24 +812,8 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
         .map(|der| verify_deeplink_certificates(der))
         .unwrap_or_default();
 
-    let certificate_pem = config.certificate.as_ref().map(|der| {
-        trusttunnel_deeplink::cert::der_to_pem(der)
-            .expect("Failed to convert deep-link certificate from DER to PEM")
-    });
-
-    let endpoint = Endpoint {
-        hostname: config.hostname,
-        addresses: config.addresses.iter().map(|a| a.to_string()).collect(),
-        has_ipv6: config.has_ipv6,
-        username: config.username,
-        password: config.password,
-        client_random: config.client_random_prefix.unwrap_or_default(),
-        skip_verification: config.skip_verification,
-        certificate: certificate_pem,
-        upstream_protocol: config.upstream_protocol.to_string(),
-        anti_dpi: config.anti_dpi,
-        custom_sni: config.custom_sni.unwrap_or_default(),
-    };
+    let endpoint = trusttunnel_settings::endpoint_from_deeplink_config(config)
+        .unwrap_or_else(|e| panic!("Failed to convert deep-link config: {}", e));
 
     display_and_confirm_endpoint(&endpoint, &cert_infos);
 

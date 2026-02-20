@@ -90,8 +90,27 @@ else ()
     set(TARGET_SUBDIR release)
 endif ()
 
+set(RUST_WORKSPACE_TARGET_DIR ${CMAKE_CURRENT_BINARY_DIR}/rust_workspace)
+set(DEEPLINK_FFI_LIBNAME ${CMAKE_STATIC_LIBRARY_PREFIX}trusttunnel_deeplink_ffi${CMAKE_STATIC_LIBRARY_SUFFIX})
+
 set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=")
-if (APPLE)
+if (ANDROID)
+    if (ANDROID_ABI STREQUAL "arm64-v8a")
+        set(CARGO_TARGET ndk --target=aarch64-linux-android --platform=21 build)
+        set(TARGET_SUBDIR "aarch64-linux-android/${TARGET_SUBDIR}")
+    elseif (ANDROID_ABI STREQUAL "armeabi-v7a")
+        set(CARGO_TARGET ndk --target=armv7-linux-androideabi --platform=21 build)
+        set(TARGET_SUBDIR "armv7-linux-androideabi/${TARGET_SUBDIR}")
+    elseif (ANDROID_ABI STREQUAL "x86_64")
+        set(CARGO_TARGET ndk --target=x86_64-linux-android --platform=21 build)
+        set(TARGET_SUBDIR "x86_64-linux-android/${TARGET_SUBDIR}")
+    else ()
+        message(FATAL_ERROR "Unsupported Android ABI: ${ANDROID_ABI}")
+    endif ()
+    if (DEFINED ENV{ANDROID_HOME})
+        set(ANDROID_HOME_VAR "ANDROID_HOME=$ENV{ANDROID_HOME}")
+    endif ()
+elseif (APPLE)
     if (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
         set(CARGO_TARGET --target x86_64-apple-darwin)
         set(TARGET_SUBDIR "x86_64-apple-darwin/${TARGET_SUBDIR}")
@@ -99,7 +118,7 @@ if (APPLE)
         set(CARGO_TARGET --target aarch64-apple-darwin)
         set(TARGET_SUBDIR "aarch64-apple-darwin/${TARGET_SUBDIR}")
     endif ()
-endif (APPLE)
+endif ()
 
 if (WIN32 AND MSVC)
     if (DEFINED ENV{VSCMD_ARG_TGT_ARCH})
@@ -158,33 +177,64 @@ endif ()
 
 message("Rust target triple: ${RUST_TARGET_TRIPLE}")
 
-ExternalProject_Add(setup_wizard
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/setup_wizard
-        BUILD_ALWAYS TRUE
-        UPDATE_COMMAND ""
-        PATCH_COMMAND ""
-        CONFIGURE_COMMAND ""
-        BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=<BINARY_DIR> ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
-        BUILD_COMMAND     cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
-        BUILD_COMMAND     --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
-        BUILD_COMMAND     --bin setup_wizard
-        TEST_COMMAND ""
-        INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${TARGET_SUBDIR}/${WIZARD_EXE_NAME} ${CMAKE_CURRENT_BINARY_DIR}
-        )
+set(DEEPLINK_FFI_LIBFILE "${RUST_WORKSPACE_TARGET_DIR}/${TARGET_SUBDIR}/${DEEPLINK_FFI_LIBNAME}")
 
-add_custom_target(run_setup_wizard)
-add_custom_command(
-        TARGET run_setup_wizard
-        POST_BUILD
-        COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${WIZARD_EXE_NAME}
-        USES_TERMINAL TRUE
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+if (ANDROID)
+    ExternalProject_Add(trusttunnel_rust
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+            BUILD_ALWAYS TRUE
+            UPDATE_COMMAND ""
+            PATCH_COMMAND ""
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${ANDROID_HOME_VAR}
+            cargo ${CARGO_TARGET}
+            --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE}
+            --package trusttunnel-deeplink-ffi
+            TEST_COMMAND ""
+            INSTALL_COMMAND ""
+            BUILD_BYPRODUCTS ${DEEPLINK_FFI_LIBFILE}
+            )
+    set(DEEPLINK_FFI_BUILD_TARGET trusttunnel_rust)
+else ()
+    ExternalProject_Add(setup_wizard
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+            BUILD_ALWAYS TRUE
+            UPDATE_COMMAND ""
+            PATCH_COMMAND ""
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
+            cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
+            --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
+            --workspace
+            TEST_COMMAND ""
+            INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${RUST_WORKSPACE_TARGET_DIR}/${TARGET_SUBDIR}/${WIZARD_EXE_NAME} ${CMAKE_CURRENT_BINARY_DIR}
+            BUILD_BYPRODUCTS ${DEEPLINK_FFI_LIBFILE}
+            )
+    set(DEEPLINK_FFI_BUILD_TARGET setup_wizard)
+
+    add_custom_target(run_setup_wizard)
+    add_custom_command(
+            TARGET run_setup_wizard
+            POST_BUILD
+            COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${WIZARD_EXE_NAME}
+            USES_TERMINAL TRUE
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    add_dependencies(run_setup_wizard setup_wizard)
+endif ()
+
+add_library(trusttunnel_deeplink_ffi STATIC IMPORTED GLOBAL)
+set_target_properties(trusttunnel_deeplink_ffi PROPERTIES
+    IMPORTED_LOCATION "${DEEPLINK_FFI_LIBFILE}"
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/deeplink-ffi/include"
 )
-add_dependencies(run_setup_wizard setup_wizard)
+add_dependencies(trusttunnel_deeplink_ffi ${DEEPLINK_FFI_BUILD_TARGET})
 
 enable_testing()
-add_dependencies(tests
-        trusttunnel_client
-        vpnlibs_trusttunnel
-        setup_wizard
-        )
+if (NOT ANDROID)
+    add_dependencies(tests
+            trusttunnel_client
+            vpnlibs_trusttunnel
+            setup_wizard
+            )
+endif ()

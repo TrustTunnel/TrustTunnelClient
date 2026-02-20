@@ -16,6 +16,7 @@ toml = "0.7.4"
 toml_edit = "0.19.10"
 x509-parser = "0.15.0"
 trusttunnel-deeplink = { git = "https://github.com/TrustTunnel/TrustTunnel" }
+trusttunnel-settings = { path = "../settings" }
 
 [build-dependencies]
 windres = "0.2"

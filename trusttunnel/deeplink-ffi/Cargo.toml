@@ -1,0 +1,13 @@
+[package]
+name = "trusttunnel-deeplink-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[dependencies]
+trusttunnel-settings = { path = "../settings" }
+trusttunnel-deeplink = { git = "https://github.com/TrustTunnel/TrustTunnel" }
+toml = "0.7.4"
+serde = { version = "1.0.163", features = ["derive"] }
