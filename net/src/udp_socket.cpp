@@ -114,7 +114,7 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
         goto fail;
     }
     {
-        if (!peer->is_loopback()) {
+        if (create_fd && !peer->is_loopback()) {
             SocketProtectEvent protect_event = {fd, peer->c_sockaddr(), 0};
             parameters->handler.func(parameters->handler.arg, UDP_SOCKET_EVENT_PROTECT, &protect_event);
             if (protect_event.result != 0) {

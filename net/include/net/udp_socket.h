@@ -68,6 +68,7 @@ evutil_socket_t udp_socket_release_fd(UdpSocket *socket);
 
 /**
  * Create a UDP socket that wraps an existing datagram socket file descriptor.
+ * @note `UDP_SOCKET_EVENT_PROTECT` event is not triggered for the created socket.
  */
 UdpSocket *udp_socket_acquire_fd(const UdpSocketParameters *parameters, evutil_socket_t fd);
 
