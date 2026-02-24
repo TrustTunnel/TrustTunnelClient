@@ -87,6 +87,8 @@ public:
 
     bool process_client_packets(VpnPackets packets);
 
+    void reload_exclusions(const std::string &config_path);
+
     std::string_view get_bound_if() const;
 
     ~TrustTunnelClient();

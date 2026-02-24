@@ -3,6 +3,7 @@
 #include <vector>
 
 #include <magic_enum/magic_enum.hpp>
+#include <toml++/toml.h>
 
 #include "common/logger.h"
 #include "common/net_utils.h"
@@ -56,6 +57,30 @@ void TrustTunnelClient::notify_network_change(VpnNetworkState state) {
     if (m_vpn) {
         vpn_notify_network_change(m_vpn, state);
     }
+}
+
+void TrustTunnelClient::reload_exclusions(const std::string &config_path) {
+    infolog(m_logger, "Reloading exclusions from '{}'", config_path);
+
+    toml::parse_result parse_result = toml::parse_file(config_path);
+    if (!parse_result) {
+        errlog(m_logger, "Failed to reload config: {}", parse_result.error().description());
+        return;
+    }
+
+    std::string exclusions;
+    if (const auto *x = parse_result["exclusions"].as_array(); x != nullptr) {
+        for (const auto &e : *x) {
+            if (std::optional ex = e.value<std::string_view>(); ex.has_value() && !ex->empty()) {
+                exclusions.append(ex.value());
+                exclusions.push_back(' ');
+            }
+        }
+    }
+
+    m_config.exclusions = exclusions;
+    vpn_update_exclusions(m_vpn, m_config.mode, {exclusions.data(), (uint32_t) exclusions.size()});
+    infolog(m_logger, "Exclusions reloaded successfully");
 }
 
 void TrustTunnelClient::notify_sleep() {

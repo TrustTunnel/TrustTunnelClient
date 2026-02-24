@@ -37,6 +37,7 @@ static std::atomic_bool keep_running{true};
 static std::condition_variable g_waiter;
 static std::mutex g_waiter_mutex;
 static std::weak_ptr<TrustTunnelClient> g_client;
+static std::string g_config_path;
 
 static std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const TrustTunnelConfig &config);
 static std::function<void(VpnVerifyCertificateEvent *)> get_verify_certificate_callback();
@@ -63,6 +64,13 @@ static void sighandler(int sig) {
             t.detach();
             return;
         }
+        if (sig == SIGUSR1) {
+            std::thread t([client]() {
+                client->reload_exclusions(g_config_path);
+            });
+            t.detach();
+            return;
+        }
 #endif
         stop_trusttunnel_client();
     } else {
@@ -82,6 +90,7 @@ static void setup_sighandler() {
     sigaddset(&sigset, SIGINT);
     sigaddset(&sigset, SIGTERM);
     sigaddset(&sigset, SIGHUP);
+    sigaddset(&sigset, SIGUSR1);
     pthread_sigmask(SIG_BLOCK, &sigset, nullptr);
     std::thread([sigset] {
         int signum = 0;
@@ -117,7 +126,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    toml::parse_result parse_result = toml::parse_file(result["config"].as<std::string>());
+    g_config_path = result["config"].as<std::string>();
+    toml::parse_result parse_result = toml::parse_file(g_config_path);
     if (!parse_result) {
         errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
         return 1;
