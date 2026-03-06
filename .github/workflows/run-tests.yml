@@ -111,6 +111,7 @@ jobs:
 
       - name: Run tests
         run: |
+          make test-rust
           cd $BUILD_DIR && \
           ctest --no-compress-output --output-on-failure
 
@@ -201,6 +202,7 @@ jobs:
           # inside gtest
           export ASAN_OPTIONS=detect_container_overflow=0
 
+          make test-rust
           cd $BUILD_DIR && \
           ctest --no-compress-output --output-on-failure
 
@@ -287,5 +289,6 @@ jobs:
 
       - name: Run tests
         run: |
+          cargo test --workspace --manifest-path trusttunnel/setup_wizard/Cargo.toml
           cd ${{ env.BUILD_DIR }} && `
           ctest --no-compress-output --output-on-failure

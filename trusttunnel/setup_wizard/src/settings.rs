@@ -823,7 +823,6 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
     use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
 
     #[test]
@@ -832,8 +831,8 @@ mod tests {
         let config = DeepLinkConfig {
             hostname: "test.host".to_string(),
             addresses: vec![
-                "10.0.0.1:443".parse::<SocketAddr>().unwrap(),
-                "[::1]:8443".parse::<SocketAddr>().unwrap(),
+                "10.0.0.1:443".parse().unwrap(),
+                "[::1]:8443".parse().unwrap(),
             ],
             username: "user1".to_string(),
             password: "pass1".to_string(),

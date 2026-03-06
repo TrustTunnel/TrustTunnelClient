@@ -123,14 +123,13 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
     use trusttunnel_deeplink::Protocol;
 
     #[test]
-    fn test_field_mapping() {
+    fn test_deeplink_field_mapping() {
         let config = DeepLinkConfig {
             hostname: "vpn.example.com".to_string(),
-            addresses: vec!["1.2.3.4:443".parse::<SocketAddr>().unwrap()],
+            addresses: vec!["1.2.3.4:443".parse().unwrap()],
             username: "alice".to_string(),
             password: "s3cr3t".to_string(),
             client_random_prefix: Some("aabb".to_string()),

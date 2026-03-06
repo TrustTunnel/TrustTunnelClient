@@ -110,7 +110,6 @@ pub extern "C" fn trusttunnel_deeplink_string_free(ptr: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
     use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
 
     #[test]
@@ -159,7 +158,7 @@ mod tests {
     fn test_roundtrip() {
         let config = DeepLinkConfig {
             hostname: "vpn.example.com".to_string(),
-            addresses: vec!["1.2.3.4:443".parse::<SocketAddr>().unwrap()],
+            addresses: vec!["1.2.3.4:443".parse().unwrap()],
             username: "alice".to_string(),
             password: "s3cr3t".to_string(),
             client_random_prefix: Some("aabb".to_string()),

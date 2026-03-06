@@ -69,6 +69,8 @@ Run tests on Linux:
             export VL_ROOT=${PWD}
             trap "git clean -d -x -f ${VL_ROOT} --exclude '**/Testing/*/*.xml'" EXIT
 
+            make test-rust
+
             mkdir -p build
             cd build
 
@@ -120,6 +122,8 @@ Run tests on Windows:
               $v = $_.split("="); set-item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
             }
           }
+          
+          & cargo test --workspace --manifest-path trusttunnel/setup_wizard/Cargo.toml
 
           & {
             $vcvars64 | foreach { setvar $_ }
@@ -213,6 +217,8 @@ Run tests on macOS:
             conan remote add --index 0 art ${bamboo.conanRepoUrl} || true
             VPN_LIBS_ROOT=$(pwd)
             ARCH=$(uname -m)
+            
+            make test-rust
 
             # Build tests
             mkdir -p build
