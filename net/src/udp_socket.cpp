@@ -125,8 +125,18 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
 
         if (0 != connect(fd, peer->c_sockaddr(), peer->c_socklen())) {
             int err = evutil_socket_geterror(fd);
-            log_sock(sock, err, "Failed to set socket destination: {} ({})", evutil_socket_error_to_string(err), err);
-            goto fail;
+#ifdef __MACH__
+            // On macOS, connect() on a UDP socket with destination port 0 returns EADDRNOTAVAIL (49).
+            // This is a kernel restriction absent on Linux. Skip connecting in this case — the socket
+            // is already bound to the physical interface via IP_BOUND_IF, and sendto() will handle addressing.
+            if (err == EADDRNOTAVAIL && peer->port() == 0) {
+                // continue without connecting
+            } else
+#endif // __MACH__
+            {
+                log_sock(sock, err, "Failed to set socket destination: {} ({})", evutil_socket_error_to_string(err), err);
+                goto fail;
+            }
         }
 
         if (0 != evutil_make_socket_nonblocking(fd)) {

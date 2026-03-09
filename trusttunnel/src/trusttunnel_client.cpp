@@ -26,6 +26,7 @@
 
 #ifdef __APPLE__
 #include "AppleSleepNotifier.h"
+#include <net/if.h>
 #endif
 
 static constexpr std::string_view DEFAULT_CONFIG_FILE = "trusttunnel_client.toml";
@@ -199,7 +200,12 @@ std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const Trus
 
     return [bound_if = tun->bound_if](SocketProtectEvent *event) {
 #ifdef __APPLE__
-        uint32_t idx = vpn_network_manager_get_outbound_interface();
+        uint32_t idx;
+        if (!bound_if.empty()) {
+            idx = if_nametoindex(bound_if.c_str());
+        } else {
+            idx = vpn_network_manager_get_outbound_interface();
+        }
         if (idx == 0) {
             return;
         }
