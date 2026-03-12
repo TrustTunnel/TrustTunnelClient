@@ -48,6 +48,10 @@ int ip4_input_hook(struct pbuf *p, struct netif *inp) {
     if ((header_len > p->len) || (header_len < IP_HLEN)) {
         return PASS_PACKET_TO_LWIP(p, 0);
     }
+    // Pass non-first IP fragments to LWIP for reassembly
+    if (lwip_ntohs(IPH_OFFSET(iphdr)) & IP_OFFMASK) {
+        return PASS_PACKET_TO_LWIP(p, 0);
+    }
     pbuf_header_force(p, -(s16_t) header_len);
     // Process payload
     switch (IPH_PROTO(iphdr)) {
