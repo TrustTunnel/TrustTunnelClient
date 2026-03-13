@@ -51,7 +51,7 @@ static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view
         return nullptr;
     }
 
-    UniquePtr<X509_STORE, &X509_STORE_free> store{tls_create_ca_store()};
+    UniquePtr<X509_STORE, &X509_STORE_free> store{X509_STORE_new()};
     if (!store) {
         warnlog(g_logger, "Failed to create CA store");
         return nullptr;
