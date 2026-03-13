@@ -40,7 +40,7 @@ Increment version:
             fi
             ./scripts/increment_version.sh ${bamboo_custom_version} || exit 1
 
-            ../git-scripts/git_kit.sh pull ${bamboo_planRepository_repositoryUrl}
+            #../git-scripts/git_kit.sh pull ${bamboo_planRepository_repositoryUrl}
             git reset
             git add conandata.yml
             git add CHANGELOG.md
