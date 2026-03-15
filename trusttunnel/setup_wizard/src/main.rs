@@ -313,7 +313,7 @@ fn print_completion_message(settings_path: &str) {
     #[cfg(target_os = "windows")]
     println!("   trusttunnel_client -c {}", settings_path);
     #[cfg(not(target_os = "windows"))]
-    println!("   sudo trusttunnel_client -c {}", settings_path);
+    println!("   sudo ./trusttunnel_client -c {}", settings_path);
     println!();
     println!("2. For advanced settings (exclusions, DNS, kill switch), edit:");
     println!("   {}", settings_path);
