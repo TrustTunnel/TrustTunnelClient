@@ -129,6 +129,20 @@ static int workaround_sndbuf(evutil_socket_t fd) {
 
 #endif // _WIN32
 
+#ifdef ANDROID
+
+static int workaround_sockbufs(evutil_socket_t fd) {
+    // Default Android socket buffers are low.
+    // Increasing them results in higher throughoutput on high-RTT connections.
+    static constexpr int RCVBUF_SIZE = 4 * 1024 * 1024;
+    static constexpr int SNDBUF_SIZE = 2 * 1024 * 1024;
+    int r = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &RCVBUF_SIZE, sizeof(RCVBUF_SIZE));
+    r |= setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &SNDBUF_SIZE, sizeof(SNDBUF_SIZE));
+    return r;
+}
+
+#endif // ANDROID
+
 static int set_nodelay(evutil_socket_t fd) {
     int value = 1;
     return setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *) &value, sizeof(value));
@@ -479,6 +493,12 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
 #ifdef _WIN32
         if (int ret = workaround_sndbuf(bufferevent_getfd(socket->bev))) {
             log_sock(socket, warn, "Failed to set SO_SNBBUF: {}", ret);
+        }
+#endif
+#ifdef ANDROID
+        log_sock(socket, info, "sockbufs for android socket");
+        if (int ret = workaround_sockbufs(bufferevent_getfd(socket->bev))) {
+            log_sock(socket, warn, "Failed to set socket buffer sizes: {}", ret);
         }
 #endif
         if (!socket->ssl) {
