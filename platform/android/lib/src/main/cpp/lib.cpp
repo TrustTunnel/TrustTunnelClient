@@ -16,9 +16,21 @@ public:
             , m_verify_callback(verify_callback)
             , m_state_changed_callback(state_changed_callback)
             , m_connection_info_callback(connection_info_callback)
-            , m_native_client(std::move(config), create_callbacks()) {
+            , m_native_client(std::move(config), create_callbacks())
+            , m_loop(ag::vpn_event_loop_create()) {
         env->GetJavaVM(&m_vm);
         this->m_callback_object = {m_vm, callback_object};
+
+        m_loop_thread = std::thread([loop = m_loop.get()]() {
+            vpn_event_loop_run(loop);
+        });
+    }
+
+    ~VpnCtx() {
+        ag::vpn_event_loop_stop(m_loop.get());
+        if (m_loop_thread.joinable()) {
+            m_loop_thread.join();
+        }
     }
 
     ag::TrustTunnelClient &get_native_client() {
@@ -34,6 +46,9 @@ private:
     jmethodID m_connection_info_callback = nullptr;
 
     ag::TrustTunnelClient m_native_client;
+
+    std::thread m_loop_thread;
+    ag::DeclPtr<ag::VpnEventLoop, &ag::vpn_event_loop_destroy> m_loop = nullptr;
 
     void protectSocket(ag::SocketProtectEvent *event) {
         if (!this->m_protect_socket_callback || !m_callback_object) {
@@ -102,10 +117,12 @@ private:
             assert(0);
             return;
         }
-        ScopedJniEnv env{m_vm, 1};
         std::string json = ag::ConnectionInfo::to_json(info);
-        LocalRef<jstring> str(env.get(), env->NewStringUTF(json.data()));
-        env->CallVoidMethod(m_callback_object.get(), m_connection_info_callback, str.get());
+        ag::event_loop::submit(m_loop.get(), [this, json = std::move(json)]() {
+            ScopedJniEnv env{m_vm, 1};
+            LocalRef<jstring> str(env.get(), env->NewStringUTF(json.data()));
+            env->CallVoidMethod(m_callback_object.get(), m_connection_info_callback, str.get());
+        }).release();
     }
 
     ag::VpnCallbacks create_callbacks() {
