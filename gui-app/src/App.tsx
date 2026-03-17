@@ -9,6 +9,7 @@ import LogPanel from "./components/LogPanel";
 import SetupWizard from "./components/SetupWizard";
 import SettingsPanel from "./components/SettingsPanel";
 import RoutingPanel from "./components/RoutingPanel";
+import AboutPanel from "./components/AboutPanel";
 
 export type VpnStatus =
   | "disconnected"
@@ -18,7 +19,7 @@ export type VpnStatus =
   | "recovering"
   | "error";
 
-export type AppTab = "setup" | "settings" | "routing";
+export type AppTab = "setup" | "settings" | "routing" | "about";
 
 export interface UpdateInfo {
   available: boolean;
@@ -56,7 +57,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<AppTab>(() => {
     const saved = localStorage.getItem("tt_active_tab");
     const savedConfig = localStorage.getItem("tt_config_path");
-    if (saved === "settings" || saved === "routing") return saved;
+    if (saved === "settings" || saved === "routing" || saved === "about") return saved;
     if (savedConfig) return "settings";
     return "setup";
   });
@@ -297,6 +298,14 @@ function App() {
 
       <div className="flex-1 flex flex-col p-3 overflow-hidden" style={{ display: activeTab === "routing" ? "flex" : "none" }}>
         <RoutingPanel />
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden" style={{ display: activeTab === "about" ? "flex" : "none" }}>
+        <AboutPanel
+          updateInfo={updateInfo}
+          onCheckUpdates={() => checkForUpdates(false)}
+          onOpenDownload={() => { if (updateInfo.downloadUrl) open(updateInfo.downloadUrl); }}
+        />
       </div>
     </div>
   );

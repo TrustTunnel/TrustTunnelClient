@@ -4,6 +4,9 @@ mod ssh_deploy;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+use tauri::Manager;
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::TrayIconBuilder;
 
 #[derive(Clone, Serialize)]
 struct VpnLogPayload {
@@ -274,6 +277,54 @@ pub fn run() {
             sidecar_child: Arc::new(Mutex::new(None)),
             disconnecting: Arc::new(Mutex::new(false)),
             is_connected: Arc::new(Mutex::new(false)),
+        })
+        .setup(|app| {
+            // Build tray context menu
+            let show_item = MenuItemBuilder::with_id("show", "Показать").build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "Выход").build(app)?;
+            let tray_menu = MenuBuilder::new(app)
+                .item(&show_item)
+                .separator()
+                .item(&quit_item)
+                .build()?;
+
+            // Create tray icon
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("TrustTunnel-клиент")
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                w.show().ok();
+                                w.set_focus().ok();
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
+                        if let Some(w) = tray.app_handle().get_webview_window("main") {
+                            w.show().ok();
+                            w.set_focus().ok();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Minimize to tray on close instead of quitting
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                window.hide().ok();
+                api.prevent_close();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             vpn_connect,
