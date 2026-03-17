@@ -24,6 +24,7 @@ russh = "0.46"
 russh-keys = "0.46"
 async-trait = "0.1"
 toml = "0.8"
+tauri-plugin-single-instance = "2.4.0"
 
 [features]
 default = ["custom-protocol"]

@@ -1,3 +1,0 @@
-if ENV["FASTLANE_PROC"].nil?
-    raise "Use 'fastlane certs' with parameters you need"
-end

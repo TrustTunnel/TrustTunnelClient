@@ -296,6 +296,13 @@ fn save_client_config(config_path: String, config: serde_json::Value) -> Result<
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Second instance launched — focus existing window instead
+            if let Some(w) = app.get_webview_window("main") {
+                w.show().ok();
+                w.set_focus().ok();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
