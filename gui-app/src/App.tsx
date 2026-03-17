@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
+import { open } from "@tauri-apps/plugin-shell";
 import Header from "./components/Header";
 import StatusPanel from "./components/StatusPanel";
 import LogPanel from "./components/LogPanel";
@@ -18,6 +20,15 @@ export type VpnStatus =
 
 export type AppTab = "setup" | "settings" | "routing";
 
+export interface UpdateInfo {
+  available: boolean;
+  latestVersion: string;
+  currentVersion: string;
+  downloadUrl: string;
+  releaseNotes: string;
+  checking: boolean;
+}
+
 export interface VpnConfig {
   configPath: string;
   logLevel: string;
@@ -27,6 +38,18 @@ export interface LogEntry {
   timestamp: string;
   level: string;
   message: string;
+}
+
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
 }
 
 function App() {
@@ -54,7 +77,43 @@ function App() {
     const saved = localStorage.getItem("tt_connected_since");
     return saved ? new Date(saved) : null;
   });
-  // processConflict removed — check_process_conflict was detecting our own sidecar
+  // ─── Update check ───
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo>({
+    available: false, latestVersion: "", currentVersion: "",
+    downloadUrl: "", releaseNotes: "", checking: false,
+  });
+
+  const checkForUpdates = useCallback(async (_silent = false) => {
+    setUpdateInfo(prev => ({ ...prev, checking: true }));
+    try {
+      const currentVersion = await getVersion();
+      const res = await fetch(
+        "https://api.github.com/repos/ialexbond/TrustTunnelClient/releases/latest",
+        { headers: { "Accept": "application/vnd.github.v3+json" } }
+      );
+      if (!res.ok) throw new Error(`GitHub API: ${res.status}`);
+      const data = await res.json();
+      const latestTag = (data.tag_name || "").replace(/^v/, "");
+      const isNewer = compareVersions(latestTag, currentVersion) > 0;
+      const asset = data.assets?.find((a: { name: string }) =>
+        a.name.endsWith(".exe") || a.name.endsWith(".zip") || a.name.endsWith(".msi")
+      );
+      setUpdateInfo({
+        available: isNewer,
+        latestVersion: latestTag,
+        currentVersion,
+        downloadUrl: asset?.browser_download_url || data.html_url || "",
+        releaseNotes: data.body || "",
+        checking: false,
+      });
+    } catch (e) {
+      console.warn("Update check failed:", e);
+      setUpdateInfo(prev => ({ ...prev, checking: false }));
+    }
+  }, []);
+
+  // Auto-check on startup (silent)
+  useEffect(() => { checkForUpdates(true); }, [checkForUpdates]);
 
   // Persist tab and config to localStorage
   useEffect(() => { localStorage.setItem("tt_active_tab", activeTab); }, [activeTab]);
@@ -196,7 +255,13 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-surface-950">
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+      <Header
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        updateInfo={updateInfo}
+        onCheckUpdates={() => checkForUpdates(false)}
+        onOpenDownload={() => { if (updateInfo.downloadUrl) open(updateInfo.downloadUrl); }}
+      />
 
       {/* All tabs always mounted; inactive hidden via display:none to preserve state */}
       <div className="flex-1 flex flex-col overflow-hidden" style={{ display: activeTab === "setup" ? "flex" : "none" }}>
