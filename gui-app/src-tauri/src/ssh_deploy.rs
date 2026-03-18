@@ -151,12 +151,14 @@ fn build_configure_commands(settings: &EndpointSettings, sudo: &str) -> String {
         "trusttunnel.local".to_string()
     };
 
-    // 1. credentials.toml
+    // 1. credentials.toml (escape backslashes for TOML)
+    let escaped_user = settings.vpn_username.replace('\\', "\\\\");
+    let escaped_pass = settings.vpn_password.replace('\\', "\\\\");
     let credentials = format!(
         r#"[[client]]
 username = "{}"
 password = "{}""#,
-        settings.vpn_username, settings.vpn_password
+        escaped_user, escaped_pass
     );
 
     // 2. rules.toml (empty = allow all)
@@ -997,9 +999,6 @@ pub async fn fetch_server_config(
         format!("{host}:{listen_port}")
     };
 
-    // Use the client_name provided, or default
-    let name = if client_name.trim().is_empty() { "client" } else { client_name.trim() };
-
     emit_step(app, "export", "progress", "Экспорт клиентского конфига...");
 
     let (whoami, _) = exec_command(&handle, app, "whoami").await?;
@@ -1015,9 +1014,19 @@ pub async fn fetch_server_config(
         .filter(|l| !l.is_empty())
         .collect();
 
+    // Use provided client_name, or auto-pick first available user from credentials.toml
+    let name = if !client_name.trim().is_empty() {
+        client_name.trim().to_string()
+    } else if let Some(first) = available_users.first() {
+        emit_log(app, "info", &format!("Имя клиента не указано, используется: {first}"));
+        first.to_string()
+    } else {
+        "client".to_string()
+    };
+
     if !available_users.is_empty() {
         emit_log(app, "info", &format!("Доступные пользователи: {}", available_users.join(", ")));
-        if !available_users.iter().any(|u| *u == name) {
+        if !available_users.iter().any(|u| *u == name.as_str()) {
             let msg = format!(
                 "Пользователь '{}' не найден в credentials.toml. Доступные: {}",
                 name,

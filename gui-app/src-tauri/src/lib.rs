@@ -31,6 +31,7 @@ fn kill_sidecar_from_state(state: &AppState) {
     }
 }
 
+
 /// Load a tray icon PNG from the icons directory embedded at compile time.
 /// Red shield = disconnected/connecting, Green shield = connected.
 fn load_tray_icon(status: &str) -> Image<'static> {

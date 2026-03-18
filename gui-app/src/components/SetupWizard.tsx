@@ -309,7 +309,7 @@ function SetupWizard({ onSetupComplete }: SetupWizardProps) {
         port: parseInt(port),
         user: sshUser,
         password: sshPassword,
-        clientName: fetchClientName || vpnUsername || "client",
+        clientName: fetchClientName || vpnUsername || "",
       });
       setConfigPath(result);
       setFetchRetryCount(0);
@@ -1160,17 +1160,19 @@ function SetupWizard({ onSetupComplete }: SetupWizardProps) {
     const showReinstallPrompt = isFetchMode && fetchRetryCount >= 2;
 
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="max-w-sm w-full text-center space-y-4">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-2xl shadow-red-500/30">
+      <div className="flex-1 flex flex-col items-center overflow-y-auto p-6">
+        <div className="max-w-sm w-full text-center space-y-4 my-auto">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-2xl shadow-red-500/30 shrink-0">
             <XCircle className="w-8 h-8 text-white" />
           </div>
 
           <div className="space-y-1.5">
             <h2 className="text-xl font-bold text-red-300">Что-то пошло не так</h2>
-            <p className="text-xs text-gray-400 leading-relaxed select-text cursor-text">
-              {errorMessage || "Неизвестная ошибка"}
-            </p>
+            <div className="max-h-32 overflow-y-auto rounded-lg bg-white/5 p-2">
+              <p className="text-xs text-gray-400 leading-relaxed select-text cursor-text break-words">
+                {errorMessage || "Неизвестная ошибка"}
+              </p>
+            </div>
           </div>
 
           {deployLogs.length > 0 && (
