@@ -156,7 +156,7 @@ ldns/2021-03-29@adguard/oss: Already installed! (24 of 26)
 native_libs_common/8.0.23@adguard/oss: Already installed! (25 of 26)
 dns-libs/2.8.37@adguard/oss: Already installed! (26 of 26)
 WARN: deprecated: Usage of deprecated Conan 1.X features that will be removed in Conan 2.X:
-WARN: deprecated:     'cpp_info.names' used in: openssl/boring-2024-09-13@adguard/oss, pcre2/10.37@adguard/oss, native_libs_common/8.0.23@adguard/oss
+WARN: deprecated:     'cpp_info.names' used in: native_libs_common/8.0.23@adguard/oss, pcre2/10.37@adguard/oss, openssl/boring-2024-09-13@adguard/oss
 
 ======== Finalizing install (deploy, generators) ========
 conanfile.py (vpn-libs/None): Calling generate()
@@ -325,7 +325,7 @@ ldns/2021-03-29@adguard/oss: Already installed! (24 of 26)
 native_libs_common/8.0.23@adguard/oss: Already installed! (25 of 26)
 dns-libs/2.8.37@adguard/oss: Already installed! (26 of 26)
 WARN: deprecated: Usage of deprecated Conan 1.X features that will be removed in Conan 2.X:
-WARN: deprecated:     'cpp_info.names' used in: pcre2/10.37@adguard/oss, openssl/boring-2024-09-13@adguard/oss, native_libs_common/8.0.23@adguard/oss
+WARN: deprecated:     'cpp_info.names' used in: openssl/boring-2024-09-13@adguard/oss, pcre2/10.37@adguard/oss, native_libs_common/8.0.23@adguard/oss
 
 ======== Finalizing install (deploy, generators) ========
 conanfile.py (vpn-libs/None): Calling generate()
@@ -495,6 +495,6 @@ Doxygen needs to be installed to generate the doxygen documentation
 -- CMake-Conan: find_package(nlohmann_json) found, 'conan install' already ran
 -- Conan: Target declared 'nlohmann_json::nlohmann_json'
 Rust target triple: x86_64-pc-windows-msvc
--- Configuring done (5.4s)
--- Generating done (2.2s)
+-- Configuring done (4.4s)
+-- Generating done (1.5s)
 -- Build files have been written to: C:/Users/naska/Documents/TrustTunnelClient/build

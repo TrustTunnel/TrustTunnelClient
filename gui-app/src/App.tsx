@@ -57,7 +57,8 @@ function App() {
   const [activeTab, setActiveTab] = useState<AppTab>(() => {
     const saved = localStorage.getItem("tt_active_tab");
     const savedConfig = localStorage.getItem("tt_config_path");
-    if (saved === "settings" || saved === "routing" || saved === "about") return saved;
+    // Only show settings/routing tabs if a config file is set
+    if (savedConfig && (saved === "settings" || saved === "routing" || saved === "about")) return saved;
     if (savedConfig) return "settings";
     return "setup";
   });
@@ -126,18 +127,19 @@ function App() {
         localStorage.removeItem("tt_config_path");
         localStorage.removeItem("tt_active_tab");
         localStorage.removeItem("tt_connected_since");
-        try {
-          const raw = localStorage.getItem("trusttunnel_wizard");
-          const obj = raw ? JSON.parse(raw) : {};
-          obj.wizardStep = "welcome";
-          localStorage.setItem("trusttunnel_wizard", JSON.stringify(obj));
-        } catch {}
+        localStorage.removeItem("trusttunnel_wizard");
         setConfig({ configPath: "", logLevel: "info" });
         setActiveTab("setup");
         setWizardKey(k => k + 1);
       });
     } else {
-      // No saved config — try to auto-detect .toml in app directory
+      // No saved config — clear any stale wizard data (SSH credentials, etc.)
+      // so a fresh portable install doesn't show previous session's data
+      localStorage.removeItem("trusttunnel_wizard");
+      localStorage.removeItem("tt_active_tab");
+      localStorage.removeItem("tt_connected_since");
+
+      // Try to auto-detect .toml config in app directory
       invoke<string | null>("auto_detect_config").then((detected) => {
         if (detected) {
           setConfig(prev => ({ ...prev, configPath: detected }));
@@ -284,6 +286,13 @@ function App() {
     // Force wizard remount to pick up reset state
     setWizardKey(k => k + 1);
   }, []);
+
+  // Reset scroll positions on mount (fresh state after app restart)
+  useEffect(() => {
+    document.querySelectorAll('[class*="overflow"]').forEach((el) => {
+      el.scrollTop = 0;
+    });
+  }, [activeTab]);
 
   return (
     <div className="h-screen flex flex-col bg-surface-950">

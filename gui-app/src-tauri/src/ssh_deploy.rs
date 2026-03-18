@@ -439,6 +439,29 @@ pub async fn deploy_server(
     // ── Step 5: Create config files directly (no TTY needed) ──
     emit_step(app, "configure", "progress", "Создание конфигурации Endpoint...");
 
+    // Validate domain for Let's Encrypt before attempting
+    if settings.cert_type == "letsencrypt" {
+        let domain = if !settings.domain.is_empty() {
+            settings.domain.clone()
+        } else {
+            "trusttunnel.local".to_string()
+        };
+        let invalid = domain.ends_with(".local")
+            || domain.ends_with(".localhost")
+            || domain.ends_with(".test")
+            || domain.ends_with(".example")
+            || domain.ends_with(".invalid")
+            || !domain.contains('.');
+        if invalid {
+            let msg = format!(
+                "Let's Encrypt не может выдать сертификат для '{}'. Укажите публичный домен или выберите самоподписанный сертификат.",
+                domain
+            );
+            emit_step(app, "configure", "error", &msg);
+            return Err(msg);
+        }
+    }
+
     let configure_cmd = build_configure_commands(&settings, sudo);
 
     let (_, cfg_code) = exec_command(&handle, app, &configure_cmd).await?;
@@ -563,7 +586,7 @@ pub async fn deploy_server(
     };
 
     let export_cmd = format!(
-        "cd /opt/trusttunnel && {sudo}./trusttunnel_endpoint vpn.toml hosts.toml -c {user} -a {addr} --format toml 2>/dev/null",
+        "cd /opt/trusttunnel && {sudo}./trusttunnel_endpoint vpn.toml hosts.toml -c {user} -a {addr} --format toml 2>&1",
         sudo = sudo,
         user = settings.vpn_username,
         addr = export_address,
@@ -573,9 +596,12 @@ pub async fn deploy_server(
 
     if export_code != 0 || export_output.trim().is_empty() {
         emit_log(app, "error", &format!("Export failed (code {export_code}): {export_output}"));
-        let msg = "Не удалось экспортировать клиентский конфиг с сервера.";
-        emit_step(app, "export", "error", msg);
-        return Err(msg.into());
+        let msg = format!(
+            "Не удалось экспортировать конфиг (код {}). Пользователь '{}' не найден или ошибка endpoint.",
+            export_code, settings.vpn_username
+        );
+        emit_step(app, "export", "error", &msg);
+        return Err(msg);
     }
 
     // Extract only the TOML part (skip warning lines starting with timestamp or empty lines before TOML)
@@ -592,7 +618,7 @@ pub async fn deploy_server(
 
 loglevel = "info"
 vpn_mode = "general"
-killswitch_enabled = false
+killswitch_enabled = true
 post_quantum_group_enabled = false
 
 [endpoint]
@@ -605,6 +631,9 @@ included_routes = ["0.0.0.0/0"]
 excluded_routes = []
 "#
     );
+
+    // Enable anti_dpi by default
+    let client_toml = client_toml.replace("anti_dpi = false", "anti_dpi = true");
 
     emit_log(app, "debug", &format!("Generated client config:\n{client_toml}"));
     emit_step(app, "export", "ok", "Конфиг сгенерирован");
@@ -870,6 +899,204 @@ fi
 
     emit_step(app, "uninstall", "ok", "TrustTunnel удалён");
     Ok(())
+}
+
+// ─── Fetch existing config from server ────────────
+
+/// Connect to a server where TrustTunnel is already installed,
+/// export the client config via trusttunnel_endpoint, and save it locally.
+pub async fn fetch_server_config(
+    app: &tauri::AppHandle,
+    host: String,
+    port: u16,
+    ssh_user: String,
+    ssh_password: String,
+    client_name: String,
+) -> Result<String, String> {
+    emit_step(app, "connect", "progress", "Подключение к серверу...");
+
+    let config = Arc::new(client::Config {
+        inactivity_timeout: Some(std::time::Duration::from_secs(60)),
+        ..Default::default()
+    });
+
+    let mut handle = client::connect(config, (host.as_str(), port), SshHandler)
+        .await
+        .map_err(|e| {
+            let msg = format!("Не удалось подключиться к {host}:{port} — {e}");
+            emit_step(app, "connect", "error", &msg);
+            msg
+        })?;
+
+    emit_step(app, "connect", "ok", "Подключено к серверу");
+
+    emit_step(app, "auth", "progress", "Авторизация...");
+
+    let auth_ok = handle
+        .authenticate_password(&ssh_user, &ssh_password)
+        .await
+        .map_err(|e| {
+            let msg = format!("Ошибка авторизации: {e}");
+            emit_step(app, "auth", "error", &msg);
+            msg
+        })?;
+
+    if !auth_ok {
+        let msg = "Неверный SSH логин или пароль";
+        emit_step(app, "auth", "error", msg);
+        return Err(msg.into());
+    }
+
+    emit_step(app, "auth", "ok", "Авторизация успешна");
+
+    // Check TrustTunnel is installed
+    emit_step(app, "check", "progress", "Проверка TrustTunnel на сервере...");
+
+    let (bin_check, _) = exec_command(
+        &handle, app,
+        "test -f /opt/trusttunnel/trusttunnel_endpoint && echo TT_EXISTS || echo TT_MISSING"
+    ).await?;
+
+    if !bin_check.contains("TT_EXISTS") {
+        let msg = "TrustTunnel не найден на сервере (/opt/trusttunnel/trusttunnel_endpoint)";
+        emit_step(app, "check", "error", msg);
+        return Err(msg.into());
+    }
+
+    // Check config files exist
+    let (cfg_check, _) = exec_command(
+        &handle, app,
+        "test -f /opt/trusttunnel/vpn.toml && test -f /opt/trusttunnel/hosts.toml && echo CFG_OK || echo CFG_MISSING"
+    ).await?;
+
+    if !cfg_check.contains("CFG_OK") {
+        let msg = "Конфигурационные файлы не найдены на сервере (vpn.toml / hosts.toml)";
+        emit_step(app, "check", "error", msg);
+        return Err(msg.into());
+    }
+
+    emit_step(app, "check", "ok", "TrustTunnel установлен, конфиг найден");
+
+    // Determine the server's listen address for the export command
+    let (listen_raw, _) = exec_command(
+        &handle, app,
+        r#"grep -oP 'listen_address\s*=\s*"\K[^"]+' /opt/trusttunnel/vpn.toml 2>/dev/null || echo '0.0.0.0:443'"#
+    ).await?;
+    let listen_addr = listen_raw.trim();
+    let listen_port = listen_addr.split(':').last().unwrap_or("443");
+
+    // Try to determine the address the endpoint uses (domain from hosts.toml or fallback to host IP)
+    let (hostname_raw, _) = exec_command(
+        &handle, app,
+        r#"grep -oP 'hostname\s*=\s*"\K[^"]+' /opt/trusttunnel/hosts.toml 2>/dev/null | head -1"#
+    ).await?;
+    let endpoint_hostname = hostname_raw.trim();
+    let export_address = if !endpoint_hostname.is_empty() && endpoint_hostname != "trusttunnel.local" {
+        format!("{endpoint_hostname}:{listen_port}")
+    } else {
+        format!("{host}:{listen_port}")
+    };
+
+    // Use the client_name provided, or default
+    let name = if client_name.trim().is_empty() { "client" } else { client_name.trim() };
+
+    emit_step(app, "export", "progress", "Экспорт клиентского конфига...");
+
+    let (whoami, _) = exec_command(&handle, app, "whoami").await?;
+    let sudo = if whoami.trim() == "root" { "" } else { "sudo " };
+
+    // Pre-check: list available usernames from credentials.toml
+    let (creds_raw, _) = exec_command(
+        &handle, app,
+        &format!("{sudo}grep -oP 'username\\s*=\\s*\"\\K[^\"]+' /opt/trusttunnel/credentials.toml 2>/dev/null || echo ''")
+    ).await?;
+    let available_users: Vec<&str> = creds_raw.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    if !available_users.is_empty() {
+        emit_log(app, "info", &format!("Доступные пользователи: {}", available_users.join(", ")));
+        if !available_users.iter().any(|u| *u == name) {
+            let msg = format!(
+                "Пользователь '{}' не найден в credentials.toml. Доступные: {}",
+                name,
+                available_users.join(", ")
+            );
+            emit_step(app, "export", "error", &msg);
+            return Err(msg);
+        }
+    }
+
+    let export_cmd = format!(
+        "cd /opt/trusttunnel && {sudo}./trusttunnel_endpoint vpn.toml hosts.toml -c {name} -a {export_address} --format toml 2>&1"
+    );
+
+    let (export_output, export_code) = exec_command(&handle, app, &export_cmd).await?;
+
+    if export_code != 0 || export_output.trim().is_empty() {
+        emit_log(app, "error", &format!("Export failed (code {export_code}): {export_output}"));
+        let msg = if !available_users.is_empty() {
+            format!("Не удалось экспортировать конфиг (код {}). Доступные пользователи: {}", export_code, available_users.join(", "))
+        } else {
+            format!("Не удалось экспортировать конфиг (код {}). Проверьте credentials.toml на сервере.", export_code)
+        };
+        emit_step(app, "export", "error", &msg);
+        return Err(msg);
+    }
+
+    // Extract only the TOML part
+    let endpoint_section: String = export_output
+        .lines()
+        .skip_while(|l| !l.starts_with('#') && !l.starts_with("hostname"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let client_toml = format!(
+        r#"# TrustTunnel Client Configuration
+# Fetched from server {host}
+
+loglevel = "info"
+vpn_mode = "general"
+killswitch_enabled = true
+post_quantum_group_enabled = false
+
+[endpoint]
+{endpoint_section}
+
+[listener.tun]
+mtu_size = 1280
+change_system_dns = true
+included_routes = ["0.0.0.0/0"]
+excluded_routes = []
+"#
+    );
+
+    // Enable anti_dpi by default
+    let client_toml = client_toml.replace("anti_dpi = false", "anti_dpi = true");
+
+    emit_step(app, "export", "ok", "Конфиг получен");
+
+    // Save locally
+    emit_step(app, "save", "progress", "Сохранение конфигурации...");
+
+    let config_dir = portable_data_dir();
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Не удалось создать директорию: {e}"))?;
+
+    let client_config_path = config_dir.join("trusttunnel_client.toml");
+    std::fs::write(&client_config_path, &client_toml)
+        .map_err(|e| format!("Не удалось записать клиентский конфиг: {e}"))?;
+
+    let config_path_str = client_config_path.to_string_lossy().to_string();
+    emit_log(app, "info", &format!("Конфиг сохранён: {config_path_str}"));
+    emit_step(app, "save", "ok", "Конфигурация сохранена");
+
+    handle.disconnect(russh::Disconnect::ByApplication, "", "en").await.ok();
+
+    emit_step(app, "done", "ok", "Конфиг успешно получен с сервера!");
+
+    Ok(config_path_str)
 }
 
 // ─── Utility functions ─────────────────────────────

@@ -4,7 +4,7 @@ fn main() {
     #[cfg(windows)]
     {
         let windows_attrs = tauri_build::WindowsAttributes::new()
-            .app_manifest(include_str!("trusttunnel-gui.exe.manifest"));
+            .app_manifest(include_str!("trusttunnel.exe.manifest"));
         let attrs = tauri_build::Attributes::new()
             .windows_attributes(windows_attrs);
         tauri_build::try_build(attrs).expect("failed to run tauri build");
@@ -39,8 +39,8 @@ fn main() {
 
         // Copy admin manifest so Windows requests elevation (TUN needs admin)
         let manifest_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("trusttunnel-gui.exe.manifest");
-        let manifest_dst = target_dir.join("trusttunnel-gui.exe.manifest");
+            .join("trusttunnel.exe.manifest");
+        let manifest_dst = target_dir.join("trusttunnel.exe.manifest");
         if manifest_src.exists() {
             std::fs::copy(&manifest_src, &manifest_dst).ok();
         }

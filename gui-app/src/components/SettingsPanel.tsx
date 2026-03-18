@@ -204,7 +204,22 @@ function DangerZone({ onSwitchToSetup, onClearConfig }: { onSwitchToSetup: () =>
                   Нет
                 </button>
                 <button
-                  onClick={() => { setPhase("idle"); onSwitchToSetup(); }}
+                  onClick={() => {
+                    setPhase("idle");
+                    // Save SSH credentials to wizard storage so endpoint step has them
+                    try {
+                      const raw = localStorage.getItem("trusttunnel_wizard");
+                      const obj = raw ? JSON.parse(raw) : {};
+                      obj.host = host;
+                      obj.port = port;
+                      obj.sshUser = user;
+                      obj.sshPassword = password;
+                      obj.wizardStep = "endpoint";
+                      localStorage.setItem("trusttunnel_wizard", JSON.stringify(obj));
+                    } catch {}
+                    onClearConfig();
+                    onSwitchToSetup();
+                  }}
                   className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-medium
                              bg-indigo-500/30 border border-indigo-500/50 text-indigo-300 hover:bg-indigo-500/40 transition-all"
                 >
@@ -354,7 +369,8 @@ function SettingsPanel({
   }, [config, localPath, onConfigChange, status, onReconnect]);
 
   return (
-    <div className="glass-card p-3 flex flex-col gap-2 lg:col-span-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+    <div className="glass-card lg:col-span-1 overflow-hidden">
+    <div className="p-3 flex flex-col gap-2 overflow-y-auto h-full">
       <div className="flex items-center gap-2">
         <Settings className="w-3.5 h-3.5 text-indigo-400" />
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
@@ -620,6 +636,7 @@ function SettingsPanel({
           Укажите путь к конфигу...
         </div>
       )}
+    </div>
     </div>
   );
 }

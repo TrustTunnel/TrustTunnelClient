@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { GitBranch, Globe, Plus, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { GitBranch, Globe, Plus, Trash2, Loader2, RefreshCw, Upload } from "lucide-react";
 import type { VpnStatus } from "../App";
 
 interface RoutingPanelProps {
@@ -19,27 +19,74 @@ function RoutingPanel({ configPath, status, onReconnect }: RoutingPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isActive = status === "connected" || status === "connecting" || status === "recovering";
 
+  // JSON backup domains (survives config deletion)
+  const [jsonBackupDomains, setJsonBackupDomains] = useState<string[]>([]);
+  const [showImportBanner, setShowImportBanner] = useState(false);
+
   useEffect(() => {
-    if (!configPath) { setLoading(false); return; }
+    if (!configPath) {
+      // No config — check if JSON backup has domains
+      invoke<string[]>("load_exclusion_json")
+        .then((jsonDomains) => {
+          if (jsonDomains.length > 0) {
+            setJsonBackupDomains(jsonDomains);
+            setShowImportBanner(true);
+          }
+        })
+        .catch(console.warn)
+        .finally(() => setLoading(false));
+      return;
+    }
     invoke<string[]>("load_exclusion_list", { configPath })
-      .then(setDomains)
+      .then((tomlDomains) => {
+        setDomains(tomlDomains);
+        // Check if JSON has domains that TOML doesn't
+        invoke<string[]>("load_exclusion_json")
+          .then((jsonDomains) => {
+            const hasNew = jsonDomains.some((d) => !tomlDomains.includes(d));
+            if (jsonDomains.length > 0 && hasNew) {
+              setJsonBackupDomains(jsonDomains);
+              setShowImportBanner(true);
+            }
+          })
+          .catch(console.warn);
+      })
       .catch(console.warn)
       .finally(() => setLoading(false));
   }, [configPath]);
 
   const save = useCallback(async (newDomains: string[]) => {
-    if (!configPath) return;
     setDomains(newDomains);
     setSaving(true);
     try {
-      await invoke("save_exclusion_list", { configPath, domains: newDomains });
-      if (isActive) setNeedsReconnect(true);
+      // Always save to JSON backup
+      await invoke("save_exclusion_json", { domains: newDomains });
+      // Save to TOML if config exists
+      if (configPath) {
+        await invoke("save_exclusion_list", { configPath, domains: newDomains });
+      }
+      setNeedsReconnect(true);
     } catch (e) {
       console.error("Failed to save:", e);
     } finally {
       setSaving(false);
     }
-  }, [configPath, isActive]);
+  }, [configPath]);
+
+  const handleImportFromJson = useCallback(async () => {
+    if (!configPath) return;
+    // Merge: add only domains not already present
+    const merged = [...domains];
+    for (const d of jsonBackupDomains) {
+      if (!merged.includes(d)) merged.push(d);
+    }
+    await save(merged);
+    setShowImportBanner(false);
+  }, [configPath, jsonBackupDomains, domains, save]);
+
+  const handleClearAll = useCallback(async () => {
+    await save([]);
+  }, [save]);
 
   const handleReconnect = useCallback(async () => {
     setReconnecting(true);
@@ -68,6 +115,16 @@ function RoutingPanel({ configPath, status, onReconnect }: RoutingPanelProps) {
         <Globe className="w-8 h-8" />
         <p className="text-xs">Конфигурация не выбрана</p>
         <p className="text-[10px]">Настройте подключение на вкладке Настройки</p>
+        {showImportBanner && jsonBackupDomains.length > 0 && (
+          <div className="mt-3 px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-center max-w-xs">
+            <p className="text-[11px] text-indigo-300 mb-1">
+              Найдено {jsonBackupDomains.length} сохранённых доменов
+            </p>
+            <p className="text-[10px] text-gray-500">
+              Они будут автоматически подгружены в конфиг после настройки подключения.
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -93,25 +150,62 @@ function RoutingPanel({ configPath, status, onReconnect }: RoutingPanelProps) {
             {domains.length} записей · {saving ? "сохранение..." : "авто-сохранение"}
           </p>
         </div>
+        {domains.length > 0 && (
+          <button
+            onClick={handleClearAll}
+            disabled={saving}
+            className="px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 text-[11px] hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            title="Удалить все"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Reconnect banner */}
-      {needsReconnect && isActive && (
+      {needsReconnect && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 shrink-0">
           <RefreshCw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <p className="flex-1 text-[11px] text-amber-300">Список изменён — нужен перезапуск</p>
+          <p className="flex-1 text-[11px] text-amber-300">
+            {isActive ? "Список изменён — нужен перезапуск" : "Список изменён — применится при подключении"}
+          </p>
+          {isActive && (
+            <button
+              onClick={handleReconnect}
+              disabled={reconnecting}
+              className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 text-[11px] font-medium hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+            >
+              {reconnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Переподключить"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Import from JSON banner */}
+      {showImportBanner && jsonBackupDomains.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 shrink-0">
+          <Upload className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <p className="flex-1 text-[11px] text-indigo-300">
+            Найдено {jsonBackupDomains.length} ранее сохранённых доменов
+          </p>
           <button
-            onClick={handleReconnect}
-            disabled={reconnecting}
-            className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 text-[11px] font-medium hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+            onClick={handleImportFromJson}
+            disabled={saving}
+            className="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 text-[11px] font-medium hover:bg-indigo-500/30 transition-colors disabled:opacity-50"
           >
-            {reconnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Переподключить"}
+            Подгрузить
+          </button>
+          <button
+            onClick={() => setShowImportBanner(false)}
+            className="px-2 py-1 rounded-md text-gray-500 text-[11px] hover:text-gray-300 transition-colors"
+          >
+            ✕
           </button>
         </div>
       )}
 
       {/* Info */}
-      {!needsReconnect && (
+      {!needsReconnect && !showImportBanner && (
         <div className="px-3 py-2 rounded-lg bg-surface-900/30 border border-white/5 shrink-0">
           <p className="text-[11px] text-gray-400">
             Домены обрабатываются согласно <span className="text-amber-300">vpn_mode</span> в конфиге.

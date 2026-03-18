@@ -10,5 +10,5 @@ fn main() {
         }
     }
 
-    trusttunnel_gui_lib::run()
+    trusttunnel_lib::run()
 }

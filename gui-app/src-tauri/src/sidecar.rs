@@ -103,15 +103,20 @@ pub async fn spawn_trusttunnel(
                     }
                 }
                 CommandEvent::Terminated(payload) => {
+                    let was_connected = is_connected.lock().map(|g| *g).unwrap_or(false);
                     if let Ok(mut g) = is_connected.lock() { *g = false; }
                     let exit_code = payload.code.unwrap_or(-1);
                     let was_intentional = disconnecting.lock().map(|g| *g).unwrap_or(false);
-                    let status = if was_intentional || exit_code == 0 {
-                        "disconnected"
+                    eprintln!("[sidecar] Process terminated with code {exit_code} (intentional={was_intentional}, was_connected={was_connected})");
+
+                    let (status, error_msg): (&str, Option<String>) = if was_intentional || exit_code == 0 {
+                        ("disconnected", None)
+                    } else if was_connected {
+                        // VPN was working but dropped — not a startup error
+                        ("disconnected", None)
                     } else {
-                        "error"
+                        ("error", Some(format!("Процесс завершился с кодом {exit_code}")))
                     };
-                    eprintln!("[sidecar] Process terminated with code {exit_code} (intentional={was_intentional})");
 
                     // Clear the sidecar child so VPN can be reconnected
                     if let Ok(mut guard) = child_state.lock() {
@@ -124,11 +129,7 @@ pub async fn spawn_trusttunnel(
                             "vpn-status",
                             serde_json::json!({
                                 "status": status,
-                                "error": if !was_intentional && exit_code != 0 {
-                                    Some(format!("Process exited with code {exit_code}"))
-                                } else {
-                                    None::<String>
-                                },
+                                "error": error_msg,
                             }),
                         )
                         .ok();

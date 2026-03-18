@@ -1,0 +1,23 @@
+killswitch_enabled = true
+loglevel = "info"
+post_quantum_group_enabled = false
+vpn_mode = "general"
+
+[endpoint]
+addresses = ["abphotography.ru:443"]
+anti_dpi = true
+certificate = ""
+client_random_prefix = ""
+custom_sni = ""
+has_ipv6 = false
+hostname = "abphotography.ru"
+password = "1"
+skip_verification = false
+upstream_protocol = "http2"
+username = "1"
+
+[listener.tun]
+change_system_dns = true
+excluded_routes = []
+included_routes = ["0.0.0.0/0"]
+mtu_size = 1280

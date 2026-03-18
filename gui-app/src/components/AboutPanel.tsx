@@ -107,7 +107,7 @@ function AboutPanel({ updateInfo, onCheckUpdates, onOpenDownload }: AboutPanelPr
           </button>
           <span className="text-gray-700">|</span>
           <span className="text-[11px] text-gray-600">
-            &copy; {new Date().getFullYear()} Guard
+            &copy; {new Date().getFullYear()} Adguard
           </span>
         </div>
       </div>

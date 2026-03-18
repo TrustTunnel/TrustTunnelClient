@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::image::Image;
 use tauri::RunEvent;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -30,6 +31,36 @@ fn kill_sidecar_from_state(state: &AppState) {
     }
 }
 
+/// Load a tray icon PNG from the icons directory embedded at compile time.
+/// Red shield = disconnected/connecting, Green shield = connected.
+fn load_tray_icon(status: &str) -> Image<'static> {
+    let png_bytes: &[u8] = match status {
+        "connected" => include_bytes!("../icons/tray_connected.png"),
+        _ => include_bytes!("../icons/tray_disconnected.png"),
+    };
+    Image::from_bytes(png_bytes).expect("Failed to load tray icon PNG")
+}
+
+/// Update tray icon and tooltip based on VPN status.
+fn update_tray_icon(app: &tauri::AppHandle, status: &str) {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let icon_status = match status {
+            "connected" => "connected",
+            _ => "disconnected",
+        };
+        let tooltip = match status {
+            "connected" => "TrustTunnel — Подключен",
+            "connecting" => "TrustTunnel — Подключение...",
+            "recovering" => "TrustTunnel — Переподключение...",
+            "disconnecting" => "TrustTunnel — Отключение...",
+            "error" => "TrustTunnel — Ошибка",
+            _ => "TrustTunnel — Отключен",
+        };
+        tray.set_icon(Some(load_tray_icon(icon_status))).ok();
+        tray.set_tooltip(Some(tooltip)).ok();
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct VpnLogPayload {
     message: String,
@@ -46,6 +77,7 @@ struct AppState {
     sidecar_child: Arc<Mutex<Option<sidecar::SidecarChild>>>,
     disconnecting: Arc<Mutex<bool>>,
     is_connected: Arc<Mutex<bool>>,
+    tray_notified: Arc<Mutex<bool>>,
 }
 
 #[tauri::command]
@@ -270,6 +302,18 @@ async fn uninstall_server(
     ssh_deploy::uninstall_server(&app, host, port, user, password).await
 }
 
+#[tauri::command]
+async fn fetch_server_config(
+    app: tauri::AppHandle,
+    host: String,
+    port: u16,
+    user: String,
+    password: String,
+    client_name: String,
+) -> Result<String, String> {
+    ssh_deploy::fetch_server_config(&app, host, port, user, password, client_name).await
+}
+
 /// Find .toml config files next to the executable
 #[tauri::command]
 fn auto_detect_config() -> Option<String> {
@@ -359,10 +403,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             sidecar_child: Arc::new(Mutex::new(None)),
             disconnecting: Arc::new(Mutex::new(false)),
             is_connected: Arc::new(Mutex::new(false)),
+            tray_notified: Arc::new(Mutex::new(false)),
         })
         .setup(|app| {
             // Build tray context menu
@@ -374,10 +420,13 @@ pub fn run() {
                 .item(&quit_item)
                 .build()?;
 
-            // Create tray icon
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("TrustTunnel Client for Windows")
+            // Load disconnected tray icon (red) as initial state
+            let initial_icon = load_tray_icon("disconnected");
+
+            // Create tray icon with ID so we can update it later
+            TrayIconBuilder::with_id("main-tray")
+                .icon(initial_icon)
+                .tooltip("TrustTunnel — Отключен")
                 .menu(&tray_menu)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
@@ -399,7 +448,11 @@ pub fn run() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event {
                         if let Some(w) = tray.app_handle().get_webview_window("main") {
                             w.show().ok();
                             w.set_focus().ok();
@@ -408,6 +461,17 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Listen for vpn-status events to update tray icon color
+            use tauri::Listener;
+            let app_handle = app.handle().clone();
+            app.listen_any("vpn-status", move |event| {
+                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    if let Some(status) = payload.get("status").and_then(|s| s.as_str()) {
+                        update_tray_icon(&app_handle, status);
+                    }
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -415,6 +479,21 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 window.hide().ok();
                 api.prevent_close();
+
+                // Show notification once that app is still running in tray
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    let mut notified = state.tray_notified.lock().unwrap_or_else(|e| e.into_inner());
+                    if !*notified {
+                        *notified = true;
+                        use tauri_plugin_notification::NotificationExt;
+                        window.app_handle().notification()
+                            .builder()
+                            .title("TrustTunnel")
+                            .body("Приложение свёрнуто в трей. Нажмите на иконку, чтобы открыть.")
+                            .show()
+                            .ok();
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -431,8 +510,11 @@ pub fn run() {
             save_client_config,
             check_server_installation,
             uninstall_server,
+            fetch_server_config,
             geodata::load_exclusion_list,
-            geodata::save_exclusion_list
+            geodata::save_exclusion_list,
+            geodata::load_exclusion_json,
+            geodata::save_exclusion_json
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,4 +1,33 @@
 ﻿use toml_edit::{DocumentMut, value, Array};
+use crate::ssh_deploy::portable_data_dir;
+
+fn exclusions_json_path() -> std::path::PathBuf {
+    portable_data_dir().join("exclusions.json")
+}
+
+#[tauri::command]
+pub fn load_exclusion_json() -> Result<Vec<String>, String> {
+    let path = exclusions_json_path();
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            let domains: Vec<String> = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse exclusions.json: {e}"))?;
+            Ok(domains)
+        }
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+pub fn save_exclusion_json(domains: Vec<String>) -> Result<(), String> {
+    let path = exclusions_json_path();
+    let json = serde_json::to_string_pretty(&domains)
+        .map_err(|e| format!("Failed to serialize: {e}"))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Failed to write exclusions.json: {e}"))?;
+    eprintln!("[exclusions] {} domains backed up to {}", domains.len(), path.display());
+    Ok(())
+}
 
 #[tauri::command]
 pub fn load_exclusion_list(config_path: String) -> Result<Vec<String>, String> {
@@ -38,5 +67,12 @@ pub fn save_exclusion_list(config_path: String, domains: Vec<String>) -> Result<
     std::fs::write(&config_path, doc.to_string())
         .map_err(|e| format!("Failed to write config: {e}"))?;
     eprintln!("[exclusions] {} domains saved to {}", domains.len(), config_path);
+
+    // Also backup to JSON for persistence across config deletions
+    let json_path = exclusions_json_path();
+    if let Ok(json) = serde_json::to_string_pretty(&domains) {
+        std::fs::write(&json_path, json).ok();
+    }
+
     Ok(())
 }

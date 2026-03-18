@@ -9,6 +9,10 @@
     "shell:allow-stdin-write",
     "shell:allow-kill",
     "shell:default",
-    "dialog:default"
+    "dialog:default",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted"
   ]
 }
