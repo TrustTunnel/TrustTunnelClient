@@ -219,7 +219,7 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
 
 const ag::VpnWinTunnelSettings *ag::vpn_win_tunnel_settings_defaults() {
     static const ag::VpnWinTunnelSettings win_settings = {
-            .adapter_name = "Adguard VpnLibs test tunnel",
+            .adapter_name = "TrustTunnel tunnel",
             .tunnel_type = "wintun",
             .wintun_lib = nullptr,
             .block_ipv6 = false,

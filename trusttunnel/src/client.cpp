@@ -343,6 +343,16 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         return nullptr;
     }
     VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
+    if (!config.adapter_name.empty()) {
+        win_settings.adapter_name = config.adapter_name.c_str();
+    } else {
+        // Fallback to hostname if adapter_name is not specified
+        if (!m_config.location.endpoints.empty()) {
+            static std::string fallback_name;
+            fallback_name = AG_FMT("TrustTunnel ({})", m_config.location.endpoints[0].hostname);
+            win_settings.adapter_name = fallback_name.c_str();
+        }
+    }
     win_settings.wintun_lib = m_wintun;
     win_settings.block_untunneled = m_config.killswitch_enabled;
     win_settings.block_untunneled_exclude_ports = m_config.killswitch_allow_ports.c_str();

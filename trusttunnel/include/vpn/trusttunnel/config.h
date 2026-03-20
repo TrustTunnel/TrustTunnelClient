@@ -40,6 +40,7 @@ struct TrustTunnelConfig {
     };
 
     struct TunListener {
+        std::string adapter_name;
         std::vector<std::string> included_routes;
         std::vector<std::string> excluded_routes;
         uint32_t mtu_size = 0;
