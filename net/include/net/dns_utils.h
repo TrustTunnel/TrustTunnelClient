@@ -16,8 +16,6 @@ namespace dns_utils {
 using LdnsPktPtr = DeclPtr<ldns_pkt, &ldns_pkt_free>;
 using LdnsBufferPtr = DeclPtr<ldns_buffer, &ldns_buffer_free>;
 
-static constexpr uint32_t PLAIN_DNS_PORT_NUMBER = 53;
-
 enum RecordType {
     RT_A,
     RT_AAAA,

@@ -1,5 +1,5 @@
 #include "vpn/internal/vpn_connection.h"
-#include "net/dns_utils.h"
+#include "common/net_utils.h"
 
 namespace ag {
 
@@ -31,7 +31,7 @@ VpnConnection *VpnConnection::make(uint64_t client_id, TunnelAddressPair addr, i
     self->proto = proto;
 
     const SocketAddress *dst = std::get_if<SocketAddress>(&self->addr.dst);
-    self->flags.set(CONNF_PLAIN_DNS_CONNECTION, dst != nullptr && dns_utils::PLAIN_DNS_PORT_NUMBER == dst->port());
+    self->flags.set(CONNF_PLAIN_DNS_CONNECTION, dst != nullptr && utils::PLAIN_DNS_PORT_NUMBER == dst->port());
 
     return self;
 }

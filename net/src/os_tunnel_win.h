@@ -7,7 +7,7 @@
 #include "net/os_tunnel.h"
 #include "vpn/utils.h"
 
-#include "wfp_firewall.h"
+#include "common/wfp_firewall.h"
 
 namespace ag {
 
@@ -47,7 +47,7 @@ private:
     HANDLE m_wintun_quit_event{nullptr};
     std::unique_ptr<std::thread> m_recv_thread_handle{};
 
-    WfpFirewall m_firewall;
+    WfpFirewall m_firewall{L"AdGuard VPN"};
 };
 
 } // namespace ag

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "common/logger.h"
+#include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/dns_utils.h"
 #include "vpn/internal/vpn_client.h"
@@ -132,7 +133,7 @@ void ag::DnsHandlerServerUpstreamBase::close_session() {
 
 uint64_t ag::DnsHandlerServerUpstreamBase::open_connection(
         const TunnelAddressPair *addr, int proto, std::string_view app_name) {
-    if (addr->dstport() != dns_utils::PLAIN_DNS_PORT_NUMBER) {
+    if (addr->dstport() != utils::PLAIN_DNS_PORT_NUMBER) {
         assert(0);
         return NON_ID;
     }

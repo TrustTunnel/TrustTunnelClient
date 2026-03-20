@@ -27,7 +27,7 @@
 #include <netioapi.h>
 #include <winreg.h>
 
-#include "vpn/guid_utils.h"
+#include "common/guid_utils.h"
 #endif
 
 #include <brotli/decode.h>
@@ -38,7 +38,6 @@
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "common/utils.h"
-#include "net/dns_utils.h"
 #include "net/http_header.h"
 #include "net/http_session.h"
 #include "vpn/platform.h"

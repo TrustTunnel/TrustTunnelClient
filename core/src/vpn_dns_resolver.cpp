@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "common/net_utils.h"
 #include "common/socket_address.h"
 #include "net/dns_utils.h"
 #include "vpn/internal/vpn_client.h"
@@ -495,7 +496,7 @@ void VpnDnsResolver::on_dns_updated(void *arg) {
 
     static constexpr auto server_address_from_str = [](std::string_view str) {
         auto [host, port] = utils::split_host_port(str).value();
-        return SocketAddress(host, utils::to_integer<uint16_t>(port).value_or(dns_utils::PLAIN_DNS_PORT_NUMBER));
+        return SocketAddress(host, utils::to_integer<uint16_t>(port).value_or(utils::PLAIN_DNS_PORT_NUMBER));
     };
 
     std::optional<SocketAddress> selected_address;

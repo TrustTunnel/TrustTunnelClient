@@ -14,7 +14,6 @@
 #include "connection_statistics.h"
 #include "dns_handler.h"
 #include "fake_upstream.h"
-#include "net/dns_utils.h"
 #include "net/quic_utils.h"
 #include "net/utils.h"
 #include "socks_listener.h"
@@ -1499,7 +1498,7 @@ bool Tunnel::should_complete_immediately(uint64_t client_id) const {
     // whether to reject or bypass a plain DNS request.
     return conn
             && (conn->flags.test(CONNF_SUSPECT_EXCLUSION) == (vpn->exclusions_mode == VPN_MODE_GENERAL)
-                    || conn->addr.dstport() == dns_utils::PLAIN_DNS_PORT_NUMBER);
+                    || conn->addr.dstport() == utils::PLAIN_DNS_PORT_NUMBER);
 }
 
 static VpnAddress tunnel_to_vpn_address(const TunnelAddress *tunnel) {

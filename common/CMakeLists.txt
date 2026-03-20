@@ -22,10 +22,6 @@ set(SOURCE_FILES
         ${COMMON_SRC_DIR}/platform.cpp
 )
 
-if (WIN32)
-    list(APPEND SOURCE_FILES ${COMMON_SRC_DIR}/guid_utils.cpp)
-endif()
-
 add_library(vpnlibs_common STATIC EXCLUDE_FROM_ALL ${SOURCE_FILES})
 set_property(TARGET vpnlibs_common PROPERTY POSITION_INDEPENDENT_CODE ON)
 if (NOT MSVC)
@@ -65,7 +61,3 @@ add_unit_test(test_fsm "${TEST_DIR}" "${COMMON_SRC_DIR}" TRUE TRUE)
 add_unit_test(test_event_loop "${TEST_DIR}" "${COMMON_SRC_DIR}" TRUE TRUE)
 add_unit_test(test_dns_stamp "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_resolve_endpoint_address "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
-
-if (WIN32)
-    add_unit_test(test_guid "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
-endif()

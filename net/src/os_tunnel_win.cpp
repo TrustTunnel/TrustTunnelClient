@@ -14,11 +14,11 @@
 #include <winternl.h>
 #include <ws2ipdef.h>
 
+#include "common/guid_utils.h"
 #include "common/socket_address.h"
 #include "common/utils.h"
 #include "net/network_manager.h"
 #include "net/os_tunnel.h"
-#include "vpn/guid_utils.h"
 #include "vpn/utils.h"
 
 // Need to link with Iphlpapi.lib and Ws2_32.lib
