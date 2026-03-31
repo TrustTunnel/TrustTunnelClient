@@ -1,11 +1,17 @@
 #include "vpn/vpn_easy.h"
+#include "vpn/vpn_easy_service.h"
 
+#include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <variant>
 
 #include <magic_enum/magic_enum.hpp>
 #include <toml++/toml.h>
+
+#include <fmt/format.h>
+#include <fmt/xchar.h>
 
 #include "common/logger.h"
 #include "common/net_utils.h"
@@ -84,8 +90,8 @@ struct vpn_easy_s {
     std::unique_ptr<ag::AutoNetworkMonitor> network_monitor;
 };
 
-static vpn_easy_t *vpn_easy_start_internal(
-        const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg) {
+vpn_easy_t *vpn_easy_start_ex(const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
+        on_connection_info_t connection_info_cb, void *connection_info_cb_arg) {
     toml::parse_result parsed_config = toml::parse(toml_config);
     if (!parsed_config) {
         warnlog(g_logger, "Failed to parse the TOML config: {}", parsed_config.error().description());
@@ -119,11 +125,17 @@ static vpn_easy_t *vpn_easy_start_internal(
             state_changed_cb(state_changed_cb_arg, event->state);
         }
     };
+    if (connection_info_cb) {
+        callbacks.connection_info_handler = [connection_info_cb, connection_info_cb_arg](
+                                                    ag::VpnConnectionInfoEvent *event) {
+            connection_info_cb(connection_info_cb_arg, event);
+        };
+    }
 
     auto vpn = std::make_unique<vpn_easy_t>();
 
     std::string bound_if;
-    if (const auto *tun = std::get_if<TrustTunnelConfig::TunListener>(&trusttunnel_config->listener)) {
+    if (const auto *tun = std::get_if<ag::TrustTunnelConfig::TunListener>(&trusttunnel_config->listener)) {
         bound_if = tun->bound_if;
     }
 
@@ -141,7 +153,7 @@ static vpn_easy_t *vpn_easy_start_internal(
     return vpn.release();
 }
 
-static void vpn_easy_stop_internal(vpn_easy_t *vpn) {
+void vpn_easy_stop_ex(vpn_easy_t *vpn) {
     if (!vpn) {
         return;
     }
@@ -175,7 +187,7 @@ public:
                 warnlog(g_logger, "VPN has been already started");
                 return;
             }
-            m_vpn = vpn_easy_start_internal(config.data(), callback, arg); // blocking
+            m_vpn = vpn_easy_start_ex(config.data(), callback, arg, nullptr, nullptr); // blocking
             if (!m_vpn) {
                 errlog(g_logger, "Failed to start VPN!");
                 return;
@@ -193,7 +205,7 @@ public:
                 return;
             }
             auto *vpn = std::exchange(m_vpn, nullptr);
-            vpn_easy_stop_internal(vpn);
+            vpn_easy_stop_ex(vpn);
         });
     }
 
@@ -215,4 +227,92 @@ void vpn_easy_start(const char *toml_config, on_state_changed_t state_changed_cb
 
 void vpn_easy_stop() {
     VpnEasyManager::instance().stop_async();
+}
+
+static std::wstring escape(const wchar_t *str, const wchar_t *chars_to_escape, wchar_t escape_char) {
+    std::wstring ret;
+    ret.reserve(wcslen(str) * 2);
+    while (*str != L'\0') {
+        if (wcschr(chars_to_escape, *str)) {
+            ret += escape_char;
+        }
+        ret += *str;
+        ++str;
+    }
+    return ret;
+}
+
+using AutoScHandle = ag::UniquePtr<std::remove_pointer_t<SC_HANDLE>, &CloseServiceHandle>;
+
+int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logfile_path_, const wchar_t *pipe_name_,
+        const wchar_t *name, const wchar_t *display_name, const wchar_t *description) {
+    std::wstring image_path = escape(image_path_, L"\"", L'\\');
+    std::wstring logfile_path = escape(logfile_path_, L"\"", L'\\');
+    std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
+
+    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\"", image_path, logfile_path, pipe_name);
+
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE)};
+    if (!scm) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "OpenSCManagerW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    AutoScHandle svc{CreateServiceW(scm.get(), name, display_name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
+            SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr)};
+    if (!svc) {
+        if (ERROR_SERVICE_EXISTS == GetLastError()) {
+            return VPN_EASY_SVC_ERR_SERVICE_EXISTS;
+        }
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "CreateServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    SERVICE_DESCRIPTIONW desc{.lpDescription = (wchar_t *) description};
+    ChangeServiceConfig2W(svc.get(), SERVICE_CONFIG_DESCRIPTION, &desc);
+
+    if (!StartServiceW(svc.get(), 0, nullptr)) {
+        dbglog(g_logger, "StartServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    return 0;
+}
+
+int32_t vpn_easy_service_uninstall(const wchar_t *name) {
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!scm) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "OpenSCManagerW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    AutoScHandle svc{OpenServiceW(scm.get(), name, STANDARD_RIGHTS_DELETE | SERVICE_STOP)};
+    if (!svc) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "OpenServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    SERVICE_STATUS status{};
+    if (!ControlService(svc.get(), SERVICE_CONTROL_STOP, &status) && ERROR_SERVICE_NOT_ACTIVE != GetLastError()) {
+        dbglog(g_logger, "ControlService(STOP): {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+    }
+
+    if (!DeleteService(svc.get())) {
+        dbglog(g_logger, "DeleteService: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    return 0;
 }

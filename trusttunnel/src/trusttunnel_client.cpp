@@ -391,8 +391,8 @@ static void report_service_status(DWORD current_state, DWORD win32_exit_code, DW
     SetServiceStatus(g_status_handle, &g_service_status);
 }
 
-static void WINAPI service_ctrl_handler(DWORD ctrl_code) {
-    switch (ctrl_code) {
+static void WINAPI service_ctrl_handler(DWORD control) {
+    switch (control) {
     case SERVICE_CONTROL_STOP:
     case SERVICE_CONTROL_SHUTDOWN:
         report_service_status(SERVICE_STOP_PENDING, NO_ERROR, 5000);

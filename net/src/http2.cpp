@@ -126,7 +126,7 @@ finish:
 static ssize_t on_send_callback(
         nghttp2_session *ngsession, const uint8_t *data, size_t length, int flags, void *user_data) {
     auto *session = (HttpSession *) user_data;
-    log_sess(session, trace, "(ngsession={}, data={}, length={}, flags=0x{:x})", (void *) ngsession, (void *) data,
+    log_sess(session, trace, "(ngsession={}, data={}, length={}, flags={:#x})", (void *) ngsession, (void *) data,
             length, flags);
 
     HttpSessionHandler *callbacks = &session->params.handler;
@@ -316,7 +316,7 @@ static int h2_data_output(HttpStream *stream, const uint8_t *data, size_t length
 static int on_data_chunk_recv_callback(nghttp2_session *ngsession, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data) {
     HttpSession *session = (HttpSession *) user_data;
-    log_sid(session, stream_id, trace, "(ngsession={}, flags=0x{:x}, len={})", (void *) ngsession, flags, len);
+    log_sid(session, stream_id, trace, "(ngsession={}, flags={:#x}, len={})", (void *) ngsession, flags, len);
     Http2Session *h2_session = session->h2;
     int r = 0;
 
