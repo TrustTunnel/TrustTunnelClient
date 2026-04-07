@@ -1,5 +1,6 @@
 #include "vpn/internal/domain_extractor.h"
 
+#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <string_view>
@@ -10,6 +11,8 @@
 #include "vpn/internal/utils.h"
 
 namespace ag {
+
+static Logger g_logger("DOMAIN_EXTRACTOR");
 
 struct Parser { // NOLINT(cppcoreguidelines-special-member-functions,hicpp-special-member-functions)
     virtual ~Parser() = default;
@@ -269,6 +272,19 @@ DomainExtractorResult DomainExtractor::proceed(
     }
 
     DomainExtractorResult r = m_context->parse(dir, data, length);
+
+    // Domain names must be ASCII per RFC 6066 (SNI) and RFC 7230 (HTTP Host).
+    // Non-ASCII bytes indicate malformed protocol data, not a valid domain.
+    // Lower bound constraint excludes (0x1F) control characters,
+    // upper bound constraint (0x7F) excludes non-ASCII bytes.
+    if (r.status == DES_FOUND && !std::all_of(r.domain.begin(), r.domain.end(), [](unsigned char c) {
+            return c > 0x1F && c < 0x7F;
+        })) {
+        warnlog(g_logger, "Domain name has been found, but contains non-ascii characters: {}",
+                utils::encode_to_hex({(uint8_t *) r.domain.data(), r.domain.size()}));
+        return {DES_NOTFOUND};
+    }
+
     return r;
 }
 

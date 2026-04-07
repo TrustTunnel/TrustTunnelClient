@@ -214,6 +214,8 @@ static const TestParam HTTP_TEST_SAMPLES[] = {
         {string_view_to_vector("CONNECT /example HTTP/1.1\r\nAccept: text/html\r\n\r\n"), DEPD_OUTGOING, DES_NOTFOUND,
                 ""},
         {string_view_to_vector("CONNECT example.com"), DEPD_OUTGOING, DES_NOTFOUND, ""},
+        // Control characters in Host header must be rejected as DES_NOTFOUND
+        {string_view_to_vector("GET / HTTP/1.1\r\nHost: exam\x01ple.com\r\n\r\n"), DEPD_OUTGOING, DES_NOTFOUND, ""},
 };
 INSTANTIATE_TEST_SUITE_P(DomainExtractorHTTP, OutgoingDataTcp, testing::ValuesIn(HTTP_TEST_SAMPLES));
 

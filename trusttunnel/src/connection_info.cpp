@@ -35,7 +35,7 @@ std::string ConnectionInfo::to_json(VpnConnectionInfoEvent *info, bool include_c
         json["date"] = format_gmtime(ag::SystemClock::now(), "%Y-%m-%dT%H:%M:%S.%fZ");
     }
 
-    return json.dump();
+    return json.dump(-1, ' ', false, nlohmann::detail::error_handler_t::replace);
 }
 
 } // namespace ag
