@@ -7,6 +7,8 @@
 ---
   !include 'run-live-unit-tests.yaml'
 ---
+  !include 'run-live-integration-tests.yaml'
+---
   !include 'run-integration-test.yaml'
 ---
   !include 'upload-conan-recipes.yaml'

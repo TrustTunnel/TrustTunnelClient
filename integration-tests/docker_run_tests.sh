@@ -3,7 +3,7 @@
 set -e
 
 # Docker test runner script for integrated tests
-# Usage: ./docker_run_tests.sh [main|browser]
+# Usage: ./docker_run_tests.sh [main|main-live|browser]
 
 # Variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,11 +12,12 @@ DOCKER_IMAGE="core-libs-testing"
 
 # Function to show usage
 usage() {
-    echo "Usage: $0 [main|browser]"
+    echo "Usage: $0 [main|main-live|browser]"
     echo ""
     echo "Parameters:"
-    echo "  main      - Run main tests"
-    echo "  browser   - Run browser tests"
+    echo "  main         - Run main tests in offline mode (default for PR)"
+    echo "  main-live    - Run main tests with live internet checks"
+    echo "  browser      - Run browser tests"
     echo ""
     echo "Environment variables:"
     echo "  ENDPOINT_HOSTNAME - Hostname for SSL certificate generation (default: endpoint.test)"
@@ -35,6 +36,9 @@ run_main_tests() {
     fi
     if [ -n "$LOG_LEVEL" ]; then
         ENV_ARGS="$ENV_ARGS -e LOG_LEVEL=$LOG_LEVEL"
+    fi
+    if [ -n "$LIVE_TESTS" ]; then
+        ENV_ARGS="$ENV_ARGS -e LIVE_TESTS=$LIVE_TESTS"
     fi
 
     # Run the tests
@@ -83,6 +87,12 @@ fi
 case "$1" in
     main)
         shift
+        LIVE_TESTS=0
+        run_main_tests "$@"
+        ;;
+    main-live)
+        shift
+        LIVE_TESTS=1
         run_main_tests "$@"
         ;;
     browser)

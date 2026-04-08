@@ -96,19 +96,29 @@ echo "Step 5: Starting client..."
 
 echo "Step 6: Running tests..."
 # Run the actual tests directly
+if [[ "${LIVE_TESTS:-0}" == "1" ]]; then
+    TUN_TEST_SCRIPT="$TEST_DIR/main/tun_tests.sh"
+    SOCKS_TEST_SCRIPT="$TEST_DIR/main/socks_tests.sh"
+    echo "Live mode enabled: using online test scripts"
+else
+    TUN_TEST_SCRIPT="$TEST_DIR/main/tun_tests_offline.sh"
+    SOCKS_TEST_SCRIPT="$TEST_DIR/main/socks_tests_offline.sh"
+    echo "Offline mode enabled: using offline test scripts"
+fi
+
 if [[ "$MODE" == "socks" ]]; then
-    if [ -f "$TEST_DIR/main/socks_tests.sh" ]; then
+    if [ -f "$SOCKS_TEST_SCRIPT" ]; then
         echo "Running SOCKS tests with endpoint IP: $ENDPOINT_IP, port: $SOCKS_PORT"
-        "$TEST_DIR/main/socks_tests.sh" "$ENDPOINT_IP" "$SOCKS_PORT"
+        "$SOCKS_TEST_SCRIPT" "$ENDPOINT_IP" "$SOCKS_PORT"
     else
-        echo "Warning: socks_tests.sh not found, skipping SOCKS tests"
+        echo "Warning: SOCKS test script not found, skipping SOCKS tests"
     fi
 else
-    if [ -f "$TEST_DIR/main/tun_tests.sh" ]; then
+    if [ -f "$TUN_TEST_SCRIPT" ]; then
         echo "Running TUN tests with endpoint IP: $ENDPOINT_IP"
-        "$TEST_DIR/main/tun_tests.sh" "$ENDPOINT_IP"
+        "$TUN_TEST_SCRIPT" "$ENDPOINT_IP"
     else
-        echo "Warning: tun_tests.sh not found, skipping TUN tests"
+        echo "Warning: TUN test script not found, skipping TUN tests"
     fi
 fi
 
