@@ -2,6 +2,8 @@
 #include <cassert>
 #include <chrono>
 
+#include <openssl/rand.h>
+
 #include <event2/util.h>
 
 #include "direct_upstream.h"
@@ -364,12 +366,23 @@ static std::unique_ptr<ServerUpstream> make_upstream(const VpnUpstreamProtocolCo
 }
 
 static VpnError start_dns_proxy_listener(VpnClient *self) {
-    VpnSocksListenerConfig dns_listener_config{};
+    static constexpr size_t RANDOM_BYTES_LENGTH = 16;
+    uint8_t random_bytes[RANDOM_BYTES_LENGTH];
+    if (RAND_bytes(random_bytes, RANDOM_BYTES_LENGTH) != 1) {
+        return {VPN_EC_ERROR, "Failed to generate DNS proxy listener password"};
+    }
+    std::string password = encode_to_hex({random_bytes, RANDOM_BYTES_LENGTH});
+
+    VpnSocksListenerConfig dns_listener_config{
+            .username = vpn_client::DNS_PROXY_LISTENER_USERNAME.data(),
+            .password = password.c_str(),
+    };
     self->dns_proxy_listener = std::make_unique<SocksListener>(&dns_listener_config);
     if (self->dns_proxy_listener->init(self, {&dns_proxy_listener_handler, self})
             != ClientListener::InitResult::SUCCESS) {
         return {VPN_EC_INVALID_SETTINGS, "Failed to initialize DNS proxy listener"};
     }
+    self->dns_proxy_listener_password = std::move(password);
     if (!self->tunnel->update_dns_handler_parameters()) {
         return {VPN_EC_ERROR, "Failed to initialize the DNS handler"};
     }

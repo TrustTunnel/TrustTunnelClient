@@ -526,6 +526,8 @@ static std::optional<DnsHandlerParameters> make_dns_handler_parameters(Tunnel *s
         }
         parameters.dns_proxy_listener_address =
                 ((SocksListener *) self->vpn->dns_proxy_listener.get())->get_listen_address();
+        parameters.dns_proxy_listener_username = std::string(vpn_client::DNS_PROXY_LISTENER_USERNAME);
+        parameters.dns_proxy_listener_password = self->vpn->dns_proxy_listener_password;
     }
     return parameters;
 }

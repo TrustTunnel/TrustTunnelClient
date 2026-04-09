@@ -73,6 +73,11 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
                 .protocol = dns::OutboundProxyProtocol::SOCKS5_UDP,
                 .address = parameters.socks_listener_address->host_str(/*ipv6_brackets=*/true),
                 .port = parameters.socks_listener_address->port(),
+                .auth_info =
+                        dns::OutboundProxyAuthInfo{
+                                .username = parameters.socks_listener_username,
+                                .password = parameters.socks_listener_password,
+                        },
         }};
     }
 

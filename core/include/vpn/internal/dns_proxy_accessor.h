@@ -44,6 +44,10 @@ public:
         std::vector<std::string> bootstraps;
         /// The address which the outbound proxy for the DNS proxy is listening on
         std::optional<SocketAddress> socks_listener_address;
+        /// The username for the outbound proxy
+        std::string socks_listener_username;
+        /// The password for the outbound proxy
+        std::string socks_listener_password;
         /// Certificate verification handler
         CertVerifyHandler cert_verify_handler = {};
 #if defined(__APPLE__) && TARGET_OS_IPHONE

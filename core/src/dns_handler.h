@@ -215,6 +215,10 @@ private:
 struct DnsHandlerParameters {
     /** Address of the SOCKS5 listener to be used as outbound proxy for the DNS proxy. */
     SocketAddress dns_proxy_listener_address;
+    /** Username for the SOCKS5 listener used as outbound proxy for the DNS proxy. */
+    std::string dns_proxy_listener_username;
+    /** Password for the SOCKS5 listener used as outbound proxy for the DNS proxy. */
+    std::string dns_proxy_listener_password;
     /** User-provided DNS server addresses specified in `ag::VpnListenerConfig::dns_upstreams`. */
     std::vector<DnsProxyAccessor::Upstream> dns_upstreams;
     /** Cert verify callback for the DNS proxies. */

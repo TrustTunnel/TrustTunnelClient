@@ -89,6 +89,7 @@ struct EndpointConnectionConfig {
 };
 
 static constexpr const char *LOG_NAME = "VPNCLIENT";
+static constexpr std::string_view DNS_PROXY_LISTENER_USERNAME = "vpn";
 
 } // namespace vpn_client
 
@@ -168,6 +169,7 @@ public:
     std::shared_ptr<ServerUpstream> bypass_upstream;    // upstream for bypassed connections
     std::shared_ptr<ClientListener> client_listener;    // client listener
     std::shared_ptr<ClientListener> dns_proxy_listener; // client listener
+    std::string dns_proxy_listener_password;            // password for the DNS proxy SOCKS listener
     IdGenerator listener_conn_id_generator{};           // connection id generator for client-side connections
     IdGenerator upstream_conn_id_generator{};           // connection id generator for server-side connections
     std::optional<VpnDnsResolveId> dns_health_check_id; // ID of the resolve for a DNS upstream health check
