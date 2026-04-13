@@ -64,14 +64,20 @@
 
 #define MAX_SUPPORTED_MTU 9000
 
-#define TCP_WND (32 * 1024)
-#define TCP_RCV_SCALE 2
+#define TCP_WND (256 * 1024)
+#define TCP_RCV_SCALE 4
 #define TCP_MSS (MAX_SUPPORTED_MTU - IP_HLEN - TCP_HLEN)
 
-#define TCP_SND_BUF (32 * 1024)
-#define TCP_SND_QUEUELEN 32
+#define TCP_SND_BUF (256 * 1024)
+#define TCP_SND_QUEUELEN 256
+// Explicit SNDLOWAT to avoid LWIP sanity check u16 overflow with large TCP_SND_BUF
+#define TCP_SNDLOWAT (2 * TCP_MSS + 1)
 
 #define LWIP_TCP_SACK_OUT 1
+
+// Limit out-of-sequence buffer to prevent unbounded memory growth
+#define TCP_OOSEQ_MAX_BYTES TCP_WND
+#define TCP_OOSEQ_MAX_PBUFS 64
 
 // IP hooks (implementation in ip_hooks.c)
 #define LWIP_HOOK_FILENAME "./ip_hooks.h"
