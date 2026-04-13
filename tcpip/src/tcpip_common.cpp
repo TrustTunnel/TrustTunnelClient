@@ -2,6 +2,7 @@
 
 #ifndef _WIN32
 #include <unistd.h>
+#include <malloc.h>
 #endif
 
 #include <cstdlib>
@@ -20,6 +21,7 @@
 #include <lwip/netif.h>
 #include <lwip/pbuf.h>
 #include <lwip/tcp.h>
+#include <lwip/priv/tcp_priv.h>
 
 #include "libevent_lwip.h"
 #include "tcp_conn_manager.h"
@@ -45,6 +47,11 @@ static constexpr TimerTickNotifyFn TIMER_TICK_NOTIFIERS[] = {
         tcp_cm_timer_tick,
         udp_cm_timer_tick,
 };
+
+#if !defined(_WIN32) && !defined(__MACH__)
+static int s_malloc_trim_tick_counter = 0;
+static constexpr int MALLOC_TRIM_INTERVAL_TICKS = 5;
+#endif
 
 static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len);
 static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks);
@@ -289,6 +296,18 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
     for (auto fn : TIMER_TICK_NOTIFIERS) {
         fn((TcpipCtx *) arg);
     }
+
+#if !defined(_WIN32) && !defined(__MACH__)
+    // Periodically return freed heap pages to the OS when no active TCP connections.
+    // LWIP uses libc malloc (MEM_LIBC_MALLOC=1) and glibc doesn't release pages automatically,
+    // causing RSS to stay high after traffic bursts.
+    if (++s_malloc_trim_tick_counter >= MALLOC_TRIM_INTERVAL_TICKS) {
+        s_malloc_trim_tick_counter = 0;
+        if (tcp_active_pcbs == nullptr && tcp_tw_pcbs == nullptr) {
+            malloc_trim(0);
+        }
+    }
+#endif
 }
 
 static bool configure_events(TcpipCtx *ctx) {
