@@ -111,6 +111,8 @@ typedef struct {
     evutil_socket_t tun_fd; /**< File descriptor of TUN device */
     VpnEventLoop *event_loop;
     uint32_t mtu_size;         /**< Maximum transfer unit for TCP protocol (if 0 `DEFAULT_MTU_SIZE` will be used) */
+    uint32_t tcp_recv_buf_size; /**< TCP receive window size in bytes (if 0, compile-time default is used) */
+    uint32_t tcp_send_buf_size; /**< TCP send buffer size in bytes (if 0, compile-time default is used) */
     const char *pcap_filename; /**< Pcap file name */
     TcpipHandler handler;      /**< callbacks structure for TCP connection (@see tcpip_callbacks_t) */
 } TcpipParameters;

@@ -272,6 +272,8 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         VpnTunListenerConfig listener_config = {
                 .fd = use_fd->fd.release(),
                 .mtu_size = config.mtu_size,
+                .tcp_recv_buf_size = config.tcp_recv_buf_size,
+                .tcp_send_buf_size = config.tcp_send_buf_size,
         };
 
         return vpn_create_tun_listener(m_vpn, &listener_config);
@@ -281,6 +283,8 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         VpnTunListenerConfig listener_config = {
                 .fd = -1,
                 .mtu_size = config.mtu_size,
+                .tcp_recv_buf_size = config.tcp_recv_buf_size,
+                .tcp_send_buf_size = config.tcp_send_buf_size,
         };
 
         return vpn_create_tun_listener(m_vpn, &listener_config);
@@ -373,6 +377,8 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .tunnel = m_tunnel.get(),
 #endif
             .mtu_size = config.mtu_size,
+            .tcp_recv_buf_size = config.tcp_recv_buf_size,
+            .tcp_send_buf_size = config.tcp_send_buf_size,
     };
 
     return vpn_create_tun_listener(m_vpn, &listener_config);

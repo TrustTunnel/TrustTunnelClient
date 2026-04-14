@@ -45,6 +45,8 @@ static VpnTunListenerConfig clone_config(const VpnTunListenerConfig *config) {
             .fd = config->fd,
             .tunnel = config->tunnel,
             .mtu_size = config->mtu_size,
+            .tcp_recv_buf_size = config->tcp_recv_buf_size,
+            .tcp_send_buf_size = config->tcp_send_buf_size,
             .pcap_filename = safe_strdup(config->pcap_filename),
     };
 }
@@ -84,6 +86,8 @@ ClientListener::InitResult TunListener::init(VpnClient *vpn, ClientHandler handl
             .tun_fd = m_config.fd,
             .event_loop = this->vpn->parameters.ev_loop,
             .mtu_size = m_config.mtu_size,
+            .tcp_recv_buf_size = m_config.tcp_recv_buf_size,
+            .tcp_send_buf_size = m_config.tcp_send_buf_size,
             .pcap_filename = m_config.pcap_filename,
             .handler = {tcpip_handler, this},
     };
