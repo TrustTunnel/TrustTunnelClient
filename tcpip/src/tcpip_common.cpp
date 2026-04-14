@@ -2,6 +2,8 @@
 
 #ifndef _WIN32
 #include <unistd.h>
+#endif
+#ifdef __GLIBC__
 #include <malloc.h>
 #endif
 
@@ -48,7 +50,7 @@ static constexpr TimerTickNotifyFn TIMER_TICK_NOTIFIERS[] = {
         udp_cm_timer_tick,
 };
 
-#if !defined(_WIN32) && !defined(__MACH__)
+#ifdef __GLIBC__
 static int s_malloc_trim_tick_counter = 0;
 static constexpr int MALLOC_TRIM_INTERVAL_TICKS = 5;
 #endif
@@ -297,7 +299,7 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
         fn((TcpipCtx *) arg);
     }
 
-#if !defined(_WIN32) && !defined(__MACH__)
+#ifdef __GLIBC__
     // Periodically return freed heap pages to the OS when no active TCP connections.
     // LWIP uses libc malloc (MEM_LIBC_MALLOC=1) and glibc doesn't release pages automatically,
     // causing RSS to stay high after traffic bursts.
