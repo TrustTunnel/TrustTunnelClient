@@ -311,8 +311,9 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
             malloc_trim(0);
 #elif defined(__MACH__)
             malloc_zone_pressure_relief(NULL, 0);
-#elif defined(_WIN32)
-            HeapCompact(GetProcessHeap(), 0);
+#elif defined(_WIN32) && NTDDI_VERSION >= 0x06030000 // Windows 8.1+
+            HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION};
+            HeapSetInformation(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
 #endif
         }
     }
