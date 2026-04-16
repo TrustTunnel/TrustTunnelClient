@@ -26,8 +26,8 @@
 #include <lwip/netdb.h>
 #include <lwip/netif.h>
 #include <lwip/pbuf.h>
-#include <lwip/tcp.h>
 #include <lwip/priv/tcp_priv.h>
+#include <lwip/tcp.h>
 
 #include "libevent_lwip.h"
 #include "tcp_conn_manager.h"
