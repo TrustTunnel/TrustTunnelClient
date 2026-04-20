@@ -9,6 +9,19 @@
 #include <malloc/malloc.h>
 #elif defined(_WIN32)
 #include <windows.h>
+// HeapOptimizeResources requires NTDDI_VERSION > NTDDI_WINBLUE in SDK headers,
+// but we target Win7 (_WIN32_WINNT=0x0601). Define the constants manually
+// so we can call HeapSetInformation via GetProcAddress at runtime.
+#ifndef HeapOptimizeResources
+#define HeapOptimizeResources static_cast<HEAP_INFORMATION_CLASS>(3)
+#endif
+#ifndef HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION
+#define HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION 1
+struct HEAP_OPTIMIZE_RESOURCES_INFORMATION {
+    DWORD Version;
+    DWORD Flags;
+};
+#endif
 #endif
 
 #include <cstdlib>
@@ -311,9 +324,16 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
             malloc_trim(0);
 #elif defined(__MACH__)
             malloc_zone_pressure_relief(NULL, 0);
-#elif defined(_WIN32) && NTDDI_VERSION >= 0x06030000 // Windows 8.1+
-            HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION};
-            HeapSetInformation(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
+#elif defined(_WIN32)
+            // HeapOptimizeResources is available on Windows 8.1+ (NTDDI >= 0x06030000).
+            // Use runtime loading so the binary works on Win7 too.
+            static const auto heap_set_info = reinterpret_cast<decltype(&HeapSetInformation)>(
+                    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "HeapSetInformation"));
+            if (heap_set_info) {
+                HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {};
+                heap_opt_info.Version = HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION;
+                heap_set_info(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
+            }
 #endif
         }
     }
