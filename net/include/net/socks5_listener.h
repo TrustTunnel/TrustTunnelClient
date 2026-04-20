@@ -166,6 +166,15 @@ void socks5_listener_complete_connect_request(Socks5Listener *listener, uint64_t
 int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8_t *data, size_t length);
 
 /**
+ * Get connection protocol by id
+ * @param listener listener
+ * @param id connection id
+ * @param proto output protocol on success
+ * @return true if connection exists, false otherwise
+ */
+bool socks5_listener_get_connection_proto(const Socks5Listener *listener, uint64_t id, int &proto);
+
+/**
  * Close connection
  * @note: `SOCKS5L_EVENT_CONNECTION_CLOSED` event will be fired synchronously
  *
