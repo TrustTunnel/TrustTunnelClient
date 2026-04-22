@@ -155,6 +155,15 @@ On Windows, an interface index as shown by `route print`, written as a string, m
         #{doc("Allow changing system DNS servers")}
         #[serde(default = "TunListener::default_change_system_dns")]
         pub change_system_dns: bool,
+        #{doc("TUN / Wintun device name. On Linux: TUN interface name passed to TUNSETIFF (empty = kernel-assigned). On Windows: Wintun adapter name (empty = auto-generated from hostname). On macOS: ignored.")}
+        #[serde(default = "TunListener::default_device_name")]
+        pub device_name: String,
+        #{doc("Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name` to be non-empty. Linux only; ignored on Windows and macOS.")}
+        #[serde(default = "TunListener::default_use_existing")]
+        pub use_existing: bool,
+        #{doc("Do not install any routes or `ip rule` entries. Routing should be managed externally (e.g. via `pbr`). Linux only; ignored on Windows and macOS.")}
+        #[serde(default = "TunListener::default_unmanaged_routing")]
+        pub unmanaged_routing: bool,
     }
 }
 
@@ -235,6 +244,18 @@ impl TunListener {
 
     pub fn default_change_system_dns() -> bool {
         true
+    }
+
+    pub fn default_device_name() -> String {
+        "".into()
+    }
+
+    pub fn default_use_existing() -> bool {
+        false
+    }
+
+    pub fn default_unmanaged_routing() -> bool {
+        false
     }
 }
 
@@ -602,6 +623,15 @@ fn build_listener(template: Option<&Listener>) -> Listener {
                         .cloned()
                         .unwrap_or_else(TunListener::default_change_system_dns),
                 ),
+                device_name: opt_field!(template, device_name)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_device_name),
+                use_existing: opt_field!(template, use_existing)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_use_existing),
+                unmanaged_routing: opt_field!(template, unmanaged_routing)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_unmanaged_routing),
             })
         }
         _ => unreachable!(),

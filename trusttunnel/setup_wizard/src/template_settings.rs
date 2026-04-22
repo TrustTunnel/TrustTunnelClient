@@ -145,6 +145,12 @@ excluded_routes = [{}]
 mtu_size = {}
 {}
 change_system_dns = {}
+{}
+device_name = "{}"
+{}
+use_existing = {}
+{}
+unmanaged_routing = {}
 "#,
         TunListener::doc_bound_if().to_toml_comment(),
         TunListener::default_bound_if(),
@@ -164,5 +170,11 @@ change_system_dns = {}
         TunListener::default_mtu_size(),
         TunListener::doc_change_system_dns().to_toml_comment(),
         TunListener::default_change_system_dns(),
+        TunListener::doc_device_name().to_toml_comment(),
+        TunListener::default_device_name(),
+        TunListener::doc_use_existing().to_toml_comment(),
+        TunListener::default_use_existing(),
+        TunListener::doc_unmanaged_routing().to_toml_comment(),
+        TunListener::default_unmanaged_routing(),
     )
 });
