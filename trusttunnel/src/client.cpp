@@ -328,7 +328,10 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .included_routes = {.data = included_routes.data(), .size = uint32_t(included_routes.size())},
             .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
             .mtu = int(config.mtu_size),
-            .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{}};
+            .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{},
+            .device_name = config.device_name.c_str(),
+            .use_existing = config.use_existing,
+            .unmanaged_routing = config.unmanaged_routing};
 
     m_tunnel = ag::make_vpn_tunnel();
     if (m_tunnel == nullptr) {
@@ -344,10 +347,10 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         return nullptr;
     }
     VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
-    if (!config.adapter_name.empty()) {
-        win_settings.adapter_name = config.adapter_name.c_str();
+    if (!config.device_name.empty()) {
+        win_settings.adapter_name = config.device_name.c_str();
     } else {
-        // Fallback to hostname if adapter_name is not specified
+        // Fallback to hostname if no name is specified
         if (!m_config.location.endpoints.empty()) {
             static std::string fallback_name;
             fallback_name = AG_FMT("TrustTunnel ({})", m_config.location.endpoints[0].hostname);
