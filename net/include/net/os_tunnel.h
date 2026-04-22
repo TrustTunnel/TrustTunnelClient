@@ -46,6 +46,17 @@ struct VpnOsTunnelSettings {
     int mtu;
     /** DNS servers addresses */
     VpnAddressArray dns_servers;
+    /** Requested TUN/Wintun device name. NULL or "" means the
+     *  platform default (Linux: kernel-assigned; Windows: fallback
+     *  to the legacy `VpnWinTunnelSettings::adapter_name`). */
+    const char *device_name;
+    /** If true, open the pre-existing device named `device_name`
+     *  instead of creating a new one. Requires `device_name` to be
+     *  non-empty. Linux only. */
+    bool use_existing;
+    /** If true, do not install any routes or `ip rule` entries and
+     *  do not remove any such entries on shutdown. Linux only. */
+    bool unmanaged_routing;
 };
 
 #ifdef _WIN32

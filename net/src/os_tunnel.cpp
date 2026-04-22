@@ -174,6 +174,9 @@ ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_clone(const ag::VpnOsTunnelS
     for (size_t i = 0; i != dst->dns_servers.size; i++) {
         dst->dns_servers.data[i] = safe_strdup(settings->dns_servers.data[i]);
     }
+    dst->device_name = safe_strdup(settings->device_name);
+    dst->use_existing = settings->use_existing;
+    dst->unmanaged_routing = settings->unmanaged_routing;
     return dst;
 }
 
@@ -195,6 +198,7 @@ void ag::vpn_os_tunnel_settings_destroy(ag::VpnOsTunnelSettings *settings) {
         free((void *) settings->dns_servers.data[i]);
     }
     delete[] settings->dns_servers.data;
+    free((void *) settings->device_name);
     delete settings;
 }
 // NOLINTEND(cppcoreguidelines-no-malloc,hicpp-no-malloc)
@@ -211,6 +215,9 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
             .excluded_routes = {.data = excluded_routes, .size = std::size(excluded_routes)},
             .mtu = 9000,
             .dns_servers = {.data = dns_servers, .size = std::size(dns_servers)},
+            .device_name = "",
+            .use_existing = false,
+            .unmanaged_routing = false,
     };
     return &settings;
 }
