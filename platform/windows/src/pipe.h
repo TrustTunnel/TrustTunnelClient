@@ -5,31 +5,38 @@
 #include <list>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 #include "common/defs.h"
+#include "common/logger.h"
 #include "vpn/vpn_easy_service.h"
 
 namespace ag::vpn_easy {
 
 /**
- * Asynchronous named-pipe server for the VPN easy-service control protocol.
+ * Asynchronous named-pipe endpoint base class for the VPN easy-service control protocol.
  *
- * The server owns a single byte-stream named pipe instance. After construction the caller drives the IO
- * loop by calling `loop()` on a worker thread; the loop returns once the externally-provided `stop_event`
- * becomes signaled (or on a fatal error). The server waits for a client to connect, then concurrently
- * reads framed messages (see `VpnEasyServiceMessageType`) from the client (delivered via the user
- * callback) and writes framed messages enqueued via `send()`. When the client disconnects, the server
- * transparently reconnects and waits for a new client.
+ * Holds all framing, queueing, overlapped-IO and event-loop machinery shared by both ends of the
+ * pipe. Subclasses implement only:
+ *   - how a pipe handle is acquired (`start_connect()`),
+ *   - how a posted overlapped connect completion is reaped (`finalize_connect()`),
+ *   - how the pipe handle is torn down on disconnect (`teardown_pipe()`),
+ *   - and the disconnect policy (`should_reconnect_on_disconnect()`).
  *
- * `send()` is thread-safe and may be called from any thread, including from inside the receive callback.
- * If no client is currently connected the message is dropped. If the queue overflows, the oldest pending
- * messages are dropped.
+ * After construction, the caller drives the IO loop by calling `loop()` on a worker thread; the
+ * loop returns once the externally-provided `stop_event` becomes signaled, the peer disconnects
+ * (only for endpoints whose `should_reconnect_on_disconnect()` returns `false`), or a fatal
+ * error occurs.
+ *
+ * `send()` is thread-safe and may be called from any thread, including from inside the receive
+ * callback. If the endpoint is not currently connected the message is dropped. If the queue
+ * overflows, the oldest pending messages are dropped.
  */
-class PipeServer {
+class PipeEndpoint {
 public:
     /**
      * Callback invoked from `loop()`'s thread for every fully-received message.
@@ -37,33 +44,102 @@ public:
      */
     using Handler = std::function<void(VpnEasyServiceMessageType what, ag::Uint8View data)>;
 
-    /**
-     * @param pipe_name Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
-     * @param stop_event Externally-owned manual-reset event. When signaled, `loop()` returns `true`.
-     *                   Ownership is NOT transferred.
-     * @param handler Message receive callback. Must be non-null.
-     */
-    PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler);
+    virtual ~PipeEndpoint();
 
-    ~PipeServer();
-
-    PipeServer(const PipeServer &) = delete;
-    PipeServer &operator=(const PipeServer &) = delete;
-    PipeServer(PipeServer &&) = delete;
-    PipeServer &operator=(PipeServer &&) = delete;
+    PipeEndpoint(const PipeEndpoint &) = delete;
+    PipeEndpoint &operator=(const PipeEndpoint &) = delete;
+    PipeEndpoint(PipeEndpoint &&) = delete;
+    PipeEndpoint &operator=(PipeEndpoint &&) = delete;
 
     /**
-     * Run the asynchronous IO loop until `stop_event` is signaled or a fatal error occurs.
-     * @return `true` if stopped via the stop event, `false` on fatal error.
+     * Run the asynchronous IO loop until `stop_event` is signaled, the peer disconnects (for
+     * non-reconnecting endpoints), or a fatal error occurs.
+     * @return `true` if stopped via the stop event or a graceful peer disconnect, `false` on
+     *         fatal error.
      */
     bool loop();
 
     /**
-     * Enqueue a message to be sent to the currently-connected client. Thread-safe.
-     * Drops the message if no client is connected. If the internal queue is full,
-     * the oldest pending messages are dropped.
+     * Enqueue a message to be sent to the currently-connected peer. Thread-safe.
+     * Drops the message if no peer is connected. If the internal queue is full, the oldest
+     * pending messages are dropped.
      */
     void send(VpnEasyServiceMessageType what, ag::Uint8View data);
+
+protected:
+    /**
+     * @param stop_event Externally-owned manual-reset event. When signaled, `loop()` returns `true`.
+     *                   Ownership is NOT transferred.
+     * @param handler    Message receive callback. Must be non-null.
+     * @param logger     Logger to use for diagnostic messages.
+     */
+    PipeEndpoint(HANDLE stop_event, Handler handler, ag::Logger &logger);
+
+    /**
+     * Subclass hook: acquire/initiate the pipe connection. On success, either:
+     *   - mark `m_connected` true synchronously and `SetEvent(m_wake_event)`, or
+     *   - leave `m_connected` false and post an overlapped op on `m_olr`/`m_io_event`; the loop
+     *     will then call `finalize_connect()` when `m_io_event` fires.
+     * Implementations MUST call `prepare_for_connect()` first to clear per-connection state.
+     * @return `true` on success (sync or pending), `false` on fatal error (`loop()` returns false).
+     */
+    virtual bool start_connect() = 0;
+
+    /**
+     * Subclass hook: called when `m_io_event` fires while not yet connected. Default returns
+     * `false` (no overlapped connect was posted; an `m_io_event` wake here is unexpected).
+     */
+    virtual bool finalize_connect() {
+        return false;
+    }
+
+    /**
+     * Subclass hook: called from `disconnect_and_reset()` after pending IO has been cancelled and
+     * drained. Implementations typically `DisconnectNamedPipe` (server -- handle is reused) or
+     * `CloseHandle` and reset `m_pipe` to `INVALID_HANDLE_VALUE` (client -- handle is single-use).
+     */
+    virtual void teardown_pipe() = 0;
+
+    /**
+     * Subclass hook: disconnect policy. Returning `true` (the default) causes the loop to invoke
+     * `start_connect()` again after each disconnect; returning `false` causes `loop()` to return
+     * `true` after the first disconnect. `PipeClient` overrides to return `false`.
+     */
+    virtual bool should_reconnect_on_disconnect() const {
+        return true;
+    }
+
+    /**
+     * Reset per-connection state and event handles to their initial values. Subclasses MUST call
+     * this at the top of `start_connect()`.
+     */
+    void prepare_for_connect();
+
+    /**
+     * Cancel any pending overlapped IO on `m_pipe` and synchronously wait for the cancellations
+     * to land. Used by subclass destructors to safely tear down a still-active endpoint.
+     * Caller must ensure `m_pipe != INVALID_HANDLE_VALUE`.
+     */
+    void cancel_pending_io();
+
+    // Pipe handle. Owned by the subclass: the server creates it once in its constructor and
+    // re-uses it across `DisconnectNamedPipe`; the client creates it in `start_connect()` and
+    // destroys it in `teardown_pipe()`.
+    HANDLE m_pipe = INVALID_HANDLE_VALUE;
+
+    // Overlapped state, used by both subclass connect logic (`m_olr`) and the shared read/write
+    // pipeline. Subclasses must not touch these except as documented above.
+    OVERLAPPED m_olr{}; ///< For overlapped connect (subclass) / `ReadFile` (base).
+    OVERLAPPED m_olw{}; ///< For `WriteFile` (base only).
+    HANDLE m_io_event = nullptr;    ///< Signaled on overlapped connect or read completion.
+    HANDLE m_write_event = nullptr; ///< Signaled on write completion.
+    HANDLE m_wake_event = nullptr;  ///< Set by `send()` (and by sync-connect paths) to wake the loop.
+
+    // Connection state. Written by the loop thread; read by `send()` (any thread).
+    std::atomic<bool> m_connected{false};
+
+    // Logger. Bound to a static ag::Logger owned by the subclass's translation unit.
+    ag::Logger &m_logger;
 
 private:
     static constexpr size_t MAX_PENDING_WRITES = 100;
@@ -72,26 +148,14 @@ private:
     static constexpr size_t MAX_MESSAGE_SIZE = 16 * 1024;
     // Receive buffer size: large enough to hold one full message plus its 8-byte header.
     static constexpr size_t INPUT_BUF_SIZE = MAX_MESSAGE_SIZE + 2 * sizeof(uint32_t);
-    static constexpr DWORD PIPE_BUFFER_SIZE = 64 * 1024;
 
     struct PendingWrite {
         std::vector<uint8_t> data;
         size_t written;
     };
 
-    HANDLE m_pipe = INVALID_HANDLE_VALUE;
     HANDLE m_stop_event = nullptr;
-    HANDLE m_io_event = nullptr;   // Signaled on ConnectNamedPipe/ReadFile completion.
-    HANDLE m_write_event = nullptr; // Signaled on WriteFile completion.
-    HANDLE m_wake_event = nullptr;  // Set by send() to wake the loop.
-
-    OVERLAPPED m_olr{}; // For ConnectNamedPipe and ReadFile.
-    OVERLAPPED m_olw{}; // For WriteFile.
-
     Handler m_handler;
-
-    // Connection state. Written by the loop thread; read by send() (any thread).
-    std::atomic<bool> m_connected{false};
     bool m_read_pending = false;
     bool m_write_pending = false;
 
@@ -106,17 +170,69 @@ private:
     // alive until the write fully completes, so that send() can never free the in-flight buffer.
     std::optional<PendingWrite> m_inflight_write;
 
-    static HANDLE create_pipe(const wchar_t *pipe_name);
     static std::vector<uint8_t> compose_message(VpnEasyServiceMessageType what, ag::Uint8View data);
 
-    bool start_connect();
-    bool finalize_connect();
+    // Returns nullopt to continue the loop; otherwise the value `loop()` should return.
+    std::optional<bool> handle_disconnect();
+
     bool start_read();
     bool complete_read();
     bool handle_input();
     bool pump_writes();
     bool complete_write();
     void disconnect_and_reset();
+};
+
+/**
+ * Server endpoint: owns a single byte-stream named pipe instance, accepts one client at a time,
+ * and transparently reconnects (waits for a new client) when the current client disconnects.
+ */
+class PipeServer : public PipeEndpoint {
+public:
+    /**
+     * @param pipe_name  Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
+     * @param stop_event See `PipeEndpoint`.
+     * @param handler    See `PipeEndpoint`.
+     */
+    PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler);
+    ~PipeServer() override;
+
+protected:
+    bool start_connect() override;
+    bool finalize_connect() override;
+    void teardown_pipe() override;
+    // Default `Reconnect` policy is exactly what the server wants.
+
+private:
+    static constexpr DWORD PIPE_BUFFER_SIZE = 64 * 1024;
+
+    static HANDLE create_pipe(const wchar_t *pipe_name);
+};
+
+/**
+ * Client endpoint: opens a connection to an existing named-pipe server. The IO loop exits on
+ * peer disconnect (returning `true` from `loop()`); the caller may construct a new `PipeClient`
+ * to reconnect.
+ */
+class PipeClient : public PipeEndpoint {
+public:
+    /**
+     * @param pipe_name  Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
+     * @param stop_event See `PipeEndpoint`.
+     * @param handler    See `PipeEndpoint`.
+     */
+    PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler);
+    ~PipeClient() override;
+
+protected:
+    bool start_connect() override;
+    void teardown_pipe() override;
+    bool should_reconnect_on_disconnect() const override {
+        return false;
+    }
+
+private:
+    std::wstring m_pipe_name;
 };
 
 } // namespace ag::vpn_easy

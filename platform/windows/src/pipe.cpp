@@ -11,14 +11,19 @@
 
 namespace ag::vpn_easy {
 
-static ag::Logger g_logger{"PipeServer"};
+static ag::Logger g_server_logger{"PipeServer"};
+static ag::Logger g_client_logger{"PipeClient"};
 
-PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler)
-        : m_pipe{create_pipe(pipe_name)}
-        , m_stop_event{stop_event}
-        , m_io_event{CreateEventW(nullptr, TRUE, FALSE, nullptr)}
+// ---------------------------------------------------------------------------
+// PipeEndpoint
+// ---------------------------------------------------------------------------
+
+PipeEndpoint::PipeEndpoint(HANDLE stop_event, Handler handler, ag::Logger &logger)
+        : m_io_event{CreateEventW(nullptr, TRUE, FALSE, nullptr)}
         , m_write_event{CreateEventW(nullptr, TRUE, FALSE, nullptr)}
         , m_wake_event{CreateEventW(nullptr, FALSE, FALSE, nullptr)}
+        , m_logger{logger}
+        , m_stop_event{stop_event}
         , m_handler{std::move(handler)} {
     assert(m_handler);
     m_olr.hEvent = m_io_event;
@@ -26,20 +31,10 @@ PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler hand
     m_input_buf.resize(INPUT_BUF_SIZE);
 }
 
-PipeServer::~PipeServer() {
-    if (m_pipe != INVALID_HANDLE_VALUE) {
-        CancelIoEx(m_pipe, nullptr);
-        if (m_write_pending) {
-            DWORD ignored = 0;
-            GetOverlappedResult(m_pipe, &m_olw, &ignored, TRUE);
-        }
-        if (m_read_pending || !m_connected.load(std::memory_order_relaxed)) {
-            DWORD ignored = 0;
-            GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
-        }
-        DisconnectNamedPipe(m_pipe);
-        CloseHandle(m_pipe);
-    }
+PipeEndpoint::~PipeEndpoint() {
+    // Subclass destructor must have already torn down `m_pipe` (so that any virtual
+    // `teardown_pipe()` would be unreachable from here, where it would not dispatch to the
+    // derived implementation).
     if (m_io_event != nullptr) {
         CloseHandle(m_io_event);
     }
@@ -51,22 +46,28 @@ PipeServer::~PipeServer() {
     }
 }
 
-HANDLE PipeServer::create_pipe(const wchar_t *pipe_name) {
-    HANDLE h = CreateNamedPipeW(pipe_name,
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            1, // single instance
-            PIPE_BUFFER_SIZE,
-            PIPE_BUFFER_SIZE,
-            0,
-            nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        errlog(g_logger, "CreateNamedPipeW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+void PipeEndpoint::cancel_pending_io() {
+    CancelIoEx(m_pipe, nullptr);
+    if (m_write_pending) {
+        DWORD ignored = 0;
+        GetOverlappedResult(m_pipe, &m_olw, &ignored, TRUE);
     }
-    return h;
+    if (m_read_pending || !m_connected.load(std::memory_order_relaxed)) {
+        DWORD ignored = 0;
+        GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
+    }
 }
 
-std::vector<uint8_t> PipeServer::compose_message(VpnEasyServiceMessageType what, ag::Uint8View data) {
+void PipeEndpoint::prepare_for_connect() {
+    m_connected.store(false, std::memory_order_relaxed);
+    m_read_pending = false;
+    m_write_pending = false;
+    m_input_buf_used = 0;
+    ResetEvent(m_io_event);
+    ResetEvent(m_write_event);
+}
+
+std::vector<uint8_t> PipeEndpoint::compose_message(VpnEasyServiceMessageType what, ag::Uint8View data) {
     assert(data.size() < size_t(UINT32_MAX));
     std::vector<uint8_t> ret;
     ret.resize(sizeof(uint32_t) + sizeof(uint32_t) + data.size());
@@ -77,7 +78,7 @@ std::vector<uint8_t> PipeServer::compose_message(VpnEasyServiceMessageType what,
     return ret;
 }
 
-void PipeServer::send(VpnEasyServiceMessageType what, ag::Uint8View data) {
+void PipeEndpoint::send(VpnEasyServiceMessageType what, ag::Uint8View data) {
     {
         std::scoped_lock l{m_pending_writes_lock};
         // disconnect_and_reset() stores `false` BEFORE taking this lock, so any push that
@@ -95,9 +96,8 @@ void PipeServer::send(VpnEasyServiceMessageType what, ag::Uint8View data) {
     SetEvent(m_wake_event);
 }
 
-bool PipeServer::loop() {
-    if (m_pipe == INVALID_HANDLE_VALUE || m_io_event == nullptr || m_write_event == nullptr
-            || m_wake_event == nullptr) {
+bool PipeEndpoint::loop() {
+    if (m_io_event == nullptr || m_write_event == nullptr || m_wake_event == nullptr) {
         return false;
     }
 
@@ -110,7 +110,7 @@ bool PipeServer::loop() {
     for (;;) {
         DWORD wait = WaitForMultipleObjects(EVENT_COUNT, events, FALSE, INFINITE);
         if (wait >= WAIT_OBJECT_0 + EVENT_COUNT) {
-            errlog(g_logger, "WaitForMultipleObjects: {:#x}, GetLastError: {} ({})", wait, GetLastError(),
+            errlog(m_logger, "WaitForMultipleObjects: {:#x}, GetLastError: {} ({})", wait, GetLastError(),
                     ag::sys::strerror(GetLastError()));
             return false;
         }
@@ -122,21 +122,18 @@ bool PipeServer::loop() {
         }
 
         if (idx == 2) {
-            // m_io_event: ConnectNamedPipe or ReadFile completed.
+            // m_io_event: overlapped connect or ReadFile completed.
             if (!m_connected.load(std::memory_order_relaxed)) {
                 if (!finalize_connect()) {
-                    // Connection failed; restart the connect.
-                    disconnect_and_reset();
-                    if (!start_connect()) {
-                        return false;
+                    if (auto r = handle_disconnect()) {
+                        return *r;
                     }
                     continue;
                 }
             } else if (m_read_pending) {
                 if (!complete_read()) {
-                    disconnect_and_reset();
-                    if (!start_connect()) {
-                        return false;
+                    if (auto r = handle_disconnect()) {
+                        return *r;
                     }
                     continue;
                 }
@@ -146,9 +143,8 @@ bool PipeServer::loop() {
         if (idx == 3 && m_write_pending) {
             // m_write_event: WriteFile completed.
             if (!complete_write()) {
-                disconnect_and_reset();
-                if (!start_connect()) {
-                    return false;
+                if (auto r = handle_disconnect()) {
+                    return *r;
                 }
                 continue;
             }
@@ -158,81 +154,38 @@ bool PipeServer::loop() {
         // pump as many writes as possible.
         if (m_connected.load(std::memory_order_relaxed) && !m_read_pending) {
             if (!start_read()) {
-                disconnect_and_reset();
-                if (!start_connect()) {
-                    return false;
+                if (auto r = handle_disconnect()) {
+                    return *r;
                 }
                 continue;
             }
         }
 
         if (m_connected.load(std::memory_order_relaxed) && !pump_writes()) {
-            disconnect_and_reset();
-            if (!start_connect()) {
-                return false;
+            if (auto r = handle_disconnect()) {
+                return *r;
             }
             continue;
         }
     }
 }
 
-bool PipeServer::start_connect() {
-    m_connected.store(false, std::memory_order_relaxed);
-    m_read_pending = false;
-    m_write_pending = false;
-    m_input_buf_used = 0;
-    ResetEvent(m_io_event);
-    ResetEvent(m_write_event);
-
-    if (ConnectNamedPipe(m_pipe, &m_olr)) {
-        // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
-        // used by the kernel in this case, so do not call finalize_connect (which would call
-        // GetOverlappedResult on it). Mark connected directly and kick the loop.
-        ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(g_logger, "client connected (sync)");
-        return true;
+std::optional<bool> PipeEndpoint::handle_disconnect() {
+    disconnect_and_reset();
+    if (!should_reconnect_on_disconnect()) {
+        return true; // Graceful peer-initiated close.
     }
-    DWORD err = GetLastError();
-    if (err == ERROR_PIPE_CONNECTED) {
-        // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op was
-        // submitted; mark connected directly.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(g_logger, "client connected (already connected)");
-        return true;
-    }
-    if (err == ERROR_IO_PENDING) {
-        return true;
-    }
-    errlog(g_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
-    return false;
-}
-
-bool PipeServer::finalize_connect() {
-    DWORD transferred = 0;
-    if (!GetOverlappedResult(m_pipe, &m_olr, &transferred, FALSE)) {
-        // ERROR_IO_INCOMPLETE here would indicate a bug: the kernel signals m_io_event only on
-        // completion, so a wake on it should always coincide with a completed op. Treat any
-        // failure as fatal for this connection -- the caller will disconnect and reconnect.
-        // (Trying to ResetEvent in the IO_INCOMPLETE case would race with the kernel setting it
-        // on real completion and could lose the signal.)
-        DWORD err = GetLastError();
-        warnlog(g_logger, "GetOverlappedResult(connect): {} ({})", err, ag::sys::strerror(err));
+    if (!start_connect()) {
         return false;
     }
-    ResetEvent(m_io_event);
-    m_connected.store(true, std::memory_order_relaxed);
-    infolog(g_logger, "client connected");
-    return true;
+    return std::nullopt;
 }
 
-bool PipeServer::start_read() {
+bool PipeEndpoint::start_read() {
     if (m_input_buf_used >= m_input_buf.size()) {
         // Buffer is full but no complete message could be parsed -- impossible if MAX_MESSAGE_SIZE
         // is honored, so this indicates a protocol violation. Drop the connection.
-        warnlog(g_logger, "input buffer full ({} bytes) with no parsable message; dropping connection",
+        warnlog(m_logger, "input buffer full ({} bytes) with no parsable message; dropping connection",
                 m_input_buf_used);
         return false;
     }
@@ -253,37 +206,39 @@ bool PipeServer::start_read() {
         return true;
     }
     if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_NO_DATA) {
-        infolog(g_logger, "ReadFile: client disconnected ({}: {})", err, ag::sys::strerror(err));
-        return false; // Triggers reconnect.
+        infolog(m_logger, "ReadFile: peer disconnected ({}: {})", err, ag::sys::strerror(err));
+        return false;
     }
-    warnlog(g_logger, "ReadFile: {} ({})", err, ag::sys::strerror(err));
+    warnlog(m_logger, "ReadFile: {} ({})", err, ag::sys::strerror(err));
     return false;
 }
 
-bool PipeServer::complete_read() {
+bool PipeEndpoint::complete_read() {
     DWORD read_size = 0;
     if (!GetOverlappedResult(m_pipe, &m_olr, &read_size, FALSE)) {
         DWORD err = GetLastError();
         if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_OPERATION_ABORTED) {
-            infolog(g_logger, "GetOverlappedResult(read): client disconnected ({}: {})", err,
+            infolog(m_logger, "GetOverlappedResult(read): peer disconnected ({}: {})", err,
                     ag::sys::strerror(err));
             return false;
         }
-        // ERROR_IO_INCOMPLETE falls through here too: see finalize_connect for rationale.
-        warnlog(g_logger, "GetOverlappedResult(read): {} ({})", err, ag::sys::strerror(err));
+        // ERROR_IO_INCOMPLETE falls through here too: the kernel signals m_io_event only on
+        // completion, so a wake on it should always coincide with a completed op. Treat any
+        // failure as fatal for this connection.
+        warnlog(m_logger, "GetOverlappedResult(read): {} ({})", err, ag::sys::strerror(err));
         return false;
     }
     ResetEvent(m_io_event);
     m_read_pending = false;
     if (read_size == 0) {
-        infolog(g_logger, "ReadFile: EOF, client disconnected");
-        return false; // EOF -> reconnect.
+        infolog(m_logger, "ReadFile: EOF, peer disconnected");
+        return false;
     }
     m_input_buf_used += read_size;
     return handle_input();
 }
 
-bool PipeServer::handle_input() {
+bool PipeEndpoint::handle_input() {
     for (;;) {
         ag::wire_utils::Reader r{{m_input_buf.data(), m_input_buf_used}};
         auto what = r.get_u32();
@@ -292,7 +247,7 @@ bool PipeServer::handle_input() {
             return true; // Need more bytes for the header.
         }
         if (*size > MAX_MESSAGE_SIZE) {
-            warnlog(g_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection",
+            warnlog(m_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection",
                     *size, MAX_MESSAGE_SIZE);
             return false;
         }
@@ -307,7 +262,7 @@ bool PipeServer::handle_input() {
     }
 }
 
-bool PipeServer::pump_writes() {
+bool PipeEndpoint::pump_writes() {
     while (!m_write_pending) {
         if (!m_inflight_write.has_value()) {
             // Try to dequeue the next message under the lock, then drop the lock so that
@@ -342,26 +297,26 @@ bool PipeServer::pump_writes() {
             return true;
         }
         if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_NO_DATA) {
-            infolog(g_logger, "WriteFile: client disconnected ({}: {})", err, ag::sys::strerror(err));
+            infolog(m_logger, "WriteFile: peer disconnected ({}: {})", err, ag::sys::strerror(err));
             return false;
         }
-        warnlog(g_logger, "WriteFile: {} ({})", err, ag::sys::strerror(err));
+        warnlog(m_logger, "WriteFile: {} ({})", err, ag::sys::strerror(err));
         return false;
     }
     return true;
 }
 
-bool PipeServer::complete_write() {
+bool PipeEndpoint::complete_write() {
     DWORD written = 0;
     if (!GetOverlappedResult(m_pipe, &m_olw, &written, FALSE)) {
         DWORD err = GetLastError();
         if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_OPERATION_ABORTED) {
-            infolog(g_logger, "GetOverlappedResult(write): client disconnected ({}: {})", err,
+            infolog(m_logger, "GetOverlappedResult(write): peer disconnected ({}: {})", err,
                     ag::sys::strerror(err));
             return false;
         }
-        // ERROR_IO_INCOMPLETE falls through here too: see finalize_connect for rationale.
-        warnlog(g_logger, "GetOverlappedResult(write): {} ({})", err, ag::sys::strerror(err));
+        // ERROR_IO_INCOMPLETE falls through here too: see complete_read for rationale.
+        warnlog(m_logger, "GetOverlappedResult(write): {} ({})", err, ag::sys::strerror(err));
         return false;
     }
     // Consume the kernel-set completion signal so WFMO doesn't keep firing on m_write_event.
@@ -377,7 +332,7 @@ bool PipeServer::complete_write() {
     return true;
 }
 
-void PipeServer::disconnect_and_reset() {
+void PipeEndpoint::disconnect_and_reset() {
     // Mark disconnected BEFORE taking the lock, so that any send() that subsequently acquires the
     // lock observes `false` and bails out. Any send() already holding (or already past) the lock
     // happens-before our lock acquisition below, so its push will be cleared by the clear() call.
@@ -386,24 +341,169 @@ void PipeServer::disconnect_and_reset() {
         std::scoped_lock l{m_pending_writes_lock};
         m_pending_writes.clear();
     }
-    CancelIoEx(m_pipe, nullptr);
-    if (m_read_pending) {
-        DWORD ignored = 0;
-        GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
-    }
-    if (m_write_pending) {
-        DWORD ignored = 0;
-        GetOverlappedResult(m_pipe, &m_olw, &ignored, TRUE);
+    if (m_pipe != INVALID_HANDLE_VALUE) {
+        CancelIoEx(m_pipe, nullptr);
+        if (m_read_pending) {
+            DWORD ignored = 0;
+            GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
+        }
+        if (m_write_pending) {
+            DWORD ignored = 0;
+            GetOverlappedResult(m_pipe, &m_olw, &ignored, TRUE);
+        }
     }
     // Safe to drop the in-flight buffer now: the kernel has acknowledged the cancel.
     m_inflight_write.reset();
-    DisconnectNamedPipe(m_pipe);
+    teardown_pipe();
     // Both event handles may have been left signaled by GetOverlappedResult(TRUE) above.
     ResetEvent(m_io_event);
     ResetEvent(m_write_event);
     m_read_pending = false;
     m_write_pending = false;
     m_input_buf_used = 0;
+}
+
+// ---------------------------------------------------------------------------
+// PipeServer
+// ---------------------------------------------------------------------------
+
+PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler)
+        : PipeEndpoint{stop_event, std::move(handler), g_server_logger} {
+    m_pipe = create_pipe(pipe_name);
+}
+
+PipeServer::~PipeServer() {
+    if (m_pipe != INVALID_HANDLE_VALUE) {
+        cancel_pending_io();
+        DisconnectNamedPipe(m_pipe);
+        CloseHandle(m_pipe);
+        m_pipe = INVALID_HANDLE_VALUE;
+    }
+}
+
+HANDLE PipeServer::create_pipe(const wchar_t *pipe_name) {
+    HANDLE h = CreateNamedPipeW(pipe_name,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            1, // single instance
+            PIPE_BUFFER_SIZE,
+            PIPE_BUFFER_SIZE,
+            0,
+            nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        errlog(g_server_logger, "CreateNamedPipeW: {} ({})", GetLastError(),
+                ag::sys::strerror(GetLastError()));
+    }
+    return h;
+}
+
+bool PipeServer::start_connect() {
+    prepare_for_connect();
+    if (m_pipe == INVALID_HANDLE_VALUE) {
+        // create_pipe() failed in the constructor.
+        return false;
+    }
+
+    if (ConnectNamedPipe(m_pipe, &m_olr)) {
+        // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
+        // used by the kernel in this case, so do not call finalize_connect (which would call
+        // GetOverlappedResult on it). Mark connected directly and kick the loop.
+        ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
+        m_connected.store(true, std::memory_order_relaxed);
+        SetEvent(m_wake_event);
+        infolog(m_logger, "client connected (sync)");
+        return true;
+    }
+    DWORD err = GetLastError();
+    if (err == ERROR_PIPE_CONNECTED) {
+        // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op was
+        // submitted; mark connected directly.
+        m_connected.store(true, std::memory_order_relaxed);
+        SetEvent(m_wake_event);
+        infolog(m_logger, "client connected (already connected)");
+        return true;
+    }
+    if (err == ERROR_IO_PENDING) {
+        return true;
+    }
+    errlog(m_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
+    return false;
+}
+
+bool PipeServer::finalize_connect() {
+    DWORD transferred = 0;
+    if (!GetOverlappedResult(m_pipe, &m_olr, &transferred, FALSE)) {
+        // ERROR_IO_INCOMPLETE here would indicate a bug: the kernel signals m_io_event only on
+        // completion, so a wake on it should always coincide with a completed op. Treat any
+        // failure as fatal for this connection -- the caller will disconnect and reconnect.
+        // (Trying to ResetEvent in the IO_INCOMPLETE case would race with the kernel setting it
+        // on real completion and could lose the signal.)
+        DWORD err = GetLastError();
+        warnlog(m_logger, "GetOverlappedResult(connect): {} ({})", err, ag::sys::strerror(err));
+        return false;
+    }
+    ResetEvent(m_io_event);
+    m_connected.store(true, std::memory_order_relaxed);
+    infolog(m_logger, "client connected");
+    return true;
+}
+
+void PipeServer::teardown_pipe() {
+    // Server reuses the same pipe instance across reconnects: just disconnect the current client.
+    if (m_pipe != INVALID_HANDLE_VALUE) {
+        DisconnectNamedPipe(m_pipe);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PipeClient
+// ---------------------------------------------------------------------------
+
+PipeClient::PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler)
+        : PipeEndpoint{stop_event, std::move(handler), g_client_logger}
+        , m_pipe_name{pipe_name} {
+}
+
+PipeClient::~PipeClient() {
+    if (m_pipe != INVALID_HANDLE_VALUE) {
+        cancel_pending_io();
+        CloseHandle(m_pipe);
+        m_pipe = INVALID_HANDLE_VALUE;
+    }
+}
+
+bool PipeClient::start_connect() {
+    prepare_for_connect();
+
+    // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
+    m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+            OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    if (m_pipe == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        errlog(m_logger, "CreateFileW: {} ({})", err, ag::sys::strerror(err));
+        return false;
+    }
+
+    // Defensive: ensure byte-mode read semantics regardless of the server's configuration.
+    DWORD mode = PIPE_READMODE_BYTE;
+    if (!SetNamedPipeHandleState(m_pipe, &mode, nullptr, nullptr)) {
+        DWORD err = GetLastError();
+        warnlog(m_logger, "SetNamedPipeHandleState: {} ({})", err, ag::sys::strerror(err));
+    }
+
+    m_connected.store(true, std::memory_order_relaxed);
+    SetEvent(m_wake_event);
+    infolog(m_logger, "connected to server");
+    return true;
+}
+
+void PipeClient::teardown_pipe() {
+    // Client uses a single-shot handle: close it and let the loop exit
+    // (should_reconnect_on_disconnect() returns false).
+    if (m_pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(m_pipe);
+        m_pipe = INVALID_HANDLE_VALUE;
+    }
 }
 
 } // namespace ag::vpn_easy
