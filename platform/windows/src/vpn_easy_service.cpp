@@ -23,8 +23,6 @@ static ag::Logger g_logger{"VPN_EASY_SERVICE"};
 static std::wstring g_pipe_name;
 static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
-static HANDLE g_pipe_event;
-static HANDLE g_pipe;
 
 class PipeServer {
 public:
@@ -243,7 +241,6 @@ static void WINAPI service_ctrl_handler(DWORD control) {
 static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
     g_status_handle = RegisterServiceCtrlHandlerW(L"", service_ctrl_handler);
     g_shutdown_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    g_pipe_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     service_set_status(SERVICE_RUNNING);
     WaitForSingleObject(g_shutdown_event, INFINITE);
     service_set_status(SERVICE_STOPPED);

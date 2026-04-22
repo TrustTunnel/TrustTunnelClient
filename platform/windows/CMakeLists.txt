@@ -38,7 +38,7 @@ target_link_libraries(vpn_easy vpn_easy_a)
 add_executable(vpn_easy_test test/vpn_easy_test.cpp)
 target_link_libraries(vpn_easy_test vpn_easy_a)
 
-add_executable(vpn_easy_service src/vpn_easy_service.cpp)
+add_executable(vpn_easy_service src/vpn_easy_service.cpp src/pipe.cpp)
 target_link_libraries(vpn_easy_service vpn_easy_a)
 
 add_executable(vpn_easy_service_test test/vpn_easy_service_test.cpp)
