@@ -92,6 +92,8 @@ Set `BUILD_TYPE=debug` for debug builds (default is `release` →
     - `UPPER_CASE`: constants, `constexpr` locals, static constants
     - Private/protected members prefixed with `m_`, globals with `g_`
 - Use `libc++` (not `libstdc++`)
+- Use static storage duration instead of anonymous namespaces for internal linkage where possible 
+    - (e.g. `static const int VALUE = 42;` instead of putting it in an anonymous namespace)
 
 ### Rust
 
@@ -119,6 +121,12 @@ Set `BUILD_TYPE=debug` for debug builds (default is `release` →
 - Prefer existing patterns over inventing new ones
 - Keep changes minimal and focused
 - Tests live in `test/` subdirectories alongside the module they cover
+- Logging guidelines:
+    - Use `DEBUG` level for verbose debug info, `INFO` for high-level events,
+      `WARN` for recoverable issues, and `ERROR` for critical (unrecoverable) errors
+    - Very frequent events (e.g. every packet) should be logged at `DEBUG` level, while important state changes (e.g. connection established, error occurred) should be at `INFO` or higher
+    - Include relevant context in log messages (e.g. connection ID, error code)
+    - Avoid logging sensitive information (e.g. IP addresses, payload data)
 
 ## Docker Debug Environment
 
