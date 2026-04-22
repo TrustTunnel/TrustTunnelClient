@@ -49,6 +49,10 @@ int TrustTunnelClient::disconnect() {
         vpn_close(vpn);
     }
 
+    if (m_tunnel != nullptr) {
+        std::exchange(m_tunnel, nullptr)->deinit();
+    }
+
     return 0;
 }
 
