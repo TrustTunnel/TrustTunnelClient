@@ -298,6 +298,11 @@ void ag::VpnLinuxTunnel::setup_dns() {
 }
 
 void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
+    // Flush all routes from the project-owned table (stale routes may remain
+    // when the TUN device is externally created and survives client shutdown).
+    sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip route flush table {}", table_id));
+    sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip -6 route flush table {}", table_id));
+
     // Try to remove rules regardless of m_sport_supported (may exist from previous session)
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30801 lookup {}", table_id));
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30800 sport {} lookup main", PRIVILEGED_PORTS));
