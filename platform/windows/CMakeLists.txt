@@ -28,7 +28,7 @@ if (NOT TARGET vpnlibs_trusttunnel)
     add_subdirectory(${ROOT_DIR} ${CMAKE_BINARY_DIR}/trusttunnel)
 endif ()
 
-add_library(vpn_easy_a STATIC src/vpn_easy.cpp)
+add_library(vpn_easy_a STATIC src/vpn_easy.cpp src/pipe.cpp)
 target_include_directories(vpn_easy_a PUBLIC include)
 target_link_libraries(vpn_easy_a vpnlibs_trusttunnel)
 
@@ -38,9 +38,17 @@ target_link_libraries(vpn_easy vpn_easy_a)
 add_executable(vpn_easy_test test/vpn_easy_test.cpp)
 target_link_libraries(vpn_easy_test vpn_easy_a)
 
-add_executable(vpn_easy_service src/vpn_easy_service.cpp src/pipe.cpp)
+add_executable(vpn_easy_service src/vpn_easy_service.cpp)
 target_link_libraries(vpn_easy_service vpn_easy_a)
 
 add_executable(vpn_easy_service_test test/vpn_easy_service_test.cpp)
 target_link_libraries(vpn_easy_service_test vpn_easy_a)
 add_dependencies(vpn_easy_service_test vpn_easy_service)
+
+enable_testing()
+include(${ROOT_DIR}/cmake/add_unit_test.cmake)
+set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
+
+link_libraries(vpn_easy_a)
+
+add_unit_test(pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)

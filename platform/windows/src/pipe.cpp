@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <utility>
 
@@ -201,12 +202,18 @@ bool PipeEndpoint::start_read() {
     BOOL ok = ReadFile(m_pipe, m_input_buf.data() + m_input_buf_used,
             static_cast<DWORD>(m_input_buf.size() - m_input_buf_used), &read_size, &m_olr);
     if (ok) {
-        // Synchronous completion. The kernel may have signaled m_io_event in this case (the
-        // docs are inconsistent), so reset it here to avoid a spurious wake on the next WFMO.
-        // For async (ERROR_IO_PENDING), the kernel resets the event itself when queueing the IO.
-        ResetEvent(m_io_event);
+        // Synchronous completion. The kernel may also have signaled m_io_event on its own; if so,
+        // the next WFMO will wake on it but find `!m_read_pending` and just fall through to
+        // re-entering start_read() -- harmless. Either way we must wake the loop ourselves so
+        // that start_read() runs again to drain any further data: if we returned without setting
+        // an event, and the kernel did NOT signal m_io_event, the loop would block in WFMO with
+        // no IO in flight and miss subsequent incoming bytes.
         m_input_buf_used += read_size;
-        return handle_input();
+        if (!handle_input()) {
+            return false;
+        }
+        SetEvent(m_wake_event);
+        return true;
     }
     DWORD err = GetLastError();
     if (err == ERROR_IO_PENDING) {
@@ -489,9 +496,12 @@ void PipeServer::teardown_pipe() {
 // PipeClient
 // ---------------------------------------------------------------------------
 
-PipeClient::PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler)
+PipeClient::PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+        std::chrono::milliseconds connect_timeout)
         : PipeEndpoint{stop_event, std::move(handler), g_client_logger}
-        , m_pipe_name{pipe_name} {
+        , m_pipe_name{pipe_name}
+        , m_connect_timeout{connect_timeout.count() <= 0 ? DEFAULT_CONNECT_TIMEOUT : connect_timeout}
+        , m_connected_or_failed_event{CreateEventW(nullptr, TRUE, FALSE, nullptr)} {
 }
 
 PipeClient::~PipeClient() {
@@ -500,18 +510,86 @@ PipeClient::~PipeClient() {
         CloseHandle(m_pipe);
         m_pipe = INVALID_HANDLE_VALUE;
     }
+    if (m_connected_or_failed_event != nullptr) {
+        CloseHandle(m_connected_or_failed_event);
+    }
+}
+
+bool PipeClient::wait_connected() {
+    if (m_connected_or_failed_event == nullptr) {
+        return false;
+    }
+    HANDLE events[] = {m_connected_or_failed_event, stop_event()};
+    intmax_t timeout_ms = INFINITE;
+    if (m_connect_timeout.count() < 0) {
+        timeout_ms = 0;
+    } else if (m_connect_timeout.count() < INFINITE) {
+        timeout_ms = m_connect_timeout.count();
+    }
+    DWORD r = WaitForMultipleObjects(static_cast<DWORD>(std::size(events)), events, FALSE, static_cast<DWORD>(timeout_ms));
+    if (r != WAIT_OBJECT_0) {
+        // Stop event won, or timed out, or wait failed.
+        return false;
+    }
+    // The event is signaled both on successful connect and on fatal start failure; the atomic
+    // disambiguates.
+    return m_connected.load(std::memory_order_acquire);
 }
 
 bool PipeClient::start_connect() {
     prepare_for_connect();
+    // Reset the connected/failed signal so wait_connected() blocks correctly across a re-entry
+    // (e.g. a future reconnect policy change) and so that a fresh start does not see a stale
+    // signal from a previous attempt.
+    ResetEvent(m_connected_or_failed_event);
 
-    // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
-    m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-            OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-    if (m_pipe == INVALID_HANDLE_VALUE) {
+    // The server is single-instance: when the previous client disconnects there is a brief
+    // window between the kernel observing the broken pipe and the server having both
+    // DisconnectNamedPipe()'d the old client AND posted a fresh ConnectNamedPipe() for the new
+    // one. During that window CreateFileW returns ERROR_PIPE_BUSY (instance still bound to the
+    // previous client) or ERROR_FILE_NOT_FOUND (no listening instance yet). Retry with a bounded
+    // total deadline, in short stop-event-interruptible slices.
+    constexpr auto DEFAULT_SLICE = ag::Millis{10};
+    // Clamp the slice so it never overshoots the configured connect timeout (e.g. with a 10 ms
+    // timeout we'd otherwise wait 50 ms in WaitForSingleObject before noticing the deadline).
+    auto slice = std::max(ag::Millis{1}, std::min(DEFAULT_SLICE, m_connect_timeout));
+    DWORD slice_ms = static_cast<DWORD>(slice.count());
+    auto deadline = std::chrono::steady_clock::now() + m_connect_timeout;
+
+    for (;;) {
+        // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
+        m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        if (m_pipe != INVALID_HANDLE_VALUE) {
+            break;
+        }
         DWORD err = GetLastError();
-        errlog(m_logger, "CreateFileW: {} ({})", err, ag::sys::strerror(err));
-        return false;
+        if (err != ERROR_PIPE_BUSY && err != ERROR_FILE_NOT_FOUND) {
+            errlog(m_logger, "CreateFileW: {} ({})", err, ag::sys::strerror(err));
+            SetEvent(m_connected_or_failed_event);
+            return false;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            errlog(m_logger, "CreateFileW: timed out waiting for server (last err {}: {})", err,
+                    ag::sys::strerror(err));
+            SetEvent(m_connected_or_failed_event);
+            return false;
+        }
+        // Interruptible nap before retry. If the stop event fires we treat it as a fatal start
+        // failure -- loop() never began, so reporting `false` here is the only signal we can give;
+        // the caller observes the stop event independently.
+        if (WaitForSingleObject(stop_event(), slice_ms) == WAIT_OBJECT_0) {
+            SetEvent(m_connected_or_failed_event);
+            return false;
+        }
+        if (err == ERROR_PIPE_BUSY) {
+            // Best-effort kernel-side wait for an instance to become available; ignore the result
+            // and just retry CreateFileW. WaitNamedPipeW is uninterruptible, so keep the slice
+            // short to bound shutdown latency. (For ERROR_FILE_NOT_FOUND, WaitNamedPipeW returns
+            // immediately with the same error and is useless; the WaitForSingleObject sleep above
+            // covers that case.)
+            WaitNamedPipeW(m_pipe_name.c_str(), slice_ms);
+        }
     }
 
     // Defensive: ensure byte-mode read semantics regardless of the server's configuration.
@@ -521,7 +599,10 @@ bool PipeClient::start_connect() {
         warnlog(m_logger, "SetNamedPipeHandleState: {} ({})", err, ag::sys::strerror(err));
     }
 
-    m_connected.store(true, std::memory_order_relaxed);
+    // Order matters: store `true` (release) before signaling so that wait_connected()'s acquire
+    // load on the atomic observes the connected state once the event is seen as signaled.
+    m_connected.store(true, std::memory_order_release);
+    SetEvent(m_connected_or_failed_event);
     SetEvent(m_wake_event);
     infolog(m_logger, "connected to server");
     return true;

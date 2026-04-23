@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <list>
 #include <mutex>
@@ -140,8 +141,8 @@ protected:
 
     // Overlapped state, used by both subclass connect logic (`m_olr`) and the shared read/write
     // pipeline. Subclasses must not touch these except as documented above.
-    OVERLAPPED m_olr{}; ///< For overlapped connect (subclass) / `ReadFile` (base).
-    OVERLAPPED m_olw{}; ///< For `WriteFile` (base only).
+    OVERLAPPED m_olr{};             ///< For overlapped connect (subclass) / `ReadFile` (base).
+    OVERLAPPED m_olw{};             ///< For `WriteFile` (base only).
     HANDLE m_io_event = nullptr;    ///< Signaled on overlapped connect or read completion.
     HANDLE m_write_event = nullptr; ///< Signaled on write completion.
     HANDLE m_wake_event = nullptr;  ///< Set by `send()` (and by sync-connect paths) to wake the loop.
@@ -151,6 +152,12 @@ protected:
 
     // Logger. Bound to a static ag::Logger owned by the subclass's translation unit.
     ag::Logger &m_logger;
+
+    // Externally-owned stop event. Exposed to subclasses so that long-running connect retries
+    // (e.g. PipeClient::start_connect) can be interrupted promptly when the loop is asked to stop.
+    HANDLE stop_event() const {
+        return m_stop_event;
+    }
 
 private:
     static constexpr size_t MAX_PENDING_WRITES = 100;
@@ -240,13 +247,31 @@ private:
  */
 class PipeClient : public PipeEndpoint {
 public:
+    /** Default total timeout used by `start_connect()` when the constructor is passed `0`. */
+    static constexpr std::chrono::milliseconds DEFAULT_CONNECT_TIMEOUT{500};
+
     /**
-     * @param pipe_name  Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
-     * @param stop_event See `PipeEndpoint`.
-     * @param handler    See `PipeEndpoint`.
+     * @param pipe_name       Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
+     * @param stop_event      See `PipeEndpoint`.
+     * @param handler         See `PipeEndpoint`.
+     * @param connect_timeout Maximum total time `start_connect()` will spend retrying
+     *                        `CreateFileW` while the server is briefly unavailable
+     *                        (e.g. mid-reconnect of a previous client). A value of `0` selects
+     *                        `DEFAULT_CONNECT_TIMEOUT`. Negative values are treated as `0`.
      */
-    PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler);
+    PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+            std::chrono::milliseconds connect_timeout = std::chrono::milliseconds{0});
     ~PipeClient() override;
+
+    /**
+     * Block until the client has successfully connected to the server (i.e. `start_connect()`,
+     * driven by `loop()` on another thread, has succeeded), or the externally-supplied stop event
+     * is signaled -- whichever happens first. Thread-safe; may be called
+     * from any thread, including before `loop()` has started.
+     * @return `true` if the connection is established within the timeout, `false` otherwise
+     *         (timeout, stop event signaled, or fatal connect failure).
+     */
+    bool wait_connected();
 
 protected:
     bool start_connect() override;
@@ -257,7 +282,11 @@ protected:
 
 private:
     std::wstring m_pipe_name;
+    std::chrono::milliseconds m_connect_timeout;
+    // Manual-reset event signaled by start_connect() on success and by loop() on fatal start
+    // failure. Used by wait_connected() so callers can synchronize without polling. Reset at the
+    // top of every start_connect() attempt so that a fresh PipeClient instance starts clean.
+    HANDLE m_connected_or_failed_event = nullptr;
 };
 
 } // namespace ag::vpn_easy
-
