@@ -17,6 +17,14 @@
 
 namespace ag::vpn_easy {
 
+namespace detail {
+/** Free a security descriptor returned by an SDDL helper. Used as the deleter for `SecurityDescriptorPtr`. */
+void free_security_descriptor(SECURITY_DESCRIPTOR *sd);
+} // namespace detail
+
+/** Owning pointer for a security descriptor allocated via `LocalAlloc` (e.g. by SDDL helpers). */
+using SecurityDescriptorPtr = ag::UniquePtr<SECURITY_DESCRIPTOR, &detail::free_security_descriptor>;
+
 /**
  * Asynchronous named-pipe endpoint base class for the VPN easy-service control protocol.
  *
@@ -61,8 +69,8 @@ public:
 
     /**
      * Enqueue a message to be sent to the currently-connected peer. Thread-safe.
-     * Drops the message if no peer is connected. If the internal queue is full, the oldest
-     * pending messages are dropped.
+     * Drop the message if no peer is connected. If the internal queue is full, drop the oldest
+     * pending messages.
      */
     void send(VpnEasyServiceMessageType what, ag::Uint8View data);
 
@@ -86,24 +94,27 @@ protected:
     virtual bool start_connect() = 0;
 
     /**
-     * Subclass hook: called when `m_io_event` fires while not yet connected. Default returns
-     * `false` (no overlapped connect was posted; an `m_io_event` wake here is unexpected).
+     * Subclass hook: reap the completion of an overlapped connect posted by `start_connect()`,
+     * called when `m_io_event` fires while not yet connected. Default returns `false` (no
+     * overlapped connect was posted; an `m_io_event` wake here is unexpected).
      */
     virtual bool finalize_connect() {
         return false;
     }
 
     /**
-     * Subclass hook: called from `disconnect_and_reset()` after pending IO has been cancelled and
-     * drained. Implementations typically `DisconnectNamedPipe` (server -- handle is reused) or
-     * `CloseHandle` and reset `m_pipe` to `INVALID_HANDLE_VALUE` (client -- handle is single-use).
+     * Subclass hook: tear down the pipe handle after pending IO has been cancelled and drained.
+     * Called from `disconnect_and_reset()`. Implementations typically call `DisconnectNamedPipe`
+     * (server -- handle is reused) or `CloseHandle` and reset `m_pipe` to `INVALID_HANDLE_VALUE`
+     * (client -- handle is single-use).
      */
     virtual void teardown_pipe() = 0;
 
     /**
-     * Subclass hook: disconnect policy. Returning `true` (the default) causes the loop to invoke
-     * `start_connect()` again after each disconnect; returning `false` causes `loop()` to return
-     * `true` after the first disconnect. `PipeClient` overrides to return `false`.
+     * Subclass hook: report the disconnect policy. Returning `true` (the default) causes the
+     * loop to invoke `start_connect()` again after each disconnect; returning `false` causes
+     * `loop()` to return `true` after the first disconnect. `PipeClient` overrides to return
+     * `false`.
      */
     virtual bool should_reconnect_on_disconnect() const {
         return true;
@@ -190,11 +201,24 @@ private:
 class PipeServer : public PipeEndpoint {
 public:
     /**
-     * @param pipe_name  Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
-     * @param stop_event See `PipeEndpoint`.
-     * @param handler    See `PipeEndpoint`.
+     * Create a security descriptor that grants GENERIC_READ | GENERIC_WRITE to
+     * NT AUTHORITY\Authenticated Users, and full control to SYSTEM and BUILTIN\Administrators.
+     * Suitable for a service-side IPC named pipe that must be reachable from any locally
+     * authenticated user session. Returns null on failure.
      */
-    PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler);
+    static SecurityDescriptorPtr for_authenticated_users();
+
+    /**
+     * @param pipe_name           Full named-pipe name (e.g. `\\.\pipe\my_pipe`).
+     * @param stop_event          See `PipeEndpoint`.
+     * @param handler             See `PipeEndpoint`.
+     * @param security_descriptor Optional security descriptor for the pipe. If null (the default),
+     *                            the system default DACL is used. The pointer is consumed
+     *                            synchronously by the constructor; the caller may destroy the
+     *                            descriptor immediately after construction returns.
+     */
+    PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+            SECURITY_DESCRIPTOR *security_descriptor = nullptr);
     ~PipeServer() override;
 
 protected:
@@ -206,7 +230,7 @@ protected:
 private:
     static constexpr DWORD PIPE_BUFFER_SIZE = 64 * 1024;
 
-    static HANDLE create_pipe(const wchar_t *pipe_name);
+    static HANDLE create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *security_descriptor);
 };
 
 /**

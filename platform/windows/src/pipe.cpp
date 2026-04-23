@@ -1,5 +1,7 @@
 #include "pipe.h"
 
+#include <sddl.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -13,6 +15,12 @@ namespace ag::vpn_easy {
 
 static ag::Logger g_server_logger{"PipeServer"};
 static ag::Logger g_client_logger{"PipeClient"};
+
+namespace detail {
+void free_security_descriptor(SECURITY_DESCRIPTOR *sd) {
+    LocalFree(sd);
+}
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // PipeEndpoint
@@ -367,9 +375,26 @@ void PipeEndpoint::disconnect_and_reset() {
 // PipeServer
 // ---------------------------------------------------------------------------
 
-PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler)
+SecurityDescriptorPtr PipeServer::for_authenticated_users() {
+    // SDDL DACL:
+    //   (A;;GA;;;SY)   - SYSTEM full
+    //   (A;;GA;;;BA)   - BUILTIN\Administrators full
+    //   (A;;GRGW;;;AU) - NT AUTHORITY\Authenticated Users read+write
+    static constexpr wchar_t SDDL[] = L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)";
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(SDDL, SDDL_REVISION_1, &sd, nullptr)) {
+        DWORD err = GetLastError();
+        errlog(g_server_logger, "ConvertStringSecurityDescriptorToSecurityDescriptorW: {} ({})", err,
+                ag::sys::strerror(err));
+        return {};
+    }
+    return SecurityDescriptorPtr{static_cast<SECURITY_DESCRIPTOR *>(sd)};
+}
+
+PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+        SECURITY_DESCRIPTOR *security_descriptor)
         : PipeEndpoint{stop_event, std::move(handler), g_server_logger} {
-    m_pipe = create_pipe(pipe_name);
+    m_pipe = create_pipe(pipe_name, security_descriptor);
 }
 
 PipeServer::~PipeServer() {
@@ -381,7 +406,12 @@ PipeServer::~PipeServer() {
     }
 }
 
-HANDLE PipeServer::create_pipe(const wchar_t *pipe_name) {
+HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *security_descriptor) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = security_descriptor;
+    sa.bInheritHandle = FALSE;
+
     HANDLE h = CreateNamedPipeW(pipe_name,
             PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
@@ -389,7 +419,7 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name) {
             PIPE_BUFFER_SIZE,
             PIPE_BUFFER_SIZE,
             0,
-            nullptr);
+            security_descriptor != nullptr ? &sa : nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         errlog(g_server_logger, "CreateNamedPipeW: {} ({})", GetLastError(),
                 ag::sys::strerror(GetLastError()));
