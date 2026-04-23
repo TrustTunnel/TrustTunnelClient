@@ -23,16 +23,19 @@ extern "C" {
 typedef enum {
     /**
      * A request to start (connect) the VPN client. The data field must contain the VPN client configuration
-     * in TOML format (encoded in UTF-8 as per TOML specification). If the client is already connecting or connected,
-     * this message is ignored. If the client fails to start for whatever reason, the service will send a state change
+     * in TOML format (encoded in UTF-8 as per TOML specification).
+     *
+     * If the client is already connecting or connected, it is requested to stop
+     * first and then start with the new configuration.
+     *
+     * If the client fails to start for whatever reason, the service will send a state change
      * message with the state `VPN_SS_DISCONNECTED`.
      */
     VPN_EASY_SVC_MSG_START = 0,
 
     /**
      * A request to stop (disconnect) the VPN client. The length field must be zero, the data field empty.
-     * If the client is already stopped, the service will send a state change message with the state
-     * `VPN_SS_DISCONNECTED`.
+     * If the client is already stopped, this message is ignored.
      */
     VPN_EASY_SVC_MSG_STOP,
 
@@ -45,10 +48,17 @@ typedef enum {
     VPN_EASY_SVC_MSG_STATE_CHANGED,
 
     /**
-     * Send by the service to notify the client of a new connection through the VPN tunnel. The data field
+     * Sent by the service to notify the client of a new connection through the VPN tunnel. The data field
      * is a JSON document describing the connection, as returned by `ag::ConnectionInfo::to_json()`.
      */
     VPN_EASY_SVC_MSG_CONNECTION_INFO,
+
+    /**
+     * A request to convey the last known state of the VPN client. The length field must be zero, the data field empty.
+     * The service will respond with a state change message. This is useful when a client has just connected to the
+     * service and wants to know the current state of the VPN client.
+     */
+    VPN_EASY_SVC_MSG_GET_LAST_STATE,
 } VpnEasyServiceMessageType;
 
 typedef enum {
