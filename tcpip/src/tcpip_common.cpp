@@ -314,28 +314,28 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
         fn((TcpipCtx *) arg);
     }
 
-    // Periodically return freed heap pages to the OS when no active TCP connections.
+    // Periodically return freed heap pages to the OS.
     // LWIP uses libc malloc (MEM_LIBC_MALLOC=1) and some allocators don't release pages
     // automatically, causing RSS to stay high after traffic bursts.
+    // HeapOptimizeResources / malloc_trim only compact free blocks and are safe to call
+    // with active connections — they do not affect live allocations.
     if (++s_malloc_trim_tick_counter >= MALLOC_TRIM_INTERVAL_TICKS) {
         s_malloc_trim_tick_counter = 0;
-        if (tcp_active_pcbs == nullptr && tcp_tw_pcbs == nullptr) {
 #ifdef __GLIBC__
-            malloc_trim(0);
+        malloc_trim(0);
 #elif defined(__MACH__)
-            malloc_zone_pressure_relief(NULL, 0);
+        malloc_zone_pressure_relief(NULL, 0);
 #elif defined(_WIN32)
-            // HeapOptimizeResources is available on Windows 8.1+ (NTDDI >= 0x06030000).
-            // Use runtime loading so the binary works on Win7 too.
-            static const auto heap_set_info = reinterpret_cast<decltype(&HeapSetInformation)>(
-                    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "HeapSetInformation"));
-            if (heap_set_info) {
-                HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {};
-                heap_opt_info.Version = HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION;
-                heap_set_info(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
-            }
-#endif
+        // HeapOptimizeResources is available on Windows 8.1+ (NTDDI >= 0x06030000).
+        // Use runtime loading so the binary works on Win7 too.
+        static const auto heap_set_info = reinterpret_cast<decltype(&HeapSetInformation)>(
+                GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "HeapSetInformation"));
+        if (heap_set_info) {
+            HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {};
+            heap_opt_info.Version = HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION;
+            heap_set_info(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
         }
+#endif
     }
 }
 
