@@ -330,8 +330,7 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .mtu = int(config.mtu_size),
             .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{},
             .device_name = config.device_name.c_str(),
-            .use_existing = config.use_existing,
-            .unmanaged_routing = config.unmanaged_routing};
+            .use_existing = config.use_existing};
 
     m_tunnel = ag::make_vpn_tunnel();
     if (m_tunnel == nullptr) {

@@ -219,15 +219,12 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
         return std::nullopt;
     }
 
-    bool unmanaged_routing = (*tun_config)["unmanaged_routing"].value_or<bool>(false);
-
     TrustTunnelConfig::TunListener tun = {
             .device_name = std::move(device_name),
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
             .bound_if = std::move(bound_if),
             .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
             .use_existing = use_existing,
-            .unmanaged_routing = unmanaged_routing,
             .netns = (*tun_config)["netns"].value<std::string>(),
     };
 
@@ -247,12 +244,6 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
                 tun.excluded_routes.emplace_back(addr.value());
             }
         }
-    }
-
-    if (tun.unmanaged_routing && (!tun.included_routes.empty() || !tun.excluded_routes.empty())) {
-        warnlog(g_logger,
-                "listener.tun: unmanaged_routing = true is incompatible with "
-                "included_routes / excluded_routes. The latter will be ignored");
     }
 
     return tun;

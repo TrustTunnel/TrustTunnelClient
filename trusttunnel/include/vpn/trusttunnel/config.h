@@ -48,7 +48,6 @@ struct TrustTunnelConfig {
         std::string bound_if;
         bool change_system_dns = true;
         bool use_existing = false;
-        bool unmanaged_routing = false;
         std::optional<std::string> netns;
     };
 

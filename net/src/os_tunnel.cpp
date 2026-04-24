@@ -176,7 +176,6 @@ ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_clone(const ag::VpnOsTunnelS
     }
     dst->device_name = safe_strdup(settings->device_name);
     dst->use_existing = settings->use_existing;
-    dst->unmanaged_routing = settings->unmanaged_routing;
     return dst;
 }
 
@@ -217,7 +216,6 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
             .dns_servers = {.data = dns_servers, .size = std::size(dns_servers)},
             .device_name = "",
             .use_existing = false,
-            .unmanaged_routing = false,
     };
     return &settings;
 }
