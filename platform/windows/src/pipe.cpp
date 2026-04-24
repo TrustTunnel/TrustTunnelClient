@@ -533,7 +533,7 @@ bool PipeClient::wait_connected() {
     }
     // The event is signaled both on successful connect and on fatal start failure; the atomic
     // disambiguates.
-    return m_connected.load(std::memory_order_acquire);
+    return m_connected.load(std::memory_order_relaxed);
 }
 
 bool PipeClient::start_connect() {
@@ -599,9 +599,7 @@ bool PipeClient::start_connect() {
         warnlog(m_logger, "SetNamedPipeHandleState: {} ({})", err, ag::sys::strerror(err));
     }
 
-    // Order matters: store `true` (release) before signaling so that wait_connected()'s acquire
-    // load on the atomic observes the connected state once the event is seen as signaled.
-    m_connected.store(true, std::memory_order_release);
+    m_connected.store(true, std::memory_order_relaxed);
     SetEvent(m_connected_or_failed_event);
     SetEvent(m_wake_event);
     infolog(m_logger, "connected to server");
