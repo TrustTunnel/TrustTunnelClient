@@ -68,7 +68,7 @@ static constexpr TimerTickNotifyFn TIMER_TICK_NOTIFIERS[] = {
 };
 
 static int s_malloc_trim_tick_counter = 0;
-static constexpr int MALLOC_TRIM_INTERVAL_TICKS = 60; // ~3 minutes (tick = TIMER_PERIOD_S = 3s)
+static constexpr int MALLOC_TRIM_INTERVAL_TICKS = 600; // ~30 minutes (tick = TIMER_PERIOD_S = 3s)
 
 static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len);
 static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks);
