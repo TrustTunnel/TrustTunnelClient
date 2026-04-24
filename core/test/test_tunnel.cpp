@@ -792,3 +792,162 @@ TEST_F(UdpRebindingTest, CachedUdpParams) {
         ASSERT_EQ(client_listener->connections.count(client_id), 1);
     }
 }
+
+// TLS ClientHello with SNI=sub.localhost (matches *.localhost wildcard exclusion)
+static constexpr uint8_t CLIENT_HELLO_SUB_LOCALHOST[] = {
+        0x16, 0x03, 0x01, 0x01, 0x42, 0x01, 0x00, 0x01, 0x3E, 0x03, 0x03, 0x0C, 0xC1, 0x18, 0xB3, 0x53, 0xC8, 0x9A,
+        0xCB, 0xDB, 0xB7, 0x40, 0x60, 0xB0, 0x7C, 0x2E, 0xC0, 0x5E, 0xBB, 0xD4, 0x58, 0x4D, 0xBC, 0x77, 0xE4, 0x4E,
+        0x35, 0xD3, 0x25, 0x73, 0x34, 0xF8, 0xF7, 0x00, 0x00, 0xAA, 0xC0, 0x30, 0xC0, 0x2C, 0xC0, 0x28, 0xC0, 0x24,
+        0xC0, 0x14, 0xC0, 0x0A, 0x00, 0xA5, 0x00, 0xA3, 0x00, 0xA1, 0x00, 0x9F, 0x00, 0x6B, 0x00, 0x6A, 0x00, 0x69,
+        0x00, 0x68, 0x00, 0x39, 0x00, 0x38, 0x00, 0x37, 0x00, 0x36, 0x00, 0x88, 0x00, 0x87, 0x00, 0x86, 0x00, 0x85,
+        0xC0, 0x32, 0xC0, 0x2E, 0xC0, 0x2A, 0xC0, 0x26, 0xC0, 0x0F, 0xC0, 0x05, 0x00, 0x9D, 0x00, 0x3D, 0x00, 0x35,
+        0x00, 0x84, 0xC0, 0x2F, 0xC0, 0x2B, 0xC0, 0x27, 0xC0, 0x23, 0xC0, 0x13, 0xC0, 0x09, 0x00, 0xA4, 0x00, 0xA2,
+        0x00, 0xA0, 0x00, 0x9E, 0x00, 0x67, 0x00, 0x40, 0x00, 0x3F, 0x00, 0x3E, 0x00, 0x33, 0x00, 0x32, 0x00, 0x31,
+        0x00, 0x30, 0x00, 0x9A, 0x00, 0x99, 0x00, 0x98, 0x00, 0x97, 0x00, 0x45, 0x00, 0x44, 0x00, 0x43, 0x00, 0x42,
+        0xC0, 0x31, 0xC0, 0x2D, 0xC0, 0x29, 0xC0, 0x25, 0xC0, 0x0E, 0xC0, 0x04, 0x00, 0x9C, 0x00, 0x3C, 0x00, 0x2F,
+        0x00, 0x96, 0x00, 0x41, 0xC0, 0x11, 0xC0, 0x07, 0xC0, 0x0C, 0xC0, 0x02, 0x00, 0x05, 0x00, 0x04, 0xC0, 0x12,
+        0xC0, 0x08, 0x00, 0x16, 0x00, 0x13, 0x00, 0x10, 0x00, 0x0D, 0xC0, 0x0D, 0xC0, 0x03, 0x00, 0x0A, 0x00, 0xFF,
+        0x01, 0x00, 0x00, 0x6B, 0x00, 0x00, 0x00, 0x12, 0x00, 0x10, 0x00, 0x00, 0x0D, 0x73, 0x75, 0x62, 0x2E, 0x6C,
+        0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, 0x00, 0x0B, 0x00, 0x04, 0x03, 0x00, 0x01, 0x02, 0x00, 0x0A,
+        0x00, 0x1C, 0x00, 0x1A, 0x00, 0x17, 0x00, 0x19, 0x00, 0x1C, 0x00, 0x1B, 0x00, 0x18, 0x00, 0x1A, 0x00, 0x16,
+        0x00, 0x0E, 0x00, 0x0D, 0x00, 0x0B, 0x00, 0x0C, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x23, 0x00, 0x00, 0x00, 0x0D,
+        0x00, 0x20, 0x00, 0x1E, 0x06, 0x01, 0x06, 0x02, 0x06, 0x03, 0x05, 0x01, 0x05, 0x02, 0x05, 0x03, 0x04, 0x01,
+        0x04, 0x02, 0x04, 0x03, 0x03, 0x01, 0x03, 0x02, 0x03, 0x03, 0x02, 0x01, 0x02, 0x02, 0x02, 0x03, 0x00, 0x0F,
+        0x00, 0x01, 0x01,
+};
+
+class ExternalSecureDnsTest : public TunnelTest {
+public:
+    uint64_t m_client_id = NON_ID;
+    uint64_t m_redirect_id = NON_ID;
+    uint64_t m_bypass_id = NON_ID;
+
+    void SetUp() override {
+        TunnelTest::SetUp();
+        ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, "*.localhost"));
+    }
+};
+
+// Wildcard exclusion without suspects cache still works via on-wire SNI scan
+// Connection goes to endpoint upstream, ClientHello is read, migration to bypass_upstream occurs
+TEST_F(ExternalSecureDnsTest, WildcardSniScanMigratesToBypass) {
+    m_client_id = vpn.listener_conn_id_generator.get();
+
+    ASSERT_NO_FATAL_FAILURE(raise_client_connection(m_client_id));
+    std::optional<VpnConnectAction> action = tun.finalize_connect_action({m_client_id, VPN_CA_DEFAULT, "app", 1});
+
+    size_t redirect_before = redirect_upstream->connections.size();
+    size_t bypass_before = bypass_upstream->connections.size();
+    tun.complete_connect_request(m_client_id, action);
+
+    // Without early_ack, connection goes to endpoint upstream first
+    ASSERT_GT(redirect_upstream->connections.size(), redirect_before);
+    ASSERT_EQ(bypass_upstream->connections.size(), bypass_before);
+    m_redirect_id = redirect_upstream->connections.back();
+
+    tun.upstream_handler(redirect_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_redirect_id);
+    ASSERT_EQ(client_listener->connections[m_client_id].result, CCR_PASS);
+    tun.listener_handler(client_listener, CLIENT_EVENT_CONNECTION_ACCEPTED, &m_client_id);
+    ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+
+    // Client sends TLS ClientHello with SNI=sub.localhost → matches *.localhost → migration to bypass
+    ClientRead read_event = {m_client_id, CLIENT_HELLO_SUB_LOCALHOST, std::size(CLIENT_HELLO_SUB_LOCALHOST), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &read_event);
+    ASSERT_GT(bypass_upstream->connections.size(), bypass_before)
+            << "On-wire SNI scan must detect the wildcard exclusion and migrate to bypass_upstream";
+    m_bypass_id = bypass_upstream->connections.back();
+
+    tun.upstream_handler(bypass_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_bypass_id);
+    ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+    ASSERT_EQ(redirect_upstream->connections.end(),
+            std::find(redirect_upstream->connections.begin(), redirect_upstream->connections.end(), m_redirect_id))
+            << "Old endpoint connection must be closed after successful migration";
+}
+
+// All port-443 connections go through fake_upstream first so SNI is read before any real endpoint
+// connection. This handles wildcard exclusions when the endpoint cannot reach the excluded site
+class ExternalSecureDnsEarlyAckTest : public TunnelTest {
+public:
+    uint64_t m_client_id = NON_ID;
+    uint64_t m_bypass_id = NON_ID;
+    TestFakeUpstream *m_fake_upstream;
+
+    void SetUp() override {
+        TunnelTest::SetUp();
+        vpn.exclusions_tcp_early_ack = true;
+        ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, "*.localhost"));
+        tun.fake_upstream = std::make_shared<TestFakeUpstream>(std::move(tun.fake_upstream));
+        ASSERT_TRUE(tun.fake_upstream->open_session());
+        m_fake_upstream = (TestFakeUpstream *) tun.fake_upstream.get();
+    }
+
+    void TearDown() override {
+        tun.fake_upstream->close_session();
+        tun.fake_upstream->deinit();
+        TunnelTest::TearDown();
+    }
+
+    // Drives connection through fake_upstream until client read is enabled.
+    // The key assertion — endpoint NOT contacted — is what fails if early_ack is broken.
+    void connect_via_fake_upstream(size_t &redirect_before, size_t &bypass_before) {
+        ASSERT_NO_FATAL_FAILURE(raise_client_connection(m_client_id));
+        std::optional<VpnConnectAction> action = tun.finalize_connect_action({m_client_id, VPN_CA_DEFAULT, "app", 1});
+
+        redirect_before = redirect_upstream->connections.size();
+        bypass_before = bypass_upstream->connections.size();
+        tun.complete_connect_request(m_client_id, action);
+        run_event_loop_once();
+
+        ASSERT_EQ(redirect_upstream->connections.size(), redirect_before)
+                << "With early_ack, endpoint must not be contacted before SNI is known";
+        ASSERT_EQ(client_listener->connections[m_client_id].result, CCR_PASS);
+        tun.listener_handler(client_listener, CLIENT_EVENT_CONNECTION_ACCEPTED, &m_client_id);
+        ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+    }
+};
+
+// Verifies that early_ack routes excluded wildcard domains to bypass without touching the endpoint,
+// even when the endpoint would close the connection before receiving the ClientHello
+TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteClosedBeforeClientHello) {
+    m_client_id = vpn.listener_conn_id_generator.get();
+
+    size_t redirect_before, bypass_before;
+    ASSERT_NO_FATAL_FAILURE(connect_via_fake_upstream(redirect_before, bypass_before));
+
+    ClientRead read_event = {m_client_id, CLIENT_HELLO_SUB_LOCALHOST, std::size(CLIENT_HELLO_SUB_LOCALHOST), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &read_event);
+
+    ASSERT_GT(bypass_upstream->connections.size(), bypass_before)
+            << "Bypass must be used even if endpoint would have closed before receiving ClientHello";
+    m_bypass_id = bypass_upstream->connections.back();
+
+    tun.upstream_handler(bypass_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_bypass_id);
+    ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1);
+    tun.fake_upstream->handler.func(
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, m_fake_upstream->closing_connections.data());
+
+    ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+}
+
+// Verifies that early_ack routes excluded wildcard domains to bypass without touching the endpoint,
+// even when the endpoint is completely unreachable in the tunnel
+TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteUnreachableInTunnel) {
+    m_client_id = vpn.listener_conn_id_generator.get();
+
+    size_t redirect_before, bypass_before;
+    ASSERT_NO_FATAL_FAILURE(connect_via_fake_upstream(redirect_before, bypass_before));
+
+    ClientRead read_event = {m_client_id, CLIENT_HELLO_SUB_LOCALHOST, std::size(CLIENT_HELLO_SUB_LOCALHOST), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &read_event);
+
+    ASSERT_GT(bypass_upstream->connections.size(), bypass_before)
+            << "Excluded domain must use bypass_upstream even if endpoint is unreachable";
+    ASSERT_NE(client_listener->connections[m_client_id].result, CCR_REJECT)
+            << "Client must not be rejected when endpoint is unreachable for excluded domain";
+    m_bypass_id = bypass_upstream->connections.back();
+
+    tun.upstream_handler(bypass_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_bypass_id);
+    ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1);
+    tun.fake_upstream->handler.func(
+            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, m_fake_upstream->closing_connections.data());
+}

@@ -1,5 +1,12 @@
 # CHANGELOG
 
+- [Feature] Add `exclusions_tcp_early_ack` setting to `VpnSettings`.
+            When enabled, all TCP connections to scannable ports are initially routed through a fake upstream
+            to read the TLS SNI before making any real connection. This ensures site exclusions work correctly
+            when a secure DNS resolver is configured outside of AdGuard VPN or when the exclusion list contains
+            wildcard entries (e.g. `*.example.com`).
+            See `VpnSettings::exclusions_tcp_early_ack`.
+
 ## 1.0.49
 
 - [Fix] Protect service socket for DNS query forwarding with securely generated password #62

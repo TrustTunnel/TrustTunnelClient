@@ -523,6 +523,14 @@ typedef struct {
     bool killswitch_enabled;
 
     /**
+     * When enabled, all TCP connections to scannable ports are initially routed through a fake upstream
+     * to read the SNI from the TLS ClientHello before making any real connection to the endpoint.
+     * This ensures exclusions work when the suspects cache is not populated, e.g. when secure DNS
+     * is configured outside of AdGuard VPN or when the exclusion list contains wildcard entries.
+     */
+    bool exclusions_tcp_early_ack;
+
+    /**
      * Path to a directory where SSL sessions would be cached to persist
      * between vpn startups. Directory should be already created.
      * If null, SSL sessions will not be cached on disk.

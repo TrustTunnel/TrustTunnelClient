@@ -165,6 +165,7 @@ public:
     VpnListenerConfig listener_config = {};                    // common listener configuration
     vpn_client::EndpointConnectionConfig upstream_config = {}; // upstream configuration
     bool kill_switch_on = false;
+    bool exclusions_tcp_early_ack = false;
     std::shared_ptr<ServerUpstream> endpoint_upstream;  // upstream for connections routed through vpn
     std::shared_ptr<ServerUpstream> bypass_upstream;    // upstream for bypassed connections
     std::shared_ptr<ClientListener> client_listener;    // client listener
