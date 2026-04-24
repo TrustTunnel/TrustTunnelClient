@@ -242,8 +242,7 @@ private:
 
 /**
  * Client endpoint: opens a connection to an existing named-pipe server. The IO loop exits on
- * peer disconnect (returning `true` from `loop()`); the caller may construct a new `PipeClient`
- * to reconnect.
+ * peer disconnect (returning `true` from `loop()`); the caller should construct a new `PipeClient` to reconnect.
  */
 class PipeClient : public PipeEndpoint {
 public:

@@ -174,8 +174,7 @@ Managed via Conan. Key libraries:
 - **nlohmann_json**, **tomlplusplus** — config parsing
 - **cxxopts** — CLI argument parsing
 - **magic_enum** — enum reflection
-- **brotli**, **http_parser**, **klib**, **ldns**, **zlib** — transitive/runtime support
-- **gtest**, **fmt** — test-only dependencies
+- **gtest** — unit testing
 
 Local conan cache is populated by `make bootstrap_deps` which is dependency for many other make commands.
 

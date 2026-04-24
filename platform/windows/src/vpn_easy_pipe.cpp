@@ -204,10 +204,8 @@ bool PipeEndpoint::start_read() {
     if (ok) {
         // Synchronous completion. The kernel may also have signaled m_io_event on its own; if so,
         // the next WFMO will wake on it but find `!m_read_pending` and just fall through to
-        // re-entering start_read() -- harmless. Either way we must wake the loop ourselves so
-        // that start_read() runs again to drain any further data: if we returned without setting
-        // an event, and the kernel did NOT signal m_io_event, the loop would block in WFMO with
-        // no IO in flight and miss subsequent incoming bytes.
+        // re-entering start_read(). Either way we must wake the loop ourselves so
+        // that start_read() runs again to drain any further data.
         m_input_buf_used += read_size;
         if (!handle_input()) {
             return false;
@@ -237,9 +235,6 @@ bool PipeEndpoint::complete_read() {
                     ag::sys::strerror(err));
             return false;
         }
-        // ERROR_IO_INCOMPLETE falls through here too: the kernel signals m_io_event only on
-        // completion, so a wake on it should always coincide with a completed op. Treat any
-        // failure as fatal for this connection.
         warnlog(m_logger, "GetOverlappedResult(read): {} ({})", err, ag::sys::strerror(err));
         return false;
     }
@@ -280,9 +275,6 @@ bool PipeEndpoint::handle_input() {
 bool PipeEndpoint::pump_writes() {
     while (!m_write_pending) {
         if (!m_inflight_write.has_value()) {
-            // Try to dequeue the next message under the lock, then drop the lock so that
-            // WriteFile (and any pending kernel reads from the buffer) operate on memory
-            // that send() can no longer touch.
             std::scoped_lock l{m_pending_writes_lock};
             if (m_pending_writes.empty()) {
                 return true;
@@ -330,7 +322,6 @@ bool PipeEndpoint::complete_write() {
                     ag::sys::strerror(err));
             return false;
         }
-        // ERROR_IO_INCOMPLETE falls through here too: see complete_read for rationale.
         warnlog(m_logger, "GetOverlappedResult(write): {} ({})", err, ag::sys::strerror(err));
         return false;
     }
@@ -470,11 +461,6 @@ bool PipeServer::start_connect() {
 bool PipeServer::finalize_connect() {
     DWORD transferred = 0;
     if (!GetOverlappedResult(m_pipe, &m_olr, &transferred, FALSE)) {
-        // ERROR_IO_INCOMPLETE here would indicate a bug: the kernel signals m_io_event only on
-        // completion, so a wake on it should always coincide with a completed op. Treat any
-        // failure as fatal for this connection -- the caller will disconnect and reconnect.
-        // (Trying to ResetEvent in the IO_INCOMPLETE case would race with the kernel setting it
-        // on real completion and could lose the signal.)
         DWORD err = GetLastError();
         warnlog(m_logger, "GetOverlappedResult(connect): {} ({})", err, ag::sys::strerror(err));
         return false;
@@ -538,9 +524,6 @@ bool PipeClient::wait_connected() {
 
 bool PipeClient::start_connect() {
     prepare_for_connect();
-    // Reset the connected/failed signal so wait_connected() blocks correctly across a re-entry
-    // (e.g. a future reconnect policy change) and so that a fresh start does not see a stale
-    // signal from a previous attempt.
     ResetEvent(m_connected_or_failed_event);
 
     // The server is single-instance: when the previous client disconnects there is a brief
@@ -550,8 +533,7 @@ bool PipeClient::start_connect() {
     // previous client) or ERROR_FILE_NOT_FOUND (no listening instance yet). Retry with a bounded
     // total deadline, in short stop-event-interruptible slices.
     constexpr auto DEFAULT_SLICE = ag::Millis{10};
-    // Clamp the slice so it never overshoots the configured connect timeout (e.g. with a 10 ms
-    // timeout we'd otherwise wait 50 ms in WaitForSingleObject before noticing the deadline).
+    // Clamp the slice so it never overshoots the configured connect timeout.
     auto slice = std::max(ag::Millis{1}, std::min(DEFAULT_SLICE, m_connect_timeout));
     DWORD slice_ms = static_cast<DWORD>(slice.count());
     auto deadline = std::chrono::steady_clock::now() + m_connect_timeout;
@@ -575,19 +557,14 @@ bool PipeClient::start_connect() {
             SetEvent(m_connected_or_failed_event);
             return false;
         }
-        // Interruptible nap before retry. If the stop event fires we treat it as a fatal start
-        // failure -- loop() never began, so reporting `false` here is the only signal we can give;
-        // the caller observes the stop event independently.
+        // Interruptible nap before retry.
         if (WaitForSingleObject(stop_event(), slice_ms) == WAIT_OBJECT_0) {
             SetEvent(m_connected_or_failed_event);
             return false;
         }
         if (err == ERROR_PIPE_BUSY) {
-            // Best-effort kernel-side wait for an instance to become available; ignore the result
-            // and just retry CreateFileW. WaitNamedPipeW is uninterruptible, so keep the slice
-            // short to bound shutdown latency. (For ERROR_FILE_NOT_FOUND, WaitNamedPipeW returns
-            // immediately with the same error and is useless; the WaitForSingleObject sleep above
-            // covers that case.)
+            // Wait for an instance to become available; ignore the result and just retry CreateFileW.
+            // WaitNamedPipeW is uninterruptible.
             WaitNamedPipeW(m_pipe_name.c_str(), slice_ms);
         }
     }
