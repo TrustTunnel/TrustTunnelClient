@@ -111,7 +111,7 @@ Set `BUILD_TYPE=debug` for debug builds (default is `release` →
     - `UPPER_CASE`: constants, `constexpr` locals, static constants
     - Private/protected members prefixed with `m_`, globals with `g_`
 - Use `libc++` (not `libstdc++`)
-- Use static storage duration instead of anonymous namespaces for internal linkage where possible 
+- Use static storage duration instead of anonymous namespaces for internal linkage where possible
     - (e.g. `static const int VALUE = 42;` instead of putting it in an anonymous namespace)
 - Function descriptions are written in imperative language
     - e.g. "Calculate the sum of two numbers" instead of "Calculates the sum of two numbers"
