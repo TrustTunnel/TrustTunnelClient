@@ -1,5 +1,7 @@
 #include "net/os_tunnel.h"
 
+#include <cstdio>
+
 #include <net/if.h>
 #include <net/if_utun.h>
 #include <sys/ioctl.h>
@@ -84,15 +86,31 @@ evutil_socket_t ag::VpnMacTunnel::tun_open() {
         return -1;
     }
 
+    unsigned int sc_unit = 0;
+    if (m_settings->device_name != nullptr && m_settings->device_name[0] != '\0') {
+        char trailing = '\0';
+        int utun_index = std::sscanf(m_settings->device_name, "utun%u%c", &sc_unit, &trailing);
+        if (utun_index == 1) {
+            sc_unit += 1;
+        } else {
+            warnlog(logger, "Ignoring malformed macOS device_name '{}'; expected utun<N>",
+                    m_settings->device_name);
+        }
+    }
+
     struct sockaddr_ctl addr{};
     addr.sc_id = info.ctl_id;
     addr.sc_len = sizeof(addr);
     addr.sc_family = AF_SYSTEM;
     addr.ss_sysaddr = AF_SYS_CONTROL;
-    addr.sc_unit = 0;
+    addr.sc_unit = sc_unit;
 
     if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) != 0) {
-        errlog(logger, "Failed to connect: ({}) {}", errno, strerror(errno));
+        if (sc_unit != 0 && errno == EBUSY) {
+            errlog(logger, "Requested utun device {} is busy", m_settings->device_name);
+        } else {
+            errlog(logger, "Failed to connect: ({}) {}", errno, strerror(errno));
+        }
         close(fd);
         return -1;
     }
