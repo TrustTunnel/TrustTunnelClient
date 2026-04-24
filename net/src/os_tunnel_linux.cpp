@@ -74,7 +74,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
     infolog(logger, "TUN mode: {}{}{}", m_settings->use_existing ? "attach" : "create",
             (m_settings->device_name && m_settings->device_name[0] != '\0')
                     ? AG_FMT(" name={}", m_settings->device_name)
-                    : std::string(),
+                    : "",
             m_settings->unmanaged_routing ? " (unmanaged routing)" : "");
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
