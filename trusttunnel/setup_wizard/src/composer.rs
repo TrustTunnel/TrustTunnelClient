@@ -137,7 +137,6 @@ fn fill_tun_listener_table(table: &mut Table, settings: &Settings) {
     table["change_system_dns"] = value(settings.change_system_dns);
     table["device_name"] = value(&settings.device_name);
     table["use_existing"] = value(settings.use_existing);
-    table["unmanaged_routing"] = value(settings.unmanaged_routing);
 }
 
 #[cfg(test)]
@@ -172,7 +171,6 @@ mod tests {
                 change_system_dns: true,
                 device_name: "".into(),
                 use_existing: false,
-                unmanaged_routing: false,
             }),
         }
     }

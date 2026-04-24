@@ -149,8 +149,6 @@ change_system_dns = {}
 device_name = "{}"
 {}
 use_existing = {}
-{}
-unmanaged_routing = {}
 "#,
         TunListener::doc_bound_if().to_toml_comment(),
         TunListener::default_bound_if(),
@@ -174,7 +172,5 @@ unmanaged_routing = {}
         TunListener::default_device_name(),
         TunListener::doc_use_existing().to_toml_comment(),
         TunListener::default_use_existing(),
-        TunListener::doc_unmanaged_routing().to_toml_comment(),
-        TunListener::default_unmanaged_routing(),
     )
 });
