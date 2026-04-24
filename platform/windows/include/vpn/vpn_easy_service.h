@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "vpn/platform.h"
+#include "vpn/vpn_easy.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +69,12 @@ typedef enum {
     /** Service already exists. Uninstall it with `vpn_easy_service_uninstall()` first. */
     VPN_EASY_SVC_ERR_SERVICE_EXISTS,
 
+    /** No service with the given name exists. */
+    VPN_EASY_SVC_ERR_NO_SUCH_SERVICE,
+
+    /** An operation on the service took too long. */
+    VPN_EASY_SVC_ERR_TIMED_OUT,
+
     /** Encountered an unexpected error. Probably as a result of API misusage. The log may contain more details. */
     VPN_EASY_SVC_ERR_OTHER,
 } VpnEasyServiceError;
@@ -99,6 +106,38 @@ WIN_EXPORT int32_t vpn_easy_service_install(const wchar_t *image_path, const wch
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
 WIN_EXPORT int32_t vpn_easy_service_uninstall(const wchar_t *name);
+
+/**
+ * Start the VPN service named `service_name`.
+ *
+ * This will start the Windows service if it's not already running, connect to the running service
+ * through the named pipe and instruct it to start the VPN client with the provided configuration.
+ *
+ * It shall then pass the service state change messages to `state_changed_cb`, which must remain
+ * valid (along with `state_changed_cb_arg`) until the service is stopped with `vpn_easy_service_stop()`.
+ * The callback is invoked on an unspecified thread, and may be called concurrently with `vpn_easy_service_start()`.
+ *
+ * @param service_name The service name that was passed to `vpn_easy_service_install()`.
+ * @param pipe_name The name of the pipe that was passed to `vpn_easy_service_install()`.
+ * @param toml_config The VPN client configuration in TOML format (encoded in UTF-8 as per TOML specification).
+ * @param state_changed_cb A function which will be called each time the VPN client's state changes.
+ * @param state_changed_cb_arg An argument passed to each invocation of the state change function.
+ * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_name,
+        const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg);
+
+/**
+ * Stop the VPN service named `service_name`.
+ *
+ * This will stop both the VPN client and the Windows service.
+ * After this function returns, the state change callback will not be called anymore.
+ *
+ * @param service_name The service name that was passed to `vpn_easy_service_install()`.
+ * @param pipe_name The name of the pipe that was passed to `vpn_easy_service_install()`.
+ * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_name);
 
 #ifdef __cplusplus
 }; // extern "C"

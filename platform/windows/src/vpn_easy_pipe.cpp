@@ -1,4 +1,4 @@
-#include "pipe.h"
+#include "vpn_easy_pipe.h"
 
 #include <sddl.h>
 
@@ -14,8 +14,8 @@
 
 namespace ag::vpn_easy {
 
-static ag::Logger g_server_logger{"PipeServer"};
-static ag::Logger g_client_logger{"PipeClient"};
+static ag::Logger g_server_logger{"PIPE_SERVER"};
+static ag::Logger g_client_logger{"PIPE_CLIENT"};
 
 namespace detail {
 void free_security_descriptor(SECURITY_DESCRIPTOR *sd) {

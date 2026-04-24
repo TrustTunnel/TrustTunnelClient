@@ -14,9 +14,9 @@
 #include <windows.h>
 
 #include "common/system_error.h"
-#include "pipe.h"
 #include "vpn/trusttunnel/connection_info.h"
 #include "vpn/vpn.h"
+#include "vpn_easy_pipe.h"
 
 using ag::vpn_easy::PipeServer;
 
@@ -143,11 +143,10 @@ int wmain(int argc, wchar_t **argv) {
         return 1;
     }
 
-    FILE *logfile = nullptr;
-    ag::UniquePtr<FILE, &fclose> logfile_guard;
-    if (!_wfopen_s(&logfile, argv[1], L"w")) {
-        ag::Logger::set_callback(ag::Logger::LogToFile{logfile});
-        logfile_guard.reset(logfile);
+    ag::UniquePtr<FILE, &fclose> logfile{_wfsopen(argv[1], L"w", _SH_DENYWR)};
+    if (logfile) {
+        setvbuf(logfile.get(), nullptr, _IONBF, 0);
+        ag::Logger::set_callback(ag::Logger::LogToFile{logfile.get()});
     }
     ag::Logger::set_log_level(ag::LOG_LEVEL_INFO);
 

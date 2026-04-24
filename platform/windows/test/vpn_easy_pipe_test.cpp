@@ -18,7 +18,7 @@
 #include "common/logger.h"
 #include "vpn/internal/wire_utils.h"
 
-#include "pipe.h"
+#include "vpn_easy_pipe.h"
 
 using namespace ag::vpn_easy;
 using namespace std::chrono_literals;
