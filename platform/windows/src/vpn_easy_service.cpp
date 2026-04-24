@@ -1,9 +1,10 @@
 #include "vpn/vpn_easy_service.h"
 #include "vpn/vpn_easy.h"
 
-#include <atomic>
 #include <cstdio>
 #include <functional>
+#include <mutex>
+#include <optional>
 #include <string>
 
 #include "common/defs.h"
@@ -25,11 +26,17 @@ static std::wstring g_pipe_name;
 static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static vpn_easy_t *g_vpn;
-static std::atomic<int32_t> g_last_state{ag::VPN_SS_DISCONNECTED};
+
+static std::mutex g_last_state_mutex;
+static int32_t g_last_state{ag::VPN_SS_DISCONNECTED};
 
 /// Send a `VPN_EASY_SVC_MSG_STATE_CHANGED` message with the given state value.
-static void send_state(PipeServer &server, int32_t state) {
-    uint32_t net_state = htonl(static_cast<uint32_t>(state));
+static void send_state(PipeServer &server, std::optional<int32_t> new_state = std::nullopt) {
+    std::scoped_lock l{g_last_state_mutex};
+    if (new_state.has_value()) {
+        g_last_state = *new_state;
+    }
+    uint32_t net_state = htonl(static_cast<uint32_t>(g_last_state));
     server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
 }
 
@@ -47,7 +54,6 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
         g_vpn = vpn_easy_start_ex(
                 toml_config.c_str(),
                 [](void *arg, int state) {
-                    g_last_state.store(state, std::memory_order_relaxed);
                     send_state(*static_cast<PipeServer *>(arg), state);
                 },
                 &server,
@@ -60,7 +66,6 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
                 &server);
         if (g_vpn == nullptr) {
             warnlog(g_logger, "vpn_easy_start_ex failed");
-            g_last_state.store(ag::VPN_SS_DISCONNECTED, std::memory_order_relaxed);
             send_state(server, ag::VPN_SS_DISCONNECTED);
         }
         break;
@@ -76,7 +81,7 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
         break;
     }
     case VPN_EASY_SVC_MSG_GET_LAST_STATE: {
-        send_state(server, g_last_state.load(std::memory_order_relaxed));
+        send_state(server);
         break;
     }
     case VPN_EASY_SVC_MSG_STATE_CHANGED:
@@ -115,12 +120,11 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
 
     service_set_status(SERVICE_START_PENDING);
 
-    auto sd = PipeServer::for_authenticated_users();
     PipeServer server{g_pipe_name.c_str(), g_shutdown_event,
             [&server](VpnEasyServiceMessageType what, ag::Uint8View data) {
                 pipe_handler(server, what, data);
             },
-            sd.get()};
+            PipeServer::for_authenticated_users().get()};
 
     service_set_status(SERVICE_RUNNING);
     server.loop();
