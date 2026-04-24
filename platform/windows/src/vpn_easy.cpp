@@ -23,13 +23,13 @@
 #include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/tls.h"
-#include "vpn_easy_pipe.h"
 #include "vpn/event_loop.h"
 #include "vpn/platform.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
 #include "vpn/vpn.h"
+#include "vpn_easy_pipe.h"
 
 static ag::Logger g_logger{"VPN_SIMPLE"};
 
@@ -285,8 +285,8 @@ static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
     // Build the SID for Authenticated Users (S-1-5-11)
     SID_IDENTIFIER_AUTHORITY nt_authority = SECURITY_NT_AUTHORITY;
     PSID authenticated_users_sid = nullptr;
-    if (!AllocateAndInitializeSid(&nt_authority, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0,
-                &authenticated_users_sid)) {
+    if (!AllocateAndInitializeSid(
+                &nt_authority, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0, &authenticated_users_sid)) {
         dbglog(g_logger, "AllocateAndInitializeSid: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
         return false;
     }
@@ -316,8 +316,7 @@ static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
     // Build a new security descriptor with the updated DACL
     SECURITY_DESCRIPTOR new_sd{};
     if (!InitializeSecurityDescriptor(&new_sd, SECURITY_DESCRIPTOR_REVISION)) {
-        dbglog(g_logger, "InitializeSecurityDescriptor: {} ({})", GetLastError(),
-                ag::sys::strerror(GetLastError()));
+        dbglog(g_logger, "InitializeSecurityDescriptor: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
         return false;
     }
     if (!SetSecurityDescriptorDacl(&new_sd, TRUE, new_dacl, FALSE)) {
@@ -531,7 +530,8 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
         return VPN_EASY_SVC_ERR_OTHER;
     }
 
-    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(pipe_name, g_svc_state.stop_event,
+    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(
+            pipe_name, g_svc_state.stop_event,
             [](VpnEasyServiceMessageType what, ag::Uint8View data) {
                 switch (what) {
                 case VPN_EASY_SVC_MSG_STATE_CHANGED: {
@@ -572,8 +572,7 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
     }
 
     size_t config_len = strlen(toml_config);
-    g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_START,
-            {reinterpret_cast<const uint8_t *>(toml_config), config_len});
+    g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_START, {reinterpret_cast<const uint8_t *>(toml_config), config_len});
 
     success = true;
     return 0;

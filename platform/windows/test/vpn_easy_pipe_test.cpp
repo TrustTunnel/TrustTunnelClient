@@ -79,7 +79,9 @@ public:
 
     bool wait_for_count(size_t n, std::chrono::milliseconds timeout) {
         std::unique_lock l{m_lock};
-        return m_cv.wait_for(l, timeout, [&] { return m_messages.size() >= n; });
+        return m_cv.wait_for(l, timeout, [&] {
+            return m_messages.size() >= n;
+        });
     }
 
     std::vector<ReceivedMessage> snapshot() {
@@ -102,10 +104,14 @@ private:
 class Handle {
 public:
     Handle() = default;
-    explicit Handle(HANDLE h) : m_h(h) {}
+    explicit Handle(HANDLE h)
+            : m_h(h) {
+    }
     Handle(const Handle &) = delete;
     Handle &operator=(const Handle &) = delete;
-    Handle(Handle &&o) noexcept : m_h(std::exchange(o.m_h, INVALID_HANDLE_VALUE)) {}
+    Handle(Handle &&o) noexcept
+            : m_h(std::exchange(o.m_h, INVALID_HANDLE_VALUE)) {
+    }
     Handle &operator=(Handle &&o) noexcept {
         reset();
         m_h = std::exchange(o.m_h, INVALID_HANDLE_VALUE);
@@ -137,8 +143,8 @@ private:
 Handle open_raw_client(const std::wstring &name, std::chrono::milliseconds timeout = TEST_TIMEOUT) {
     auto deadline = std::chrono::steady_clock::now() + timeout;
     for (;;) {
-        HANDLE h = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED, nullptr);
+        HANDLE h = CreateFileW(
+                name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
         if (h != INVALID_HANDLE_VALUE) {
             return Handle{h};
         }
@@ -255,7 +261,9 @@ bool wait_for_peer_disconnect(HANDLE h, std::chrono::milliseconds timeout) {
 class LoopRunner {
 public:
     template <typename F>
-    LoopRunner(HANDLE stop_event, F &&f) : m_stop_event{stop_event}, m_state{std::make_shared<State>()} {
+    LoopRunner(HANDLE stop_event, F &&f)
+            : m_stop_event{stop_event}
+            , m_state{std::make_shared<State>()} {
         auto state = m_state;
         std::thread([state, fn = std::forward<F>(f)]() mutable {
             bool result = fn();
@@ -280,7 +288,9 @@ public:
     // within the timeout, or `std::nullopt` if the timeout was reached.
     std::optional<bool> wait_for(std::chrono::milliseconds t) {
         std::unique_lock l{m_state->lock};
-        if (!m_state->cv.wait_for(l, t, [&] { return m_state->done; })) {
+        if (!m_state->cv.wait_for(l, t, [&] {
+                return m_state->done;
+            })) {
             return std::nullopt;
         }
         return *m_state->result;
@@ -324,7 +334,9 @@ TEST_F(PipeTest, ServerLoopFailsImmediatelyOnInvalidPipeName) {
     // An empty pipe name causes CreateNamedPipeW to fail; loop() must refuse to start.
     MessageCollector collector;
     PipeServer server{L"", m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
     auto loop_result = runner.wait_for(JOIN_TIMEOUT);
     ASSERT_TRUE(loop_result);
     EXPECT_FALSE(*loop_result);
@@ -333,7 +345,9 @@ TEST_F(PipeTest, ServerLoopFailsImmediatelyOnInvalidPipeName) {
 TEST_F(PipeTest, ServerStopEventCausesGracefulExitWithNoClient) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     // Give the server a moment to post the overlapped ConnectNamedPipe.
     std::this_thread::sleep_for(50ms);
@@ -348,7 +362,9 @@ TEST_F(PipeTest, ServerStopEventCausesGracefulExitWithNoClient) {
 TEST_F(PipeTest, ServerReceivesSingleFramedMessage) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -372,7 +388,9 @@ TEST_F(PipeTest, ServerReceivesSingleFramedMessage) {
 TEST_F(PipeTest, ServerReceivesMultipleConcatenatedMessages) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -405,7 +423,9 @@ TEST_F(PipeTest, ServerReceivesMultipleConcatenatedMessages) {
 TEST_F(PipeTest, ServerReassemblesMessageSplitAcrossWrites) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -423,8 +443,7 @@ TEST_F(PipeTest, ServerReassemblesMessageSplitAcrossWrites) {
     size_t half = payload.size() / 2;
     ASSERT_TRUE(write_all(client.get(), {frame.data() + WIRE_HEADER_SIZE, half}));
     std::this_thread::sleep_for(50ms);
-    ASSERT_TRUE(
-            write_all(client.get(), {frame.data() + WIRE_HEADER_SIZE + half, payload.size() - half}));
+    ASSERT_TRUE(write_all(client.get(), {frame.data() + WIRE_HEADER_SIZE + half, payload.size() - half}));
 
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
     auto msgs = collector.snapshot();
@@ -449,8 +468,8 @@ TEST_F(PipeTest, ServerReceivesAllMessagesWhenReadFileCompletesSynchronously) {
     // Open the synchronous client BEFORE spawning the loop, so the server's ConnectNamedPipe
     // returns ERROR_PIPE_CONNECTED on the very first iteration and the kernel pipe buffer is
     // already pre-filled when the first ReadFile is issued.
-    Handle client{CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-            OPEN_EXISTING, 0 /* not FILE_FLAG_OVERLAPPED: synchronous writes */, nullptr)};
+    Handle client{CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+            0 /* not FILE_FLAG_OVERLAPPED: synchronous writes */, nullptr)};
     ASSERT_TRUE(client);
 
     constexpr int MESSAGE_COUNT = 100;
@@ -462,7 +481,9 @@ TEST_F(PipeTest, ServerReceivesAllMessagesWhenReadFileCompletesSynchronously) {
         ASSERT_EQ(written, frame.size());
     }
 
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     ASSERT_TRUE(collector.wait_for_count(MESSAGE_COUNT, TEST_TIMEOUT));
     auto msgs = collector.snapshot();
@@ -479,7 +500,9 @@ TEST_F(PipeTest, ServerReceivesAllMessagesWhenReadFileCompletesSynchronously) {
 TEST_F(PipeTest, ServerAcceptsMaxSizedMessage) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -500,14 +523,16 @@ TEST_F(PipeTest, ServerAcceptsMaxSizedMessage) {
 TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     // First connection: send an oversized header; expect the server to drop us.
     {
         Handle client = open_raw_client(m_pipe_name);
         ASSERT_TRUE(client);
-        auto frame = make_framed_with_advertised_len(
-                VPN_EASY_SVC_MSG_START, static_cast<uint32_t>(MAX_MESSAGE_SIZE + 1));
+        auto frame =
+                make_framed_with_advertised_len(VPN_EASY_SVC_MSG_START, static_cast<uint32_t>(MAX_MESSAGE_SIZE + 1));
         ASSERT_TRUE(write_all(client.get(), frame));
         EXPECT_TRUE(wait_for_peer_disconnect(client.get(), TEST_TIMEOUT));
     }
@@ -532,7 +557,9 @@ TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
 TEST_F(PipeTest, ServerSendDeliversMessageToClient) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -553,7 +580,9 @@ TEST_F(PipeTest, ServerSendDeliversMessageToClient) {
 TEST_F(PipeTest, ServerSendDropsMessageWhenNoPeerConnected) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     // Send a few messages with no peer connected; they must be dropped.
     const std::vector<uint8_t> dropped_payload = {0xAA};
@@ -586,7 +615,9 @@ TEST_F(PipeTest, ServerSendDropsMessageWhenNoPeerConnected) {
 TEST_F(PipeTest, ServerSendIsThreadSafe) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -636,7 +667,9 @@ TEST_F(PipeTest, ServerHandlerCanCallSend) {
     };
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), echo};
     server_ptr = &server;
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -657,7 +690,9 @@ TEST_F(PipeTest, ServerHandlerCanCallSend) {
 TEST_F(PipeTest, ServerReconnectsAfterClientDisconnects) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     {
         Handle client = open_raw_client(m_pipe_name);
@@ -692,7 +727,9 @@ TEST_F(PipeTest, ServerSendQueueFlushedOnDisconnectNewClientSeesNoStaleMessages)
     // not stale messages from client A's session.
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     // Client A: connect, let the server queue messages, then disconnect without reading them.
     {
@@ -736,7 +773,9 @@ TEST_F(PipeTest, ServerSendQueueFlushedOnDisconnectNewClientSeesNoStaleMessages)
 TEST_F(PipeTest, ServerStopEventDuringActiveConnectionExitsCleanly) {
     MessageCollector collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -760,7 +799,9 @@ TEST_F(PipeTest, ServerWithAuthenticatedUsersDescriptorAcceptsConnections) {
     // The descriptor is documented as consumed synchronously; freeing it now must be safe.
     sd.reset();
 
-    LoopRunner runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
@@ -778,9 +819,10 @@ TEST_F(PipeTest, ServerWithAuthenticatedUsersDescriptorAcceptsConnections) {
 
 TEST_F(PipeTest, ClientLoopFailsImmediatelyWhenServerNotPresent) {
     MessageCollector collector;
-    PipeClient client{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(),
-            std::chrono::milliseconds(50)};
-    LoopRunner runner{m_stop_event.get(), [&] { return client.loop(); }};
+    PipeClient client{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), std::chrono::milliseconds(50)};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return client.loop();
+                      }};
     auto loop_result = runner.wait_for(JOIN_TIMEOUT);
     ASSERT_TRUE(loop_result);
     EXPECT_FALSE(*loop_result);
@@ -794,12 +836,16 @@ TEST_F(PipeTest, ClientServerExchangeMessages) {
     };
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
     server_ptr = &server;
-    LoopRunner server_runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
 
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
     PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     ASSERT_TRUE(client.wait_connected());
     const std::vector<uint8_t> payload = {0xAB, 0xCD, 0xEF};
@@ -822,14 +868,15 @@ TEST_F(PipeTest, ClientServerExchangeMessages) {
 
 TEST_F(PipeTest, ClientLoopExitsOnPeerDisconnect) {
     // Build a raw single-instance overlapped server pipe by hand.
-    Handle server_pipe{CreateNamedPipeW(m_pipe_name.c_str(),
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+    Handle server_pipe{CreateNamedPipeW(m_pipe_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr)};
     ASSERT_TRUE(server_pipe);
 
     MessageCollector collector;
     PipeClient client{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
-    LoopRunner runner{m_stop_event.get(), [&] { return client.loop(); }};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return client.loop();
+                      }};
 
     // Accept the client's connection via overlapped ConnectNamedPipe.
     OVERLAPPED ol{};
@@ -840,8 +887,7 @@ TEST_F(PipeTest, ClientLoopExitsOnPeerDisconnect) {
     if (!ok && err == ERROR_IO_PENDING) {
         ASSERT_EQ(WaitForSingleObject(ol.hEvent,
                           static_cast<DWORD>(
-                                  std::chrono::duration_cast<std::chrono::milliseconds>(TEST_TIMEOUT)
-                                          .count())),
+                                  std::chrono::duration_cast<std::chrono::milliseconds>(TEST_TIMEOUT).count())),
                 WAIT_OBJECT_0);
         DWORD t = 0;
         ASSERT_TRUE(GetOverlappedResult(server_pipe.get(), &ol, &t, FALSE));
@@ -861,12 +907,16 @@ TEST_F(PipeTest, ClientLoopExitsOnPeerDisconnect) {
 TEST_F(PipeTest, ClientStopEventCausesGracefulExit) {
     MessageCollector server_collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
-    LoopRunner server_runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
 
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
     PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     std::this_thread::sleep_for(100ms);
     SetEvent(client_stop.get());
@@ -883,13 +933,17 @@ TEST_F(PipeTest, ClientCanReconnectViaFreshInstance) {
     // PipeClient to reconnect. Verify two successive client instances both connect successfully.
     MessageCollector server_collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
-    LoopRunner server_runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
 
     auto run_one_client = [&] {
         Handle stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
         MessageCollector collector;
         PipeClient client{m_pipe_name.c_str(), stop.get(), collector.make_handler()};
-        LoopRunner runner{stop.get(), [&] { return client.loop(); }};
+        LoopRunner runner{stop.get(), [&] {
+                              return client.loop();
+                          }};
         ASSERT_TRUE(client.wait_connected());
         const std::vector<uint8_t> payload = {0x01};
         client.send(VPN_EASY_SVC_MSG_START, {payload.data(), payload.size()});
@@ -917,15 +971,18 @@ TEST_F(PipeTest, ClientStartConnectRetriesUntilServerInstanceBecomesAvailable) {
     // succeed once the server appears within the retry deadline.
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
-    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(),
-            std::chrono::seconds(2)};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(), std::chrono::seconds(2)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     // Bring the server up after a short delay -- well within the client's retry budget.
     std::this_thread::sleep_for(200ms);
     MessageCollector server_collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
-    LoopRunner server_runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
 
     // Once connected, the client should be able to send and the server should observe it.
     ASSERT_TRUE(client.wait_connected());
@@ -949,9 +1006,10 @@ TEST_F(PipeTest, ClientStartConnectHonorsStopEventDuringRetry) {
     // then return promptly (well under the configured connect timeout).
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
-    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(),
-            std::chrono::seconds(5)};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(), std::chrono::seconds(5)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     std::this_thread::sleep_for(150ms); // Let the client observe at least one retry slice.
     SetEvent(client_stop.get());
@@ -965,12 +1023,16 @@ TEST_F(PipeTest, ClientStartConnectHonorsStopEventDuringRetry) {
 TEST_F(PipeTest, ClientWaitConnectedReturnsTrueAfterSuccessfulConnect) {
     MessageCollector server_collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
-    LoopRunner server_runner{m_stop_event.get(), [&] { return server.loop(); }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
 
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
     PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     EXPECT_TRUE(client.wait_connected());
 
@@ -986,9 +1048,11 @@ TEST_F(PipeTest, ClientWaitConnectedReturnsFalseOnConnectFailure) {
     // user-supplied connect timeout.
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
-    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(),
-            std::chrono::milliseconds(100)};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    PipeClient client{
+            m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(), std::chrono::milliseconds(100)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     auto t0 = std::chrono::steady_clock::now();
     EXPECT_FALSE(client.wait_connected());
@@ -1018,9 +1082,10 @@ TEST_F(PipeTest, ClientWaitConnectedReturnsFalseOnStopEvent) {
     // false promptly (well under the connect timeout).
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
-    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(),
-            std::chrono::seconds(5)};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(), std::chrono::seconds(5)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     std::thread signaler([&] {
         std::this_thread::sleep_for(100ms);
@@ -1042,9 +1107,11 @@ TEST_F(PipeTest, ClientConnectTimeoutZeroSelectsDefault) {
     // server, loop() should fail at roughly that wallclock duration.
     Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
     MessageCollector client_collector;
-    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(),
-            std::chrono::milliseconds(0)};
-    LoopRunner client_runner{client_stop.get(), [&] { return client.loop(); }};
+    PipeClient client{
+            m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler(), std::chrono::milliseconds(0)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
 
     auto t0 = std::chrono::steady_clock::now();
     auto client_result = client_runner.wait_for(std::chrono::seconds(3));

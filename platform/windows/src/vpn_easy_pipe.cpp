@@ -231,8 +231,7 @@ bool PipeEndpoint::complete_read() {
     if (!GetOverlappedResult(m_pipe, &m_olr, &read_size, FALSE)) {
         DWORD err = GetLastError();
         if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_OPERATION_ABORTED) {
-            infolog(m_logger, "GetOverlappedResult(read): peer disconnected ({}: {})", err,
-                    ag::sys::strerror(err));
+            infolog(m_logger, "GetOverlappedResult(read): peer disconnected ({}: {})", err, ag::sys::strerror(err));
             return false;
         }
         warnlog(m_logger, "GetOverlappedResult(read): {} ({})", err, ag::sys::strerror(err));
@@ -257,8 +256,8 @@ bool PipeEndpoint::handle_input() {
             return true; // Need more bytes for the header.
         }
         if (*size > MAX_MESSAGE_SIZE) {
-            warnlog(m_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection",
-                    *size, MAX_MESSAGE_SIZE);
+            warnlog(m_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection", *size,
+                    MAX_MESSAGE_SIZE);
             return false;
         }
         auto data = r.get_bytes(*size);
@@ -285,8 +284,8 @@ bool PipeEndpoint::pump_writes() {
 
         PendingWrite &w = *m_inflight_write;
         DWORD written = 0;
-        BOOL ok = WriteFile(m_pipe, w.data.data() + w.written,
-                static_cast<DWORD>(w.data.size() - w.written), &written, &m_olw);
+        BOOL ok = WriteFile(
+                m_pipe, w.data.data() + w.written, static_cast<DWORD>(w.data.size() - w.written), &written, &m_olw);
         if (ok) {
             // Synchronous completion. The kernel may have signaled m_write_event (the docs are
             // inconsistent), so reset it here to avoid a spurious wake on the next WFMO.
@@ -318,8 +317,7 @@ bool PipeEndpoint::complete_write() {
     if (!GetOverlappedResult(m_pipe, &m_olw, &written, FALSE)) {
         DWORD err = GetLastError();
         if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED || err == ERROR_OPERATION_ABORTED) {
-            infolog(m_logger, "GetOverlappedResult(write): peer disconnected ({}: {})", err,
-                    ag::sys::strerror(err));
+            infolog(m_logger, "GetOverlappedResult(write): peer disconnected ({}: {})", err, ag::sys::strerror(err));
             return false;
         }
         warnlog(m_logger, "GetOverlappedResult(write): {} ({})", err, ag::sys::strerror(err));
@@ -389,8 +387,8 @@ SecurityDescriptorPtr PipeServer::for_authenticated_users() {
     return SecurityDescriptorPtr{static_cast<SECURITY_DESCRIPTOR *>(sd)};
 }
 
-PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
-        SECURITY_DESCRIPTOR *security_descriptor)
+PipeServer::PipeServer(
+        const wchar_t *pipe_name, HANDLE stop_event, Handler handler, SECURITY_DESCRIPTOR *security_descriptor)
         : PipeEndpoint{stop_event, std::move(handler), g_server_logger} {
     m_pipe = create_pipe(pipe_name, security_descriptor);
 }
@@ -410,17 +408,12 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *se
     sa.lpSecurityDescriptor = security_descriptor;
     sa.bInheritHandle = FALSE;
 
-    HANDLE h = CreateNamedPipeW(pipe_name,
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+    HANDLE h = CreateNamedPipeW(pipe_name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1, // single instance
-            PIPE_BUFFER_SIZE,
-            PIPE_BUFFER_SIZE,
-            0,
-            security_descriptor != nullptr ? &sa : nullptr);
+            PIPE_BUFFER_SIZE, PIPE_BUFFER_SIZE, 0, security_descriptor != nullptr ? &sa : nullptr);
     if (h == INVALID_HANDLE_VALUE) {
-        errlog(g_server_logger, "CreateNamedPipeW: {} ({})", GetLastError(),
-                ag::sys::strerror(GetLastError()));
+        errlog(g_server_logger, "CreateNamedPipeW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
     }
     return h;
 }
@@ -482,8 +475,8 @@ void PipeServer::teardown_pipe() {
 // PipeClient
 // ---------------------------------------------------------------------------
 
-PipeClient::PipeClient(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
-        std::chrono::milliseconds connect_timeout)
+PipeClient::PipeClient(
+        const wchar_t *pipe_name, HANDLE stop_event, Handler handler, std::chrono::milliseconds connect_timeout)
         : PipeEndpoint{stop_event, std::move(handler), g_client_logger}
         , m_pipe_name{pipe_name}
         , m_connect_timeout{connect_timeout.count() <= 0 ? DEFAULT_CONNECT_TIMEOUT : connect_timeout}
@@ -512,7 +505,8 @@ bool PipeClient::wait_connected() {
     } else if (m_connect_timeout.count() < INFINITE) {
         timeout_ms = m_connect_timeout.count();
     }
-    DWORD r = WaitForMultipleObjects(static_cast<DWORD>(std::size(events)), events, FALSE, static_cast<DWORD>(timeout_ms));
+    DWORD r = WaitForMultipleObjects(
+            static_cast<DWORD>(std::size(events)), events, FALSE, static_cast<DWORD>(timeout_ms));
     if (r != WAIT_OBJECT_0) {
         // Stop event won, or timed out, or wait failed.
         return false;
@@ -540,8 +534,8 @@ bool PipeClient::start_connect() {
 
     for (;;) {
         // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
-        m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED, nullptr);
         if (m_pipe != INVALID_HANDLE_VALUE) {
             break;
         }

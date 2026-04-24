@@ -1,6 +1,6 @@
+#include "vpn/vpn.h"
 #include "vpn/vpn_easy.h"
 #include "vpn/vpn_easy_service.h"
-#include "vpn/vpn.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -16,8 +16,8 @@ static constexpr const wchar_t *SERVICE_NAME = L"vpn_easy_service";
 static constexpr const wchar_t *PIPE_NAME = L"\\\\.\\pipe\\TestPipeName";
 
 static void state_changed_cb(void *, int state) {
-    fmt::println(stderr, "VPN state changed: ({}) {}",
-            state, magic_enum::enum_name(static_cast<ag::VpnSessionState>(state)));
+    fmt::println(stderr, "VPN state changed: ({}) {}", state,
+            magic_enum::enum_name(static_cast<ag::VpnSessionState>(state)));
 }
 
 /// Read config.toml into a string. Return empty string on failure.
@@ -82,8 +82,7 @@ static int test_start_stop() {
     }
 
     fmt::println(stderr, "Starting service...");
-    int32_t ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(),
-            state_changed_cb, nullptr);
+    int32_t ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr);
     if (ret) {
         fmt::println(stderr, "vpn_easy_service_start: {}", ret);
         return -1;
@@ -120,8 +119,7 @@ static int test_full_lifecycle() {
     }
 
     fmt::println(stderr, "Starting VPN via service...");
-    ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(),
-            state_changed_cb, nullptr);
+    ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr);
     if (ret) {
         fmt::println(stderr, "vpn_easy_service_start: {}", ret);
         vpn_easy_service_uninstall(SERVICE_NAME);

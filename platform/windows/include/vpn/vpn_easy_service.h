@@ -53,13 +53,6 @@ typedef enum {
      * is a JSON document describing the connection, as returned by `ag::ConnectionInfo::to_json()`.
      */
     VPN_EASY_SVC_MSG_CONNECTION_INFO,
-
-    /**
-     * A request to convey the last known state of the VPN client. The length field must be zero, the data field empty.
-     * The service will respond with a state change message. This is useful when a client has just connected to the
-     * service and wants to know the current state of the VPN client.
-     */
-    VPN_EASY_SVC_MSG_GET_LAST_STATE,
 } VpnEasyServiceMessageType;
 
 typedef enum {

@@ -3,7 +3,6 @@
 
 #include <cstdio>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -27,16 +26,9 @@ static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static vpn_easy_t *g_vpn;
 
-static std::mutex g_last_state_mutex;
-static int32_t g_last_state{ag::VPN_SS_DISCONNECTED};
-
 /// Send a `VPN_EASY_SVC_MSG_STATE_CHANGED` message with the given state value.
-static void send_state(PipeServer &server, std::optional<int32_t> new_state = std::nullopt) {
-    std::scoped_lock l{g_last_state_mutex};
-    if (new_state.has_value()) {
-        g_last_state = *new_state;
-    }
-    uint32_t net_state = htonl(static_cast<uint32_t>(g_last_state));
+static void send_state(PipeServer &server, int32_t state) {
+    uint32_t net_state = htonl(static_cast<uint32_t>(state));
     server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
 }
 
@@ -78,10 +70,6 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
         infolog(g_logger, "Stopping VPN client");
         vpn_easy_stop_ex(g_vpn);
         g_vpn = nullptr;
-        break;
-    }
-    case VPN_EASY_SVC_MSG_GET_LAST_STATE: {
-        send_state(server);
         break;
     }
     case VPN_EASY_SVC_MSG_STATE_CHANGED:
