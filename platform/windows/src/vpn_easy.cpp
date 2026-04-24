@@ -6,6 +6,9 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <vector>
+
+#include <aclapi.h>
 
 #include <magic_enum/magic_enum.hpp>
 #include <toml++/toml.h>
@@ -15,6 +18,7 @@
 
 #include "common/logger.h"
 #include "common/net_utils.h"
+#include "common/utils.h"
 #include "net/tls.h"
 #include "vpn/event_loop.h"
 #include "vpn/platform.h"
@@ -244,6 +248,87 @@ static std::wstring escape(const wchar_t *str, const wchar_t *chars_to_escape, w
 
 using AutoScHandle = ag::UniquePtr<std::remove_pointer_t<SC_HANDLE>, &CloseServiceHandle>;
 
+// Grant SERVICE_START and SERVICE_STOP to authenticated users on the given service handle.
+// Return true on success, false on any error (logged at DEBUG level).
+static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
+    // Query the current security descriptor size
+    DWORD bytes_needed = 0;
+    if (!QueryServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, nullptr, 0, &bytes_needed)
+            && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        dbglog(g_logger, "QueryServiceObjectSecurity (size): {} ({})", GetLastError(),
+                ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    std::vector<uint8_t> sd_buf;
+    sd_buf.resize(bytes_needed);
+    auto *sd = reinterpret_cast<PSECURITY_DESCRIPTOR>(sd_buf.data());
+    if (!QueryServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, sd, bytes_needed, &bytes_needed)) {
+        dbglog(g_logger, "QueryServiceObjectSecurity: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Retrieve the existing DACL from the security descriptor
+    BOOL dacl_present = FALSE;
+    PACL old_dacl = nullptr;
+    BOOL dacl_defaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(sd, &dacl_present, &old_dacl, &dacl_defaulted)) {
+        dbglog(g_logger, "GetSecurityDescriptorDacl: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Build the SID for Authenticated Users (S-1-5-11)
+    SID_IDENTIFIER_AUTHORITY nt_authority = SECURITY_NT_AUTHORITY;
+    PSID authenticated_users_sid = nullptr;
+    if (!AllocateAndInitializeSid(&nt_authority, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0,
+                &authenticated_users_sid)) {
+        dbglog(g_logger, "AllocateAndInitializeSid: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    PACL new_dacl = nullptr;
+
+    ag::utils::ScopeExit cleanup{[&] {
+        LocalFree(new_dacl);
+        FreeSid(authenticated_users_sid);
+    }};
+
+    // Build an EXPLICIT_ACCESS entry granting SERVICE_START | SERVICE_STOP
+    EXPLICIT_ACCESS_W ea{};
+    ea.grfAccessPermissions = SERVICE_START | SERVICE_STOP;
+    ea.grfAccessMode = SET_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    ea.Trustee.ptstrName = reinterpret_cast<LPWSTR>(authenticated_users_sid);
+
+    DWORD result = SetEntriesInAclW(1, &ea, old_dacl, &new_dacl);
+    if (result != ERROR_SUCCESS) {
+        dbglog(g_logger, "SetEntriesInAclW: {} ({})", result, ag::sys::strerror(result));
+        return false;
+    }
+
+    // Build a new security descriptor with the updated DACL
+    SECURITY_DESCRIPTOR new_sd{};
+    if (!InitializeSecurityDescriptor(&new_sd, SECURITY_DESCRIPTOR_REVISION)) {
+        dbglog(g_logger, "InitializeSecurityDescriptor: {} ({})", GetLastError(),
+                ag::sys::strerror(GetLastError()));
+        return false;
+    }
+    if (!SetSecurityDescriptorDacl(&new_sd, TRUE, new_dacl, FALSE)) {
+        dbglog(g_logger, "SetSecurityDescriptorDacl: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Apply the updated security descriptor to the service
+    if (!SetServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, &new_sd)) {
+        dbglog(g_logger, "SetServiceObjectSecurity: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    return true;
+}
+
 int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logfile_path_, const wchar_t *pipe_name_,
         const wchar_t *name, const wchar_t *display_name, const wchar_t *description) {
     std::wstring image_path = escape(image_path_, L"\"", L'\\');
@@ -274,8 +359,13 @@ int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logf
         return VPN_EASY_SVC_ERR_OTHER;
     }
 
-    SERVICE_DESCRIPTIONW desc{.lpDescription = (wchar_t *) description};
+    SERVICE_DESCRIPTIONW desc{.lpDescription = const_cast<wchar_t *>(description)};
     ChangeServiceConfig2W(svc.get(), SERVICE_CONFIG_DESCRIPTION, &desc);
+
+    if (!grant_authenticated_users_start_stop(svc.get())) {
+        dbglog(g_logger, "Failed to grant start/stop permissions to authenticated users");
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
 
     if (!StartServiceW(svc.get(), 0, nullptr)) {
         dbglog(g_logger, "StartServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
