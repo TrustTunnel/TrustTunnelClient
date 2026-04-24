@@ -71,22 +71,23 @@ static ag::Result<std::string, ag::tunnel_utils::ExecError> sys_cmd_with_output_
 ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
     m_netns = netns.value_or("");
+    bool managed_routing = m_settings->included_routes.size > 0;
     infolog(logger, "TUN mode: {}{}{}", m_settings->use_existing ? "attach" : "create",
             (m_settings->device_name && m_settings->device_name[0] != '\0')
                     ? AG_FMT(" name={}", m_settings->device_name)
                     : "",
-            m_settings->unmanaged_routing ? " (unmanaged routing)" : "");
+            managed_routing ? "" : " (routes unmanaged)");
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }
     setup_if();
 
-    if (!m_settings->unmanaged_routing) {
+    if (managed_routing) {
         m_sport_supported = check_sport_rule_support();
         if (m_settings->use_existing && !m_sport_supported) {
             errlog(logger,
                     "Managed routing for an existing TUN device requires sport rule support; "
-                    "use unmanaged_routing = true instead");
+                    "set included_routes = [] to leave routing external");
             return {-1, "Managed routing for an existing TUN device requires sport rule support"};
         }
         teardown_routes(TABLE_ID); // Remove stale rules from previous sessions
@@ -94,7 +95,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
             return {-1, "Unable to setup routes for linuxtun session"};
         }
     } else {
-        infolog(logger, "Unmanaged routing: skipping route and ip rule installation");
+        infolog(logger, "Empty included_routes: skipping route and ip rule management");
     }
     setup_dns();
 
@@ -103,7 +104,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
 
 void ag::VpnLinuxTunnel::deinit() {
     close(m_tun_fd);
-    if (!m_settings->unmanaged_routing) {
+    if (m_settings->included_routes.size > 0) {
         teardown_routes(TABLE_ID);
     }
     m_system_dns_setup_success = false;
