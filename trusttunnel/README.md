@@ -132,10 +132,13 @@ The configuration file uses TOML format. Below are all available settings.
 | `excluded_routes` | array[string] | `["0.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"]` | Routes in CIDR notation to exclude from VPN routing |
 | `mtu_size` | int | `1280` | MTU size on the virtual interface |
 | `change_system_dns` | bool | `true` | Allow changing system DNS servers |
-| `device_name` | string | `""` | On Linux, the TUN interface name (empty = kernel-assigned). On Windows, the Wintun adapter name (empty = auto-generated from hostname). |
+| `device_name` | string | `""` | On Linux, the TUN interface name (empty = kernel-assigned). On Windows, the Wintun adapter name (empty = auto-generated from hostname). On macOS, request a specific `utun<N>` unit (empty = kernel-assigned). |
 | `use_existing` | bool | `false` | Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name`. Linux only. |
-| `unmanaged_routing` | bool | `false` | Do not install routes or `ip rule` entries. Incompatible with non-default `included_routes` / `excluded_routes`. Linux only. |
 | `adapter_name` | string | `""` | **Deprecated** — Windows-only deprecated alias for `device_name`. Accepted for backward compatibility; new configurations MUST use `device_name`. |
+
+To disable route management on any supported platform, set `included_routes = []`.
+On Linux this also suppresses cleanup of table `880` and the associated `ip rule`
+entries; on Windows, DNS-only route handling remains controlled by `change_system_dns`.
 
 ### SOCKS Listener Settings (`[listener.socks]`)
 
@@ -196,7 +199,7 @@ bound_if = ""
 # For OpenWrt with external policy routing (`pbr`, `mwan3`):
 # device_name = "tt0"
 # use_existing = true
-# unmanaged_routing = true
+# included_routes = []
 included_routes = ["0.0.0.0/0", "2000::/3"]
 excluded_routes = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 mtu_size = 1280
