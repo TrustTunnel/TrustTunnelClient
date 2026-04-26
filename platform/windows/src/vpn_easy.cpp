@@ -394,6 +394,9 @@ int32_t vpn_easy_service_uninstall(const wchar_t *name) {
         if (ERROR_ACCESS_DENIED == GetLastError()) {
             return VPN_EASY_SVC_ERR_ACCESS;
         }
+        if (ERROR_SERVICE_DOES_NOT_EXIST == GetLastError()) {
+            return VPN_EASY_SVC_ERR_NO_SUCH_SERVICE;
+        }
         dbglog(g_logger, "OpenServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
         return VPN_EASY_SVC_ERR_OTHER;
     }
