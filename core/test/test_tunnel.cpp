@@ -910,7 +910,8 @@ public:
 TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteClosedBeforeClientHello) {
     m_client_id = vpn.listener_conn_id_generator.get();
 
-    size_t redirect_before, bypass_before;
+    size_t redirect_before;
+    size_t bypass_before;
     ASSERT_NO_FATAL_FAILURE(connect_via_fake_upstream(redirect_before, bypass_before));
 
     ClientRead read_event = {m_client_id, CLIENT_HELLO_SUB_LOCALHOST, std::size(CLIENT_HELLO_SUB_LOCALHOST), 0};
@@ -933,7 +934,8 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteClosedBeforeClientHello) {
 TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteUnreachableInTunnel) {
     m_client_id = vpn.listener_conn_id_generator.get();
 
-    size_t redirect_before, bypass_before;
+    size_t redirect_before;
+    size_t bypass_before;
     ASSERT_NO_FATAL_FAILURE(connect_via_fake_upstream(redirect_before, bypass_before));
 
     ClientRead read_event = {m_client_id, CLIENT_HELLO_SUB_LOCALHOST, std::size(CLIENT_HELLO_SUB_LOCALHOST), 0};
