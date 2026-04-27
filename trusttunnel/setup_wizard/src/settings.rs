@@ -155,7 +155,10 @@ On Windows, an interface index as shown by `route print`, written as a string, m
         #{doc("Allow changing system DNS servers")}
         #[serde(default = "TunListener::default_change_system_dns")]
         pub change_system_dns: bool,
-        #{doc("TUN / Wintun device name. On Linux: TUN interface name passed to TUNSETIFF (empty = kernel-assigned). On Windows: Wintun adapter name (empty = auto-generated from hostname). On macOS: ignored.")}
+        #{doc(r#"TUN / Wintun device name.
+On Linux: TUN interface name (empty = kernel-assigned).
+On macOS: request a specific `utun<N>` unit (empty = kernel-assigned).
+On Windows: Wintun adapter name (empty = auto-generated from hostname)."#)}
         #[serde(default = "TunListener::default_device_name")]
         pub device_name: String,
         #{doc("Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name` to be non-empty. Linux only; ignored on Windows and macOS.")}

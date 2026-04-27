@@ -46,9 +46,10 @@ struct VpnOsTunnelSettings {
     int mtu;
     /** DNS servers addresses */
     VpnAddressArray dns_servers;
-    /** Requested TUN/Wintun device name. NULL or "" means the
-     *  platform default (Linux: kernel-assigned; Windows: fallback
-     *  to the legacy `VpnWinTunnelSettings::adapter_name`). */
+    /** TUN / Wintun device name.
+     * On Linux: TUN interface name (empty/NULL = kernel-assigned).
+     * On macOS: request a specific `utun<N>` unit (empty/NULL = kernel-assigned).
+     * On Windows: Wintun adapter name, should be non-empty. */
     const char *device_name;
     /** If true, open the pre-existing device named `device_name`
      *  instead of creating a new one. Requires `device_name` to be
