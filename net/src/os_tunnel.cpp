@@ -214,7 +214,11 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
             .excluded_routes = {.data = excluded_routes, .size = std::size(excluded_routes)},
             .mtu = 9000,
             .dns_servers = {.data = dns_servers, .size = std::size(dns_servers)},
+#ifdef _WIN32
+            .device_name = "TrustTunnel tunnel",
+#else
             .device_name = "",
+#endif
             .use_existing = false,
     };
     return &settings;
@@ -224,7 +228,6 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
 
 const ag::VpnWinTunnelSettings *ag::vpn_win_tunnel_settings_defaults() {
     static const ag::VpnWinTunnelSettings win_settings = {
-            .adapter_name = "TrustTunnel tunnel",
             .tunnel_type = "wintun",
             .wintun_lib = nullptr,
             .block_ipv6 = false,
@@ -237,7 +240,6 @@ const ag::VpnWinTunnelSettings *ag::vpn_win_tunnel_settings_defaults() {
 ag::VpnWinTunnelSettings *ag::vpn_win_tunnel_settings_clone(const ag::VpnWinTunnelSettings *settings) {
     auto *dst = new VpnWinTunnelSettings{};
     *dst = *settings;
-    dst->adapter_name = safe_strdup(settings->adapter_name);
     dst->tunnel_type = safe_strdup(settings->tunnel_type);
     return dst;
 }
@@ -246,7 +248,6 @@ void ag::vpn_win_tunnel_settings_destroy(ag::VpnWinTunnelSettings *settings) {
     if (settings == nullptr) {
         return;
     }
-    free((char *) settings->adapter_name);
     free((char *) settings->tunnel_type);
     delete settings;
 }

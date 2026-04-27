@@ -197,22 +197,6 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
 
     bool use_existing = (*tun_config)["use_existing"].value_or<bool>(false);
     std::string device_name = (*tun_config)["device_name"].value_or<std::string>({});
-    std::string adapter_name = (*tun_config)["adapter_name"].value_or<std::string>({});
-
-    if (!adapter_name.empty()) {
-        if (device_name.empty()) {
-            warnlog(g_logger,
-                    "listener.tun: `adapter_name` is deprecated; "
-                    "use `device_name` instead. Accepting `adapter_name` = \"{}\" "
-                    "as `device_name` for backward compatibility.",
-                    adapter_name);
-            device_name = adapter_name;
-        } else {
-            warnlog(g_logger,
-                    "listener.tun: both `device_name` and the deprecated "
-                    "`adapter_name` are set; ignoring `adapter_name`.");
-        }
-    }
 
     if (use_existing && device_name.empty()) {
         errlog(g_logger, "listener.tun: use_existing = true requires device_name to be set");

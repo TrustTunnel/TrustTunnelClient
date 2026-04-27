@@ -329,7 +329,7 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
             .mtu = int(config.mtu_size),
             .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{},
-            .device_name = config.device_name.c_str(),
+            .device_name = !config.device_name.empty() ? config.device_name.c_str() : defaults->device_name,
             .use_existing = config.use_existing};
 
     m_tunnel = ag::make_vpn_tunnel();
@@ -346,14 +346,12 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         return nullptr;
     }
     VpnWinTunnelSettings win_settings = *vpn_win_tunnel_settings_defaults();
-    if (!config.device_name.empty()) {
-        win_settings.adapter_name = config.device_name.c_str();
-    } else {
+    if (config.device_name.empty()) {
         // Fallback to hostname if no name is specified
         if (!m_config.location.endpoints.empty()) {
             static std::string fallback_name;
             fallback_name = AG_FMT("TrustTunnel ({})", m_config.location.endpoints[0].hostname);
-            win_settings.adapter_name = fallback_name.c_str();
+            tunnel_settings.device_name = fallback_name.c_str();
         }
     }
     win_settings.wintun_lib = m_wintun;
