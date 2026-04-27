@@ -13,7 +13,7 @@ class NativeVpnImpl (
     // TODO: this is dirty because this method should not use threadpool but
     //       `VpnPrepareActivity.start` blocks the caller thread that is main. Remove it from here
     //       and implement the correct vpn preparing with `onActivityResult` outside of this class
-    override fun start(serverName: String, config: String) = singleThread.execute {
+    override fun start(config: String) = singleThread.execute {
         // TODO: socks5
         if (!VpnService.isPrepared(context)) {
             VpnPrepareActivity.start(context);

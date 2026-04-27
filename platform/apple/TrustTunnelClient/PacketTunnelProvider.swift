@@ -67,7 +67,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
         let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: tunnelAddress)
         networkSettings.ipv4Settings = ipv4Settings
         networkSettings.ipv6Settings = ipv6Settings
-        let dnsServers = vpnConfig.endpoint.dns_upstreams.isEmpty
+        let dnsServers = (vpnConfig.endpoint.dns_upstreams ?? []).isEmpty
             ? ADGUARD_DNS_SERVERS
             : FAKE_DNS_SERVER
         let dnsSettings = NEDNSSettings(servers: dnsServers)

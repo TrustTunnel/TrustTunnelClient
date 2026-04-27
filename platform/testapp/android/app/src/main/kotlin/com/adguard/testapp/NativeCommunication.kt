@@ -60,7 +60,7 @@ private open class NativeCommunicationPigeonCodec : StandardMessageCodec() {
 
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativeVpnInterface {
-  fun start(serverName: String, config: String)
+  fun start(config: String)
   fun stop()
 
   companion object {
@@ -77,10 +77,9 @@ interface NativeVpnInterface {
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val serverNameArg = args[0] as String
-            val configArg = args[1] as String
+            val configArg = args[0] as String
             val wrapped: List<Any?> = try {
-              api.start(serverNameArg, configArg)
+              api.start(configArg)
               listOf(null)
             } catch (exception: Throwable) {
               NativeCommunicationPigeonUtils.wrapError(exception)

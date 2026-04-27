@@ -60,14 +60,14 @@ class NativeVpnInterface {
 
   final String pigeonVar_messageChannelSuffix;
 
-  Future<void> start(String serverName, String config) async {
+  Future<void> start(String config) async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.start$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[serverName, config]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[config]);
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
     if (pigeonVar_replyList == null) {
