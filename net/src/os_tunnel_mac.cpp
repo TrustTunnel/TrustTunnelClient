@@ -1,12 +1,12 @@
 #include "net/os_tunnel.h"
 
-#include <cstdio>
-
 #include <net/if.h>
 #include <net/if_utun.h>
 #include <sys/ioctl.h>
 #include <sys/kern_control.h>
 #include <sys/kern_event.h>
+
+#include <common/utils.h>
 
 static const ag::Logger logger("OS_TUNNEL_MAC");
 
@@ -86,15 +86,15 @@ evutil_socket_t ag::VpnMacTunnel::tun_open() {
         return -1;
     }
 
+    constexpr std::string_view UTUN_PREFIX = "utun";
     unsigned int sc_unit = 0;
-    if (m_settings->device_name != nullptr && m_settings->device_name[0] != '\0') {
-        char trailing = '\0';
-        int utun_index = std::sscanf(m_settings->device_name, "utun%u%c", &sc_unit, &trailing);
-        if (utun_index == 1) {
-            sc_unit += 1;
+    if (m_settings->device_name != nullptr && ag::utils::starts_with(m_settings->device_name, UTUN_PREFIX)) {
+        if (auto utun_index = ag::utils::to_integer<uint32_t>(m_settings->device_name + UTUN_PREFIX.size())) {
+            sc_unit = *utun_index + 1;
         } else {
-            warnlog(logger, "Ignoring malformed macOS device_name '{}'; expected utun<N>",
-                    m_settings->device_name);
+            errlog(logger, "Malformed macOS device_name '{}'; expected utun<N>", m_settings->device_name);
+            close(fd);
+            return -1;
         }
     }
 
