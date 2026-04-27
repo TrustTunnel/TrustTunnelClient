@@ -793,8 +793,8 @@ TEST_F(UdpRebindingTest, CachedUdpParams) {
     }
 }
 
-// TLS ClientHello with SNI=sub.localhost (matches *.localhost wildcard exclusion)
 static constexpr uint8_t CLIENT_HELLO_SUB_LOCALHOST[] = {
+        // sni=sub.localhost
         0x16, 0x03, 0x01, 0x01, 0x42, 0x01, 0x00, 0x01, 0x3E, 0x03, 0x03, 0x0C, 0xC1, 0x18, 0xB3, 0x53, 0xC8, 0x9A,
         0xCB, 0xDB, 0xB7, 0x40, 0x60, 0xB0, 0x7C, 0x2E, 0xC0, 0x5E, 0xBB, 0xD4, 0x58, 0x4D, 0xBC, 0x77, 0xE4, 0x4E,
         0x35, 0xD3, 0x25, 0x73, 0x34, 0xF8, 0xF7, 0x00, 0x00, 0xAA, 0xC0, 0x30, 0xC0, 0x2C, 0xC0, 0x28, 0xC0, 0x24,
@@ -813,8 +813,7 @@ static constexpr uint8_t CLIENT_HELLO_SUB_LOCALHOST[] = {
         0x00, 0x0E, 0x00, 0x0D, 0x00, 0x0B, 0x00, 0x0C, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x23, 0x00, 0x00, 0x00, 0x0D,
         0x00, 0x20, 0x00, 0x1E, 0x06, 0x01, 0x06, 0x02, 0x06, 0x03, 0x05, 0x01, 0x05, 0x02, 0x05, 0x03, 0x04, 0x01,
         0x04, 0x02, 0x04, 0x03, 0x03, 0x01, 0x03, 0x02, 0x03, 0x03, 0x02, 0x01, 0x02, 0x02, 0x02, 0x03, 0x00, 0x0F,
-        0x00, 0x01, 0x01,
-};
+        0x00, 0x01, 0x01};
 
 class ExternalSecureDnsTest : public TunnelTest {
 public:
@@ -923,8 +922,8 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteClosedBeforeClientHello) {
 
     tun.upstream_handler(bypass_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_bypass_id);
     ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1);
-    tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, m_fake_upstream->closing_connections.data());
+    tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
+            m_fake_upstream->closing_connections.data());
 
     ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
 }
@@ -948,6 +947,6 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteUnreachableInTunnel) {
 
     tun.upstream_handler(bypass_upstream, SERVER_EVENT_CONNECTION_OPENED, &m_bypass_id);
     ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1);
-    tun.fake_upstream->handler.func(
-            tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, m_fake_upstream->closing_connections.data());
+    tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
+            m_fake_upstream->closing_connections.data());
 }
