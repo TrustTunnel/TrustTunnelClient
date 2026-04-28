@@ -88,11 +88,14 @@ evutil_socket_t ag::VpnMacTunnel::tun_open() {
 
     constexpr std::string_view UTUN_PREFIX = "utun";
     unsigned int sc_unit = 0;
-    if (m_settings->device_name != nullptr && ag::utils::starts_with(m_settings->device_name, UTUN_PREFIX)) {
-        if (auto utun_index = ag::utils::to_integer<uint32_t>(m_settings->device_name + UTUN_PREFIX.size())) {
+    std::string_view device_name = utils::safe_string_view(m_settings->device_name);
+    if (!device_name.empty()) {
+        if (auto utun_index = ag::utils::starts_with(device_name, UTUN_PREFIX)
+                        ? ag::utils::to_integer<uint32_t>(device_name.substr(UTUN_PREFIX.size()))
+                        : std::nullopt) {
             sc_unit = *utun_index + 1;
         } else {
-            errlog(logger, "Malformed macOS device_name '{}'; expected utun<N>", m_settings->device_name);
+            errlog(logger, "Malformed macOS device_name '{}'; expected utun<N>", device_name);
             close(fd);
             return -1;
         }
