@@ -283,9 +283,8 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
             config["exclusions_tcp_early_ack_enabled"].value_or(default_settings->exclusions_tcp_early_ack_enabled);
     result.exclusions_preresolve_enabled =
             config["exclusions_preresolve_enabled"].value_or(default_settings->exclusions_preresolve_enabled);
-    result.exclusions_preresolve_max_queries =
-            config["exclusions_preresolve_max_queries"].value_or<uint32_t>(
-                    default_settings->exclusions_preresolve_max_queries);
+    result.exclusions_preresolve_max_queries = config["exclusions_preresolve_max_queries"].value_or<uint32_t>(
+            uint32_t{default_settings->exclusions_preresolve_max_queries});
 
     result.ssl_session_storage_path = config["ssl_session_cache_path"].value<std::string_view>();
 

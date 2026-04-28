@@ -182,10 +182,10 @@ private:
  * Default settings for vpn
  */
 struct VpnDefaultSettings {
-    bool post_quantum_group_enabled; /**< Default state for post-quantum group in TLS handshakes */
-    bool handler_profiling_enabled;  /**< Default state for handler profiling */
-    bool exclusions_tcp_early_ack_enabled;    /**< Default state for TCP early ACK for exclusions */
-    bool exclusions_preresolve_enabled;      /**< Default state for pre-resolving exclusions in background */
+    bool post_quantum_group_enabled;            /**< Default state for post-quantum group in TLS handshakes */
+    bool handler_profiling_enabled;             /**< Default state for handler profiling */
+    bool exclusions_tcp_early_ack_enabled;      /**< Default state for TCP early ACK for exclusions */
+    bool exclusions_preresolve_enabled;         /**< Default state for pre-resolving exclusions in background */
     uint32_t exclusions_preresolve_max_queries; /**< Default max number of exclusion domains to pre-resolve per cycle */
 };
 
