@@ -127,6 +127,10 @@ void VpnDnsResolver::stop_resolving() {
     this->deinit();
 }
 
+size_t VpnDnsResolver::pending_background_count() const {
+    return this->queues[VDRQ_BACKGROUND].size();
+}
+
 ClientListener::InitResult VpnDnsResolver::init(VpnClient *vpn, ClientHandler handler) {
     if (ClientListener::InitResult x = ClientListener::init(vpn, handler); x != ClientListener::InitResult::SUCCESS) {
         return x;

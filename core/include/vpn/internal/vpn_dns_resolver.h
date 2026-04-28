@@ -120,6 +120,11 @@ public:
      */
     void stop_resolving();
 
+    /**
+     * Return the number of background resolves that are queued but not yet dispatched.
+     */
+    [[nodiscard]] size_t pending_background_count() const;
+
 private:
     struct Resolve {
         std::string name;

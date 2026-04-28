@@ -952,3 +952,64 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteUnreachableInTunnel) {
     tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
             m_fake_upstream->closing_connections.data());
 }
+
+// Tests for exclusions_preresolve_enabled and exclusions_preresolve_max_queries settings.
+//
+// on_exclusions_updated() synchronously calls dns_resolver->resolve() for each resolvable exclusion,
+// which enqueues IDs into dns_resolver->queues[VDRQ_BACKGROUND]. We check the queue size immediately
+// after on_exclusions_updated() returns, before the event loop dispatches anything.
+class PreresolveTest : public TunnelTest {
+public:
+    void SetUp() override {
+        TunnelTest::SetUp();
+    }
+
+    // Add N exact (resolvable) exclusion entries named "example0.com", "example1.com", ...
+    void add_exact_exclusions(int n) {
+        std::string entries;
+        for (int i = 0; i < n; ++i) {
+            if (!entries.empty()) {
+                entries += '\n';
+            }
+            entries += AG_FMT("example{}.com", i);
+        }
+        ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, entries));
+    }
+
+    size_t pending_count() const {
+        return tun.dns_resolver->pending_background_count();
+    }
+};
+
+// When preresolve is disabled, on_exclusions_updated() must not enqueue any background resolves.
+TEST_F(PreresolveTest, PreresolveDisabledSkipsResolves) {
+    vpn.exclusions_preresolve_enabled = false;
+
+    add_exact_exclusions(5);
+    tun.on_exclusions_updated();
+
+    ASSERT_EQ(pending_count(), 0) << "No background resolves must be queued when preresolve is disabled";
+}
+
+// When preresolve is enabled with the default limit, all exclusions are enqueued
+// (assuming the count is below the default cap of 50).
+TEST_F(PreresolveTest, PreresolveEnabledQueuesAllExclusions) {
+    vpn.exclusions_preresolve_enabled = true;
+    vpn.exclusions_preresolve_max_queries = 0; // use default (50)
+
+    add_exact_exclusions(5);
+    tun.on_exclusions_updated();
+
+    ASSERT_EQ(pending_count(), 5) << "All 5 exclusions must be queued when preresolve is enabled";
+}
+
+// When max_queries is set to N, only the first N exclusions are enqueued even if more exist.
+TEST_F(PreresolveTest, PreresolveMaxQueriesLimitsResolves) {
+    vpn.exclusions_preresolve_enabled = true;
+    vpn.exclusions_preresolve_max_queries = 3;
+
+    add_exact_exclusions(10);
+    tun.on_exclusions_updated();
+
+    ASSERT_EQ(pending_count(), 3) << "Only max_queries=3 resolves must be queued out of 10 exclusions";
+}
