@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 1.0.56
+
 - [Feature] Add wildcard port syntax (`*:port`) to `VpnSettings::exclusions`.
             Any connection to the specified port is matched regardless of the destination address.
 
