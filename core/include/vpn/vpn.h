@@ -535,6 +535,19 @@ typedef struct {
     bool exclusions_tcp_early_ack;
 
     /**
+     * When enabled, DNS-resolvable exclusions are pre-resolved in the background after the exclusion
+     * list is updated. This populates the suspects cache so that connections to excluded hosts are
+     * routed correctly without waiting for the first DNS response.
+     */
+    bool exclusions_preresolve_enabled;
+
+    /**
+     * Maximum number of exclusion domains to pre-resolve per cycle.
+     * 0 means use the default value (50).
+     */
+    uint32_t exclusions_preresolve_max_queries;
+
+    /**
      * Path to a directory where SSL sessions would be cached to persist
      * between vpn startups. Directory should be already created.
      * If null, SSL sessions will not be cached on disk.
