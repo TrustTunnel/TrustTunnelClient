@@ -309,7 +309,7 @@ TEST(VpnClientInitTest, SettingsAreAppliedOnInit) {
     vpn.parameters.handler = {&vpn_handler, nullptr};
     vpn.parameters.cert_verify_handler = {&cert_verify_handler, nullptr};
 
-    const VpnDefaultSettings *defaults = vpn_get_default_settings();
+    UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> defaults{vpn_get_default_settings()};
     VpnSettings settings = {};
     settings.exclusions_tcp_early_ack_enabled = defaults->exclusions_tcp_early_ack_enabled;
     settings.exclusions_preresolve_enabled = defaults->exclusions_preresolve_enabled;
