@@ -166,8 +166,8 @@ public:
     vpn_client::EndpointConnectionConfig upstream_config = {}; // upstream configuration
     bool kill_switch_on = false;
     bool exclusions_tcp_early_ack = false;
-    bool exclusions_preresolve_enabled = true;
-    uint32_t exclusions_preresolve_max_queries = 50;
+    bool exclusions_preresolve_enabled = false;
+    uint32_t exclusions_preresolve_max_queries = 1;
     std::shared_ptr<ServerUpstream> endpoint_upstream;  // upstream for connections routed through vpn
     std::shared_ptr<ServerUpstream> bypass_upstream;    // upstream for bypassed connections
     std::shared_ptr<ClientListener> client_listener;    // client listener
