@@ -150,6 +150,9 @@ mod tests {
             killswitch_enabled: true,
             killswitch_allow_ports: vec![],
             post_quantum_group_enabled: true,
+            exclusions_tcp_early_ack_enabled: false,
+            exclusions_preresolve_enabled: true,
+            exclusions_preresolve_max_queries: 50,
             exclusions: vec![],
             endpoint: Endpoint {
                 hostname: "vpn.example.com".into(),
