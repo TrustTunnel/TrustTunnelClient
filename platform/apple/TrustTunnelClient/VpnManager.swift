@@ -262,7 +262,6 @@ public final class VpnManager {
     }
 
     private func updateConfiguration(manager: NETunnelProviderManager,
-                                  serverName: String!,
                                       config: String!,
                                  setOnDemand: Bool,
                            completionHandler: @escaping ((any Error)?) -> Void) {
@@ -281,6 +280,16 @@ public final class VpnManager {
                 completionHandler(error)
                 return
             }
+
+            var vpnConfig: VpnConfig!
+            do {
+                vpnConfig = try parseVpnConfig(from: config)
+            } catch {
+                self.logger.error("Failed to parse config: \(error)")
+                completionHandler(error)
+                return
+            }
+
             let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ??
             NETunnelProviderProtocol()
             configuration.providerBundleIdentifier = self.bundleIdentifier
@@ -289,20 +298,12 @@ public final class VpnManager {
                 "appGroup": self.appGroup as NSObject,
                 "bundleIdentifier": self.bundleIdentifier as NSObject
             ]
-            configuration.serverAddress = serverName
+            configuration.serverAddress = vpnConfig.endpoint.name
             manager.protocolConfiguration = configuration
             manager.localizedDescription = "TrustTunnel"
             manager.isEnabled = true
 
             if setOnDemand {
-                var vpnConfig: VpnConfig!
-                do {
-                    vpnConfig = try parseVpnConfig(from: config)
-                } catch {
-                    self.logger.error("Failed to parse config: \(error)")
-                    completionHandler(error)
-                    return
-                }
                 if (vpnConfig.killswitch_enabled) {
                     manager.isOnDemandEnabled = true
                     manager.onDemandRules = [NEOnDemandRuleConnect()]
@@ -343,7 +344,7 @@ public final class VpnManager {
         }
     }
 
-    public func updateConfiguration(serverName: String?, config: String?) {
+    public func updateConfiguration(config: String?) {
         apiQueue.async {
             let manager = self.getManager()
             let group = DispatchGroup()
@@ -359,13 +360,12 @@ public final class VpnManager {
             let timeout = DispatchTime.now() + .seconds(15)
             timerSource.schedule(deadline: timeout)
             timerSource.resume()
-            if serverName == nil || config == nil {
+            if config == nil {
                 self.deleteConfiguration(manager: manager) { error in
                     timerSource.cancel()
                 }
             } else {
                 self.updateConfiguration(manager: manager,
-                                      serverName: serverName!,
                                           config: config!,
                                      setOnDemand: false) { error in
                     timerSource.cancel()
@@ -375,14 +375,13 @@ public final class VpnManager {
         }
     }
 
-    public func start(serverName: String, config: (String)) {
+    public func start(config: (String)) {
         apiQueue.async {
             let manager = self.getManager()
             let group = DispatchGroup()
             group.enter()
 
             self.updateConfiguration(manager: manager,
-                                  serverName: serverName,
                                       config: config,
                                  setOnDemand: true) { error in
                 if let error = error {

@@ -21,6 +21,7 @@ enum DomainFilterValidationStatus {
     DFVS_OK_ADDR,
     DFVS_OK_CIDR,
     DFVS_OK_DOMAIN,
+    DFVS_OK_PORT,
     DFVS_MALFORMED,
 };
 
@@ -108,12 +109,16 @@ private:
         std::string text;
         MatchFlagsSet flags;
     };
+    struct PortOnlyEntry {
+        uint16_t port;
+    };
     struct DomainEntryMalformed {};
-    using ParseResult = std::variant<SocketAddress, CidrRange, DomainEntryInfo, DomainEntryMalformed>;
+    using ParseResult = std::variant<SocketAddress, CidrRange, DomainEntryInfo, PortOnlyEntry, DomainEntryMalformed>;
 
     VpnMode m_mode = VPN_MODE_GENERAL;
     std::unordered_map<std::string, MatchFlagsSet> m_domains; // key - domain name / value - set of `MatchFlags`
     std::unordered_set<SocketAddress> m_addresses;
+    std::unordered_set<uint16_t> m_ports_only;
     ag::CidrRangeSet m_cidr_ranges;
     ag::LruTimeoutCache<ag::SockAddrTag, std::string> m_resolved_tags{DEFAULT_CACHE_SIZE, DEFAULT_TAG_TTL};
     ag::LruTimeoutCache<SocketAddress, uint8_t> m_exclusion_suspects{DEFAULT_CACHE_SIZE, DEFAULT_TAG_TTL};

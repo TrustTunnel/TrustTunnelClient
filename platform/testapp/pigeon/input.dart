@@ -16,7 +16,7 @@ import 'package:pigeon/pigeon.dart';
 
 @HostApi()
 abstract class NativeVpnInterface {
-  void start(String serverName, String config);
+  void start(String config);
 
   void stop();
 }

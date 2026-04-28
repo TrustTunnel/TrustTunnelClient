@@ -23,8 +23,7 @@ NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &
         , m_dispatcher(dispatcher) {
 }
 
-std::optional<FlutterError> NativeVpnImpl::Start(const std::string &serverName, const std::string &config) {
-    (void) serverName;
+std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
     vpn_easy_start(config.c_str(), state_changed_handler, this);
     // Always return no error because flutter treats them as exceptions
     // and pigeon doesn't allow to handle them in a general way

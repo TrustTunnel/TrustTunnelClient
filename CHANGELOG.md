@@ -7,6 +7,11 @@
             wildcard entries (e.g. `*.example.com`).
             See `VpnSettings::exclusions_tcp_early_ack`.
 
+## 1.0.56
+
+- [Feature] Add wildcard port syntax (`*:port`) to `VpnSettings::exclusions`.
+            Any connection to the specified port is matched regardless of the destination address.
+
 ## 1.0.49
 
 - [Fix] Protect service socket for DNS query forwarding with securely generated password #62

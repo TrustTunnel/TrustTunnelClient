@@ -488,11 +488,15 @@ typedef struct {
      *              - recognized formats are:
      *                  - IPv4Address/mask
      *                  - IPv6Address/mask
+     *          - wildcard port: `*:port`
+     *              - matches any connection to the specified port regardless of the destination address
+     *                (e.g., `*:80` will match any connection to port 80)
      *
      *  examples:
      *      - example.org 1.2.3.4
      *      - 1.1.1.1:1 [feed::beef] www.example.com
      *      - [deaf::beef]:12 *.example.com
+     *      - *:80 *:443
      */
     ag::VpnStr exclusions;
     /**

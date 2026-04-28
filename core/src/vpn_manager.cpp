@@ -651,6 +651,7 @@ VpnExclusionValidationStatus vpn_validate_exclusion(const char *text) {
     case DFVS_OK_ADDR:
     case DFVS_OK_CIDR:
     case DFVS_OK_DOMAIN:
+    case DFVS_OK_PORT:
         return VPN_EVS_OK;
     case DFVS_MALFORMED:
         return VPN_EVS_MALFORMED;

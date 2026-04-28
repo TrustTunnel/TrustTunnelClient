@@ -26,7 +26,8 @@ DomainFilterValidationStatus DomainFilter::validate_entry(std::string_view entry
     static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_CIDR, ParseResult>, CidrRange>);
     static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_DOMAIN, ParseResult>, DomainEntryInfo>);
     static_assert(std::is_same_v<std::variant_alternative_t<DFVS_MALFORMED, ParseResult>, DomainEntryMalformed>);
-    static_assert(std::variant_size_v<ParseResult> == 4);
+    static_assert(std::is_same_v<std::variant_alternative_t<DFVS_OK_PORT, ParseResult>, PortOnlyEntry>);
+    static_assert(std::variant_size_v<ParseResult> == 5);
 
     return DomainFilterValidationStatus(result.index());
 }
@@ -38,6 +39,9 @@ DomainFilter::ParseResult DomainFilter::parse_entry(std::string_view entry) {
         std::optional port = utils::to_integer<uint64_t>(split->second);
         if (port.has_value() && !split->second.empty()) {
             if (port > 0 && port <= USHRT_MAX) {
+                if (split->first == "*") {
+                    return PortOnlyEntry{static_cast<uint16_t>(port.value())};
+                }
                 addr = SocketAddress(split->first, port.value());
             }
         } else {
@@ -88,6 +92,7 @@ bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions)
     m_mode = mode_;
     m_domains.clear();
     m_addresses.clear();
+    m_ports_only.clear();
     m_exclusion_suspects.clear();
     m_cidr_ranges.clear();
 
@@ -102,6 +107,9 @@ bool DomainFilter::update_exclusions(VpnMode mode_, std::string_view exclusions)
         } else if (auto *range = std::get_if<CidrRange>(&result); range != nullptr) {
             log_filter(this, trace, "Entry added in CIDR ranges table: {}", range->to_string());
             m_cidr_ranges.insert(*range);
+        } else if (auto *port_only = std::get_if<PortOnlyEntry>(&result); port_only != nullptr) {
+            log_filter(this, trace, "Entry added in ports only table: {}", port_only->port);
+            m_ports_only.insert(port_only->port);
         } else {
             auto status = std::get<DomainEntryMalformed>(result);
             (void) status;
@@ -172,6 +180,10 @@ DomainFilterMatchResult DomainFilter::match_tag(const SockAddrTag &tag) const {
         const Uint8View addr = tag.addr.addr();
         ag::CidrRange addr_cidr(addr, addr.size() * 8);
         found = m_cidr_ranges.includes(addr_cidr);
+    }
+
+    if (!found) {
+        found = m_ports_only.contains(tag.addr.port());
     }
 
     if (found) {
