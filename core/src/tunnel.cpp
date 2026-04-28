@@ -1470,14 +1470,10 @@ void Tunnel::on_exclusions_updated() {
     this->dns_resolver->stop_resolving_queues(1 << VDRQ_BACKGROUND);
 
     if (this->vpn->endpoint_upstream != nullptr && this->vpn->exclusions_preresolve_enabled) {
-        static constexpr uint32_t DEFAULT_MAX_QUERIES = 50;
-        uint32_t max_queries = this->vpn->exclusions_preresolve_max_queries > 0
-                ? this->vpn->exclusions_preresolve_max_queries
-                : DEFAULT_MAX_QUERIES;
         std::vector<std::string_view> names = this->vpn->domain_filter.get_resolvable_exclusions();
         uint32_t resolved = 0;
         for (std::string_view name : names) {
-            if (resolved >= max_queries) {
+            if (resolved >= this->vpn->exclusions_preresolve_max_queries) {
                 break;
             }
             if (!this->dns_resolver->resolve(VDRQ_BACKGROUND, std::string(name)).has_value()) {

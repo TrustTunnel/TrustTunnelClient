@@ -44,6 +44,15 @@ killswitch_allow_ports = []
 post_quantum_group_enabled = {}
 
 {}
+exclusions_tcp_early_ack = {}
+
+{}
+exclusions_preresolve_enabled = {}
+
+{}
+exclusions_preresolve_max_queries = {}
+
+{}
 exclusions = []
 "#,
         Settings::doc_loglevel().to_toml_comment(),
@@ -55,6 +64,12 @@ exclusions = []
         Settings::doc_killswitch_allow_ports().to_toml_comment(),
         Settings::doc_post_quantum_group_enabled().to_toml_comment(),
         Settings::default_post_quantum_group_enabled(),
+        Settings::doc_exclusions_tcp_early_ack().to_toml_comment(),
+        Settings::default_exclusions_tcp_early_ack(),
+        Settings::doc_exclusions_preresolve_enabled().to_toml_comment(),
+        Settings::default_exclusions_preresolve_enabled(),
+        Settings::doc_exclusions_preresolve_max_queries().to_toml_comment(),
+        Settings::default_exclusions_preresolve_max_queries(),
         Settings::doc_exclusions().to_toml_comment(),
     )
 });

@@ -57,6 +57,9 @@ struct TrustTunnelConfig {
     bool killswitch_enabled = false;
     std::string killswitch_allow_ports;
     bool post_quantum_group_enabled = true;
+    bool exclusions_tcp_early_ack = false;
+    bool exclusions_preresolve_enabled = true;
+    uint32_t exclusions_preresolve_max_queries = 50;
     std::string log_file_path;
     std::string exclusions;
     std::optional<std::string> ssl_session_storage_path;

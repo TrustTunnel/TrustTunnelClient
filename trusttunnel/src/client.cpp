@@ -105,6 +105,9 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(Lis
             .mode = m_config.mode,
             .exclusions = {m_config.exclusions.data(), (uint32_t) m_config.exclusions.size()},
             .killswitch_enabled = m_config.killswitch_enabled,
+            .exclusions_tcp_early_ack = m_config.exclusions_tcp_early_ack,
+            .exclusions_preresolve_enabled = m_config.exclusions_preresolve_enabled,
+            .exclusions_preresolve_max_queries = m_config.exclusions_preresolve_max_queries,
     };
 
     if (m_config.ssl_session_storage_path.has_value()) {

@@ -8,6 +8,12 @@
     - `exclusions_preresolve_enabled`: controls whether DNS-resolvable exclusions are pre-resolved in
       the background after the exclusion list is updated.
     - `exclusions_preresolve_max_queries`: limits the number of domains resolved per cycle (default: 50).
+- [Feature] `vpn_get_default_settings()` now returns default values for the new exclusion settings:
+  `exclusions_tcp_early_ack` (default: `false`), `exclusions_preresolve_enabled` (default: `true`),
+  and `exclusions_preresolve_max_queries` (default: `50`).
+- [Feature] `trusttunnel_client` config now supports `exclusions_tcp_early_ack`,
+  `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` top-level keys;
+  absent values fall back to the defaults from `vpn_get_default_settings()`.
 
 ## 1.0.56
 

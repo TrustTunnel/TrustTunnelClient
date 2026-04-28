@@ -991,11 +991,10 @@ TEST_F(PreresolveTest, PreresolveDisabledSkipsResolves) {
     ASSERT_EQ(pending_count(), 0) << "No background resolves must be queued when preresolve is disabled";
 }
 
-// When preresolve is enabled with the default limit, all exclusions are enqueued
-// (assuming the count is below the default cap of 50).
+// When preresolve is enabled with a high enough limit, all exclusions are enqueued.
 TEST_F(PreresolveTest, PreresolveEnabledQueuesAllExclusions) {
     vpn.exclusions_preresolve_enabled = true;
-    vpn.exclusions_preresolve_max_queries = 0; // use default (50)
+    vpn.exclusions_preresolve_max_queries = 50;
 
     add_exact_exclusions(5);
     tun.on_exclusions_updated();

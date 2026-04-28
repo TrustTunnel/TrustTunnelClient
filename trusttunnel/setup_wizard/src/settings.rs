@@ -80,6 +80,20 @@ kill switch, allow inbound connections to these local ports. An array of integer
 in TLS handshakes initiated by the VPN client."#)}
         #[serde(default = "Settings::default_post_quantum_group_enabled")]
         pub post_quantum_group_enabled: bool,
+        #{doc(r#"When enabled, all TCP connections to scannable ports are initially
+routed through a fake upstream to read the TLS SNI before making any real connection.
+This ensures site exclusions work correctly when a secure DNS resolver is configured
+outside of AdGuard VPN, or when the exclusion list contains wildcard entries (e.g. *.example.com)."#)}
+        #[serde(default = "Settings::default_exclusions_tcp_early_ack")]
+        pub exclusions_tcp_early_ack: bool,
+        #{doc(r#"When enabled, DNS-resolvable exclusions are pre-resolved in the background after the
+exclusion list is updated. This populates the suspects cache so that connections to
+excluded hosts are routed correctly without waiting for the first DNS response."#)}
+        #[serde(default = "Settings::default_exclusions_preresolve_enabled")]
+        pub exclusions_preresolve_enabled: bool,
+        #{doc(r#"Maximum number of exclusion domains to pre-resolve per cycle."#)}
+        #[serde(default = "Settings::default_exclusions_preresolve_max_queries")]
+        pub exclusions_preresolve_max_queries: u32,
         #{doc(r#"Domains and addresses which should be routed in a special manner.
 Supported syntax:
   * domain name
@@ -184,6 +198,24 @@ impl Settings {
         // VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED
         true
     }
+
+    pub fn default_exclusions_tcp_early_ack() -> bool {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_TCP_EARLY_ACK
+        false
+    }
+
+    pub fn default_exclusions_preresolve_enabled() -> bool {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_ENABLED
+        true
+    }
+
+    pub fn default_exclusions_preresolve_max_queries() -> u32 {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_MAX_QUERIES
+        50
+    }
 }
 
 impl Listener {
@@ -269,6 +301,15 @@ pub fn build(template: Option<&Settings>) -> Settings {
         post_quantum_group_enabled: opt_field!(template, post_quantum_group_enabled)
             .cloned()
             .unwrap_or_else(Settings::default_post_quantum_group_enabled),
+        exclusions_tcp_early_ack: opt_field!(template, exclusions_tcp_early_ack)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_tcp_early_ack),
+        exclusions_preresolve_enabled: opt_field!(template, exclusions_preresolve_enabled)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_preresolve_enabled),
+        exclusions_preresolve_max_queries: opt_field!(template, exclusions_preresolve_max_queries)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_preresolve_max_queries),
         exclusions: opt_field!(template, exclusions)
             .cloned()
             .unwrap_or_default(),
