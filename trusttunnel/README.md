@@ -104,7 +104,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `killswitch_enabled` | bool | `true` | Block traffic when VPN connection is lost |
 | `killswitch_allow_ports` | array[int] | `[]` | Local ports to allow inbound connections when kill switch is active |
 | `post_quantum_group_enabled` | bool | `true` | Enable post-quantum key exchange in TLS handshakes |
-| `exclusions_tcp_early_ack` | bool | `false` | Route all TCP connections to scannable ports through a fake upstream first to read TLS SNI before connecting to endpoint. Ensures wildcard exclusions and external-DNS setups work correctly |
+| `exclusions_tcp_early_ack_enabled` | bool | `false` | Route all TCP connections to scannable ports through a fake upstream first to read TLS SNI before connecting to endpoint. Ensures wildcard exclusions and external-DNS setups work correctly |
 | `exclusions_preresolve_enabled` | bool | `true` | Pre-resolve DNS-resolvable exclusions in background after exclusion list is updated, to populate the suspects cache |
 | `exclusions_preresolve_max_queries` | int | `50` | Max exclusion domains to pre-resolve per cycle |
 | `exclusions` | array[string] | `[]` | Domains/IPs to route specially based on `vpn_mode` |
@@ -176,7 +176,7 @@ vpn_mode = "general"
 killswitch_enabled = true
 killswitch_allow_ports = []
 post_quantum_group_enabled = true
-exclusions_tcp_early_ack = false
+exclusions_tcp_early_ack_enabled = false
 exclusions_preresolve_enabled = true
 exclusions_preresolve_max_queries = 50
 exclusions = []

@@ -105,7 +105,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(Lis
             .mode = m_config.mode,
             .exclusions = {m_config.exclusions.data(), (uint32_t) m_config.exclusions.size()},
             .killswitch_enabled = m_config.killswitch_enabled,
-            .exclusions_tcp_early_ack = m_config.exclusions_tcp_early_ack,
+            .exclusions_tcp_early_ack_enabled = m_config.exclusions_tcp_early_ack_enabled,
             .exclusions_preresolve_enabled = m_config.exclusions_preresolve_enabled,
             .exclusions_preresolve_max_queries = m_config.exclusions_preresolve_max_queries,
     };

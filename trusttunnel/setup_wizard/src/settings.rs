@@ -84,8 +84,8 @@ in TLS handshakes initiated by the VPN client."#)}
 routed through a fake upstream to read the TLS SNI before making any real connection.
 This ensures site exclusions work correctly when a secure DNS resolver is configured
 outside of AdGuard VPN, or when the exclusion list contains wildcard entries (e.g. *.example.com)."#)}
-        #[serde(default = "Settings::default_exclusions_tcp_early_ack")]
-        pub exclusions_tcp_early_ack: bool,
+        #[serde(default = "Settings::default_exclusions_tcp_early_ack_enabled")]
+        pub exclusions_tcp_early_ack_enabled: bool,
         #{doc(r#"When enabled, DNS-resolvable exclusions are pre-resolved in the background after the
 exclusion list is updated. This populates the suspects cache so that connections to
 excluded hosts are routed correctly without waiting for the first DNS response."#)}
@@ -199,9 +199,9 @@ impl Settings {
         true
     }
 
-    pub fn default_exclusions_tcp_early_ack() -> bool {
+    pub fn default_exclusions_tcp_early_ack_enabled() -> bool {
         // Keep in sync with common/src/default_settings.h
-        // VPN_DEFAULT_EXCLUSIONS_TCP_EARLY_ACK
+        // VPN_DEFAULT_EXCLUSIONS_TCP_EARLY_ACK_ENABLED
         false
     }
 
@@ -301,9 +301,9 @@ pub fn build(template: Option<&Settings>) -> Settings {
         post_quantum_group_enabled: opt_field!(template, post_quantum_group_enabled)
             .cloned()
             .unwrap_or_else(Settings::default_post_quantum_group_enabled),
-        exclusions_tcp_early_ack: opt_field!(template, exclusions_tcp_early_ack)
+        exclusions_tcp_early_ack_enabled: opt_field!(template, exclusions_tcp_early_ack_enabled)
             .cloned()
-            .unwrap_or_else(Settings::default_exclusions_tcp_early_ack),
+            .unwrap_or_else(Settings::default_exclusions_tcp_early_ack_enabled),
         exclusions_preresolve_enabled: opt_field!(template, exclusions_preresolve_enabled)
             .cloned()
             .unwrap_or_else(Settings::default_exclusions_preresolve_enabled),

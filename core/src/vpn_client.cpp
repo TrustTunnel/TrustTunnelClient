@@ -262,7 +262,7 @@ VpnError VpnClient::init(const VpnSettings *settings) {
 
     this->tunnel->udp_close_wait_hostname_cache = g_udp_close_wait_hostname_cache;
     this->kill_switch_on = settings->killswitch_enabled;
-    this->exclusions_tcp_early_ack = settings->exclusions_tcp_early_ack;
+    this->exclusions_tcp_early_ack_enabled = settings->exclusions_tcp_early_ack_enabled;
     this->exclusions_preresolve_enabled = settings->exclusions_preresolve_enabled;
     this->exclusions_preresolve_max_queries = settings->exclusions_preresolve_max_queries;
     update_exclusions(settings->mode, {settings->exclusions.data, settings->exclusions.size});

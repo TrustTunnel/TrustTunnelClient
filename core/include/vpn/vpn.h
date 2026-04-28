@@ -532,7 +532,7 @@ typedef struct {
      * This ensures exclusions work when the suspects cache is not populated, e.g. when secure DNS
      * is configured outside of AdGuard VPN or when the exclusion list contains wildcard entries.
      */
-    bool exclusions_tcp_early_ack;
+    bool exclusions_tcp_early_ack_enabled;
 
     /**
      * When enabled, DNS-resolvable exclusions are pre-resolved in the background after the exclusion

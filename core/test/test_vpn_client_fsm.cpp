@@ -7,6 +7,7 @@
 #include "socks_listener.h"
 #include "upstream_multiplexer.h"
 #include "vpn/internal/vpn_client.h"
+#include "vpn/utils.h"
 
 using namespace ag;
 
@@ -296,4 +297,31 @@ TEST_F(VpnClientTest, Error) {
     run_event_loop_once();
 
     ASSERT_EQ(last_raised_vpn_event, vpn_client::EVENT_ERROR);
+}
+
+// Check that init() overwrites the intentionally nonsensical default field values with
+// whatever is passed in VpnSettings, so that using uninitialized clients is caught early.
+TEST(VpnClientInitTest, SettingsAreAppliedOnInit) {
+    DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
+    DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
+    VpnClient vpn{vpn_client::Parameters{ev_loop.get()}};
+    vpn.parameters.network_manager = network_manager.get();
+    vpn.parameters.handler = {&vpn_handler, nullptr};
+    vpn.parameters.cert_verify_handler = {&cert_verify_handler, nullptr};
+
+    const VpnDefaultSettings *defaults = vpn_get_default_settings();
+    VpnSettings settings = {};
+    settings.exclusions_tcp_early_ack_enabled = defaults->exclusions_tcp_early_ack_enabled;
+    settings.exclusions_preresolve_enabled = defaults->exclusions_preresolve_enabled;
+    settings.exclusions_preresolve_max_queries = defaults->exclusions_preresolve_max_queries;
+
+    VpnError error = vpn.init(&settings);
+    ASSERT_EQ(error.code, VPN_EC_NOERROR) << error.text;
+
+    // After init() every field must reflect the VpnSettings values exactly.
+    EXPECT_EQ(vpn.exclusions_tcp_early_ack_enabled, defaults->exclusions_tcp_early_ack_enabled);
+    EXPECT_EQ(vpn.exclusions_preresolve_enabled, defaults->exclusions_preresolve_enabled);
+    EXPECT_EQ(vpn.exclusions_preresolve_max_queries, defaults->exclusions_preresolve_max_queries);
+
+    vpn.deinit();
 }

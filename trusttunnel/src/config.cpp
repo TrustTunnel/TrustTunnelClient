@@ -279,8 +279,8 @@ std::optional<TrustTunnelConfig> TrustTunnelConfig::build_config(const toml::tab
     }
     result.post_quantum_group_enabled =
             config["post_quantum_group_enabled"].value_or(default_settings->post_quantum_group_enabled);
-    result.exclusions_tcp_early_ack =
-            config["exclusions_tcp_early_ack"].value_or(default_settings->exclusions_tcp_early_ack);
+    result.exclusions_tcp_early_ack_enabled =
+            config["exclusions_tcp_early_ack_enabled"].value_or(default_settings->exclusions_tcp_early_ack_enabled);
     result.exclusions_preresolve_enabled =
             config["exclusions_preresolve_enabled"].value_or(default_settings->exclusions_preresolve_enabled);
     result.exclusions_preresolve_max_queries =

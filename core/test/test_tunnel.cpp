@@ -873,7 +873,7 @@ public:
 
     void SetUp() override {
         TunnelTest::SetUp();
-        vpn.exclusions_tcp_early_ack = true;
+        vpn.exclusions_tcp_early_ack_enabled = true;
         ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, "*.localhost"));
         tun.fake_upstream = std::make_shared<TestFakeUpstream>(std::move(tun.fake_upstream));
         ASSERT_TRUE(tun.fake_upstream->open_session());
