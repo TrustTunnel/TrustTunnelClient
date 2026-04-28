@@ -46,18 +46,6 @@ post_quantum_group_enabled = true
 #       * IPv6Address/mask
 exclusions = []
 
-# DNS upstreams.
-# If specified, the library intercepts and routes plain DNS queries
-# going through the endpoint to the DNS resolvers.
-# One of the following kinds:
-#   * 8.8.8.8:53 -- plain DNS
-#   * tcp://8.8.8.8:53 -- plain DNS over TCP
-#   * tls://1.1.1.1 -- DNS-over-TLS
-#   * https://dns.adguard.com/dns-query -- DNS-over-HTTPS
-#   * sdns://... -- DNS stamp (see https://dnscrypt.info/stamps-specifications)
-#   * quic://dns.adguard.com:8853 -- DNS-over-QUIC
-dns_upstreams = []
-
 # The set of endpoint connection settings
 [endpoint]
 # Endpoint host name, used for TLS session establishment
@@ -94,6 +82,19 @@ IID3ebZflKrRWfh/NHq3u+AFoadv
 upstream_protocol = "http2"
 # Is anti-DPI measures should be enabled
 anti_dpi = false
+# DNS upstreams.
+# If specified, the library intercepts and routes plain DNS queries
+# going through the endpoint to the DNS resolvers.
+# One of the following kinds:
+#   * 8.8.8.8:53 -- plain DNS
+#   * tcp://8.8.8.8:53 -- plain DNS over TCP
+#   * tls://1.1.1.1 -- DNS-over-TLS
+#   * https://dns.adguard.com/dns-query -- DNS-over-HTTPS
+#   * sdns://... -- DNS stamp (see https://dnscrypt.info/stamps-specifications)
+#   * quic://dns.adguard.com:8853 -- DNS-over-QUIC
+dns_upstreams = []
+# Human-readable server display name
+name = "Test Server"
 
 
 # Defines the way to listen to network traffic by the kind of the nested table.

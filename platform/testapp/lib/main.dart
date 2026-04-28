@@ -90,7 +90,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ensureNotificationsPermissions(context).then(
           (value) {
             if (value) {
-              _nativeVpnInterface.start("TestApp server", _config.text);
+              _nativeVpnInterface.start(_config.text);
               _buttonSwitch = true;
             }
           },
@@ -102,7 +102,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _reconnect() {
     setState(() {
       _nativeVpnInterface.stop();
-      _nativeVpnInterface.start("TestApp server", _config.text);
+      _nativeVpnInterface.start(_config.text);
     });
   }
 

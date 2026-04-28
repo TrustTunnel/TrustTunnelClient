@@ -450,6 +450,12 @@ typedef enum {
  * List of VPN client settings
  */
 typedef struct {
+    /**
+     * A function, together with its argument, that gets called to notify the application of an event.
+     *
+     * NOTE: VPN library functions should NOT be called from this function directly: doing so may lead to a deadlock.
+     * Schedule a call from another thread instead.
+     */
     VpnHandler handler;
     /** The VPN mode (see `VpnMode`) */
     VpnMode mode;
@@ -482,11 +488,15 @@ typedef struct {
      *              - recognized formats are:
      *                  - IPv4Address/mask
      *                  - IPv6Address/mask
+     *          - wildcard port: `*:port`
+     *              - matches any connection to the specified port regardless of the destination address
+     *                (e.g., `*:80` will match any connection to port 80)
      *
      *  examples:
      *      - example.org 1.2.3.4
      *      - 1.1.1.1:1 [feed::beef] www.example.com
      *      - [deaf::beef]:12 *.example.com
+     *      - *:80 *:443
      */
     ag::VpnStr exclusions;
     /**
@@ -667,7 +677,6 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets);
 
 /**
  * Complete connect request according to action.
- * MAY be called from `VPN_EVENT_CONNECT_REQUEST` handler without a context switch.
  * @param vpn VPN client
  * @param info connection info
  */

@@ -66,6 +66,7 @@ protected:
     VpnUpstreamConfig upstream{};
     int raised_events = 0;
     VpnError vpn_error{};
+    FsmState vpn_state = 0;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -119,23 +120,23 @@ protected:
         ASSERT_EQ(this->vpn_error.code, VPN_EC_NOERROR) << this->vpn_error.text;
 
         ASSERT_TRUE(wait_cond([this]() {
-            return this->vpn_error.code != VPN_EC_NOERROR || this->vpn->fsm.get_state() != VPN_SS_DISCONNECTED;
+            return this->vpn_error.code != VPN_EC_NOERROR || this->vpn_state != VPN_SS_DISCONNECTED;
         }));
-        ASSERT_EQ(this->vpn->fsm.get_state(), VPN_SS_CONNECTING);
+        ASSERT_EQ(this->vpn_state, VPN_SS_CONNECTING);
     }
 
     void check_connect_result(VpnErrorCode expected_error = VPN_EC_NOERROR) {
         ASSERT_TRUE(wait_cond([this, expected_error]() {
-            return (expected_error == VPN_EC_NOERROR) ? (this->vpn->fsm.get_state() != VPN_SS_CONNECTING)
+            return (expected_error == VPN_EC_NOERROR) ? (this->vpn_state != VPN_SS_CONNECTING)
                                                       : (this->vpn_error.code != VPN_EC_NOERROR);
         })) << "state: "
-            << (VpnSessionState) this->vpn->fsm.get_state() << '\n'
+            << (VpnSessionState) this->vpn_state << '\n'
             << "error: " << (VpnErrorCode) this->vpn_error.code << " " << this->vpn_error.text;
         ASSERT_EQ(this->vpn_error.code, expected_error) << this->vpn_error.text;
         if (expected_error == VPN_EC_NOERROR) {
-            ASSERT_EQ(this->vpn->fsm.get_state(), VPN_SS_CONNECTED);
+            ASSERT_EQ(this->vpn_state, VPN_SS_CONNECTED);
         } else {
-            ASSERT_EQ(this->vpn->fsm.get_state(), VPN_SS_DISCONNECTED);
+            ASSERT_EQ(this->vpn_state, VPN_SS_DISCONNECTED);
         }
     }
 
@@ -214,7 +215,7 @@ protected:
     bool wait_state(VpnSessionState s, std::optional<Secs> timeout = std::nullopt) {
         return wait_cond(
                 [this, s]() {
-                    return this->vpn->fsm.get_state() == s;
+                    return this->vpn_state == s;
                 },
                 timeout);
     }
@@ -224,6 +225,7 @@ static void vpn_handler(void *arg, VpnEvent what, void *data) {
     VpnManagerTest *test = (VpnManagerTest *) arg;
     std::unique_lock l(test->guard);
     test->raised_events |= 1 << what;
+    test->vpn_state = test->vpn->fsm.get_state();
     test->cond_var.notify_all();
 
     switch (what) {

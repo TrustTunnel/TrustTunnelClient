@@ -157,6 +157,7 @@ The `exclusions` array supports the following formats:
 - **IPv4 address**: `192.168.1.1` or `192.168.1.1:443` (port optional)
 - **IPv6 address**: `[::1]` or `[::1]:443` or `2001:db8::1`
 - **CIDR range**: `192.168.0.0/16` or `2001:db8::/32`
+- **Wildcard port**: `*:80` — matches any connection to the specified port regardless of destination address
 
 ### DNS Upstreams Syntax
 

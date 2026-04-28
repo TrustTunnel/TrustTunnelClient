@@ -658,17 +658,6 @@ int socks5_listener_send_data(Socks5Listener *listener, uint64_t id, const uint8
     return r;
 }
 
-bool socks5_listener_get_connection_proto(const Socks5Listener *listener, uint64_t id, int &proto) {
-    khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
-    if (i == kh_end(listener->connections)) {
-        return false;
-    }
-
-    proto = kh_value(listener->connections, i)->proto;
-
-    return true;
-}
-
 void socks5_listener_turn_read(const Socks5Listener *listener, uint64_t id, bool on) {
     khiter_t i = kh_get(connections_by_id, listener->connections.get(), id);
     if (i != kh_end(listener->connections)) {

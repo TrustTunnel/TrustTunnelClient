@@ -198,10 +198,7 @@ void SocksListener::close_connection(uint64_t id, bool graceful, bool async) {
 ssize_t SocksListener::send(uint64_t id, const uint8_t *data, size_t length) {
     int r = socks5_listener_send_data(m_socks5_listener, id, data, length);
     if (r == 0) {
-        int proto = 0;
-        if (socks5_listener_get_connection_proto(m_socks5_listener, id, proto) && proto != IPPROTO_TCP) {
-            r = (int) length;
-        }
+        r = (int) length;
     }
     return r;
 }

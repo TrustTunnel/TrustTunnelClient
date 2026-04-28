@@ -104,6 +104,10 @@ static const MatchTestParam ADDRESS_MATCH_TEST_SAMPLES[] = {
         {VPN_MODE_GENERAL, "2000::/64", "2000::1"},
         {VPN_MODE_GENERAL, "2000::/64", "[2000::1]"},
         {VPN_MODE_GENERAL, "2000::/64", "[2000::1]:123"},
+
+        {VPN_MODE_GENERAL, "*:8080", "1.2.3.4:8080"},
+        {VPN_MODE_GENERAL, "*:8080", "[dead::beef]:8080"},
+        {VPN_MODE_GENERAL, "*:443 *:80", "5.6.7.8:443"},
 };
 INSTANTIATE_TEST_SUITE_P(Simple, AddressMatch, testing::ValuesIn(ADDRESS_MATCH_TEST_SAMPLES));
 
@@ -130,6 +134,9 @@ static const MatchTestParam ADDRESS_NOMATCH_TEST_SAMPLES[] = {
         {VPN_MODE_GENERAL, "2000::/64", "2001::1"},
         {VPN_MODE_GENERAL, "2000::/64", "[2001::1]"},
         {VPN_MODE_GENERAL, "2000::/64", "[2001::1]:4433"},
+
+        {VPN_MODE_GENERAL, "*:8080", "1.2.3.4:9090"},
+        {VPN_MODE_GENERAL, "*:8080", "[dead::beef]:443"},
 };
 INSTANTIATE_TEST_SUITE_P(Simple, AddressNoMatch, testing::ValuesIn(ADDRESS_NOMATCH_TEST_SAMPLES));
 
@@ -206,4 +213,11 @@ TEST(DomainFilterTest, ValidateEntry) {
     ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(" example.org"));
     ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("."));
     ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry(".."));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("*:0"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("*:65536"));
+    ASSERT_EQ(DFVS_MALFORMED, DomainFilter::validate_entry("*:abc"));
+
+    ASSERT_EQ(DFVS_OK_PORT, DomainFilter::validate_entry("*:80"));
+    ASSERT_EQ(DFVS_OK_PORT, DomainFilter::validate_entry("*:443"));
+    ASSERT_EQ(DFVS_OK_PORT, DomainFilter::validate_entry("*:65535"));
 }
