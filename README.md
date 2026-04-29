@@ -34,6 +34,8 @@ If you are looking for a TrustTunnel CLI Client, please refer to the
 
 ## Features
 
+- Some amazing feature.
+
 - **TrustTunnel VPN Protocol**: The library implements the TrustTunnel VPN
   protocol, which is compatible with HTTP/1.1, HTTP/2, and QUIC. By mimicking
   regular network traffic, it becomes more difficult for government regulators to
