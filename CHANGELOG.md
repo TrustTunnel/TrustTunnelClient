@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 1.0.62
+
 - [Feature] Improve control over TUN device configuration.
     - Add `device_name` field that controls the TUN interface name on Linux, the requested `utun<N>` unit on macOS,
       and the Wintun adapter name on Windows.
