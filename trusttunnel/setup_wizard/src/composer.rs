@@ -135,6 +135,8 @@ fn fill_tun_listener_table(table: &mut Table, settings: &Settings) {
     table["excluded_routes"] = value(Array::from_iter(settings.excluded_routes.iter()));
     table["mtu_size"] = value(settings.mtu_size as i64);
     table["change_system_dns"] = value(settings.change_system_dns);
+    table["device_name"] = value(&settings.device_name);
+    table["use_existing"] = value(settings.use_existing);
 }
 
 #[cfg(test)]
@@ -170,6 +172,8 @@ mod tests {
                 excluded_routes: vec![],
                 mtu_size: 1280,
                 change_system_dns: true,
+                device_name: "".into(),
+                use_existing: false,
             }),
         }
     }

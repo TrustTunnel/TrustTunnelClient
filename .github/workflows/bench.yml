@@ -1,0 +1,103 @@
+# Workflow for the TrustTunnelClient repo.
+# Triggers endpoint benchmarks on /bench PR comments or manual dispatch.
+#
+# Prerequisites:
+#   - A repository secret ENDPOINT_BENCH_TOKEN containing a PAT or
+#     GitHub App token with 'repo' scope on the endpoint repo
+#     (TrustTunnel/TrustTunnel).
+name: Trigger Endpoint Benchmarks
+
+on:
+  issue_comment:
+    types: [created]
+
+  workflow_dispatch:
+    inputs:
+      endpoint_repo:
+        description: "Endpoint repo (owner/name)"
+        required: false
+        default: "TrustTunnel/TrustTunnel"
+      endpoint_ref:
+        description: "Endpoint branch/ref"
+        required: false
+        default: "master"
+
+jobs:
+  dispatch:
+    name: Dispatch Bench to Endpoint Repo
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/bench') &&
+        (github.event.comment.author_association == 'MEMBER' ||
+         github.event.comment.author_association == 'OWNER' ||
+         github.event.comment.author_association == 'COLLABORATOR')
+      )
+    steps:
+      - name: React to comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+
+      - name: Resolve inputs
+        id: inputs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let clientRef, clientRepo, prNumber, endpointRepo, endpointRef;
+
+            if (context.eventName === 'workflow_dispatch') {
+              clientRef = context.ref.replace('refs/heads/', '');
+              clientRepo = `${context.repo.owner}/${context.repo.repo}`;
+              prNumber = '';
+              endpointRepo = '${{ github.event.inputs.endpoint_repo }}' || 'TrustTunnel/TrustTunnel';
+              endpointRef = '${{ github.event.inputs.endpoint_ref }}' || 'master';
+            } else {
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+              });
+              clientRef = pr.data.head.ref;
+              clientRepo = pr.data.head.repo.full_name;
+              prNumber = String(context.issue.number);
+              endpointRepo = 'TrustTunnel/TrustTunnel';
+              endpointRef = 'master';
+            }
+
+            core.setOutput('client_ref', clientRef);
+            core.setOutput('client_repo', clientRepo);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('endpoint_repo', endpointRepo);
+            core.setOutput('endpoint_ref', endpointRef);
+
+      - name: Dispatch to endpoint repo
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ENDPOINT_BENCH_TOKEN }}
+          script: |
+            const [owner, repo] = '${{ steps.inputs.outputs.endpoint_repo }}'.split('/');
+            await github.rest.repos.createDispatchEvent({
+              owner,
+              repo,
+              event_type: 'client-bench',
+              client_payload: {
+                client_repo: '${{ steps.inputs.outputs.client_repo }}',
+                client_ref: '${{ steps.inputs.outputs.client_ref }}',
+                pr_number: '${{ steps.inputs.outputs.pr_number }}',
+                pr_repo: `${context.repo.owner}/${context.repo.repo}`,
+                endpoint_repo: '${{ steps.inputs.outputs.endpoint_repo }}',
+                endpoint_ref: '${{ steps.inputs.outputs.endpoint_ref }}'
+              }
+            });

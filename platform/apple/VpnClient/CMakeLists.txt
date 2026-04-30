@@ -49,7 +49,7 @@ add_library(${PROJECT_NAME} SHARED
 set_target_properties(${PROJECT_NAME} PROPERTIES
     FRAMEWORK TRUE
     FRAMEWORK_VERSION A
-    VERSION 1.0.56
+    VERSION 1.0.62
     PUBLIC_HEADER "VpnClient.h;DeepLink.h"
     MACOSX_FRAMEWORK_INFO_PLIST "${INFOPLIST_FILE}"
     MACOSX_FRAMEWORK_IDENTIFIER com.adguard.TrustTunnel.VpnClientFramework

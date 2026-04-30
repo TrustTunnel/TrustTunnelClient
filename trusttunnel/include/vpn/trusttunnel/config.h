@@ -41,12 +41,13 @@ struct TrustTunnelConfig {
     };
 
     struct TunListener {
-        std::string adapter_name;
+        std::string device_name;
         std::vector<std::string> included_routes;
         std::vector<std::string> excluded_routes;
         uint32_t mtu_size = 0;
         std::string bound_if;
         bool change_system_dns = true;
+        bool use_existing = false;
         std::optional<std::string> netns;
     };
 

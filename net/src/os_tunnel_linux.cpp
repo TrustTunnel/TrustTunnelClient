@@ -2,6 +2,7 @@
 #include "net/os_tunnel.h"
 #include "vpn/utils.h"
 
+#include <cstring>
 #include <net/if.h> // should be included before linux/if.h
 
 #include <linux/if.h>
@@ -70,14 +71,31 @@ static ag::Result<std::string, ag::tunnel_utils::ExecError> sys_cmd_with_output_
 ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
     m_netns = netns.value_or("");
+    bool managed_routing = m_settings->included_routes.size > 0;
+    infolog(logger, "TUN mode: {}{}{}", m_settings->use_existing ? "attach" : "create",
+            (m_settings->device_name && m_settings->device_name[0] != '\0')
+                    ? AG_FMT(" name={}", m_settings->device_name)
+                    : "",
+            managed_routing ? "" : " (routes unmanaged)");
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }
     setup_if();
-    m_sport_supported = check_sport_rule_support();
-    teardown_routes(TABLE_ID); // Remove stale rules from previous sessions
-    if (!setup_routes(TABLE_ID)) {
-        return {-1, "Unable to setup routes for linuxtun session"};
+
+    if (managed_routing) {
+        m_sport_supported = check_sport_rule_support();
+        if (m_settings->use_existing && !m_sport_supported) {
+            errlog(logger,
+                    "Managed routing for an existing TUN device requires sport rule support; "
+                    "set included_routes = [] to leave routing external");
+            return {-1, "Managed routing for an existing TUN device requires sport rule support"};
+        }
+        teardown_routes(TABLE_ID); // Remove stale rules from previous sessions
+        if (!setup_routes(TABLE_ID)) {
+            return {-1, "Unable to setup routes for linuxtun session"};
+        }
+    } else {
+        infolog(logger, "Empty included_routes: skipping route and ip rule management");
     }
     setup_dns();
 
@@ -86,7 +104,9 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
 
 void ag::VpnLinuxTunnel::deinit() {
     close(m_tun_fd);
-    teardown_routes(TABLE_ID);
+    if (m_settings->included_routes.size > 0) {
+        teardown_routes(TABLE_ID);
+    }
     m_system_dns_setup_success = false;
 }
 
@@ -103,8 +123,26 @@ bool ag::VpnLinuxTunnel::get_system_dns_setup_success() const {
 }
 
 evutil_socket_t ag::VpnLinuxTunnel::tun_open() {
-    evutil_socket_t fd = open("/dev/net/tun", O_RDWR);
+    const char *requested_name = m_settings->device_name;
+    const bool has_name = (requested_name != nullptr && requested_name[0] != '\0');
+    const bool use_existing = m_settings->use_existing;
 
+    if (use_existing && !has_name) {
+        errlog(logger, "use_existing requires device_name");
+        return -1;
+    }
+
+    if (use_existing && if_nametoindex(requested_name) == 0) {
+        errlog(logger, "Device {} does not exist (use_existing = true)", requested_name);
+        return -1;
+    }
+
+    if (!use_existing && has_name && if_nametoindex(requested_name) != 0) {
+        errlog(logger, "Device {} already exists; refusing to create", requested_name);
+        return -1;
+    }
+
+    evutil_socket_t fd = open("/dev/net/tun", O_RDWR);
     if (fd == -1) {
         errlog(logger, "Failed to open /dev/net/tun: {}", strerror(errno));
         return -1;
@@ -112,6 +150,10 @@ evutil_socket_t ag::VpnLinuxTunnel::tun_open() {
 
     struct ifreq ifr = {};
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+    if (has_name) {
+        // Copy bounded by IFNAMSIZ - 1; kernel enforces max 15 chars.
+        std::strncpy(ifr.ifr_name, requested_name, IFNAMSIZ - 1);
+    }
 
     if (ioctl(fd, TUNSETIFF, &ifr) == -1) {
         evutil_closesocket(fd);
@@ -122,7 +164,8 @@ evutil_socket_t ag::VpnLinuxTunnel::tun_open() {
     m_tun_name = ifr.ifr_name;
     m_if_index = if_nametoindex(ifr.ifr_name);
 
-    infolog(logger, "Device {} opened", ifr.ifr_name);
+    infolog(logger, "Device {} {} (use_existing = {})", ifr.ifr_name, use_existing ? "attached" : "opened",
+            use_existing);
     return fd;
 }
 
@@ -137,23 +180,30 @@ void ag::VpnLinuxTunnel::setup_if() {
         infolog(logger, "Moved tunnel interface {} to network namespace {}", m_tun_name, m_netns);
     }
 
-    // Set the interface address (in netns if specified)
-    if (!sys_cmd_netns(m_netns,
-                AG_FMT("ip addr add {} dev {}",
-                        tunnel_utils::get_address_for_index(m_settings->ipv4_address, m_if_index).to_string(),
-                        m_tun_name))) {
-        errlog(logger, "Failed to set IPv4 address");
-        return;
-    }
+    if (!m_settings->use_existing) {
+        // Set the interface address (in netns if specified)
+        if (!sys_cmd_netns(m_netns,
+                    AG_FMT("ip addr add {} dev {}",
+                            tunnel_utils::get_address_for_index(m_settings->ipv4_address, m_if_index).to_string(),
+                            m_tun_name))) {
+            errlog(logger, "Failed to set IPv4 address");
+            return;
+        }
 
-    // Try to set IPv6 address (in netns if specified)
-    auto result = sys_cmd_with_output_netns(m_netns,
-            AG_FMT("ip -6 addr add {} dev {}",
-                    tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(), m_tun_name));
-    if (result.has_error()) {
-        warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
+        auto result = sys_cmd_with_output_netns(m_netns,
+                AG_FMT("ip -6 addr add {} dev {}",
+                        tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(),
+                        m_tun_name));
+        if (result.has_error()) {
+            warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
+        } else {
+            m_ipv6_available = true;
+        }
     } else {
-        m_ipv6_available = true;
+        // In attach mode the operator owns the interface addresses; just
+        // detect IPv6 availability from the existing device state.
+        auto result = sys_cmd_with_output_netns(m_netns, AG_FMT("ip -6 addr show dev {}", m_tun_name));
+        m_ipv6_available = result.has_value() && !result.value().empty();
     }
 
     // Bring the interface up (in netns if specified)
@@ -298,6 +348,11 @@ void ag::VpnLinuxTunnel::setup_dns() {
 }
 
 void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
+    // Flush all routes from the project-owned table (stale routes may remain
+    // when the TUN device is externally created and survives client shutdown).
+    sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip route flush table {}", table_id));
+    sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip -6 route flush table {}", table_id));
+
     // Try to remove rules regardless of m_sport_supported (may exist from previous session)
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30801 lookup {}", table_id));
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip rule del prio 30800 sport {} lookup main", PRIVILEGED_PORTS));

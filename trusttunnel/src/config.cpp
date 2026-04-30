@@ -195,11 +195,20 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
     return std::nullopt;
 #endif
 
+    bool use_existing = (*tun_config)["use_existing"].value_or<bool>(false);
+    std::string device_name = (*tun_config)["device_name"].value_or<std::string>({});
+
+    if (use_existing && device_name.empty()) {
+        errlog(g_logger, "listener.tun: use_existing = true requires device_name to be set");
+        return std::nullopt;
+    }
+
     TrustTunnelConfig::TunListener tun = {
-            .adapter_name = (*tun_config)["adapter_name"].value_or<std::string>({}),
+            .device_name = std::move(device_name),
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
             .bound_if = std::move(bound_if),
             .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
+            .use_existing = use_existing,
             .netns = (*tun_config)["netns"].value<std::string>(),
     };
 
