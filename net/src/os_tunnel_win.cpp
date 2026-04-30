@@ -213,7 +213,7 @@ ag::VpnError ag::VpnWinTunnel::init(
     if (!wintun_init_success) {
         return {-1, "Unable to init wintun library"};
     }
-    m_wintun_adapter = create_wintun_adapter(win_settings->adapter_name, win_settings->tunnel_type);
+    m_wintun_adapter = create_wintun_adapter(settings->device_name, win_settings->tunnel_type);
     if (m_wintun_adapter == nullptr) {
         return {-1, "Unable to create wintun adapter"};
     }

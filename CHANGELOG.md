@@ -1,5 +1,14 @@
 # CHANGELOG
 
+- [Feature] Improve control over TUN device configuration.
+    - Add `device_name` field that controls the TUN interface name on Linux, the requested `utun<N>` unit on macOS,
+      and the Wintun adapter name on Windows.
+    - Add `use_existing` boolean field that allows opening an existing TUN device specified by `device_name`. Linux only.
+    - Correctly handle `included_routes = []` and skip route/rule setup and cleanup in this case
+      (except DNS routes controlled by `change_system_dns`).
+    - Remove the Windows-specific `adapter_name` configuration field; Windows adapter naming is now configured via
+      `device_name`.
+
 ## 1.0.56
 
 - [Feature] Add wildcard port syntax (`*:port`) to `VpnSettings::exclusions`.

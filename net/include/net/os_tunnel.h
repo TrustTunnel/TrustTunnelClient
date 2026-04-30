@@ -46,12 +46,19 @@ struct VpnOsTunnelSettings {
     int mtu;
     /** DNS servers addresses */
     VpnAddressArray dns_servers;
+    /** TUN / Wintun device name.
+     * On Linux: TUN interface name (empty/NULL = kernel-assigned).
+     * On macOS: request a specific `utun<N>` unit (empty/NULL = kernel-assigned).
+     * On Windows: Wintun adapter name, should be non-empty. */
+    const char *device_name;
+    /** If true, open the pre-existing device named `device_name`
+     *  instead of creating a new one. Requires `device_name` to be
+     *  non-empty. Linux only. */
+    bool use_existing;
 };
 
 #ifdef _WIN32
 struct VpnWinTunnelSettings {
-    /** Wintun adapter name. Displayed as title of connection in list of connections */
-    const char *adapter_name;
     /** Wintun adapter tunnel type. Displayed as "smth Tunnel" connection type in list of connections */
     const char *tunnel_type;
     /** Library module to handle tunnel */
