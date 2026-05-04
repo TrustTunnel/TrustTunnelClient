@@ -1,11 +1,14 @@
+#include "vpn/vpn.h"
 #include "vpn/vpn_easy.h"
 
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 
-static void state_changed_cb(void *, const char *new_state_description) {
-    fprintf(stderr, "VPN state changed: %s\n", new_state_description);
+#include <magic_enum/magic_enum.hpp>
+
+static void state_changed_cb(void *, int state) {
+    fprintf(stderr, "VPN state changed: (%d) %s\n", state, magic_enum::enum_name((ag::VpnSessionState) state).data());
 }
 
 int main() {
@@ -18,12 +21,12 @@ int main() {
     }
     in.close();
 
-    vpn_easy_t *vpn = vpn_easy_start(config.str().c_str(), state_changed_cb, nullptr);
+    vpn_easy_t *vpn = vpn_easy_start_ex(config.str().c_str(), state_changed_cb, nullptr, nullptr, nullptr);
 
     fprintf(stderr, "Type 's' to stop");
     while (getchar() != 's') {
     }
 
-    vpn_easy_stop(vpn);
+    vpn_easy_stop_ex(vpn);
     return 0;
 }
