@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 1.0.63
+
 - [Feature] Add `tcp_recv_buf_size` and `tcp_send_buf_size` options to `[listener.tun]` section.
             These allow tuning TCP window and send buffer sizes per connection.
             Default (0) uses optimized compile-time values (256 KB each). Adjust only for
