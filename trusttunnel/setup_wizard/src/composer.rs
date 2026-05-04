@@ -154,7 +154,7 @@ mod tests {
             post_quantum_group_enabled: true,
             exclusions_tcp_early_ack_enabled: false,
             exclusions_preresolve_enabled: true,
-            exclusions_preresolve_max_queries: 50,
+            exclusions_preresolve_max_queries: 0,
             exclusions: vec![],
             endpoint: Endpoint {
                 hostname: "vpn.example.com".into(),

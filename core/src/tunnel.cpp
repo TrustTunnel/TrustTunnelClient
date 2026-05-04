@@ -1471,9 +1471,13 @@ void Tunnel::on_exclusions_updated() {
 
     if (this->vpn->endpoint_upstream != nullptr && this->vpn->exclusions_preresolve_enabled) {
         std::vector<std::string_view> names = this->vpn->domain_filter.get_resolvable_exclusions();
+        UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> default_settings{vpn_get_default_settings()};
+        uint32_t max_queries = this->vpn->exclusions_preresolve_max_queries == 0
+                ? default_settings->exclusions_preresolve_max_queries
+                : this->vpn->exclusions_preresolve_max_queries;
         uint32_t resolved = 0;
         for (std::string_view name : names) {
-            if (resolved >= this->vpn->exclusions_preresolve_max_queries) {
+            if (resolved >= max_queries) {
                 break;
             }
             if (!this->dns_resolver->resolve(VDRQ_BACKGROUND, std::string(name)).has_value()) {
@@ -1482,8 +1486,9 @@ void Tunnel::on_exclusions_updated() {
                 ++resolved;
             }
         }
-    } else if (this->vpn->endpoint_upstream == nullptr) {
-        log_tun(this, dbg, "Skipping exclusions resolve as there's no connection to endpoint");
+    } else {
+        log_tun(this, dbg, "Skipping exclusions resolve: {}",
+            this->vpn->exclusions_preresolve_enabled ? "disabled" : "not connected to endpoint");
     }
 
     using namespace std::chrono;

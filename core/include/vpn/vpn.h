@@ -543,6 +543,7 @@ typedef struct {
 
     /**
      * Maximum number of exclusion domains to pre-resolve per cycle.
+     * 0 means use the default value (50).
      */
     uint32_t exclusions_preresolve_max_queries;
 

@@ -106,7 +106,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `post_quantum_group_enabled` | bool | `true` | Enable post-quantum key exchange in TLS handshakes |
 | `exclusions_tcp_early_ack_enabled` | bool | `false` | Route all TCP connections to scannable ports through a fake upstream first to read TLS SNI before connecting to endpoint. Ensures wildcard exclusions and external-DNS setups work correctly |
 | `exclusions_preresolve_enabled` | bool | `true` | Pre-resolve DNS-resolvable exclusions in background after exclusion list is updated, to populate the suspects cache |
-| `exclusions_preresolve_max_queries` | int | `50` | Max exclusion domains to pre-resolve per cycle |
+| `exclusions_preresolve_max_queries` | int | `50` | Max exclusion domains to pre-resolve per cycle. `0` uses the default value |
 | `exclusions` | array[string] | `[]` | Domains/IPs to route specially based on `vpn_mode` |
 | `dns_upstreams` | array[string] | `[]` | **Legacy.** Kept only for backward compatibility with old configs; prefer `[endpoint].dns_upstreams` instead |
 
