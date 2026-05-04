@@ -131,6 +131,8 @@ The configuration file uses TOML format. Below are all available settings.
 | `included_routes` | array[string] | `["0.0.0.0/0", "2000::/3"]` | Routes in CIDR notation to set to the virtual interface |
 | `excluded_routes` | array[string] | `["0.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"]` | Routes in CIDR notation to exclude from VPN routing |
 | `mtu_size` | int | `1280` | MTU size on the virtual interface |
+| `tcp_recv_buf_size` | int | `0` | TCP receive window size in bytes. 0 = optimized default (256 KB). Adjust only for constrained environments |
+| `tcp_send_buf_size` | int | `0` | TCP send buffer size in bytes. 0 = optimized default (256 KB). Adjust only for constrained environments |
 | `change_system_dns` | bool | `true` | Allow changing system DNS servers |
 | `device_name` | string | `""` | On Linux, the TUN interface name (empty = kernel-assigned). On Windows, the Wintun adapter name (empty = auto-generated from hostname). On macOS, request a specific `utun<N>` unit (empty = kernel-assigned). |
 | `use_existing` | bool | `false` | Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name`. Linux only. |
@@ -203,6 +205,10 @@ bound_if = ""
 included_routes = ["0.0.0.0/0", "2000::/3"]
 excluded_routes = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 mtu_size = 1280
+# Uncomment to tune TCP window size (bytes). Default 0 uses optimized values (256 KB).
+# It is recommended to leave defaults unless you have specific requirements.
+# tcp_recv_buf_size = 0
+# tcp_send_buf_size = 0
 ```
 
 ---

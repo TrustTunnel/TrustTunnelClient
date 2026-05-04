@@ -1,5 +1,12 @@
 # CHANGELOG
 
+- [Feature] Add `tcp_recv_buf_size` and `tcp_send_buf_size` options to `[listener.tun]` section.
+            These allow tuning TCP window and send buffer sizes per connection.
+            Default (0) uses optimized compile-time values (256 KB each). Adjust only for
+            constrained environments or specific network conditions.
+- [Feature] Add periodic heap trimming to reduce RSS after traffic bursts.
+            Frees fragmented heap pages back to the OS, preventing memory growth over long sessions.
+
 ## 1.0.62
 
 - [Feature] Improve control over TUN device configuration.

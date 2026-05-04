@@ -152,6 +152,12 @@ On Windows, an interface index as shown by `route print`, written as a string, m
         #{doc("MTU size on the interface")}
         #[serde(default = "TunListener::default_mtu_size")]
         pub mtu_size: usize,
+        #{doc("TCP receive window size in bytes. 0 uses optimized default (256 KB). Adjust only for constrained environments")}
+        #[serde(default = "TunListener::default_tcp_recv_buf_size")]
+        pub tcp_recv_buf_size: usize,
+        #{doc("TCP send buffer size in bytes. 0 uses optimized default (256 KB). Adjust only for constrained environments")}
+        #[serde(default = "TunListener::default_tcp_send_buf_size")]
+        pub tcp_send_buf_size: usize,
         #{doc("Allow changing system DNS servers")}
         #[serde(default = "TunListener::default_change_system_dns")]
         pub change_system_dns: bool,
@@ -240,6 +246,14 @@ impl TunListener {
     }
     pub fn default_mtu_size() -> usize {
         1280
+    }
+
+    pub fn default_tcp_recv_buf_size() -> usize {
+        0
+    }
+
+    pub fn default_tcp_send_buf_size() -> usize {
+        0
     }
 
     pub fn default_change_system_dns() -> bool {
@@ -613,6 +627,12 @@ fn build_listener(template: Option<&Listener>) -> Listener {
                 mtu_size: opt_field!(template, mtu_size)
                     .cloned()
                     .unwrap_or_else(TunListener::default_mtu_size),
+                tcp_recv_buf_size: opt_field!(template, tcp_recv_buf_size)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_tcp_recv_buf_size),
+                tcp_send_buf_size: opt_field!(template, tcp_send_buf_size)
+                    .cloned()
+                    .unwrap_or_else(TunListener::default_tcp_send_buf_size),
                 change_system_dns: ask_for_agreement_with_default(
                     &format!("{}\n", TunListener::doc_change_system_dns()),
                     opt_field!(template, change_system_dns)

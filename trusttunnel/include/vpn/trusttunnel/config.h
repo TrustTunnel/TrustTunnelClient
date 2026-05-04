@@ -45,6 +45,8 @@ struct TrustTunnelConfig {
         std::vector<std::string> included_routes;
         std::vector<std::string> excluded_routes;
         uint32_t mtu_size = 0;
+        uint32_t tcp_recv_buf_size = 0; ///< TCP receive window size in bytes (0 = compile-time default)
+        uint32_t tcp_send_buf_size = 0; ///< TCP send buffer size in bytes (0 = compile-time default)
         std::string bound_if;
         bool change_system_dns = true;
         bool use_existing = false;
