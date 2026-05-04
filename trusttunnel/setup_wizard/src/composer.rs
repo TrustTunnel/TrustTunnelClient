@@ -171,6 +171,8 @@ mod tests {
                 included_routes: vec!["0.0.0.0/0".into()],
                 excluded_routes: vec![],
                 mtu_size: 1280,
+                tcp_recv_buf_size: 0,
+                tcp_send_buf_size: 0,
                 change_system_dns: true,
                 device_name: "".into(),
                 use_existing: false,

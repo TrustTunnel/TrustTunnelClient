@@ -223,6 +223,15 @@ static err_t tcp_raw_accept(void *arg, struct tcp_pcb *newpcb, err_t err) {
     tcp_setprio(newpcb, TCP_PRIO_MIN);
     tcp_nagle_disable(newpcb);
 
+    // Apply runtime TCP buffer size overrides (for constrained devices like routers)
+    if (ctx->parameters.tcp_recv_buf_size > 0) {
+        newpcb->rcv_wnd_max = ctx->parameters.tcp_recv_buf_size;
+        newpcb->rcv_wnd = newpcb->rcv_ann_wnd = ctx->parameters.tcp_recv_buf_size;
+    }
+    if (ctx->parameters.tcp_send_buf_size > 0) {
+        newpcb->snd_buf = ctx->parameters.tcp_send_buf_size;
+    }
+
     static_assert(std::is_trivial_v<ConnCtx>);
     auto *conn_ctx = (ConnCtx *) malloc(sizeof(ConnCtx));
     conn_ctx->tcpip = ctx;

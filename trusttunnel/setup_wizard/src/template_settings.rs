@@ -159,6 +159,10 @@ excluded_routes = [{}]
 {}
 mtu_size = {}
 {}
+# tcp_recv_buf_size = 0
+{}
+# tcp_send_buf_size = 0
+{}
 change_system_dns = {}
 {}
 device_name = "{}"
@@ -181,6 +185,8 @@ use_existing = {}
             .join(OS_LINE_ENDING),
         TunListener::doc_mtu_size().to_toml_comment(),
         TunListener::default_mtu_size(),
+        TunListener::doc_tcp_recv_buf_size().to_toml_comment(),
+        TunListener::doc_tcp_send_buf_size().to_toml_comment(),
         TunListener::doc_change_system_dns().to_toml_comment(),
         TunListener::default_change_system_dns(),
         TunListener::doc_device_name().to_toml_comment(),

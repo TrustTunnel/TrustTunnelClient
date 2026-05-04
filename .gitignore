@@ -8,6 +8,8 @@ pyvenv.cfg
 .clangd/
 /.cache/
 
+target/
+
 # Conan and conan-cmake create some files in-tree by design
 conan.lock
 conanbuildinfo.*

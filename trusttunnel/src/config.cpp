@@ -206,6 +206,8 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
     TrustTunnelConfig::TunListener tun = {
             .device_name = std::move(device_name),
             .mtu_size = (*tun_config)["mtu_size"].value<uint32_t>().value_or(DEFAULT_MTU),
+            .tcp_recv_buf_size = (*tun_config)["tcp_recv_buf_size"].value<uint32_t>().value_or(0),
+            .tcp_send_buf_size = (*tun_config)["tcp_send_buf_size"].value<uint32_t>().value_or(0),
             .bound_if = std::move(bound_if),
             .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
             .use_existing = use_existing,

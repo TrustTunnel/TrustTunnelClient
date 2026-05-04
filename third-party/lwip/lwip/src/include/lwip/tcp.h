@@ -137,12 +137,14 @@ typedef err_t (*tcp_connected_fn)(void *arg, struct tcp_pcb *tpcb, err_t err);
 #define RCV_WND_SCALE(pcb, wnd) (((wnd) >> (pcb)->rcv_scale))
 #define SND_WND_SCALE(pcb, wnd) (((wnd) << (pcb)->snd_scale))
 #define TCPWND16(x)             ((u16_t)LWIP_MIN((x), 0xFFFF))
-#define TCP_WND_MAX(pcb)        ((tcpwnd_size_t)(((pcb)->flags & TF_WND_SCALE) ? TCP_WND : TCPWND16(TCP_WND)))
+#define TCP_WND_MAX(pcb)        ((tcpwnd_size_t)(((pcb)->flags & TF_WND_SCALE) ? \
+                                 (((pcb)->rcv_wnd_max > 0) ? (pcb)->rcv_wnd_max : TCP_WND) : \
+                                 TCPWND16(TCP_WND)))
 #else
 #define RCV_WND_SCALE(pcb, wnd) (wnd)
 #define SND_WND_SCALE(pcb, wnd) (wnd)
 #define TCPWND16(x)             (x)
-#define TCP_WND_MAX(pcb)        TCP_WND
+#define TCP_WND_MAX(pcb)        ((tcpwnd_size_t)(((pcb)->rcv_wnd_max > 0) ? (pcb)->rcv_wnd_max : TCP_WND))
 #endif
 /* Increments a tcpwnd_size_t and holds at max value rather than rollover */
 #define TCP_WND_INC(wnd, inc)   do { \
@@ -283,6 +285,7 @@ struct tcp_pcb {
   u32_t rcv_nxt;   /* next seqno expected */
   tcpwnd_size_t rcv_wnd;   /* receiver window available */
   tcpwnd_size_t rcv_ann_wnd; /* receiver window to announce */
+  tcpwnd_size_t rcv_wnd_max; /* per-PCB max receive window (0 = use compile-time TCP_WND) */
   u32_t rcv_ann_right_edge; /* announced right edge of window */
 
 #if LWIP_TCP_SACK_OUT

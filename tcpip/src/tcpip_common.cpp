@@ -3,6 +3,26 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
+#ifdef __GLIBC__
+#include <malloc.h>
+#elif defined(__MACH__)
+#include <malloc/malloc.h>
+#elif defined(_WIN32)
+#include <windows.h>
+// HeapOptimizeResources requires NTDDI_VERSION > NTDDI_WINBLUE in SDK headers,
+// but we target Win7 (_WIN32_WINNT=0x0601). Define the constants manually
+// so we can call HeapSetInformation via GetProcAddress at runtime.
+#ifndef HeapOptimizeResources
+#define HeapOptimizeResources static_cast<HEAP_INFORMATION_CLASS>(3)
+#endif
+#ifndef HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION
+#define HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION 1
+struct HEAP_OPTIMIZE_RESOURCES_INFORMATION {
+    DWORD Version;
+    DWORD Flags;
+};
+#endif
+#endif
 
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +39,7 @@
 #include <lwip/netdb.h>
 #include <lwip/netif.h>
 #include <lwip/pbuf.h>
+#include <lwip/priv/tcp_priv.h>
 #include <lwip/tcp.h>
 
 #include "libevent_lwip.h"
@@ -45,6 +66,9 @@ static constexpr TimerTickNotifyFn TIMER_TICK_NOTIFIERS[] = {
         tcp_cm_timer_tick,
         udp_cm_timer_tick,
 };
+
+static int s_malloc_trim_tick_counter = 0;
+static constexpr int MALLOC_TRIM_INTERVAL_TICKS = 600; // ~30 minutes (tick = TIMER_PERIOD_S = 3s)
 
 static void dump_packet_to_pcap(TcpipCtx *ctx, const uint8_t *data, size_t len);
 static void dump_packet_iovec_to_pcap(TcpipCtx *ctx, std::span<evbuffer_iovec> chunks);
@@ -288,6 +312,30 @@ static void tun_event_callback(evutil_socket_t fd, short ev_flag, void *arg) {
 static void timer_callback(evutil_socket_t, short, void *arg) {
     for (auto fn : TIMER_TICK_NOTIFIERS) {
         fn((TcpipCtx *) arg);
+    }
+
+    // Periodically return freed heap pages to the OS.
+    // LWIP uses libc malloc (MEM_LIBC_MALLOC=1) and some allocators don't release pages
+    // automatically, causing RSS to stay high after traffic bursts.
+    // HeapOptimizeResources / malloc_trim only compact free blocks and are safe to call
+    // with active connections — they do not affect live allocations.
+    if (++s_malloc_trim_tick_counter >= MALLOC_TRIM_INTERVAL_TICKS) {
+        s_malloc_trim_tick_counter = 0;
+#ifdef __GLIBC__
+        malloc_trim(0);
+#elif defined(__MACH__)
+        malloc_zone_pressure_relief(NULL, 0);
+#elif defined(_WIN32)
+        // HeapOptimizeResources is available on Windows 8.1+ (NTDDI >= 0x06030000).
+        // Use runtime loading so the binary works on Win7 too.
+        static const auto heap_set_info = reinterpret_cast<decltype(&HeapSetInformation)>(
+                GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "HeapSetInformation"));
+        if (heap_set_info) {
+            HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {};
+            heap_opt_info.Version = HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION;
+            heap_set_info(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
+        }
+#endif
     }
 }
 
