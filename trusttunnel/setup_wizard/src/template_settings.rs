@@ -44,13 +44,13 @@ killswitch_allow_ports = []
 post_quantum_group_enabled = {}
 
 {}
-exclusions_tcp_early_ack_enabled = {}
+# exclusions_tcp_early_ack_enabled = {}
 
 {}
-exclusions_preresolve_enabled = {}
+# exclusions_preresolve_enabled = {}
 
 {}
-exclusions_preresolve_max_queries = {}
+# exclusions_preresolve_max_queries = {}
 
 {}
 exclusions = []
