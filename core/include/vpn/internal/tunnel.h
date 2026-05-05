@@ -65,6 +65,7 @@ struct Tunnel {
     std::shared_ptr<VpnDnsResolver> dns_resolver;
     std::unordered_map<VpnDnsResolveId, DnsResolveWaiter> dns_resolve_waiters;
     event_loop::AutoTaskId repeat_exclusions_resolve_task;
+    size_t m_preresolve_offset = 0;
     std::shared_ptr<ServerUpstream> fake_upstream;
     std::shared_ptr<DnsHandler> dns_handler;
     std::unique_ptr<ConnectionStatisticsMonitor> statistics_monitor;

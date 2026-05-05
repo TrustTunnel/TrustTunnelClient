@@ -1475,17 +1475,14 @@ void Tunnel::on_exclusions_updated() {
         uint32_t max_queries = this->vpn->exclusions_preresolve_max_queries == 0
                 ? default_settings->exclusions_preresolve_max_queries
                 : this->vpn->exclusions_preresolve_max_queries;
-        uint32_t resolved = 0;
-        for (std::string_view name : names) {
-            if (resolved >= max_queries) {
-                break;
-            }
-            if (!this->dns_resolver->resolve(VDRQ_BACKGROUND, std::string(name)).has_value()) {
-                log_tun(this, dbg, "Failed to start resolve of {}", name);
-            } else {
-                ++resolved;
+        this->m_preresolve_offset = this->m_preresolve_offset >= names.size() ? 0 : this->m_preresolve_offset;
+        size_t end = std::min(this->m_preresolve_offset + max_queries, names.size());
+        for (size_t i = this->m_preresolve_offset; i < end; ++i) {
+            if (!this->dns_resolver->resolve(VDRQ_BACKGROUND, std::string(names[i])).has_value()) {
+                log_tun(this, dbg, "Failed to start resolve of {}", names[i]);
             }
         }
+        this->m_preresolve_offset = (end >= names.size()) ? 0 : end;
     } else {
         log_tun(this, dbg, "Skipping exclusions resolve: {}",
             this->vpn->exclusions_preresolve_enabled ? "disabled" : "not connected to endpoint");
