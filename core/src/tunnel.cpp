@@ -385,7 +385,7 @@ static TunnelDomainLookupAction pass_through_domain_lookup(
 }
 
 static bool is_domain_scannable_port(uint16_t port) {
-    static constexpr uint16_t SCANNABLE_PORTS[] = {443, 80, 8080, 8008};
+    static constexpr uint16_t SCANNABLE_PORTS[] = {443, 80, 8080, 8008, 853};
     return std::any_of(std::begin(SCANNABLE_PORTS), std::end(SCANNABLE_PORTS), [port](uint16_t i) {
         return port == i;
     });
@@ -1471,10 +1471,7 @@ void Tunnel::on_exclusions_updated() {
 
     if (this->vpn->endpoint_upstream != nullptr && this->vpn->exclusions_preresolve_enabled) {
         std::vector<std::string_view> names = this->vpn->domain_filter.get_resolvable_exclusions();
-        UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> default_settings{vpn_get_default_settings()};
-        uint32_t max_queries = this->vpn->exclusions_preresolve_max_queries == 0
-                ? default_settings->exclusions_preresolve_max_queries
-                : this->vpn->exclusions_preresolve_max_queries;
+        uint32_t max_queries = this->vpn->exclusions_preresolve_max_queries;
         this->m_preresolve_offset = this->m_preresolve_offset >= names.size() ? 0 : this->m_preresolve_offset;
         size_t end = std::min(this->m_preresolve_offset + max_queries, names.size());
         for (size_t i = this->m_preresolve_offset; i < end; ++i) {
@@ -1485,7 +1482,7 @@ void Tunnel::on_exclusions_updated() {
         this->m_preresolve_offset = (end >= names.size()) ? 0 : end;
     } else {
         log_tun(this, dbg, "Skipping exclusions resolve: {}",
-            this->vpn->exclusions_preresolve_enabled ? "disabled" : "not connected to endpoint");
+                this->vpn->exclusions_preresolve_enabled ? "not connected to endpoint" : "disabled");
     }
 
     using namespace std::chrono;

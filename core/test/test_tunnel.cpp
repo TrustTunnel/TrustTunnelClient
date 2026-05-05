@@ -994,7 +994,7 @@ TEST_F(PreresolveTest, PreresolveDisabledSkipsResolves) {
 // When preresolve is enabled with a high enough limit, all exclusions are enqueued.
 TEST_F(PreresolveTest, PreresolveEnabledQueuesAllExclusions) {
     vpn.exclusions_preresolve_enabled = true;
-    vpn.exclusions_preresolve_max_queries = 0; // 0 means use default (50)
+    vpn.exclusions_preresolve_max_queries = 50;
 
     add_exact_exclusions(5);
     tun.on_exclusions_updated();

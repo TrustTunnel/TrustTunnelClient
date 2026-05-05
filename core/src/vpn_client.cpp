@@ -260,11 +260,15 @@ VpnError VpnClient::init(const VpnSettings *settings) {
             .relative_priority = settings->qos_settings.relative_priority};
 #endif // __APPLE__ && TARGET_OS_IPHONE
 
+    UniquePtr<VpnDefaultSettings, &vpn_free_default_settings> default_settings{vpn_get_default_settings()};
+
     this->tunnel->udp_close_wait_hostname_cache = g_udp_close_wait_hostname_cache;
     this->kill_switch_on = settings->killswitch_enabled;
     this->exclusions_tcp_early_ack_enabled = settings->exclusions_tcp_early_ack_enabled;
     this->exclusions_preresolve_enabled = settings->exclusions_preresolve_enabled;
-    this->exclusions_preresolve_max_queries = settings->exclusions_preresolve_max_queries;
+    this->exclusions_preresolve_max_queries = settings->exclusions_preresolve_max_queries == 0
+            ? default_settings->exclusions_preresolve_max_queries
+            : settings->exclusions_preresolve_max_queries;
     update_exclusions(settings->mode, {settings->exclusions.data, settings->exclusions.size});
 
     if (settings->tmp_files_base_path != nullptr) {
