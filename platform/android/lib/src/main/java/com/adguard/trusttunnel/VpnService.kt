@@ -20,9 +20,8 @@ import java.io.File
 class VpnService : android.net.VpnService(), VpnClientListener {
 
     companion object {
-        private val SYNC = Any()
-
         private val LOG = LoggerManager.getLogger("VpnService")
+        private val NETWORK_MANAGER_SYNC = Any()
 
         // Network monitoring
         private lateinit var connectivityManager: ConnectivityManager
@@ -32,6 +31,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private var currentStartId: Int = -1
 
         private var vpnClient: VpnClient? = null
+        @Volatile
         private var configStorage: VpnConfigStorage? = null
         // The last VpnState observed by `onStateChanged`
         private var lastState: Int = 0
@@ -70,7 +70,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
         private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
 
-        fun startNetworkManager(context: Context) {
+        fun startNetworkManager(context: Context) = synchronized(NETWORK_MANAGER_SYNC) {
             if (::networkCallback.isInitialized) {
                 // Avoid double initialization
                 return
@@ -90,6 +90,14 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
         }
 
+        private fun startNetworkNotifications(vpnClient: VpnClient?) = synchronized(NETWORK_MANAGER_SYNC) {
+            networkCallback.startNotifying(vpnClient)
+        }
+
+        private fun stopNetworkNotifications() = synchronized(NETWORK_MANAGER_SYNC) {
+            networkCallback.stopNotifying()
+        }
+
         fun isPrepared(context: Context): Boolean {
             return try {
                 prepare(context) == null
@@ -103,24 +111,22 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private fun getIntent(context: Context, action: String): Intent = Intent(context, VpnService::class.java).setAction(action)
 
         private val eventsSync = ThreadManager.create("events-sync", 1)
-        private var appNotifier: AppNotifier? = null;
-        fun setAppNotifier(file: File, notifier: AppNotifier) {
+        private var appNotifier: AppNotifier? = null
+        fun setAppNotifier(file: File, notifier: AppNotifier) = eventsSync.execute {
             connectionInfoFile?.close()
             connectionInfoFile = PersistentRingBuffer(file)
             appNotifier = notifier
-            eventsSync.execute {
-                // Notify current state
-                appNotifier?.onStateChanged(lastState)
-                // Notify all query logs
-                connectionInfoFile?.apply {
-                    val records = readAll()
-                    if (records == null) {
-                        clear()
-                        return@execute
-                    }
-                    for (record in records) {
-                        appNotifier?.onConnectionInfo(record)
-                    }
+            // Notify current state
+            appNotifier?.onStateChanged(lastState)
+            // Notify all query logs
+            connectionInfoFile?.apply {
+                val records = readAll()
+                if (records == null) {
+                    clear()
+                    return@execute
+                }
+                for (record in records) {
+                    appNotifier?.onConnectionInfo(record)
                 }
             }
         }
@@ -128,10 +134,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
     private var state = State.Stopped
     private val singleThread = ThreadManager.create("vpn-service", 1)
+    @Volatile
     private var certificateVerificator: CertificateVerificator? = null
 
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = synchronized(SYNC) {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
             LOG.info("Received a null intent, doing nothing")
             stopSelf()
@@ -173,7 +180,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         return START_NOT_STICKY
     }
 
-    private fun processStarting(configStr: String?, startId: Int): Unit = synchronized(SYNC) {
+    private fun processStarting(configStr: String?, startId: Int) {
         if (state == State.Started) {
             LOG.info("VPN service has already been started, do nothing")
             return
@@ -221,7 +228,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         }
         vpnClient = VpnClient(configStr, proxyClientListener)
 
-        networkCallback.startNotifying(vpnClient)
+        startNetworkNotifications(vpnClient)
         if (vpnClient?.start(vpnTunInterface) != true) {
             LOG.error("Failed to start Vpn client");
             close();
@@ -293,12 +300,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
      * @return true if the service has been closed successfully
      *         false if something is wrong with closing or the service has already been closed
      */
-    private fun close(startId: Int? = null): Boolean = synchronized(SYNC) {
+    private fun close(startId: Int? = null): Boolean {
         if (state != State.Started) return false.also { LOG.info("VPN service is not running, do nothing") }
 
         LOG.info("Closing VPN service")
 
-        networkCallback.stopNotifying()
+        stopNetworkNotifications()
         vpnClient?.stop()
         vpnClient?.close()
         vpnClient = null
@@ -335,7 +342,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
     }
 
     override fun verifyCertificate(certificate: ByteArray?, rawChain: List<ByteArray?>?): Boolean {
-        return certificateVerificator?.verifyCertificate(certificate, rawChain) ?: false;
+        val verificator = certificateVerificator ?: return false
+        return verificator.verifyCertificate(certificate, rawChain)
     }
 
     override fun onStateChanged(state: Int) = eventsSync.execute {
