@@ -1002,7 +1002,7 @@ TEST_F(PreresolveTest, PreresolveEnabledQueuesAllExclusions) {
     ASSERT_EQ(pending_count(), 5) << "All 5 exclusions must be queued when preresolve is enabled";
 }
 
-// When max_queries is set to N, only N exclusions are enqueued per cycle and the offset rotates.
+// When max_queries is set to N, only the first N exclusions are enqueued.
 TEST_F(PreresolveTest, PreresolveMaxQueriesLimitsResolves) {
     vpn.exclusions_preresolve_enabled = true;
     vpn.exclusions_preresolve_max_queries = 3;
@@ -1010,21 +1010,5 @@ TEST_F(PreresolveTest, PreresolveMaxQueriesLimitsResolves) {
     add_exact_exclusions(10);
     tun.on_exclusions_updated();
 
-    ASSERT_EQ(pending_count(), 3) << "Only max_queries=3 resolves must be queued per cycle out of 10 exclusions";
-}
-
-// Each cycle advances the offset by max_queries so that all exclusions are eventually covered.
-TEST_F(PreresolveTest, PreresolveOffsetRotatesAcrossCycles) {
-    vpn.exclusions_preresolve_enabled = true;
-    vpn.exclusions_preresolve_max_queries = 3;
-
-    add_exact_exclusions(6);
-
-    // Cycle 1: resolves items 0-2, offset advances to 3
-    tun.on_exclusions_updated();
-    ASSERT_EQ(pending_count(), 3) << "Cycle 1 must queue 3 resolves";
-
-    // Cycle 2: stop_resolving_queues clears the queue first, then resolves items 3-5, offset wraps to 0
-    tun.on_exclusions_updated();
-    ASSERT_EQ(pending_count(), 3) << "Cycle 2 must queue 3 more (different) resolves";
+    ASSERT_EQ(pending_count(), 3) << "Only max_queries=3 resolves must be queued out of 10 exclusions";
 }

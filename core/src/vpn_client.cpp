@@ -598,7 +598,6 @@ void VpnClient::update_exclusions(VpnMode mode, std::string_view exclusions) {
     this->exclusions_mode = mode;
     this->domain_filter.update_exclusions(mode, exclusions);
     if (this->fsm.get_state() == vpn_client::S_CONNECTED) {
-        this->tunnel->m_preresolve_offset = 0;
         this->tunnel->on_exclusions_updated();
     }
 }

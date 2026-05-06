@@ -7,7 +7,7 @@
       AdGuard VPN or when the exclusion list contains wildcard entries (e.g. `*.example.com`).
     - `exclusions_preresolve_enabled` (default: `true`): controls whether DNS-resolvable exclusions are
       pre-resolved in the background after the exclusion list is updated.
-    - `exclusions_preresolve_max_queries` (default: `50`): limits the number of domains resolved per cycle.
+    - `exclusions_preresolve_max_queries` (default: `50`): limits the number of domains pre-resolved.
       Setting this to `0` uses the default value.
   Default values for all three settings are available via `vpn_get_default_settings()`.
 - [Feature] `trusttunnel_client` config now supports `exclusions_tcp_early_ack_enabled`,
