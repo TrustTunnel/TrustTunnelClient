@@ -1,8 +1,8 @@
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <vector>
 
 #include "common/autofd.h"
 #include "common/file.h"
@@ -22,7 +22,8 @@ static const Logger g_logger("PERSISTENT_RING_BUFFER"); // NOLINT(readability-id
 static constexpr uint32_t FILE_MAGIC = 0x514c5242;
 static constexpr uint32_t FILE_VERSION = 1;
 static constexpr char SLOT_MARKER = 'R';
-static constexpr size_t SLOT_SIZE = 1 + sizeof(uint32_t) + PersistentRingBuffer::MAX_RECORD_BYTES;
+static constexpr size_t SLOT_MARKER_SIZE = sizeof(SLOT_MARKER);
+static constexpr size_t SLOT_LENGTH_SIZE = sizeof(uint32_t);
 
 struct Header {
     uint32_t magic;
@@ -35,10 +36,6 @@ struct Header {
 };
 
 static_assert(sizeof(Header) == 32, "Header must be 32 bytes with no padding");
-
-static constexpr size_t slot_offset(uint32_t index) {
-    return sizeof(Header) + static_cast<size_t>(index) * SLOT_SIZE;
-}
 
 // -- Low-level I/O --
 
@@ -81,106 +78,125 @@ static bool read_at(file::Handle fd, void *data, size_t size, size_t pos) {
     return true;
 }
 
-// -- Header I/O --
-
-static bool is_valid_header(const Header &header) {
-    return header.magic == FILE_MAGIC
-            && header.version == FILE_VERSION
-            && header.capacity == PersistentRingBuffer::MAX_RECORDS
-            && header.max_record_bytes == PersistentRingBuffer::MAX_RECORD_BYTES
-            && header.write_slot < header.capacity
-            && header.count <= header.capacity
-            && header.next_sequence >= header.count;
-}
-
-static bool read_header(file::Handle fd, Header *header) {
-    return read_at(fd, header, sizeof(Header), 0) && is_valid_header(*header);
-}
-
-static bool write_header(file::Handle fd, const Header &header) {
-    return write_at(fd, 0, &header, sizeof(header));
-}
-
-// -- Slot I/O --
-
-static bool write_slot(file::Handle fd, uint32_t slot_index, std::string_view record) {
-    std::array<char, SLOT_SIZE> slot{};
-    slot[0] = SLOT_MARKER;
-    auto length = static_cast<uint32_t>(record.size());
-    std::memcpy(slot.data() + 1, &length, sizeof(length));
-    if (!record.empty()) {
-        std::memcpy(slot.data() + 1 + sizeof(uint32_t), record.data(), record.size());
-    }
-    return write_at(fd, slot_offset(slot_index), slot.data(), slot.size());
-}
-
-static bool read_slot(file::Handle fd, uint32_t slot_index, std::string *record) {
-    std::array<char, SLOT_SIZE> slot{};
-    if (!read_at(fd, slot.data(), slot.size(), slot_offset(slot_index))) {
-        errlog(g_logger, "Failed to read slot {}", slot_index);
-        return false;
+/// Context for reading and writing a ring buffer file
+class BufferFile {
+public:
+    BufferFile(file::Handle fd, uint32_t max_records, uint32_t max_record_bytes)
+            : m_fd(fd)
+            , m_max_records(max_records)
+            , m_max_record_bytes(max_record_bytes) {
     }
 
-    if (slot[0] != SLOT_MARKER) {
-        errlog(g_logger, "Invalid slot marker at slot {}", slot_index);
-        return false;
+    bool read_header(Header *header) const {
+        if (!read_at(m_fd, header, sizeof(Header), 0)) {
+            return false;
+        }
+        return header->magic == FILE_MAGIC && header->version == FILE_VERSION && header->capacity == m_max_records
+                && header->max_record_bytes == m_max_record_bytes && header->write_slot < header->capacity
+                && header->count <= header->capacity && header->next_sequence >= header->count;
     }
 
-    uint32_t length = 0;
-    std::memcpy(&length, slot.data() + 1, sizeof(length));
-    if (length > PersistentRingBuffer::MAX_RECORD_BYTES) {
-        errlog(g_logger, "Slot {} record length {} exceeds maximum {}", slot_index, length,
-                PersistentRingBuffer::MAX_RECORD_BYTES);
-        return false;
+    bool write_header(const Header &header) const {
+        return write_at(m_fd, 0, &header, sizeof(header));
     }
 
-    record->assign(slot.data() + 1 + sizeof(uint32_t), length);
-    return true;
-}
+    bool write_slot(uint32_t slot_index, std::string_view record) const {
+        size_t size = slot_size();
+        std::vector<char> slot(size, 0);
+        slot[0] = SLOT_MARKER;
+        auto length = static_cast<uint32_t>(record.size());
+        std::memcpy(slot.data() + SLOT_MARKER_SIZE, &length, sizeof(length));
+        if (!record.empty()) {
+            std::memcpy(slot.data() + SLOT_MARKER_SIZE + SLOT_LENGTH_SIZE, record.data(), record.size());
+        }
+        return write_at(m_fd, slot_offset(slot_index), slot.data(), slot.size());
+    }
+
+    bool read_slot(uint32_t slot_index, std::string *record) const {
+        size_t size = slot_size();
+        std::vector<char> slot(size);
+        if (!read_at(m_fd, slot.data(), slot.size(), slot_offset(slot_index))) {
+            errlog(g_logger, "Failed to read slot {}", slot_index);
+            return false;
+        }
+
+        if (slot[0] != SLOT_MARKER) {
+            errlog(g_logger, "Invalid slot marker at slot {}", slot_index);
+            return false;
+        }
+
+        uint32_t length = 0;
+        std::memcpy(&length, slot.data() + SLOT_MARKER_SIZE, sizeof(length));
+        if (length > m_max_record_bytes) {
+            errlog(g_logger, "Slot {} record length {} exceeds maximum {}", slot_index, length, m_max_record_bytes);
+            return false;
+        }
+
+        record->assign(slot.data() + SLOT_MARKER_SIZE + SLOT_LENGTH_SIZE, length);
+        return true;
+    }
+
+private:
+    size_t slot_size() const {
+        return SLOT_MARKER_SIZE + SLOT_LENGTH_SIZE + m_max_record_bytes;
+    }
+
+    size_t slot_offset(uint32_t index) const {
+        return sizeof(Header) + static_cast<size_t>(index) * slot_size();
+    }
+
+    file::Handle m_fd;
+    uint32_t m_max_records;
+    uint32_t m_max_record_bytes;
+};
 
 // -- Public API --
 
-PersistentRingBuffer::PersistentRingBuffer(std::string path)
-        : m_path(std::move(path)) {
+PersistentRingBuffer::PersistentRingBuffer(std::string path, uint32_t max_records, uint32_t max_record_bytes)
+        : m_path(std::move(path))
+        , m_max_records(max_records)
+        , m_max_record_bytes(max_record_bytes) {
 }
 
 bool PersistentRingBuffer::append(std::string_view record) {
-    if (record.size() > MAX_RECORD_BYTES) {
-        errlog(g_logger, "Record exceeds maximum size: {} > {}", record.size(), MAX_RECORD_BYTES);
+    if (record.size() > m_max_record_bytes) {
+        errlog(g_logger, "Record exceeds maximum size: {} > {}", record.size(), m_max_record_bytes);
         return false;
     }
 
     bool created = !fs::exists(m_path);
     AutoFd fd = AutoFd::adopt_fd(file::open(m_path, file::CREAT | file::RDWR));
     if (!fd.is_valid()) {
-        errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()), sys::last_error());
+        errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()),
+                sys::last_error());
         return false;
     }
 
+    BufferFile buf(fd.get(), m_max_records, m_max_record_bytes);
     Header header{};
     if (created) {
         infolog(g_logger, "Creating new ring buffer file");
         header = {
                 .magic = FILE_MAGIC,
                 .version = FILE_VERSION,
-                .capacity = MAX_RECORDS,
-                .max_record_bytes = MAX_RECORD_BYTES,
+                .capacity = m_max_records,
+                .max_record_bytes = m_max_record_bytes,
                 .write_slot = 0,
                 .count = 0,
                 .next_sequence = 0,
         };
-        if (!write_header(fd.get(), header)) {
+        if (!buf.write_header(header)) {
             errlog(g_logger, "Failed to write header to new ring buffer file");
             return false;
         }
     }
 
-    if (!read_header(fd.get(), &header)) {
+    if (!buf.read_header(&header)) {
         errlog(g_logger, "Ring buffer file is corrupted");
         return false;
     }
 
-    if (!write_slot(fd.get(), header.write_slot, record)) {
+    if (!buf.write_slot(header.write_slot, record)) {
         errlog(g_logger, "Failed to write record to slot {}", header.write_slot);
         return false;
     }
@@ -188,7 +204,7 @@ bool PersistentRingBuffer::append(std::string_view record) {
     header.write_slot = (header.write_slot + 1) % header.capacity;
     header.count = std::min(header.count + 1, header.capacity);
     ++header.next_sequence;
-    if (!write_header(fd.get(), header)) {
+    if (!buf.write_header(header)) {
         errlog(g_logger, "Failed to update header after writing record");
         return false;
     }
@@ -206,19 +222,21 @@ std::optional<RingBufferReadResult> PersistentRingBuffer::read_since(std::option
 
     AutoFd fd = AutoFd::adopt_fd(file::open(m_path, file::RDONLY));
     if (!fd.is_valid()) {
-        errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()), sys::last_error());
+        errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()),
+                sys::last_error());
         return std::nullopt;
     }
 
+    BufferFile buf(fd.get(), m_max_records, m_max_record_bytes);
     Header header{};
-    if (!read_header(fd.get(), &header)) {
+    if (!buf.read_header(&header)) {
         errlog(g_logger, "Ring buffer file is corrupted");
         return std::nullopt;
     }
 
     uint64_t earliest_retained = header.next_sequence - header.count;
-    uint64_t start_sequence = std::clamp(
-            next_sequence.value_or(earliest_retained), earliest_retained, header.next_sequence);
+    uint64_t start_sequence =
+            std::clamp(next_sequence.value_or(earliest_retained), earliest_retained, header.next_sequence);
 
     RingBufferReadResult result;
     result.next_sequence = header.next_sequence;
@@ -226,7 +244,7 @@ std::optional<RingBufferReadResult> PersistentRingBuffer::read_since(std::option
 
     for (uint64_t seq = start_sequence; seq < header.next_sequence; ++seq) {
         std::string record;
-        if (!read_slot(fd.get(), static_cast<uint32_t>(seq % header.capacity), &record)) {
+        if (!buf.read_slot(static_cast<uint32_t>(seq % header.capacity), &record)) {
             errlog(g_logger, "Failed to read record at sequence {}", seq);
             return std::nullopt;
         }
