@@ -309,8 +309,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         vpnClient?.stop()
         vpnClient?.close()
         vpnClient = null
-        connectionInfoFile?.close()
-        connectionInfoFile = null
         if (startId != null) {
             stopSelf(startId)
         } else {
