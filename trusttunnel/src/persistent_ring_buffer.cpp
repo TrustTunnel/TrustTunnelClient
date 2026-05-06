@@ -54,7 +54,7 @@ static bool write_at(file::Handle fd, size_t pos, const void *data, size_t size)
             errlog(g_logger, "Failed to write: {} ({})", sys::strerror(sys::last_error()), sys::last_error());
             return false;
         }
-        written += static_cast<size_t>(result);
+        written += result;
     }
     return true;
 }
@@ -73,7 +73,7 @@ static bool read_at(file::Handle fd, void *data, size_t size, size_t pos) {
             errlog(g_logger, "Unexpected end of file at position {}", pos + total);
             return false;
         }
-        total += static_cast<size_t>(result);
+        total += result;
     }
     return true;
 }
@@ -142,7 +142,7 @@ private:
     }
 
     size_t slot_offset(uint32_t index) const {
-        return sizeof(Header) + static_cast<size_t>(index) * slot_size();
+        return sizeof(Header) + index * slot_size();
     }
 
     file::Handle m_fd;
@@ -240,11 +240,11 @@ std::optional<RingBufferReadResult> PersistentRingBuffer::read_since(std::option
 
     RingBufferReadResult result;
     result.next_sequence = header.next_sequence;
-    result.records.reserve(static_cast<size_t>(header.next_sequence - start_sequence));
+    result.records.reserve(header.next_sequence - start_sequence);
 
     for (uint64_t seq = start_sequence; seq < header.next_sequence; ++seq) {
         std::string record;
-        if (!buf.read_slot(static_cast<uint32_t>(seq % header.capacity), &record)) {
+        if (!buf.read_slot(seq % header.capacity, &record)) {
             errlog(g_logger, "Failed to read record at sequence {}", seq);
             return std::nullopt;
         }
