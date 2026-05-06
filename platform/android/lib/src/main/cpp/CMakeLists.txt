@@ -14,7 +14,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     lib.cpp
     native_logger.cpp
     jni_utils.cpp
-    deeplink.cpp)
+    deeplink.cpp
+    persistent_ring_buffer_jni.cpp)
 
 
 add_subdirectory(${ROOT_DIR} ${CMAKE_BINARY_DIR}/trusttunnel)
