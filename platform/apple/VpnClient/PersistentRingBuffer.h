@@ -17,7 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithPath:(NSString *)path;
 - (BOOL)appendRecord:(NSString *)record;
 - (nullable PersistentRingBufferReadResult *)readAll;
-- (nullable PersistentRingBufferReadResult *)readSince:(NSNumber * _Nullable)nextSequence;
+- (nullable PersistentRingBufferReadResult *)readSince:(NSNumber *_Nullable)nextSequence;
 - (BOOL)clear;
 
 @end
