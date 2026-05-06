@@ -41,6 +41,8 @@ add_subdirectory(${ROOT_DIR} ${CMAKE_BINARY_DIR}/trusttunnel)
 add_library(${PROJECT_NAME} SHARED
     VpnClient.h
     VpnClient.mm
+    PersistentRingBuffer.h
+    PersistentRingBuffer.mm
     DeepLink.h
     DeepLink.mm
     module.modulemap
@@ -50,7 +52,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     FRAMEWORK TRUE
     FRAMEWORK_VERSION A
     VERSION 1.0.64
-    PUBLIC_HEADER "VpnClient.h;DeepLink.h"
+    PUBLIC_HEADER "VpnClient.h;DeepLink.h;PersistentRingBuffer.h"
     MACOSX_FRAMEWORK_INFO_PLIST "${INFOPLIST_FILE}"
     MACOSX_FRAMEWORK_IDENTIFIER com.adguard.TrustTunnel.VpnClientFramework
     INSTALL_NAME_DIR "@rpath"
