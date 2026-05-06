@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import VpnClientFramework
 
 enum VpnSessionState: Int {
     case disconnected;
@@ -47,7 +48,7 @@ public final class VpnManager {
     private var readyContinuation: CheckedContinuation<NETunnelProviderManager, Never>?
     private var bundleIdentifier: String
     private var appGroup: String
-    private var readIndex: UInt32? = nil
+    private var readIndex: UInt64? = nil
     private let logger = Logger(category: "VpnManager")
 
     public init(bundleIdentifier: String,
@@ -216,11 +217,16 @@ public final class VpnManager {
             var result: [String]? = nil
             fileCoordinator.coordinate(
                 readingItemAt: fileURL, error: &coordinatorError) { fileUrl in
-                    let (records, newIndex) =
-                        PrefixedLenRingProto.read_all(fileUrl: fileUrl, startIndex: self.readIndex)
-                    if let records = records {
-                        result = records
-                        self.readIndex = newIndex
+                    let bridge = PersistentRingBuffer(path: fileUrl.path)
+                    let readResult = if let readIndex = self.readIndex {
+                        bridge.readSince(NSNumber(value: readIndex))
+                    } else {
+                        bridge.readAll()
+                    }
+
+                    if let readResult {
+                        result = readResult.records
+                        self.readIndex = readResult.nextSequence
                     }
                 }
 
@@ -233,7 +239,8 @@ public final class VpnManager {
                 fileCoordinator.coordinate(writingItemAt: fileURL,
                                                  options: .forDeleting,
                                                    error: &coordinatorError) { fileUrl in
-                    PrefixedLenRingProto.clear(fileUrl: fileUrl)
+                    let bridge = PersistentRingBuffer(path: fileUrl.path)
+                    _ = bridge.clear()
                 }
                 self.readIndex = nil
                 return
