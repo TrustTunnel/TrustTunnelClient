@@ -113,7 +113,6 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private val eventsSync = ThreadManager.create("events-sync", 1)
         private var appNotifier: AppNotifier? = null
         fun setAppNotifier(file: File, notifier: AppNotifier) = eventsSync.execute {
-            connectionInfoFile?.close()
             connectionInfoFile = PersistentRingBuffer(file)
             appNotifier = notifier
             // Notify current state

@@ -4,51 +4,30 @@
 #include "jni_utils.h"
 
 #include <jni.h>
-#include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 
 static ag::Logger g_logger("PersistentRingBufferJni");
 
-class RingBufferCtx {
-public:
-    explicit RingBufferCtx(std::string path)
-            : m_buffer(std::move(path)) {
-    }
-
-    ag::PersistentRingBuffer m_buffer;
-};
-
-static RingBufferCtx *get_ring_buffer_ctx(jlong native_ptr) {
-    return (RingBufferCtx *) native_ptr;
-}
-
-extern "C" JNIEXPORT jlong JNICALL Java_com_adguard_trusttunnel_PersistentRingBuffer_nativeCreate(
-        JNIEnv *env, jobject thiz, jstring path) {
-    if (path == nullptr) {
-        errlog(g_logger, "Ring buffer path is null");
-        return 0;
-    }
-
+static std::string get_path(JNIEnv *env, jstring path) {
     const char *chars = env->GetStringUTFChars(path, nullptr);
     if (chars == nullptr) {
-        errlog(g_logger, "Failed to get ring buffer path chars");
-        return 0;
+        return {};
     }
-
-    std::string native_path(chars, static_cast<size_t>(env->GetStringUTFLength(path)));
+    std::string result(chars, static_cast<size_t>(env->GetStringUTFLength(path)));
     env->ReleaseStringUTFChars(path, chars);
-
-    auto ctx = std::make_unique<RingBufferCtx>(std::move(native_path));
-    return (jlong) ctx.release();
+    return result;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_PersistentRingBuffer_nativeAppend(
-        JNIEnv *env, jobject thiz, jlong native_ptr, jstring record) {
-    auto *ctx = get_ring_buffer_ctx(native_ptr);
-    if (ctx == nullptr || record == nullptr) {
-        errlog(g_logger, "Can't append, ring buffer is not initialized");
+        JNIEnv *env, jobject thiz, jstring path, jstring record) {
+    if (path == nullptr || record == nullptr) {
+        errlog(g_logger, "Path or record is null");
+        return static_cast<jboolean>(false);
+    }
+
+    std::string native_path = get_path(env, path);
+    if (native_path.empty()) {
         return static_cast<jboolean>(false);
     }
 
@@ -59,20 +38,26 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_PersistentRin
     }
 
     std::string_view native_record(chars, static_cast<size_t>(env->GetStringUTFLength(record)));
-    bool success = ctx->m_buffer.append(native_record);
+    ag::PersistentRingBuffer buffer(std::move(native_path));
+    bool success = buffer.append(native_record);
     env->ReleaseStringUTFChars(record, chars);
     return static_cast<jboolean>(success);
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL Java_com_adguard_trusttunnel_PersistentRingBuffer_nativeReadAll(
-        JNIEnv *env, jobject thiz, jlong native_ptr) {
-    auto *ctx = get_ring_buffer_ctx(native_ptr);
-    if (ctx == nullptr) {
-        errlog(g_logger, "Can't read, ring buffer is not initialized");
+        JNIEnv *env, jobject thiz, jstring path) {
+    if (path == nullptr) {
+        errlog(g_logger, "Path is null");
         return nullptr;
     }
 
-    std::optional<ag::RingBufferReadResult> result = ctx->m_buffer.read_all();
+    std::string native_path = get_path(env, path);
+    if (native_path.empty()) {
+        return nullptr;
+    }
+
+    ag::PersistentRingBuffer buffer(std::move(native_path));
+    std::optional<ag::RingBufferReadResult> result = buffer.read_all();
     if (!result.has_value()) {
         return nullptr;
     }
@@ -103,24 +88,19 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_adguard_trusttunnel_Persisten
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_adguard_trusttunnel_PersistentRingBuffer_nativeClear(
-        JNIEnv *env, jobject thiz, jlong native_ptr) {
-    auto *ctx = get_ring_buffer_ctx(native_ptr);
-    if (ctx == nullptr) {
-        warnlog(g_logger, "Can't clear, ring buffer is not initialized");
+        JNIEnv *env, jobject thiz, jstring path) {
+    if (path == nullptr) {
+        warnlog(g_logger, "Path is null");
         return;
     }
 
-    if (!ctx->m_buffer.clear()) {
+    std::string native_path = get_path(env, path);
+    if (native_path.empty()) {
+        return;
+    }
+
+    ag::PersistentRingBuffer buffer(std::move(native_path));
+    if (!buffer.clear()) {
         warnlog(g_logger, "Failed to clear ring buffer file");
     }
-}
-
-extern "C" JNIEXPORT void JNICALL Java_com_adguard_trusttunnel_PersistentRingBuffer_nativeDestroy(
-        JNIEnv *env, jobject thiz, jlong native_ptr) {
-    auto *ctx = get_ring_buffer_ctx(native_ptr);
-    if (ctx == nullptr) {
-        return;
-    }
-
-    delete ctx;
 }
