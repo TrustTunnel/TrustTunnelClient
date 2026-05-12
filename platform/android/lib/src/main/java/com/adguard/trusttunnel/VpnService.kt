@@ -27,7 +27,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private lateinit var connectivityManager: ConnectivityManager
         private lateinit var networkRequest: NetworkRequest
         private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
-        private var connectionInfoFile: PrefixedLenRingProto? = null
+        private var connectionInfoFile: PersistentRingBuffer? = null
         private var currentStartId: Int = -1
 
         private var vpnClient: VpnClient? = null
@@ -113,13 +113,13 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private val eventsSync = ThreadManager.create("events-sync", 1)
         private var appNotifier: AppNotifier? = null
         fun setAppNotifier(file: File, notifier: AppNotifier) = eventsSync.execute {
-            connectionInfoFile = PrefixedLenRingProto(file)
+            connectionInfoFile = PersistentRingBuffer(file)
             appNotifier = notifier
             // Notify current state
             appNotifier?.onStateChanged(lastState)
             // Notify all query logs
             connectionInfoFile?.apply {
-                val records = read_all()
+                val records = readAll()
                 if (records == null) {
                     clear()
                     return@execute

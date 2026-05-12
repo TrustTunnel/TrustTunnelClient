@@ -20,6 +20,7 @@ set(SOURCE_FILES
         src/utils.cpp
         src/connection_info.cpp
         src/auto_network_monitor.cpp
+        src/persistent_ring_buffer.cpp
         )
 
 add_library(vpnlibs_trusttunnel EXCLUDE_FROM_ALL ${SOURCE_FILES})
@@ -261,3 +262,9 @@ if (NOT ANDROID)
             setup_wizard
             )
 endif ()
+
+link_libraries(vpnlibs_trusttunnel)
+include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
+set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
+
+add_unit_test(test_persistent_ring_buffer "${TEST_DIR}" "" TRUE TRUE)

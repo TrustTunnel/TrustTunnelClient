@@ -1,4 +1,5 @@
 #import "DeepLink.h"
+#import "PersistentRingBuffer.h"
 #import <Foundation/Foundation.h>
 #import <NetworkExtension/NetworkExtension.h>
 

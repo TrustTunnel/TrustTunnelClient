@@ -188,7 +188,8 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             var coordinatorError: NSError?
             var result = true
             fileCoordinator.coordinate(writingItemAt: fileURL, options: .forReplacing, error: &coordinatorError) { (writeUrl) in
-                guard PrefixedLenRingProto.append(fileUrl: writeUrl, record: json) else {
+                let bridge = PersistentRingBuffer(path: writeUrl.path)
+                guard bridge.appendRecord(json) else {
                     self.logger.warn("Failed to append connection info to file")
                     result = false
                     return
