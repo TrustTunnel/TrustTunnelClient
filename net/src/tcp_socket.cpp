@@ -1200,10 +1200,12 @@ VpnError do_handshake(TcpSocket *socket) {
         int error = SSL_get_error(socket->ssl.get(), ret);
         if ((error != SSL_ERROR_WANT_READ) && (error != SSL_ERROR_WANT_WRITE)) {
             log_sock(socket, dbg, "SSL_do_handshake: {}, SSL error stack:", error);
-            ERR_print_errors_cb([](const char *str, size_t len, void *arg) {
-                log_sock((TcpSocket *) arg, dbg, "    {}", ag::utils::trim(std::string_view{str, len}));
-                return 1;
-            }, socket);
+            ERR_print_errors_cb(
+                    [](const char *str, size_t len, void *arg) {
+                        log_sock((TcpSocket *) arg, dbg, "    {}", ag::utils::trim(std::string_view{str, len}));
+                        return 1;
+                    },
+                    socket);
             return err_log_wrapper(-1, "Error in TLS handshake");
         }
     }
