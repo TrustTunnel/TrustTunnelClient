@@ -1,0 +1,110 @@
+name: Run browser integration test
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    name: Build binaries
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+      - ephemeral-limit-disk-gb-70
+    container:
+      image: adguard/core-libs:2.9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          path: vpn-libs
+
+      - name: Build client
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+        run: |
+          set -x -e
+
+          mkdir -p output
+          export OUTPUT_DIR=${PWD}/output
+          export SOURCE_DIR=${PWD}
+
+          vpn-libs/integration-tests/build_client.sh
+
+      - name: Upload client binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusttunnel_client
+          path: output/trusttunnel_client
+
+  run-browser-test:
+    name: Run browser integration test
+    needs: build-binaries
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+      - ephemeral-limit-disk-gb-70
+    container:
+      image: adguard/core-libs-testing:2.9
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download client binary
+        uses: actions/download-artifact@v4
+        with:
+          name: trusttunnel_client
+          path: output
+
+      - name: Make binary executable
+        run: chmod +x output/trusttunnel_client
+
+      - name: Download agvpn_helper
+        env:
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+        run: |
+          curl -O ${ARTIFACTORY_URL}/adguard-pods/binaries/agvpn_helper/agvpn_helper-linux.tar.gz
+          tar -C output --strip-components=1 -xvf agvpn_helper-linux.tar.gz
+
+      - name: Run browser tests
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          TEST_DIR: ${{ github.workspace }}/integration-tests/tests
+          VPN_APP_ID: ${{ secrets.VPN_APP_ID }}
+          VPN_TOKEN_SECRET: ${{ secrets.VPN_TOKEN_SECRET }}
+        run: |
+          set -x -e
+
+          # Nameserver with global routable IP is required here.
+          # 94.140.14.140 is AdGuard Unfiltered DNS
+          echo nameserver 94.140.14.140 > /etc/resolv.conf
+
+          ${TEST_DIR}/browser/run.sh ${VPN_APP_ID} ${VPN_TOKEN_SECRET}
+
+      - name: Compress logs
+        if: always()
+        run: |
+          if [ -f output/vpn_tun_http2.log ]; then
+            timeout 10s gzip -f output/vpn_tun_http2.log || \
+              (truncate -s 300M output/vpn_tun_http2.log && \
+               timeout 10s gzip -f output/vpn_tun_http2.log || true)
+          fi
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-test-logs
+          path: |
+            output/*.gz
+            output/output*.json
