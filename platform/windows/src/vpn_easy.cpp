@@ -175,6 +175,34 @@ void vpn_easy_stop_ex(vpn_easy_t *vpn) {
     delete vpn;
 }
 
+#include "vpn/trusttunnel/persistent_ring_buffer.h"
+#include "vpn_easy_ring_buffer_mutex.h"
+
+void vpn_easy_read_all_connection_info(
+        const char *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+    if (!ring_buffer_path || !connection_info_cb) {
+        return;
+    }
+
+    ag::vpn_easy::RingBufferLock lock(ring_buffer_path);
+    if (!lock) {
+        warnlog(g_logger, "Failed to acquire ring buffer lock for '{}'", ring_buffer_path);
+        return;
+    }
+
+    ag::PersistentRingBuffer buffer(ring_buffer_path);
+    auto result = buffer.read_all();
+    if (!result.has_value()) {
+        warnlog(g_logger, "PersistentRingBuffer at '{}' is corrupted, clearing", ring_buffer_path);
+        buffer.clear();
+        return;
+    }
+
+    for (const std::string &json : result->records) {
+        connection_info_cb(connection_info_cb_arg, json.c_str());
+    }
+}
+
 class VpnEasyManager {
 public:
     static VpnEasyManager &instance() {
@@ -426,6 +454,8 @@ static struct ServiceControllerState {
     std::thread io_thread;
     on_state_changed_t state_changed_cb = nullptr;
     void *state_changed_cb_arg = nullptr;
+    on_connection_info_json_t connection_info_cb = nullptr;
+    void *connection_info_cb_arg = nullptr;
 
     /// Tear down the pipe session and clear all state. Caller must hold `mutex`.
     void reset() {
@@ -442,6 +472,8 @@ static struct ServiceControllerState {
         }
         state_changed_cb = nullptr;
         state_changed_cb_arg = nullptr;
+        connection_info_cb = nullptr;
+        connection_info_cb_arg = nullptr;
     }
 } g_svc_state;
 
@@ -479,7 +511,8 @@ static int32_t map_scm_error(const char *func_name) {
 }
 
 int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_name, const char *toml_config,
-        on_state_changed_t state_changed_cb, void *state_changed_cb_arg) {
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
+        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
     std::scoped_lock lock{g_svc_state.mutex};
 
     if (g_svc_state.pipe_client) {
@@ -490,6 +523,8 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
     // Save callbacks early so the handler lambda can reference them.
     g_svc_state.state_changed_cb = state_changed_cb;
     g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
+    g_svc_state.connection_info_cb = connection_info_cb;
+    g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
 
     // ScopeExit: on any error return, clean up everything and clear callbacks.
     bool success = false;
@@ -552,9 +587,13 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
                     }
                     break;
                 }
-                case VPN_EASY_SVC_MSG_CONNECTION_INFO:
-                    dbglog(g_logger, "Received CONNECTION_INFO (ignored)");
+                case VPN_EASY_SVC_MSG_CONNECTION_INFO: {
+                    std::string json(reinterpret_cast<const char *>(data.data()), data.size());
+                    if (g_svc_state.connection_info_cb) {
+                        g_svc_state.connection_info_cb(g_svc_state.connection_info_cb_arg, json.c_str());
+                    }
                     break;
+                }
                 default:
                     dbglog(g_logger, "Ignoring unexpected message type: {}", static_cast<int>(what));
                     break;

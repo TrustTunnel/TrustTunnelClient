@@ -108,19 +108,25 @@ WIN_EXPORT int32_t vpn_easy_service_uninstall(const wchar_t *name);
  * This will start the Windows service if it's not already running, connect to the running service
  * through the named pipe and instruct it to start the VPN client with the provided configuration.
  *
- * It shall then pass the service state change messages to `state_changed_cb`, which must remain
- * valid (along with `state_changed_cb_arg`) until the service is stopped with `vpn_easy_service_stop()`.
- * The callback is invoked on an unspecified thread, and may be called concurrently with `vpn_easy_service_start()`.
+ * It shall then pass the service state change messages to `state_changed_cb` and connection info
+ * events to `connection_info_cb`, which must remain valid (along with their `_arg` parameters)
+ * until the service is stopped with `vpn_easy_service_stop()`. The callbacks are invoked on an
+ * unspecified thread, and may be called concurrently with `vpn_easy_service_start()`.
  *
  * @param service_name The service name that was passed to `vpn_easy_service_install()`.
  * @param pipe_name The name of the pipe that was passed to `vpn_easy_service_install()`.
  * @param toml_config The VPN client configuration in TOML format (encoded in UTF-8 as per TOML specification).
  * @param state_changed_cb A function which will be called each time the VPN client's state changes.
  * @param state_changed_cb_arg An argument passed to each invocation of the state change function.
+ * @param connection_info_cb A function called for each connection info event.
+ *                           The `json` parameter is a null-terminated UTF-8 JSON string.
+ *                           May be NULL if the caller does not need connection info.
+ * @param connection_info_cb_arg An argument passed to each invocation of the connection info function.
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
 WIN_EXPORT int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_name,
-        const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg);
+        const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
+        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg);
 
 /**
  * Stop the VPN service named `service_name`.
