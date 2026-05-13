@@ -11,13 +11,17 @@ import 'config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final notifier = VpnStateNotifier();
-  FlutterCallbacks.setUp(FlutterCallbacksImpl(notifier));
+  final stateNotifier = VpnStateNotifier();
+  final infoNotifier = ConnectionInfoNotifier();
+  FlutterCallbacks.setUp(FlutterCallbacksImpl(stateNotifier, infoNotifier));
   runApp(
-      ChangeNotifierProvider.value(
-        value: notifier,
-        child: const MyApp()
-      )
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: stateNotifier),
+        ChangeNotifierProvider.value(value: infoNotifier),
+      ],
+      child: const MyApp(),
+    ),
   );
 }
 
@@ -176,6 +180,37 @@ class _MyHomePageState extends State<MyHomePage> {
             Text(
               vpnStateWatcher.state.name,
               style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 10.0),
+            Text(
+              'VPN State: ${vpnStateWatcher.state.name}',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 10.0),
+            Text(
+              'Connection Info:',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Expanded(
+              child: Consumer<ConnectionInfoNotifier>(
+                builder: (context, notifier, child) {
+                  if (notifier.records.isEmpty) {
+                    return const Center(child: Text('No connection info yet'));
+                  }
+                  return ListView.builder(
+                    itemCount: notifier.records.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          notifier.records[index],
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 10.0),
           ],
