@@ -39,7 +39,8 @@ static Logger g_logger{"TCP_SOCKET"};
 #define LOG_ID_PREADDR_FMT "id=%d/"
 
 static constexpr size_t LOG_ID_PREFIX_SIZE = 11;
-static constexpr size_t MAX_WRITE_BUFFER_LEN = 128 * 1024;
+static constexpr size_t MAX_WRITE_QUEUE_LEN = 4 * 1024 * 1024;
+static constexpr size_t MAX_SINGLE_WRITE_LEN = 256 * 1024;
 static constexpr size_t MAX_READ_SIZE = 128 * 1024;
 
 static constexpr size_t SSL_READ_SIZE = 4096;
@@ -280,7 +281,7 @@ VpnError tcp_socket_write(TcpSocket *socket, const uint8_t *data, size_t length)
 
 size_t tcp_socket_available_to_write(const TcpSocket *socket) {
     size_t write_queue_size = evbuffer_get_length(bufferevent_get_output(socket->bev));
-    return (write_queue_size <= MAX_WRITE_BUFFER_LEN) ? MAX_WRITE_BUFFER_LEN - write_queue_size : 0;
+    return (write_queue_size <= MAX_WRITE_QUEUE_LEN) ? MAX_WRITE_QUEUE_LEN - write_queue_size : 0;
 }
 
 static void on_read(struct bufferevent *bev, void *ctx) {
@@ -445,7 +446,7 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
 
         evbuffer_set_max_read(bufferevent_get_input(socket->bev), MAX_READ_SIZE);
         bufferevent_set_max_single_read(socket->bev, MAX_READ_SIZE);
-        bufferevent_set_max_single_write(socket->bev, MAX_WRITE_BUFFER_LEN);
+        bufferevent_set_max_single_write(socket->bev, MAX_SINGLE_WRITE_LEN);
 
 #ifdef _WIN32
         if (socket->parameters.record_estats) {

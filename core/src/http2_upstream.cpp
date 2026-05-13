@@ -705,9 +705,15 @@ ssize_t Http2Upstream::send(uint64_t id, const uint8_t *data, size_t length) {
     if (auto i = m_tcp_connections.find(id); i != m_tcp_connections.end()) {
         TcpConnection *conn = &i->second;
         if (!conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
-            r = http_session_send_data(m_session.get(), (int32_t) conn->stream_id, data, length, false);
+            size_t available = available_to_send(id);
+            if (available == 0) {
+                return 0;
+            }
+
+            size_t to_send = std::min(length, available);
+            r = http_session_send_data(m_session.get(), (int32_t) conn->stream_id, data, to_send, false);
             if (r == 0) {
-                r = (ssize_t) length;
+                r = (ssize_t) to_send;
             } else if (r == NGHTTP2_ERR_BUFFER_ERROR) {
                 r = 0;
             }

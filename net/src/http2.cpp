@@ -831,6 +831,10 @@ static int data_source_add(HttpStream *stream, const uint8_t *data, size_t len, 
         stream->data_source = source;
     }
     source->has_eof |= eof;
+    size_t pending = evbuffer_get_length(source->buf);
+    if (pending > DATA_QUEUE_SIZE || len > DATA_QUEUE_SIZE - pending) {
+        return NGHTTP2_ERR_BUFFER_ERROR;
+    }
     int rv = evbuffer_add(source->buf, data, len);
     return rv;
 }
@@ -875,12 +879,22 @@ static void stream_destroy(HttpStream *stream) {
 }
 
 size_t http_session_available_to_write(HttpSession *session, int32_t stream_id) {
-    int32_t r;
+    int32_t r = nghttp2_session_get_remote_window_size(session->h2->ngsession);
 
     if (stream_id != 0) {
-        r = nghttp2_session_get_stream_remote_window_size(session->h2->ngsession, stream_id);
-    } else {
-        r = nghttp2_session_get_remote_window_size(session->h2->ngsession);
+        r = std::min(r, nghttp2_session_get_stream_remote_window_size(session->h2->ngsession, stream_id));
+
+        khiter_t iter = kh_get(h2_streams_ht, session->h2->streams, (khint32_t) stream_id);
+        if (iter == kh_end(session->h2->streams)) {
+            return 0;
+        }
+
+        auto *source = (DataSource *) kh_value(session->h2->streams, iter)->data_source;
+        if (source != nullptr) {
+            size_t pending = evbuffer_get_length(source->buf);
+            size_t queue_available = pending < DATA_QUEUE_SIZE ? DATA_QUEUE_SIZE - pending : 0;
+            return std::min((r > 0) ? (size_t) r : 0, queue_available);
+        }
     }
 
     return (r > 0) ? r : 0;
