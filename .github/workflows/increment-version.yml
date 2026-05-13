@@ -1,0 +1,67 @@
+name: Increment version
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable-*'
+      - 'dev-*'
+  workflow_dispatch:
+    inputs:
+      custom_version:
+        description: 'Custom version (leave empty for auto-increment)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  increment-version:
+    name: Increment version
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Increment version
+        run: |
+          cd scripts
+          ./increment_version.sh ${{ inputs.custom_version }}
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@adguard.com"
+          git add conandata.yml CHANGELOG.md \
+            platform/android/lib/build.gradle.kts \
+            platform/apple/VpnClient/CMakeLists.txt \
+            platform/apple/TrustTunnelClient.xcodeproj/project.pbxproj \
+            platform/apple/TrustTunnelClient.podspec \
+            trusttunnel/trusttunnel_client.rc \
+            trusttunnel/setup_wizard/resources/setup_wizard.rc \
+            trusttunnel/include/vpn/trusttunnel/version.h \
+            trusttunnel/setup_wizard/src/version.rs
+          git commit -m "skipci: Automatic version increment" || echo "No changes to commit"
+          git push
+
+  trigger-after-increment-version:
+    name: Trigger after version increment actions
+    needs: increment-version
+    runs-on: [team-corelibs]
+    permissions:
+      contents: write
+    steps:
+      - name: Trigger dependent workflows
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'After increment version',
+            })
