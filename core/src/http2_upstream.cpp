@@ -424,7 +424,7 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
         const VpnError *sock_event = (VpnError *) data;
 
         if (upstream->m_cert_verify_failed) {
-            log_upstream(upstream, dbg, "Error on HTTP session socket (certificate verification failed): {} ({})",
+            log_upstream(upstream, warn, "Error on HTTP session socket (certificate verification failed): {} ({})",
                     sock_event->text, sock_event->code);
             upstream->close_session_inner(VpnError{VPN_EC_CERTIFICATE_VERIFICATION_FAILED, sock_event->text});
         } else {
@@ -821,13 +821,22 @@ int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *cert = X509_STORE_CTX_get0_cert(store_ctx);
     auto *chain = X509_STORE_CTX_get0_untrusted(store_ctx);
     auto *ssl = (SSL *) X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-    int ret = self->vpn->parameters.cert_verify_handler.func(
-            !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
-                    ? self->vpn->upstream_config.endpoint->remote_id
-                    : self->vpn->upstream_config.endpoint->name,
+
+    const char *host_name = !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
+            ? self->vpn->upstream_config.endpoint->remote_id
+            : self->vpn->upstream_config.endpoint->name;
+
+    int ret = self->vpn->parameters.cert_verify_handler.func(host_name,
             (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl, VT_ENDPOINT},
             self->vpn->parameters.cert_verify_handler.arg);
     self->m_cert_verify_failed = (ret != 1);
+
+    if (ret != 1) {
+        log_upstream(self, warn, "HTTP/2 certificate verification failed for host '{}'", host_name);
+        log_upstream(self, dbg, "  {}", tls_get_cert_diagnostic_info(cert, chain));
+    } else {
+        log_upstream(self, trace, "Certificate verification succeeded for host '{}'", host_name);
+    }
     return ret;
 }
 
