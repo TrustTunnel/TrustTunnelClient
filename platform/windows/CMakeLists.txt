@@ -52,3 +52,4 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 link_libraries(vpn_easy_a)
 
 add_unit_test(vpn_easy_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(vpn_easy_ring_buffer_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
