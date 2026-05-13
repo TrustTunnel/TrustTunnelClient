@@ -334,12 +334,14 @@ static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
 }
 
 int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logfile_path_, const wchar_t *pipe_name_,
-        const wchar_t *name, const wchar_t *display_name, const wchar_t *description) {
+        const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
+        const wchar_t *ring_buffer_path_) {
     std::wstring image_path = escape(image_path_, L"\"", L'\\');
     std::wstring logfile_path = escape(logfile_path_, L"\"", L'\\');
     std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
+    std::wstring ring_buffer_path = escape(ring_buffer_path_, L"\"", L'\\');
 
-    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\"", image_path, logfile_path, pipe_name);
+    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\" \"{}\"", image_path, logfile_path, pipe_name, ring_buffer_path);
 
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE)};
     if (!scm) {

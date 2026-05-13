@@ -79,17 +79,19 @@ typedef enum {
  * description of `VpnEasyServiceMessageType` enumeration. Anyone can read/write from/to the pipe.
  * @param image_path The absolute path to the `vpn_easy_service` executable.
  * @param logfile_path The absolute path to the service's log file. Will be created if doesn't exist.
- * @param name The service name. At most 256 characters.
  * @param pipe_name The name for the named pipe used to communicate with the service.
  *                  A string of at most 256 characters of the form: "\\.\pipe\<pipename>", where "<pipename>"
  *                  can include any character except the backslash.
+ * @param name The service name. At most 256 characters.
  * @param display_name The display name to be used by user interface programs to identify the service.
  *                     At most 256 characters.
  * @param description A comment that explains the purpose of the service.
+ * @param ring_buffer_path The absolute path to the persistent ring buffer file for connection info storage.
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
 WIN_EXPORT int32_t vpn_easy_service_install(const wchar_t *image_path, const wchar_t *logfile_path,
-        const wchar_t *pipe_name, const wchar_t *name, const wchar_t *display_name, const wchar_t *description);
+        const wchar_t *pipe_name, const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
+        const wchar_t *ring_buffer_path);
 
 /**
  * Stop and delete the VPN service named `name`. This function requires administrator privileges. The service is
