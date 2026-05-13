@@ -14,6 +14,7 @@
 
 #include "common/system_error.h"
 #include "vpn/trusttunnel/connection_info.h"
+#include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
 #include "vpn_easy_pipe.h"
 
@@ -25,6 +26,8 @@ static std::wstring g_pipe_name;
 static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static vpn_easy_t *g_vpn;
+static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
+static std::string g_ring_buffer_path;
 
 /// Send a `VPN_EASY_SVC_MSG_STATE_CHANGED` message with the given state value.
 static void send_state(PipeServer &server, int32_t state) {
@@ -52,6 +55,10 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
                 [](void *arg, void *connection_info) {
                     std::string json =
                             ag::ConnectionInfo::to_json(static_cast<ag::VpnConnectionInfoEvent *>(connection_info));
+                    // Persist to ring buffer if configured
+                    if (g_ring_buffer.has_value()) {
+                        g_ring_buffer->append(json);
+                    }
                     static_cast<PipeServer *>(arg)->send(VPN_EASY_SVC_MSG_CONNECTION_INFO,
                             {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
                 },
@@ -127,7 +134,7 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
 }
 
 int wmain(int argc, wchar_t **argv) {
-    if (argc != 3) {
+    if (argc != 4) {
         return 1;
     }
 
@@ -139,6 +146,16 @@ int wmain(int argc, wchar_t **argv) {
     ag::Logger::set_log_level(ag::LOG_LEVEL_INFO);
 
     g_pipe_name = argv[2];
+
+    {
+        int len = WideCharToMultiByte(CP_UTF8, 0, argv[3], -1, nullptr, 0, nullptr, nullptr);
+        if (len <= 0) {
+            return 1;
+        }
+        g_ring_buffer_path.assign(len - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, argv[3], -1, g_ring_buffer_path.data(), len, nullptr, nullptr);
+        g_ring_buffer.emplace(g_ring_buffer_path);
+    }
 
     wchar_t svc_name[] = L"";
     SERVICE_TABLE_ENTRYW start_table[] = {
