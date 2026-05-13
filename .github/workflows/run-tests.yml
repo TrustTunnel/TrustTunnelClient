@@ -11,9 +11,6 @@ on:
       - master
       - 'stable-*'
       - 'dev-*'
-    paths-ignore:
-      - '**/README.md'
-      - 'bamboo-specs/**'
   pull_request:
   workflow_dispatch:
 
