@@ -1,0 +1,51 @@
+name: Upload conan recipes
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - After increment version
+
+jobs:
+  upload-conan-recipes:
+    name: Upload conan recipes
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: conan-artifactory
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+      - ephemeral-limit-disk-gb-70
+    container:
+      image: adguard/core-libs:2.9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Export and upload Conan recipes
+        run: |
+          set -x
+          set -e
+
+          python3 -m pip install conan --upgrade
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+          # Export packages
+          cd scripts
+          python3 -m pip install -r requirements.txt
+          ./conan_export.py
+
+          # Upload to Conan
+          conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
+          conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
+          echo "conan upload finished"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          conan remove -c "*" || true
+          conan cache clean || true
