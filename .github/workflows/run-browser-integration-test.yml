@@ -37,7 +37,7 @@ jobs:
           vpn-libs/integration-tests/build_client.sh
 
       - name: Upload client binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trusttunnel_client
           path: output/trusttunnel_client
@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download client binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: trusttunnel_client
           path: output
@@ -101,7 +101,7 @@ jobs:
           fi
 
       - name: Upload logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: browser-test-logs

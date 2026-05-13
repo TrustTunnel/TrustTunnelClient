@@ -66,7 +66,7 @@ jobs:
           ctest -D ExperimentalTest --no-compress-output --output-on-failure
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-linux-private
@@ -129,7 +129,7 @@ jobs:
         shell: powershell
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-windows-private
@@ -182,7 +182,7 @@ jobs:
           ctest -D ExperimentalTest --no-compress-output --output-on-failure
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-macos-private
@@ -211,7 +211,7 @@ jobs:
       !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -310,7 +310,7 @@ jobs:
       !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -406,7 +406,7 @@ jobs:
       !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
