@@ -8,8 +8,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include "vpn/vpn_easy.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
+#include "vpn/vpn_easy.h"
 
 namespace {
 
@@ -49,7 +49,9 @@ TEST_F(RingBufferTest, ReadAllEmptyFile) {
     bool called = false;
     vpn_easy_read_all_connection_info(
             m_path.c_str(),
-            [](void *arg, const char * /*json*/) { *static_cast<bool *>(arg) = true; },
+            [](void *arg, const char * /*json*/) {
+                *static_cast<bool *>(arg) = true;
+            },
             &called);
     EXPECT_FALSE(called);
 }
@@ -84,7 +86,9 @@ TEST_F(RingBufferTest, ReadAllCorruptedFileClears) {
     bool called = false;
     vpn_easy_read_all_connection_info(
             m_path.c_str(),
-            [](void *arg, const char * /*json*/) { *static_cast<bool *>(arg) = true; },
+            [](void *arg, const char * /*json*/) {
+                *static_cast<bool *>(arg) = true;
+            },
             &called);
     EXPECT_FALSE(called);
 

@@ -11,11 +11,8 @@ void state_changed_handler(void *arg, int state) {
 }
 } // namespace
 
-NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher,
-                             FlutterCallbacks &&callbacks,
-                             std::string ring_buffer_path,
-                             std::wstring service_name,
-                             std::wstring pipe_name)
+NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
+        std::string ring_buffer_path, std::wstring service_name, std::wstring pipe_name)
         : m_callbacks(std::move(callbacks))
         , m_dispatcher(dispatcher)
         , m_ring_buffer_path(std::move(ring_buffer_path))
@@ -67,14 +64,9 @@ std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
     std::wstring log_path = exe_dir / L"vpn_easy_service.log";
     std::wstring ring_buffer_path_w(m_ring_buffer_path.begin(), m_ring_buffer_path.end());
 
-    int32_t install_result = vpn_easy_service_install(
-            service_exe.c_str(),
-            log_path.c_str(),
-            m_pipe_name.c_str(),
-            m_service_name.c_str(),
-            L"TrustTunnel VPN Service",
-            L"Provides VPN connectivity for the TrustTunnel client.",
-            ring_buffer_path_w.c_str());
+    int32_t install_result = vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(),
+            m_service_name.c_str(), L"TrustTunnel VPN Service",
+            L"Provides VPN connectivity for the TrustTunnel client.", ring_buffer_path_w.c_str());
 
     if (install_result != 0 && install_result != VPN_EASY_SVC_ERR_SERVICE_EXISTS) {
         warnlog(m_logger, "Failed to install VPN service: {}", install_result);
@@ -82,9 +74,7 @@ std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
     }
 
     int32_t start_result = vpn_easy_service_start(
-            m_service_name.c_str(),
-            m_pipe_name.c_str(),
-            config.c_str(),
+            m_service_name.c_str(), m_pipe_name.c_str(), config.c_str(),
             [](void *arg, int state) {
                 static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
             },

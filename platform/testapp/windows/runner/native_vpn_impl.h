@@ -1,19 +1,16 @@
 #pragma once
 #include <common/logger.h>
 
-#include <string>
 #include <memory>
+#include <string>
 
 #include "pigeon/native_communication.h"
 #include "ui_thread_dispatcher.h"
 
 class NativeVpnImpl : public NativeVpnInterface {
 public:
-    NativeVpnImpl(IUIThreadDispatcher *dispatcher,
-                  FlutterCallbacks &&callbacks,
-                  std::string ring_buffer_path,
-                  std::wstring service_name,
-                  std::wstring pipe_name);
+    NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks, std::string ring_buffer_path,
+            std::wstring service_name, std::wstring pipe_name);
     ~NativeVpnImpl() override;
 
     std::optional<FlutterError> Start(const std::string &config) override;

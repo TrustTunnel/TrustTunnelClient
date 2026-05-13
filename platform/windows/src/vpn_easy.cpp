@@ -369,7 +369,8 @@ int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logf
     std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
     std::wstring ring_buffer_path = escape(ring_buffer_path_, L"\"", L'\\');
 
-    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\" \"{}\"", image_path, logfile_path, pipe_name, ring_buffer_path);
+    std::wstring cmd =
+            fmt::format(L"\"{}\" \"{}\" \"{}\" \"{}\"", image_path, logfile_path, pipe_name, ring_buffer_path);
 
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE)};
     if (!scm) {
@@ -511,8 +512,8 @@ static int32_t map_scm_error(const char *func_name) {
 }
 
 int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_name, const char *toml_config,
-        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
-        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg, on_connection_info_json_t connection_info_cb,
+        void *connection_info_cb_arg) {
     std::scoped_lock lock{g_svc_state.mutex};
 
     if (g_svc_state.pipe_client) {

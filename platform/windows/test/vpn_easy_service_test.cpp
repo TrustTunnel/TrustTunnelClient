@@ -37,15 +37,13 @@ static int32_t install_service(const wchar_t *ring_buffer_path) {
     auto image = absolute(std::filesystem::path(".") / "vpn_easy_service.exe").wstring();
     auto logfile = absolute(std::filesystem::path(".") / "vpn_easy_service.log").wstring();
 
-    int32_t ret = vpn_easy_service_install(
-            image.c_str(), logfile.c_str(), PIPE_NAME, SERVICE_NAME, L"VPN easy service", L"Test description",
-            ring_buffer_path);
+    int32_t ret = vpn_easy_service_install(image.c_str(), logfile.c_str(), PIPE_NAME, SERVICE_NAME, L"VPN easy service",
+            L"Test description", ring_buffer_path);
     if (ret == VPN_EASY_SVC_ERR_SERVICE_EXISTS) {
         fmt::println(stderr, "Service already exists, uninstalling first...");
         vpn_easy_service_uninstall(SERVICE_NAME);
-        ret = vpn_easy_service_install(
-                image.c_str(), logfile.c_str(), PIPE_NAME, SERVICE_NAME, L"VPN easy service", L"Test description",
-                ring_buffer_path);
+        ret = vpn_easy_service_install(image.c_str(), logfile.c_str(), PIPE_NAME, SERVICE_NAME, L"VPN easy service",
+                L"Test description", ring_buffer_path);
     }
     return ret;
 }
@@ -84,8 +82,8 @@ static int test_start_stop() {
     }
 
     fmt::println(stderr, "Starting service...");
-    int32_t ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr,
-            nullptr, nullptr);
+    int32_t ret = vpn_easy_service_start(
+            SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr, nullptr, nullptr);
     if (ret) {
         fmt::println(stderr, "vpn_easy_service_start: {}", ret);
         return -1;
@@ -122,8 +120,7 @@ static int test_full_lifecycle() {
     }
 
     fmt::println(stderr, "Starting VPN via service...");
-    ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr,
-            nullptr, nullptr);
+    ret = vpn_easy_service_start(SERVICE_NAME, PIPE_NAME, config.c_str(), state_changed_cb, nullptr, nullptr, nullptr);
     if (ret) {
         fmt::println(stderr, "vpn_easy_service_start: {}", ret);
         vpn_easy_service_uninstall(SERVICE_NAME);
