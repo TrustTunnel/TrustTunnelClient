@@ -1,0 +1,49 @@
+name: Setup workflows for public repository
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  disable-private-workflows:
+    name: Disable workflows with private uses
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Disable workflows with private uses
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          # Get all workflow states once
+          gh workflow list -a --json path,state | jq -c '.[]' | while read -r entry; do
+            path=$(echo "$entry" | jq -r '.path')
+            state=$(echo "$entry" | jq -r '.state')
+
+            # Skip non-local workflows (e.g., dynamic/github-code-scanning/codeql)
+            [ -f "$path" ] || continue
+
+            # Match uses: as a YAML key (at line start with indentation)
+            if grep -Eq '^\s+uses:.*AdGuardSoftwareLimited' "$path"; then
+              workflow_name=$(basename "$path")
+              echo "Found private uses in: $workflow_name"
+
+              if [ "$state" = "active" ]; then
+                echo "  Disabling workflow"
+                gh workflow disable "$workflow_name"
+              else
+                echo "  Already disabled (state: $state), skipping"
+              fi
+            fi
+          done
