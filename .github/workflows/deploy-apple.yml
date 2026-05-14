@@ -31,7 +31,7 @@ jobs:
       - name: Detect version
         id: version
         run: |
-          VERSION=$(grep "[0-9]*\.[0-9]*\." conandata.yml | tail -1 | sed "s/\"//" | sed "s/\"\://" | sed "s/ //g")
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build xcframeworks
