@@ -1,17 +1,34 @@
-# CHANGELOG
+# Changelog
 
-## 1.0.63
+All notable changes to this project will be documented in this file.
 
-- [Feature] Add `tcp_recv_buf_size` and `tcp_send_buf_size` options to `[listener.tun]` section.
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Removed
+
+## [1.0.63] - 2026-05-04
+
+### Added
+
+- Add `tcp_recv_buf_size` and `tcp_send_buf_size` options to `[listener.tun]` section.
             These allow tuning TCP window and send buffer sizes per connection.
             Default (0) uses optimized compile-time values (256 KB each). Adjust only for
             constrained environments or specific network conditions.
-- [Feature] Add periodic heap trimming to reduce RSS after traffic bursts.
+- Add periodic heap trimming to reduce RSS after traffic bursts.
             Frees fragmented heap pages back to the OS, preventing memory growth over long sessions.
 
-## 1.0.62
+## [1.0.62] - 2026-04-30
 
-- [Feature] Improve control over TUN device configuration.
+### Added
+
+- Improve control over TUN device configuration.
     - Add `device_name` field that controls the TUN interface name on Linux, the requested `utun<N>` unit on macOS,
       and the Wintun adapter name on Windows.
     - Add `use_existing` boolean field that allows opening an existing TUN device specified by `device_name`. Linux only.
@@ -20,128 +37,181 @@
     - Remove the Windows-specific `adapter_name` configuration field; Windows adapter naming is now configured via
       `device_name`.
 
-## 1.0.56
+## [1.0.56] - 2026-04-28
 
-- [Feature] Add wildcard port syntax (`*:port`) to `VpnSettings::exclusions`.
+### Added
+
+- Add wildcard port syntax (`*:port`) to `VpnSettings::exclusions`.
             Any connection to the specified port is matched regardless of the destination address.
 
-## 1.0.49
+## [1.0.49] - 2026-04-09
 
-- [Fix] Protect service socket for DNS query forwarding with securely generated password #62
+### Fixed
 
-## 1.0.45
+- Protect service socket for DNS query forwarding with securely generated password #62
 
-- [Feature] Support importing DNS upstreams and server name from deep-link.
+## [1.0.45] - 2026-04-07
+
+### Added
+
+- Support importing DNS upstreams and server name from deep-link.
             The `dns_upstreams` field is moved to `[endpoint]` section.
             For backward compatibility, `dns_upstreams` in the root config section is still supported for old configs.
 
-## 1.0.18
+## [1.0.18] - 2026-03-04
 
-Added support for updated `tt://?` deep-link format.
+### Changed
 
-## 1.0.9
+- Added support for updated `tt://?` deep-link format.
 
-- [Feature] Support [deep-link](https://github.com/TrustTunnel/TrustTunnel/blob/master/DEEP_LINK.md) config import.
+## [1.0.9] - 2026-02-25
+
+### Added
+
+- Support [deep-link](https://github.com/TrustTunnel/TrustTunnel/blob/master/DEEP_LINK.md) config import.
     - Add `--deeplink` flag to setup_wizard non-interactive mode.
     - Add an interactive menu option to import config from a deep-link.
 
-## 1.0.6
+## [1.0.6] - 2026-02-18
 
-- [Feature] Support hostnames in endpoint addresses. Hostnames are resolved via DNS at connect time,
+### Added
+
+- Support hostnames in endpoint addresses. Hostnames are resolved via DNS at connect time,
             producing multiple endpoints for each resolved IP address.
 
-## 1.0.3
+## [1.0.3] - 2026-02-17
 
-- [Feature] Add `custom_sni` field to the endpoint configuration.
+### Added
+
+- Add `custom_sni` field to the endpoint configuration.
   This allows specifying the TLS SNI value separately from the hostname, replacing the
   pipe (`|`) syntax in the `hostname` field. The old syntax is still supported for backward compatibility,
   but using both simultaneously is now an error.
 
-## 0.99.118
+## [0.99.118] - 2026-02-13
 
-- [Feature] Add a new error code, `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, indicating that an endpoint's certificate
+### Added
+
+- Add a new error code, `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, indicating that an endpoint's certificate
             could not be verified. This is a recoverable error which may be handled by re-requesting information from
             the backend and reconnecting, similar to codes `VPN_EC_AUTH_REQUIRED` and `VPN_EC_LOCATION_UNAVAILABLE`.
 
-## 0.99.108
+## [0.99.108] - 2026-02-05
 
-- [Fix] Fixed segfault when running on FreshTomato-RT-AC66U MIPS firmware
+### Fixed
 
-## 0.99.104
+- Fixed segfault when running on FreshTomato-RT-AC66U MIPS firmware
 
-- [Feature] Add GPG signing for TrustTunnel executables.
+## [0.99.104] - 2026-02-03
 
-## 0.99.102
+### Added
 
-- Post-quantum cryptography is now enabled by default
-- [Feature] Add functions to get default VPN settings and free allocated resources.
+- Add GPG signing for TrustTunnel executables.
+
+## [0.99.102] - 2026-02-01
+
+### Added
+
+- Add functions to get default VPN settings and free allocated resources.
     - See `vpn_get_default_settings` and `vpn_free_default_settings`.
 
-## 0.99.96
+### Changed
 
-- [Fix] [Windows] Fixed certificate validation failing with `WCRYPT_E_POLICY_STATUS` error.
+- Post-quantum cryptography is now enabled by default
 
-## 0.99.93
+## [0.99.96] - 2026-01-27
 
-- [Fix] Fixed setup_wizard architecture in Linux builds #5
+### Fixed
 
-## 0.99.92
+- [Windows] Fixed certificate validation failing with `WCRYPT_E_POLICY_STATUS` error.
 
-- [Feature] Added prebuilt trusttunnel_client binaries for Windows
+## [0.99.93] - 2026-01-23
 
-## 0.99.63
+### Fixed
 
-- [Features] Add option to allow inbound connections to the specified UDP/TCP ports when
+- Fixed setup_wizard architecture in Linux builds #5
+
+## [0.99.92] - 2026-01-22
+
+### Added
+
+- Added prebuilt trusttunnel_client binaries for Windows
+
+## [0.99.63] - 2025-12-16
+
+### Added
+
+- Add option to allow inbound connections to the specified UDP/TCP ports when
   `ag::VpnWinTunnelSettings::block_untunneled` is enabled.
     - See `ag::VpnWinTunnelSettings::block_untunneled_exclude_ports`.
 
-## 0.95.31
+## [0.95.31] - 2025-06-27
 
-- [Feature] IPv6 support must now be explicitly specified on each `VpnEndpoint`. Previously, the library assumed
+### Added
+
+- IPv6 support must now be explicitly specified on each `VpnEndpoint`. Previously, the library assumed
   that all endpoints in a location have IPv6 support if any of the endpoints in a location had an IPv6 address.
     - See `VpnEndpoint::has_ipv6`.
 
-## 0.94.7
+## [0.94.7] - 2024-12-24
 
-- [Feature] Add an option to use a post-quantum group for key exchange in TLS handshakes.
+### Added
+
+- Add an option to use a post-quantum group for key exchange in TLS handshakes.
     - See `vpn_post_quantum_group_set_enabled`.
 
-## 0.93.28
+## [0.93.28] - 2024-09-24
+
+### Changed
 
 - Handler profiling is now disabled by default.
 
-## 0.93.18
+## [0.93.18] - 2024-09-17
 
-- [Feature] Add an option to profile VPN handler execution: if enabled, a warning will be written to the log
+### Added
+
+- Add an option to profile VPN handler execution: if enabled, a warning will be written to the log
   whenever a handler call is taking too long. Profiling is enabled by default. Applications might want to disable
   it when running in production.
     - See `ag::vpn_handler_profiling_set_enabled`.
 
-## 0.92.182
+## [0.92.182] - 2024-02-19
 
-- [Feature] The library now notify an application with information about connection. This event contain info
+### Added
+
+- The library now notify an application with information about connection. This event contain info
 about source ip, destination (ip, domain or both), transport protocol and action (bypass/tunnel).
 For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEvent`.
 
-## 0.92.115
+## [0.92.115] - 2023-10-03
+
+### Changed
 
 - Added a new `VpnConnectAction`: `VPN_CA_REJECT`.
 
-## 0.92.107
+## [0.92.107] - 2023-09-22
+
+### Changed
 
 - Added `VpnConnectedInfo::relay_address`.
 
-## 0.92.100
+## [0.92.100] - 2023-09-19
+
+### Changed
 
 - Added `VpnEndpoint::remote_id`. See the field's doc for details.
 
-## 0.92.94
+## [0.92.94] - 2023-09-13
+
+### Changed
 
 - Changes in pinging behaviour.
     - See the updated doc comments for the fields of `LocationsPingerInfo` and `PingInfo`, `locations_pinger_start`, `ping_start` for details.
     - The pinging timeout is now per connection attempt, NOT for the whole pinging procedure. Applications may need to adjust.
 
-## 0.92.90
+## [0.92.90] - 2023-09-08
+
+### Changed
 
 - Changes in pinging and locations API.
     - Removed `VpnUpstreamConfig::relay_addresses` and `LocationsPingerInfo::relay_address`.
@@ -151,9 +221,11 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
     - The documentation for `ag::locations_pinger_start` has been updated to include a note about how
       the location's relay addresses are used by the pinger.
 
-## 0.92.88
+## [0.92.88] - 2023-09-06
 
-- [Feature] Support connecting to endpoints through a set of SNI proxies.
+### Added
+
+- Support connecting to endpoints through a set of SNI proxies.
     - `VpnUpstreamConfig::relay_addresses` can now be specified when connecting to a location.
       The client shall try using one of the relay addresses to connect to an endpoint if it's unavailable
       on its normal address. The client shall automatically disqualify relay addresses that don't work.
@@ -164,34 +236,46 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
     - `LocationsPinger` will now send ClientHello/QUIC Initial to "ping" the endpoints.
     - `LocationsPinger::anti_dpi` can now be specified to enable or disable anti-DPI measures during pinging.
 
-## 0.92.74
+## [0.92.74] - 2023-08-14
 
-- [Feature] The library now notifies an application about the amount of traffic passed through
+### Added
+
+- The library now notifies an application about the amount of traffic passed through
   connections that have been routed through an endpoint.
   For this purpose, two events were introduced in `VpnEvent`:
     - `VPN_EVENT_TUNNEL_CONNECTION_STATS` - raised only for connections that have been routed through
     an endpoint,
     - `VPN_EVENT_TUNNEL_CONNECTION_CLOSED` - raised for any user connection.
 
-## 0.92.46
+## [0.92.46] - 2023-06-20
 
-- [Feature] The library now accepts CIDR range in exclusion list.
+### Added
 
-## 0.92.28
+- The library now accepts CIDR range in exclusion list.
+
+## [0.92.28] - 2023-04-19
+
+### Changed
 
 - Removed `vpn_network_manager_update_tun_interface_dns()` as redundant.
 
-## 0.92.23
+## [0.92.23] - 2023-04-07
+
+### Changed
 
 - The library now accepts a list of DNS upstreams instead of a single one.
     - `dns_upsteam` field of `VpnListenerConfig` renamed to `dns_upsteams`.
     - `dns_upsteam` field removed from `VpnDnsUpstreamUnavailableEvent`.
 
-## 0.92.11
+## [0.92.11] - 2023-03-07
 
-- [Feature] `h3://` scheme is now allowed for DNS upstream.
+### Added
 
-## 0.91.88
+- `h3://` scheme is now allowed for DNS upstream.
+
+## [0.91.88] - 2023-02-14
+
+### Changed
 
 - DNS queries are now routed according to VPN settings. I.e., queries with domains
   matching exclusions are routed directly to the target resolver in the general mode,
@@ -202,48 +286,66 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
   interface for I/O operations - `vpn_network_manager_set_outbound_interface()`.
     - [Windows] Use the method above instead of the removed `vpn_win_set_bound_if()`.
 
-## 0.91.82
+## [0.91.82] - 2023-01-19
 
-- [Fix] Introduced an error code indicating that no connection attempts left
+### Fixed
+
+- Introduced an error code indicating that no connection attempts left
   after initial connect() call `VPN_EC_INITIAL_CONNECT_FAILED`.
 
-## 0.91.45
+## [0.91.45] - 2022-11-09
 
-- [Changed] `Location unavailable` semantics:
+### Changed
+
+- `Location unavailable` semantics:
     - It is now considered as a fatal error, i.e. the client goes in the disconnected state.
     It is up to application to refresh a location data and restart the client.
     - It is now raised only after the client receives the abandon command.
     It is up to application to detect infinite recovery loop in case there are some
     connectivity issues.
-- [Changed] [Windows] `vpn_abandon_endpoint()` now takes an endpoint as a parameter
+- [Windows] `vpn_abandon_endpoint()` now takes an endpoint as a parameter
 
-## 0.91.20
+## [0.91.20] - 2022-10-18
 
-- [Changed] [Windows] Calling `vpn_win_set_bound_if()` now turns off the socket protection instead of
+### Changed
+
+- [Windows] Calling `vpn_win_set_bound_if()` now turns off the socket protection instead of
   detecting an active network interface by itself. It's up to the application to call the new method
   `vpn_win_detect_active_if()` and pass its result to `vpn_win_set_bound_if()` to activate the socket
   protection.
 
-## 0.91.10
+## [0.91.10] - 2022-10-07
 
-- [Feature] Added Wintun support. Dll downloaded from www.wintun.net is needed for standalone_client to run under Windows.
+### Added
 
-## 0.90.15
+- Added Wintun support. Dll downloaded from www.wintun.net is needed for standalone_client to run under Windows.
 
-- [Feature] Route QUIC connections according to the VPN mode instead of always dropping or redirecting them
+## [0.90.15] - 2022-08-17
 
-## 0.90.13
+### Added
 
-- [Fix] Fix leaks and memory bugs in `tls_serialize_cert_chain`, `tls_free_serialized_chain`. Add tests.
+- Route QUIC connections according to the VPN mode instead of always dropping or redirecting them
 
-## 0.90.12
+## [0.90.13] - 2022-08-05
 
-- [Fix] Change signature of some exported functions to be more consistent with the rest and simpler for C# bindings.
+### Fixed
 
-## 0.90.6
+- Fix leaks and memory bugs in `tls_serialize_cert_chain`, `tls_free_serialized_chain`. Add tests.
 
-- [Fix] Fix version increment script.
+## [0.90.12] - 2022-08-04
 
-## 0.90.4
+### Fixed
 
-- [Feature] VpnLibs is now open-source.
+- Change signature of some exported functions to be more consistent with the rest and simpler for C# bindings.
+
+## [0.90.6] - 2022-08-03
+
+### Fixed
+
+- Fix version increment script.
+
+## [0.90.4] - 2022-08-02
+
+### Added
+
+- VpnLibs is now open-source.
