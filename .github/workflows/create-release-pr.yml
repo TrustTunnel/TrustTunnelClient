@@ -1,0 +1,119 @@
+name: Create release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      semver_part:
+        description: 'Version part to increment'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-release-pr:
+    name: Create release PR
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Calculate new version
+        id: version
+        run: |
+          set -e
+
+          # Get the latest version from CHANGELOG.md (first non-Unreleased version)
+          CURRENT_VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Could not find current version in CHANGELOG.md"
+            exit 1
+          fi
+
+          echo "Current version: $CURRENT_VERSION"
+
+          # Parse version parts
+          MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
+
+          # Increment the appropriate part
+          case "${{ inputs.semver_part }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION"
+
+          echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update CHANGELOG.md
+        run: |
+          python3 scripts/update_changelog.py "${{ steps.version.outputs.new }}" "$(date +%Y-%m-%d)"
+
+      - name: Run set_version script
+        run: |
+          chmod +x scripts/set_version.sh
+          scripts/set_version.sh "${{ steps.version.outputs.new }}"
+
+      - name: Create branch and commit
+        id: branch
+        run: |
+          set -e
+
+          NEW_VERSION="${{ steps.version.outputs.new }}"
+          BRANCH_NAME="release/v${NEW_VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@adguard.com"
+
+          git checkout -b "$BRANCH_NAME"
+          git add -A
+          git commit -m "Release v${NEW_VERSION}"
+          git push origin ":$BRANCH_NAME" || true  # Delete remote branch if it already exists
+          git push origin "$BRANCH_NAME"
+
+          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PR_WRITE_TOKEN }}
+          script: |
+            const newVersion = '${{ steps.version.outputs.new }}';
+            const branchName = '${{ steps.branch.outputs.branch }}';
+            const baseBranch = context.ref.replace('refs/heads/', '');
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release v${newVersion}`,
+              head: branchName,
+              base: baseBranch,
+              body: `## Release v${newVersion}\n\nThis PR was automatically created by the release workflow.\n\n### Changes\n- Updated CHANGELOG.md\n- Bumped version to ${newVersion}\n\n### Checklist\n- [ ] Review CHANGELOG.md entries\n- [ ] Verify version bump is correct`
+            });
+
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
