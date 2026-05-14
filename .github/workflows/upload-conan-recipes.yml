@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types:
-      - After increment version
+      - After auto-tag
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   upload-conan-recipes:
@@ -36,16 +39,9 @@ jobs:
 
           # Export packages
           cd scripts
-          python3 -m pip install -r requirements.txt
           ./conan_export.py
 
           # Upload to Conan
           conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
           conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
           echo "conan upload finished"
-
-      - name: Cleanup
-        if: always()
-        run: |
-          conan remove -c "*" || true
-          conan cache clean || true

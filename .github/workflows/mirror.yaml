@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types:
-      - After increment version
+      - After auto-tag
 
 jobs:
   mirror:
