@@ -217,7 +217,7 @@ jobs:
       - name: Build and package
         env:
           CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
-          ARTIFACTORY_HOSTNAME: ${{ vars.ARTIFACTORY_HOSTNAME }}
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -250,7 +250,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 
           # Download Wintun
-          $wintunUrl = "https://$Env:ARTIFACTORY_HOSTNAME/artifactory/adguard-pods/binaries/wintun-0.14.1.zip"
+          $wintunUrl = "$Env:ARTIFACTORY_URL/adguard-pods/binaries/wintun-0.14.1.zip"
           $wintunZip = Join-Path $PWD 'wintun-0.14.1.zip'
           Invoke-WebRequest -Uri $wintunUrl -OutFile $wintunZip
           Expand-Archive -Force -Path $wintunZip -DestinationPath 'wintun'
