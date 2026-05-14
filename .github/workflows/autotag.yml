@@ -1,0 +1,97 @@
+name: Check CHANGELOG and auto-tag
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable-*'
+
+permissions:
+  contents: write
+
+jobs:
+  autotag:
+    name: Check CHANGELOG and auto-tag
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    outputs:
+      tagged: ${{ steps.detect.outputs.should_tag }}
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Detect new version in CHANGELOG
+        id: detect
+        run: |
+          set -e
+
+          # Get the diff of CHANGELOG.md from the latest commit
+          DIFF=$(git diff HEAD~1 HEAD -- CHANGELOG.md || true)
+
+          if [ -z "$DIFF" ]; then
+            echo "No changes to CHANGELOG.md"
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Look for a new version header being added (lines starting with +## [X.Y.Z])
+          # Exclude [Unreleased]
+          NEW_VERSION=$(echo "$DIFF" | grep -E '^\+## \[[0-9]+\.[0-9]+\.[0-9]+\]' | head -1 | sed -E 's/^\+## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/' || true)
+
+          if [ -z "$NEW_VERSION" ]; then
+            echo "No new version found in CHANGELOG.md diff"
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Found new version: $NEW_VERSION"
+
+          # Verify this version is the latest (first non-Unreleased version) in CHANGELOG.md
+          LATEST_VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+
+          if [ "$NEW_VERSION" != "$LATEST_VERSION" ]; then
+            echo "New version $NEW_VERSION is not the latest version in CHANGELOG.md (latest is $LATEST_VERSION)"
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if tag already exists
+          if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
+            echo "Tag v$NEW_VERSION already exists"
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Will create tag v$NEW_VERSION"
+          echo "should_tag=true" >> "$GITHUB_OUTPUT"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.detect.outputs.should_tag == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@adguard.com"
+          git tag -a "v${{ steps.detect.outputs.version }}" -m "Release ${{ steps.detect.outputs.version }}"
+          git push origin "v${{ steps.detect.outputs.version }}"
+          echo "Successfully created and pushed tag v${{ steps.detect.outputs.version }}"
+
+  trigger-after-auto-tag:
+    name: Trigger after auto-tag actions
+    needs: autotag
+    if: needs.autotag.outputs.tagged == 'true'
+    runs-on: [team-corelibs]
+    permissions:
+      contents: write
+    steps:
+      - name: Trigger upload-conan-recipes workflow
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'After auto-tag',
+            })
