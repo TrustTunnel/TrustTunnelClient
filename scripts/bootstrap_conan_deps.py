@@ -83,13 +83,6 @@ try:
 
     for v in nlc_versions:
         subprocess.run(["git", "checkout", "master"], check=True)
-        try:
-            subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
-        except:
-            if v in nlc_versions:
-                raise
-            else:
-                # Some native_libs_common versions have broken Conan recipes: ignore them.
-                continue
+        subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
 finally:
     remove_dir_if_exists(nlc_dir)
