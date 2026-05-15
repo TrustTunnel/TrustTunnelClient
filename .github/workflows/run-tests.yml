@@ -28,18 +28,19 @@ jobs:
       - ephemeral
       - ephemeral-linux
       - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
-      - ephemeral-limit-memory-8192
+      - ephemeral-limit-memory-12288
       - ephemeral-limit-cpu-6
-      - ephemeral-limit-disk-gb-70
     container:
       image: adguard/core-libs:2.9
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Configure Conan
+      - name: Lint C++
         run: |
-          # Install matching clangd from container's LLVM
+          set -e
+          set -x
+
           LLVM_MAJOR_VER="$(
             for d in /usr/lib/llvm-*; do
               v="${d##*/llvm-}"
@@ -49,15 +50,12 @@ jobs:
               esac
             done | sort -n | tail -1
           )"
-          apt install -y "clangd-$LLVM_MAJOR_VER" "clang-format-$LLVM_MAJOR_VER"
+          apt install -y "clang-format-$LLVM_MAJOR_VER" "clang-tidy-$LLVM_MAJOR_VER" "clangd-$LLVM_MAJOR_VER"
 
           python3 -m pip install conan --upgrade
-          python3 -m pip install clang-format~=$CLANG_FORMAT_VER
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
-      - name: Lint C++
-        run: |
-          make lint-cpp NPROC=2
+          make lint-cpp
 
       - name: Build and run tests
         run: |
