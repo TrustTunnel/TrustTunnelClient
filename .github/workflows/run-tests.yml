@@ -39,6 +39,18 @@ jobs:
 
       - name: Configure Conan
         run: |
+          # Install matching clangd from container's LLVM
+          LLVM_MAJOR_VER="$(
+            for d in /usr/lib/llvm-*; do
+              v="${d##*/llvm-}"
+              case "$v" in
+                (*[!0-9]*|'') : ;;
+                (*) echo "$v" ;;
+              esac
+            done | sort -n | tail -1
+          )"
+          apt install -y "clangd-$LLVM_MAJOR_VER" "clang-format-$LLVM_MAJOR_VER"
+
           python3 -m pip install conan --upgrade
           python3 -m pip install clang-format~=$CLANG_FORMAT_VER
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
