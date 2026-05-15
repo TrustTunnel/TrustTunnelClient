@@ -40,6 +40,7 @@ jobs:
       - name: Configure Conan
         run: |
           python3 -m pip install conan --upgrade
+          python3 -m pip install clang-format~=$CLANG_FORMAT_VER
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
       - name: Lint C++
