@@ -1,4 +1,4 @@
-name: Setup workflows for public repository
+name: Setup workflows for repository
 
 on:
   workflow_dispatch:
@@ -38,6 +38,46 @@ jobs:
             if grep -Eq '^\s+uses:.*AdGuardSoftwareLimited' "$path"; then
               workflow_name=$(basename "$path")
               echo "Found private uses in: $workflow_name"
+
+              if [ "$state" = "active" ]; then
+                echo "  Disabling workflow"
+                gh workflow disable "$workflow_name"
+              else
+                echo "  Already disabled (state: $state), skipping"
+              fi
+            fi
+          done
+
+  disable-public-workflows:
+    name: Disable public-only workflows in private repo
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Disable public-only workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          # Get all workflow states once
+          gh workflow list -a --json path,state | jq -c '.[]' | while read -r entry; do
+            path=$(echo "$entry" | jq -r '.path')
+            state=$(echo "$entry" | jq -r '.state')
+
+            # Skip non-local workflows
+            [ -f "$path" ] || continue
+
+            # Match jobs that only run on public repo
+            if grep -Eq "github\.repository == 'TrustTunnel/" "$path" && \
+               ! grep -Eq "github\.repository == 'AdGuardSoftwareLimited/" "$path"; then
+              workflow_name=$(basename "$path")
+              echo "Found public-only workflow: $workflow_name"
 
               if [ "$state" = "active" ]; then
                 echo "  Disabling workflow"
