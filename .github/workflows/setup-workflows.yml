@@ -34,10 +34,20 @@ jobs:
             # Skip non-local workflows (e.g., dynamic/github-code-scanning/codeql)
             [ -f "$path" ] || continue
 
-            # Match uses: as a YAML key (at line start with indentation)
+            should_disable=false
+
+            # 1. Uses reusable workflows from private org
             if grep -Eq '^\s+uses:.*AdGuardSoftwareLimited' "$path"; then
+              should_disable=true
+            # 2. All jobs guard on private repo, none on public
+            elif grep -Eq "github\.repository == 'AdGuardSoftwareLimited/" "$path" && \
+                 ! grep -Eq "github\.repository == 'TrustTunnel/" "$path"; then
+              should_disable=true
+            fi
+
+            if [ "$should_disable" = "true" ]; then
               workflow_name=$(basename "$path")
-              echo "Found private uses in: $workflow_name"
+              echo "Found private-only workflow: $workflow_name"
 
               if [ "$state" = "active" ]; then
                 echo "  Disabling workflow"
