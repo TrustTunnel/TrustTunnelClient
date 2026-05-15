@@ -9,6 +9,8 @@
 #import "net/utils.h"
 #import "common/clock.h"
 #import "common/logger.h"
+#import "common/socket_address.h"
+#import "common/cidr_range.h"
 
 #import "net/network_manager.h"
 
@@ -100,8 +102,23 @@ public:
                     NSDictionary *dns_config = (__bridge_transfer NSDictionary *) SCDynamicStoreCopyValue(m_store, (__bridge CFStringRef) key);
                     NSArray *server_addresses = dns_config[@"ServerAddresses"];
                     SystemDnsServers servers{};
-                    for (NSString *serverAddress in server_addresses) {
-                        servers.main.push_back(SystemDnsServer{ .address = serverAddress.UTF8String });
+
+                    NSString *primary_ifkey = [NSString stringWithFormat:@"Setup:/Network/Service/%@/Interface", m_primary_service];
+                    NSDictionary *primary_ifconfig = (__bridge_transfer NSDictionary *) SCDynamicStoreCopyValue(
+                            m_store, (__bridge CFStringRef) primary_ifkey);
+                    const char *primary_ifname = ((NSString *) primary_ifconfig[@"DeviceName"]).UTF8String;
+                    ag::CidrRange link_local_range{"fe80::/10"};
+
+                    for (NSString *server_address in server_addresses) {
+                        if (server_address.UTF8String == nil) {
+                            continue;
+                        }
+                        servers.main.push_back(SystemDnsServer{.address = server_address.UTF8String});
+                        if (primary_ifname && link_local_range.contains(server_address.UTF8String)
+                                && strchr(server_address.UTF8String, '%') == nullptr) {
+                            servers.main.back().address += "%";
+                            servers.main.back().address += primary_ifname;
+                        }
                     }
                     vpn_network_manager_update_system_dns(servers);
                 }
