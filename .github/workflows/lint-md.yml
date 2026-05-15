@@ -13,7 +13,9 @@ on:
 jobs:
   markdown-lint:
     runs-on: ubuntu-latest
-    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    if: >
+      github.repository == 'TrustTunnel/TrustTunnelClient' &&
+      !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - uses: actions/checkout@v6
       - name: Markdown Lint
