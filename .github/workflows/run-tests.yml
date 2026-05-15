@@ -166,6 +166,13 @@ jobs:
           python3 -m pip install conan
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
+          # Ensure Rust is available (rust-toolchain.toml picks the version)
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v cargo &>/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+
           make test-rust
 
           mkdir -p build && cd build
