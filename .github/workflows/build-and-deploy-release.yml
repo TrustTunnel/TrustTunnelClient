@@ -364,24 +364,6 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      - name: Update install script and push tag
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -e -x
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@adguard.com"
-
-          sed -i -e "s/^version='[0-9\.]*'$/version='${VERSION}'/" scripts/install.sh
-          git add scripts/install.sh
-          git commit -m "Automatic increment version for install script" || true
-          TAG=v${VERSION}
-          git tag -d ${TAG} 2>/dev/null || true
-          git tag ${TAG}
-          git push origin HEAD
-          git push origin ${TAG}
-
       - name: Trigger mirror to sync tag to public repo
         uses: actions/github-script@v8
         with:

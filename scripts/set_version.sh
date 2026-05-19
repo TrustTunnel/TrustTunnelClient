@@ -15,6 +15,7 @@
 #   - trusttunnel/setup_wizard/resources/setup_wizard.rc
 #   - trusttunnel/include/vpn/trusttunnel/version.h
 #   - trusttunnel/setup_wizard/src/version.rs
+#   - scripts/install.sh
 
 set -e
 
@@ -91,5 +92,12 @@ cat > "$version_rs" << EOF
 pub const VERSION: &str = "${VERSION}";
 EOF
 echo "Updated ${version_rs}"
+
+# Install script
+install_sh="scripts/install.sh"
+if [ -f "$install_sh" ]; then
+    sed -i -e "s/^version='[0-9\.]*'$/version='${VERSION}'/" "$install_sh"
+    echo "Updated ${install_sh}"
+fi
 
 echo "Version set to $VERSION in all project files."
