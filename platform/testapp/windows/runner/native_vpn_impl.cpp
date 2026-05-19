@@ -4,12 +4,13 @@
 
 #include <filesystem>
 
-namespace {
-void state_changed_handler(void *arg, int state) {
-    auto *ctx = static_cast<NativeVpnImpl *>(arg);
-    ctx->NotifyStateChanged(state);
+static void s_notify_state_changed(void *arg, int state) {
+    static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
 }
-} // namespace
+
+static void s_notify_connection_info(void *arg, const char *json) {
+    static_cast<NativeVpnImpl *>(arg)->NotifyConnectionInfo(std::string(json));
+}
 
 NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
         std::string ring_buffer_path, std::wstring service_name, std::wstring pipe_name)
@@ -20,18 +21,20 @@ NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &
         , m_pipe_name(std::move(pipe_name)) {
     // Read all persisted connection info records on construction (before VPN is started)
     vpn_easy_read_all_connection_info(
-            m_ring_buffer_path.c_str(),
-            [](void *arg, const char *json) {
-                auto *self = static_cast<NativeVpnImpl *>(arg);
-                self->NotifyConnectionInfo(std::string(json));
-            },
-            this);
+            m_ring_buffer_path.c_str(), s_notify_connection_info, this);
+
+    // Try to attach to a running service to detect current VPN state.
+    int32_t attach_result = attach_service();
+
+    if (attach_result != 0) {
+        infolog(m_logger, "VPN service not running (attach result: {}), assuming DISCONNECTED", attach_result);
+    } else {
+        infolog(m_logger, "Attached to running VPN service");
+    }
 }
 
 NativeVpnImpl::~NativeVpnImpl() {
-    if (m_is_started) {
-        vpn_easy_service_stop(m_service_name.c_str(), m_pipe_name.c_str());
-    }
+    vpn_easy_service_detach();
 }
 
 void NativeVpnImpl::NotifyStateChanged(int state) {
@@ -54,35 +57,44 @@ void NativeVpnImpl::NotifyConnectionInfo(const std::string &json) {
     });
 }
 
-std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
+int32_t NativeVpnImpl::install_service() {
     wchar_t exe_path[MAX_PATH];
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
     std::wstring service_exe = (exe_dir / L"vpn_easy_service.exe").wstring();
-
-    // Try to install the service (idempotent — fails with VPN_EASY_SVC_ERR_SERVICE_EXISTS if already installed)
     std::wstring log_path = exe_dir / L"vpn_easy_service.log";
     std::wstring ring_buffer_path_w(m_ring_buffer_path.begin(), m_ring_buffer_path.end());
 
-    int32_t install_result = vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(),
+    return vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(),
             m_service_name.c_str(), L"TrustTunnel VPN Service",
             L"Provides VPN connectivity for the TrustTunnel client.", ring_buffer_path_w.c_str());
+}
 
-    if (install_result != 0 && install_result != VPN_EASY_SVC_ERR_SERVICE_EXISTS) {
-        warnlog(m_logger, "Failed to install VPN service: {}", install_result);
-        return FlutterError("SERVICE_INSTALL", "Failed to install VPN service");
-    }
+int32_t NativeVpnImpl::attach_service() {
+    return vpn_easy_service_attach(
+            m_service_name.c_str(), m_pipe_name.c_str(), 
+            s_notify_state_changed, this, s_notify_connection_info, this);
+}
 
-    int32_t start_result = vpn_easy_service_start(
+int32_t NativeVpnImpl::start_service(const std::string &config) {
+    return vpn_easy_service_start(
             m_service_name.c_str(), m_pipe_name.c_str(), config.c_str(),
-            [](void *arg, int state) {
-                static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
-            },
-            this,
-            [](void *arg, const char *json) {
-                static_cast<NativeVpnImpl *>(arg)->NotifyConnectionInfo(std::string(json));
-            },
-            this);
+            s_notify_state_changed, this, s_notify_connection_info, this);
+}
+
+std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
+    int32_t start_result = start_service(config);
+
+    if (start_result == VPN_EASY_SVC_ERR_NO_SUCH_SERVICE) {
+        // Service not installed — install once (needs admin), then retry.
+        int32_t install_result = install_service();
+        if (install_result != 0) {
+            warnlog(m_logger, "Failed to install VPN service: {}", install_result);
+            return FlutterError("SERVICE_INSTALL", "Failed to install VPN service");
+        }
+
+        start_result = start_service(config);
+    }
 
     if (start_result != 0) {
         warnlog(m_logger, "Failed to start VPN service: {}", start_result);
