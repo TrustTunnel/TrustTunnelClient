@@ -87,6 +87,11 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
         g_vpn = nullptr;
         break;
     }
+    case VPN_EASY_SVC_MSG_QUERY_STATE: {
+        infolog(g_logger, "Client queried current state: {}", g_current_vpn_state);
+        send_state(server, g_current_vpn_state);
+        break;
+    }
     case VPN_EASY_SVC_MSG_STATE_CHANGED:
     case VPN_EASY_SVC_MSG_CONNECTION_INFO:
         warnlog(g_logger, "Ignoring server-to-client message type: {}", static_cast<int>(what));
