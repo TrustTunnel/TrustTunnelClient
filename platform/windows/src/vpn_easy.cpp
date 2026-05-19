@@ -513,14 +513,12 @@ static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
 }
 
 /// IO thread entry point for both start() and attach().
-/// On pipe disconnect, delivers DISCONNECTED and cleans up g_svc_state.
+/// Delivers DISCONNECTED when the pipe closes. Resources are cleaned up externally.
 static void pipe_io_thread() {
-    if (!g_svc_state.pipe_client->loop()) {
-        if (g_svc_state.state_changed_cb) {
-            g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
-        }
-        std::scoped_lock lock{g_svc_state.mutex};
-        g_svc_state.reset();
+    g_svc_state.pipe_client->loop();
+    
+    if (g_svc_state.state_changed_cb) {
+        g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
     }
 }
 
@@ -713,20 +711,13 @@ void vpn_easy_service_detach() {
 }
 
 int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_name) {
-    std::scoped_lock lock{g_svc_state.mutex};
-
-    if (!g_svc_state.pipe_client) {
-        return 0;
+    {
+        std::scoped_lock lock{g_svc_state.mutex};
+        if (!g_svc_state.pipe_client) {
+            return 0;
+        }
+        g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_STOP, {});
     }
-
-    g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_STOP, {});
-
-    // Deliver DISCONNECTED synchronously because the pipe is going to be reset
-    if (g_svc_state.state_changed_cb) {
-        g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
-    }
-
-    g_svc_state.reset();
 
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
     if (!scm) {
@@ -747,7 +738,15 @@ int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_n
 
     if (!wait_for_service_state(svc.get(), SERVICE_STOPPED, SERVICE_OPERATION_TIMEOUT)) {
         errlog(g_logger, "Service did not stop within timeout");
+        
+        std::scoped_lock lock{g_svc_state.mutex};
+        g_svc_state.reset();
         return VPN_EASY_SVC_ERR_TIMED_OUT;
+    }
+
+    {
+        std::scoped_lock lock{g_svc_state.mutex};
+        g_svc_state.reset();
     }
 
     return 0;
