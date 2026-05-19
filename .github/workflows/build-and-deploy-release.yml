@@ -20,9 +20,22 @@ jobs:
       - ephemeral-limit-disk-gb-70
     container:
       image: adguard/core-libs:2.9
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
 
       - name: Configure Conan
         run: |
@@ -36,12 +49,11 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --import --batch --yes
+          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
 
       - name: Build for all architectures
         env:
           GPG_KEY: devteam@adguard.com
-          GPG_PASSWORD: ${{ secrets.GPG_PASSWORD }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -x -e
@@ -106,9 +118,22 @@ jobs:
       - ephemeral
       - ephemeral-mac
       - ${{ vars.BUILD_IMAGE_VERSION_MACOS }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
 
       - name: Configure environment
         run: |
@@ -127,7 +152,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${{ secrets.GPG_SECRET_KEY }}" | gpg --import --batch --yes
+          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
 
       - name: Install code signing certificates
         env:
@@ -143,7 +168,6 @@ jobs:
           CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
           CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
           GPG_KEY: devteam@adguard.com
-          GPG_PASSWORD: ${{ secrets.GPG_PASSWORD }}
           REPO_ROOT: ${{ github.workspace }}
         run: |
           set -x -e
@@ -210,14 +234,27 @@ jobs:
       - ephemeral
       - ephemeral-windows
       - registry.int.agrd.dev/windows/windows11-github-msvc2022:20260505-1859
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Retrieve Windows signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: trusttunnel-windows-signing
+          secrets: |
+            secret/data/ci-secrets/trusttunnel-windows-signing trustTunnelWinSignerSecretApiKey | SIGNER_API_KEY
 
       - name: Build and package
         env:
           CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
           ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+          SIGNER_URL: ${{ vars.SIGNER_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
 
