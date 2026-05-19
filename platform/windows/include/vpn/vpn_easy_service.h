@@ -115,6 +115,9 @@ WIN_EXPORT int32_t vpn_easy_service_uninstall(const wchar_t *name);
  * This will start the Windows service if it's not already running, connect to the running service
  * through the named pipe and instruct it to start the VPN client with the provided configuration.
  *
+ * If the caller has previously attached via `vpn_easy_service_attach()`, the existing pipe
+ * connection is reused to send the START command instead of creating a new connection.
+ *
  * It shall then pass the service state change messages to `state_changed_cb` and connection info
  * events to `connection_info_cb`, which must remain valid (along with their `_arg` parameters)
  * until the service is stopped with `vpn_easy_service_stop()`. The callbacks are invoked on an
@@ -146,6 +149,47 @@ WIN_EXPORT int32_t vpn_easy_service_start(const wchar_t *service_name, const wch
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
 WIN_EXPORT int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_name);
+
+/**
+ * Query the current state of the VPN service.
+ *
+ * This will send a `VPN_EASY_SVC_MSG_QUERY_STATE` message to the service, and will receive a
+ * `VPN_EASY_SVC_MSG_STATE_CHANGED` message containing the current VPN state value.
+ *
+ * @param service_name The service name that was passed to `vpn_easy_service_install()`.
+ * @param pipe_name The name of the pipe that was passed to `vpn_easy_service_install()`.
+ * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t vpn_easy_service_query_state(const wchar_t *service_name, const wchar_t *pipe_name);
+
+/**
+ * Connect to a running VPN service to monitor its state. Does not start the VPN.
+ * The service must already be running (typically started by a previous call to
+ * `vpn_easy_service_start()`). If the service is not running, returns
+ * `VPN_EASY_SVC_ERR_NO_SUCH_SERVICE`.
+ *
+ * After a successful call, state changes are delivered to `state_changed_cb` and
+ * connection info events to `connection_info_cb`. The callbacks (and their `_arg`
+ * parameters) must remain valid until `vpn_easy_service_detach()` is called.
+ *
+ * @param service_name The service name passed to `vpn_easy_service_install()`.
+ * @param pipe_name The pipe name passed to `vpn_easy_service_install()`.
+ * @param state_changed_cb State change callback.
+ * @param state_changed_cb_arg Argument for state change callback.
+ * @param connection_info_cb Connection info callback. May be NULL.
+ * @param connection_info_cb_arg Argument for connection info callback.
+ * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe_name,
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
+        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg);
+
+/**
+ * Detach from the VPN service. Tears down the pipe connection and stops the IO thread.
+ * After this call, state change and connection info callbacks will no longer be invoked.
+ * No-op if not currently attached.
+ */
+WIN_EXPORT void vpn_easy_service_detach();
 
 #ifdef __cplusplus
 }; // extern "C"

@@ -457,6 +457,8 @@ static struct ServiceControllerState {
     void *state_changed_cb_arg = nullptr;
     on_connection_info_json_t connection_info_cb = nullptr;
     void *connection_info_cb_arg = nullptr;
+    /// True when the pipe connection was established via attach()
+    bool is_attached = false;
 
     /// Tear down the pipe session and clear all state. Caller must hold `mutex`.
     void reset() {
@@ -475,6 +477,7 @@ static struct ServiceControllerState {
         state_changed_cb_arg = nullptr;
         connection_info_cb = nullptr;
         connection_info_cb_arg = nullptr;
+        is_attached = false;
     }
 } g_svc_state;
 
@@ -580,6 +583,21 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
         void *connection_info_cb_arg) {
     std::scoped_lock lock{g_svc_state.mutex};
 
+    // Reuse an existing attached (monitoring) connection.
+    if (g_svc_state.pipe_client && g_svc_state.is_attached) {
+        infolog(g_logger, "Reusing attached connection to start VPN");
+        g_svc_state.state_changed_cb = state_changed_cb;
+        g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
+        g_svc_state.connection_info_cb = connection_info_cb;
+        g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
+        g_svc_state.is_attached = false;
+
+        size_t config_len = strlen(toml_config);
+        g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_START,
+                {reinterpret_cast<const uint8_t *>(toml_config), config_len});
+        return 0;
+    }
+
     if (g_svc_state.pipe_client) {
         warnlog(g_logger, "Service client is already active");
         return VPN_EASY_SVC_ERR_OTHER;
@@ -638,6 +656,60 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
 
     success = true;
     return 0;
+}
+
+int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe_name,
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
+        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    if (g_svc_state.pipe_client) {
+        warnlog(g_logger, "Already attached to service");
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    g_svc_state.state_changed_cb = state_changed_cb;
+    g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
+    g_svc_state.connection_info_cb = connection_info_cb;
+    g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
+
+    bool success = false;
+    ag::utils::ScopeExit cleanup{[&] {
+        if (success) { return; }
+        g_svc_state.reset();
+    }};
+
+    // Check service is running.
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!scm) { return map_scm_error("OpenSCManagerW"); }
+    AutoScHandle svc{OpenServiceW(scm.get(), service_name, SERVICE_QUERY_STATUS)};
+    if (!svc) { return map_scm_error("OpenServiceW"); }
+    SERVICE_STATUS status{};
+    if (!QueryServiceStatus(svc.get(), &status)) {
+        dbglog(g_logger, "QueryServiceStatus: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+    if (status.dwCurrentState != SERVICE_RUNNING) {
+        infolog(g_logger, "Service not running (state: {}), cannot attach", status.dwCurrentState);
+        return VPN_EASY_SVC_ERR_NO_SUCH_SERVICE;
+    }
+
+    if (int32_t err = setup_pipe_client(pipe_name); err != 0) {
+        return err;
+    }
+
+    // Immediately query the service for its current state.
+    g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_QUERY_STATE, {});
+
+    g_svc_state.is_attached = true;
+    success = true;
+    return 0;
+}
+
+void vpn_easy_service_detach() {
+    std::scoped_lock lock{g_svc_state.mutex};
+    if (!g_svc_state.pipe_client) { return; }
+    g_svc_state.reset();
 }
 
 int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_name) {
