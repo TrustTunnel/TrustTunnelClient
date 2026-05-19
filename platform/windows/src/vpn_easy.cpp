@@ -28,8 +28,10 @@
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
+#include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
 #include "vpn_easy_pipe.h"
+#include "vpn_easy_ring_buffer_mutex.h"
 
 static ag::Logger g_logger{"VPN_SIMPLE"};
 
@@ -174,9 +176,6 @@ void vpn_easy_stop_ex(vpn_easy_t *vpn) {
     }
     delete vpn;
 }
-
-#include "vpn/trusttunnel/persistent_ring_buffer.h"
-#include "vpn_easy_ring_buffer_mutex.h"
 
 void vpn_easy_read_all_connection_info(
         const char *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
