@@ -19,9 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LLVM_MAJOR_VER: 21
-    if: >
-      github.repository == 'TrustTunnel/TrustTunnelClient' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6
@@ -118,9 +116,7 @@ jobs:
 
   MacOS:
     runs-on: macos-latest
-    if: >
-      github.repository == 'TrustTunnel/TrustTunnelClient' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6
@@ -214,9 +210,7 @@ jobs:
     env:
       MSVC_VER: 17
       MSVC_YEAR: 2022
-    if: >
-      github.repository == 'TrustTunnel/TrustTunnelClient' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6

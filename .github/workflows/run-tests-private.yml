@@ -21,9 +21,7 @@ jobs:
 
   linux-build:
     name: Linux build (private)
-    if: >
-      github.repository == 'AdGuardSoftwareLimited/trusttunnel-client' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
       - ephemeral-linux
@@ -91,9 +89,7 @@ jobs:
 
   win-build:
     name: Windows build (private)
-    if: >
-      github.repository == 'AdGuardSoftwareLimited/trusttunnel-client' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
       - ephemeral-windows
@@ -156,9 +152,7 @@ jobs:
 
   mac-build:
     name: Mac build (private)
-    if: >
-      github.repository == 'AdGuardSoftwareLimited/trusttunnel-client' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
       - ephemeral-mac

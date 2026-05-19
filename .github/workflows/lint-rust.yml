@@ -18,9 +18,7 @@ on:
 jobs:
   rust-lint:
     runs-on: ubuntu-latest
-    if: >
-      github.repository == 'TrustTunnel/TrustTunnelClient' &&
-      !startsWith(github.event.head_commit.message, 'skipci:')
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6

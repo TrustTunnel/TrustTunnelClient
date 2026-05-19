@@ -375,7 +375,7 @@ jobs:
 
           sed -i -e "s/^version='[0-9\.]*'$/version='${VERSION}'/" scripts/install.sh
           git add scripts/install.sh
-          git commit -m "skipci: Automatic increment version for install script" || true
+          git commit -m "Automatic increment version for install script" || true
           TAG=v${VERSION}
           git tag -d ${TAG} 2>/dev/null || true
           git tag ${TAG}
