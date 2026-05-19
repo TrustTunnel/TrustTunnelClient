@@ -721,6 +721,11 @@ int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_n
 
     g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_STOP, {});
 
+    // Deliver DISCONNECTED synchronously because the pipe is going to be reset
+    if (g_svc_state.state_changed_cb) {
+        g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
+    }
+
     g_svc_state.reset();
 
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
