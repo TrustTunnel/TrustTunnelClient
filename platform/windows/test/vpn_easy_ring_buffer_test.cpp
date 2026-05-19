@@ -25,6 +25,7 @@ class RingBufferTest : public ::testing::Test {
 protected:
     void SetUp() override {
         m_path = temp_file_path();
+        std::filesystem::remove(m_path, m_error);
     }
 
     void TearDown() override {
