@@ -478,6 +478,49 @@ static struct ServiceControllerState {
     }
 } g_svc_state;
 
+/// Pipe message handler.
+/// Dispatches STATE_CHANGED and CONNECTION_INFO through g_svc_state callbacks.
+static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
+    return [](VpnEasyServiceMessageType what, ag::Uint8View data) {
+        switch (what) {
+        case VPN_EASY_SVC_MSG_STATE_CHANGED: {
+            if (data.size() < sizeof(uint32_t)) {
+                dbglog(g_logger, "STATE_CHANGED too short: {} bytes", data.size());
+                break;
+            }
+            uint32_t net_state = 0;
+            memcpy(&net_state, data.data(), sizeof(net_state));
+            auto state = static_cast<int32_t>(ntohl(net_state));
+            if (g_svc_state.state_changed_cb) {
+                g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, state);
+            }
+            break;
+        }
+        case VPN_EASY_SVC_MSG_CONNECTION_INFO: {
+            std::string json(reinterpret_cast<const char *>(data.data()), data.size());
+            if (g_svc_state.connection_info_cb) {
+                g_svc_state.connection_info_cb(g_svc_state.connection_info_cb_arg, json.c_str());
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    };
+}
+
+/// IO thread entry point for both start() and attach().
+/// On pipe disconnect, delivers DISCONNECTED and cleans up g_svc_state.
+static void pipe_io_thread() {
+    if (!g_svc_state.pipe_client->loop()) {
+        if (g_svc_state.state_changed_cb) {
+            g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
+        }
+        std::scoped_lock lock{g_svc_state.mutex};
+        g_svc_state.reset();
+    }
+}
+
 /// Poll a service until it reaches the desired state, or timeout.
 /// Return true if the desired state was reached, false on timeout.
 static bool wait_for_service_state(SC_HANDLE svc, DWORD desired_state, std::chrono::milliseconds timeout) {
@@ -509,6 +552,27 @@ static int32_t map_scm_error(const char *func_name) {
     }
     dbglog(g_logger, "{}: {} ({})", func_name, err, ag::sys::strerror(err));
     return VPN_EASY_SVC_ERR_OTHER;
+}
+
+static int32_t setup_pipe_client(const wchar_t *pipe_name) {
+    g_svc_state.stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!g_svc_state.stop_event) {
+        dbglog(g_logger, "CreateEventW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(
+            pipe_name, g_svc_state.stop_event, make_pipe_handler(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(SERVICE_OPERATION_TIMEOUT));
+
+    g_svc_state.io_thread = std::thread(pipe_io_thread);
+
+    if (!g_svc_state.pipe_client->wait_connected()) {
+        errlog(g_logger, "PipeClient failed to connect within timeout");
+        return VPN_EASY_SVC_ERR_TIMED_OUT;
+    }
+
+    return 0;
 }
 
 int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_name, const char *toml_config,
@@ -565,55 +629,8 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
         }
     }
 
-    g_svc_state.stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!g_svc_state.stop_event) {
-        dbglog(g_logger, "CreateEventW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
-        return VPN_EASY_SVC_ERR_OTHER;
-    }
-
-    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(
-            pipe_name, g_svc_state.stop_event,
-            [](VpnEasyServiceMessageType what, ag::Uint8View data) {
-                switch (what) {
-                case VPN_EASY_SVC_MSG_STATE_CHANGED: {
-                    if (data.size() < sizeof(uint32_t)) {
-                        dbglog(g_logger, "STATE_CHANGED message too short: {} bytes", data.size());
-                        break;
-                    }
-                    uint32_t net_state = 0;
-                    memcpy(&net_state, data.data(), sizeof(net_state));
-                    auto state = static_cast<int32_t>(ntohl(net_state));
-                    if (g_svc_state.state_changed_cb) {
-                        g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, state);
-                    }
-                    break;
-                }
-                case VPN_EASY_SVC_MSG_CONNECTION_INFO: {
-                    std::string json(reinterpret_cast<const char *>(data.data()), data.size());
-                    if (g_svc_state.connection_info_cb) {
-                        g_svc_state.connection_info_cb(g_svc_state.connection_info_cb_arg, json.c_str());
-                    }
-                    break;
-                }
-                default:
-                    dbglog(g_logger, "Ignoring unexpected message type: {}", static_cast<int>(what));
-                    break;
-                }
-            },
-            std::chrono::duration_cast<std::chrono::milliseconds>(SERVICE_OPERATION_TIMEOUT));
-
-    g_svc_state.io_thread = std::thread([] {
-        if (!g_svc_state.pipe_client->loop()) {
-            // Deliver VPN_SS_DISCONNECTED on unexpected exit if callback is still set.
-            if (g_svc_state.state_changed_cb) {
-                g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
-            }
-        }
-    });
-
-    if (!g_svc_state.pipe_client->wait_connected()) {
-        errlog(g_logger, "PipeClient failed to connect within timeout");
-        return VPN_EASY_SVC_ERR_TIMED_OUT;
+    if (int32_t err = setup_pipe_client(pipe_name); err != 0) {
+        return err;
     }
 
     size_t config_len = strlen(toml_config);
