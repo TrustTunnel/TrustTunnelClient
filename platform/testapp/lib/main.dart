@@ -196,10 +196,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   return ListView.builder(
                     itemCount: notifier.records.length,
                     itemBuilder: (context, index) {
+                      final logIndex = notifier.records.length - 1 - index;
                       return ListTile(
                         dense: true,
                         title: Text(
-                          notifier.records[index],
+                          notifier.records[logIndex],
                           style: const TextStyle(fontSize: 12),
                         ),
                       );
