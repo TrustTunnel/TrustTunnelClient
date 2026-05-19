@@ -29,9 +29,12 @@ static HANDLE g_shutdown_event;
 static vpn_easy_t *g_vpn;
 static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
 static std::string g_ring_buffer_path;
+/// Current VPN session state. Updated by `send_state()` and reset on VPN stop.
+static int32_t g_current_vpn_state = ag::VPN_SS_DISCONNECTED;
 
 /// Send a `VPN_EASY_SVC_MSG_STATE_CHANGED` message with the given state value.
 static void send_state(PipeServer &server, int32_t state) {
+    g_current_vpn_state = state;
     uint32_t net_state = htonl(static_cast<uint32_t>(state));
     server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
 }
@@ -44,6 +47,7 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
             infolog(g_logger, "VPN already running, stopping before restart");
             vpn_easy_stop_ex(g_vpn);
             g_vpn = nullptr;
+            g_current_vpn_state = ag::VPN_SS_DISCONNECTED;
         }
         std::string toml_config(reinterpret_cast<const char *>(data.data()), data.size());
         infolog(g_logger, "Starting VPN client");
@@ -130,6 +134,7 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
 
     if (g_vpn != nullptr) {
         infolog(g_logger, "Shutting down: stopping VPN client");
+        g_current_vpn_state = ag::VPN_SS_DISCONNECTED;
         vpn_easy_stop_ex(g_vpn);
         g_vpn = nullptr;
     }
