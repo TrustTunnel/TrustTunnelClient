@@ -61,7 +61,7 @@ jobs:
   disable-public-workflows:
     name: Disable public-only workflows in private repo
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on: ubuntu-latest
+    runs-on: [team-corelibs]
     permissions:
       actions: write
       contents: read
