@@ -1,0 +1,26 @@
+name: Mirror to public repository
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable-*'
+      - 'dev-*'
+    tags:
+      - '*'
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - After auto-tag
+
+jobs:
+  mirror:
+    name: Mirror to public repository
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/mirror.yml@master
+    with:
+      target_repo: 'git@github.com:TrustTunnel/TrustTunnelClient.git'
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write

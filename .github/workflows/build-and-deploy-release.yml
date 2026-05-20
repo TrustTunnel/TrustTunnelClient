@@ -1,0 +1,396 @@
+name: Build and deploy release
+
+on:
+  workflow_dispatch:
+
+jobs:
+# =============================================================================
+# Stage 1: Build artifacts (parallel)
+# =============================================================================
+
+  build-linux:
+    name: Linux build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+      - ephemeral-limit-disk-gb-70
+    container:
+      image: adguard/core-libs:2.9
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
+
+      - name: Configure Conan
+        run: |
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Import GPG key
+        run: |
+          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
+
+      - name: Build for all architectures
+        env:
+          GPG_KEY: devteam@adguard.com
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -x -e
+
+          mkdir -p artifacts
+          ARTIFACTS_DIR=${PWD}/artifacts
+
+          rustup +nightly component add rust-src
+
+          ARCHES="x86_64 aarch64 armv7 mips mipsel"
+          for ARCH in $ARCHES; do
+            EABI=
+            SF=
+            case ${ARCH} in
+              armv7) EABI=eabi ;;
+              mips) SF=sf ;;
+              mipsel) SF=sf ;;
+            esac
+
+            # Rust adds -lunwind when statically linking; create symlink
+            p="$(${ARCH}-linux-musl${EABI}${SF}-gcc -print-file-name=libgcc_eh.a)" && \
+              [ "$p" != "libgcc_eh.a" ] && ln -sf "$(basename "$p")" "$(dirname "$p")/libunwind.a"
+
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+              -DCMAKE_C_COMPILER=${ARCH}-linux-musl${EABI}${SF}-gcc \
+              -DCMAKE_CXX_COMPILER=${ARCH}-linux-musl${EABI}${SF}-g++ \
+              -DCMAKE_SYSTEM_PROCESSOR=${ARCH} \
+              -DCMAKE_SYSTEM_NAME=Linux \
+              -DCMAKE_CROSSCOMPILING=ON \
+              -S . -B build_${ARCH}
+            cmake --build build_${ARCH} --target trusttunnel_client
+            cmake --build build_${ARCH} --target setup_wizard
+
+            NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
+            pushd build_${ARCH}/trusttunnel
+              llvm-strip trusttunnel_client
+              llvm-strip setup_wizard
+              gpg --default-key "${GPG_KEY}" --detach-sig \
+                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                  trusttunnel_client
+              gpg --default-key "${GPG_KEY}" --detach-sig \
+                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                  setup_wizard
+              cp ../../LICENSE .
+              tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," \
+                trusttunnel_client trusttunnel_client.sig \
+                setup_wizard setup_wizard.sig LICENSE
+              mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
+            popd
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: artifacts/trusttunnel_client-*.tar.gz
+
+  build-macos:
+    name: Mac build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-mac
+      - ${{ vars.BUILD_IMAGE_VERSION_MACOS }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
+
+      - name: Configure environment
+        run: |
+          python3 -m venv venv
+          source ./venv/bin/activate
+          pip install conan
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+          bundle config --local path '.bundle/vendor'
+          bundle install
+
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Import GPG key
+        run: |
+          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
+
+      - name: Install code signing certificates
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+        run: |
+          source ./venv/bin/activate
+          bundle exec fastlane remove_certs || true
+          bundle exec fastlane certs
+
+      - name: Build universal binary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
+          CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
+          GPG_KEY: devteam@adguard.com
+          REPO_ROOT: ${{ github.workspace }}
+        run: |
+          set -x -e
+          source ./venv/bin/activate
+
+          ARCHES="x86_64 arm64"
+          for ARCH in $ARCHES; do
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+              -DCMAKE_C_COMPILER=clang \
+              -DCMAKE_CXX_COMPILER=clang++ \
+              -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+              -DCMAKE_OSX_ARCHITECTURES=${ARCH} \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+              -S . -B build_${ARCH}
+            cmake --build build_${ARCH} --target trusttunnel_client
+            cmake --build build_${ARCH} --target setup_wizard
+          done
+
+          mkdir -p build_universal
+          pushd build_universal
+            lipo -create -output trusttunnel_client \
+              ../build_arm64/trusttunnel/trusttunnel_client \
+              ../build_x86_64/trusttunnel/trusttunnel_client
+            strip trusttunnel_client
+            lipo -create -output setup_wizard \
+              ../build_arm64/trusttunnel/setup_wizard \
+              ../build_x86_64/trusttunnel/setup_wizard
+            strip setup_wizard
+
+            codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime trusttunnel_client
+            codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime setup_wizard
+
+            BIN_PATH=${PWD}
+            pushd ${REPO_ROOT}
+              bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/trusttunnel_client"
+              bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/setup_wizard"
+              bundle exec fastlane remove_certs || true
+            popd
+
+            gpg --default-key "${GPG_KEY}" --detach-sig \
+                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                trusttunnel_client
+            gpg --default-key "${GPG_KEY}" --detach-sig \
+                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                setup_wizard
+            cp ../LICENSE .
+
+            NAME=trusttunnel_client-v${VERSION}-macos-universal
+            tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," \
+              trusttunnel_client trusttunnel_client.sig \
+              setup_wizard setup_wizard.sig LICENSE
+          popd
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: build_universal/trusttunnel_client-*.tar.gz
+
+  build-windows:
+    name: Windows build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-windows
+      - registry.int.agrd.dev/windows/windows11-github-msvc2022:20260505-1859
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Retrieve Windows signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: trusttunnel-windows-signing
+          secrets: |
+            secret/data/ci-secrets/trusttunnel-windows-signing trustTunnelWinSignerSecretApiKey | SIGNER_API_KEY
+
+      - name: Build and package
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+          SIGNER_URL: ${{ vars.SIGNER_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          & conan remote add --index 0 art $Env:CONAN_REPO_URL
+
+          $repoRoot = (Get-Location).Path
+
+          # Save vcvars to switch between them
+          $vcvars32 = cmd /c "vcvarsall amd64_x86 & set"
+          $vcvars64 = cmd /c "vcvarsall amd64 & set"
+          $vcvarsarm64 = cmd /c "vcvarsall amd64_arm64 & set"
+          function setvar($_) {
+            if ($_ -match "=") {
+              $v = $_.split("="); set-item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
+            }
+          }
+          function Sign-File([string]$Path) {
+            Write-Host "Signing: $Path"
+            & python -m pip install --disable-pip-version-check -q requests
+            if (!$?) { throw 'Failed to install Python requests' }
+            & python (Join-Path $repoRoot 'scripts\win_sign_binary.py') $Path
+            if (!$?) { throw "Signing helper failed for: $Path" }
+            Write-Host "Success"
+          }
+
+          $versionLine = Get-Content CHANGELOG.md | Select-String -Pattern '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' | Select-Object -First 1
+          if (!$versionLine) { throw 'Failed to detect VERSION from CHANGELOG.md' }
+          $VERSION = ($versionLine.ToString() -replace '^## \[', '' -replace '\].*', '').Trim()
+
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          # Download Wintun
+          $wintunUrl = "$Env:ARTIFACTORY_URL/adguard-pods/binaries/wintun-0.14.1.zip"
+          $wintunZip = Join-Path $PWD 'wintun-0.14.1.zip'
+          Invoke-WebRequest -Uri $wintunUrl -OutFile $wintunZip
+          Expand-Archive -Force -Path $wintunZip -DestinationPath 'wintun'
+
+          function Build-And-Package([string]$BuildDir, $VcvarsEnv, [string]$ArchName, [string]$WintunBinSubdir) {
+            & {
+              $VcvarsEnv | foreach { setvar $_ }
+              New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+              pushd $BuildDir
+              & cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+                -DCMAKE_C_COMPILER="cl.exe" `
+                -DCMAKE_CXX_COMPILER="cl.exe" `
+                -G Ninja ..
+              if (!$?) { exit 1 }
+              & ninja trusttunnel_client setup_wizard
+              if (!$?) { exit 1 }
+              Sign-File "trusttunnel\\trusttunnel_client.exe"
+              Sign-File "trusttunnel\\setup_wizard.exe"
+              popd
+            }
+
+            $NAME = "trusttunnel_client-v$VERSION-windows-$ArchName"
+            Copy-Item -Force LICENSE "$BuildDir\trusttunnel\LICENSE.txt"
+            Copy-Item -Force "wintun\wintun\bin\$WintunBinSubdir\wintun.dll" "$BuildDir\trusttunnel\wintun.dll"
+            Copy-Item -Force 'wintun\wintun\LICENSE.txt' "$BuildDir\trusttunnel\WINTUN_LICENSE.txt"
+            Compress-Archive -Force -DestinationPath ("artifacts\\$NAME.zip") -Path @(
+              "$BuildDir\\trusttunnel\\trusttunnel_client.exe",
+              "$BuildDir\\trusttunnel\\setup_wizard.exe",
+              "$BuildDir\\trusttunnel\\LICENSE.txt",
+              "$BuildDir\\trusttunnel\\wintun.dll",
+              "$BuildDir\\trusttunnel\\WINTUN_LICENSE.txt"
+            )
+          }
+
+          Build-And-Package "build64" $vcvars64 "x86_64" "amd64"
+          Build-And-Package "build32" $vcvars32 "i686" "x86"
+          Build-And-Package "buildarm64" $vcvarsarm64 "aarch64" "arm64"
+        shell: powershell
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: artifacts/trusttunnel_client-*.zip
+
+# =============================================================================
+# Stage 2: Deploy (depends on all builds)
+# =============================================================================
+
+  deploy:
+    name: Deploy artifacts
+    needs: [build-linux, build-macos, build-windows]
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: release-github
+    runs-on: [team-corelibs]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Trigger mirror to sync tag to public repo
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'After auto-tag',
+            })
+
+      - name: Create GitHub Release on public repo
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -e -x
+
+          TAG=v${VERSION}
+          CHANGELOG_URL="https://github.com/TrustTunnel/TrustTunnelClient/blob/${TAG}/CHANGELOG.md"
+
+          gh release delete -y ${TAG} -R TrustTunnel/TrustTunnelClient || true
+          gh release create ${TAG} \
+            -R TrustTunnel/TrustTunnelClient \
+            -t "${TAG}" \
+            -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
+
+          # Upload all artifacts
+          for f in artifacts/trusttunnel_client-*; do
+            gh release upload ${TAG} "$f" -R TrustTunnel/TrustTunnelClient
+          done

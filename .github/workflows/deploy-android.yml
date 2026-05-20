@@ -1,0 +1,43 @@
+name: Deploy Android library
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-android:
+    name: Deploy library / Android
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: android-gh-packages
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+      - ephemeral-limit-disk-gb-70
+    container:
+      image: adguard/core-libs:2.9
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure Conan
+        run: |
+          python3 -m pip install conan --upgrade
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      - name: Build Android library
+        run: |
+          cd platform/android
+          touch local.properties
+          CMAKE_DIR=$(dirname $(dirname $(which cmake)))
+          echo cmake.dir=$CMAKE_DIR >> local.properties
+          ./gradlew :lib:assembleRelease
+
+      - name: Publish to GitHub Packages
+        env:
+          USERNAME: github
+          TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+        run: |
+          cd platform/android
+          ./gradlew :lib:publishReleasePublicationToGitHubPackagesRepository
