@@ -8,7 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Linux C API wrappers vpn_linux_tunnel_create and vpn_linux_tunnel_destroy
+
 ### Changed
+
+- Opt-in Linux package build mode for exporting WIN_EXPORT symbols in C API builds without affecting default Linux builds
 
 ### Removed
 
