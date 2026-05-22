@@ -20,7 +20,7 @@ jobs:
 # =============================================================================
 
   linux-build:
-    name: Linux build (private)
+    name: Linux build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
@@ -88,7 +88,7 @@ jobs:
           conan cache clean || true
 
   win-build:
-    name: Windows build (private)
+    name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
@@ -151,7 +151,7 @@ jobs:
         shell: powershell
 
   mac-build:
-    name: Mac build (private)
+    name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
