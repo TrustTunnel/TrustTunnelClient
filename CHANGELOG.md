@@ -16,6 +16,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+## [1.1.3] - 2026-05-08
+
+### Added
+
+- Added C++ ring buffer implementation for use in Flutter Client
+
+### Changed
+
+- Improved network change detection under Linux
+
+### Fixed
+
+- Fixed link-local IPv6 system DNS server detection under macOS
+
 ## [1.0.63] - 2026-05-04
 
 ### Added
