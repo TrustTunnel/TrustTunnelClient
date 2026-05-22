@@ -61,12 +61,11 @@ jobs:
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - registry.int.agrd.dev/linux/corelibs-builder:20260501-2313
+      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
-      - ephemeral-limit-disk-gb-70
     container:
-      image: adguard/core-libs-testing:2.9
+      image: adguard/core-libs-testing:2.10.0
       options: --privileged
     strategy:
       fail-fast: false
