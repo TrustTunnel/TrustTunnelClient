@@ -85,8 +85,9 @@ jobs:
         run: |
           chmod +x output/trusttunnel_client/trusttunnel_client
           chmod +x output/trusttunnel_endpoint/trusttunnel_endpoint
-          mv output/trusttunnel_client/trusttunnel_client output/
-          mv output/trusttunnel_endpoint/trusttunnel_endpoint output/
+          cp output/trusttunnel_client/trusttunnel_client output/
+          cp output/trusttunnel_endpoint/trusttunnel_endpoint output/
+          rm -rf output/trusttunnel_client output/trusttunnel_endpoint
 
       - name: Run tests (${{ matrix.transport }} ${{ matrix.mode }})
         env:
