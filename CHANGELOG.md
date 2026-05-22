@@ -8,13 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.1.4] - 2026-05-22
+
+### Added
+
 - Linux C API wrappers vpn_linux_tunnel_create and vpn_linux_tunnel_destroy
 
 ### Changed
 
 - Opt-in Linux package build mode for exporting WIN_EXPORT symbols in C API builds without affecting default Linux builds
-
-### Removed
 
 ## [1.1.3] - 2026-05-08
 
@@ -367,7 +379,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.63...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63
 [1.0.62]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.56...v1.0.62
 [1.0.56]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.49...v1.0.56
