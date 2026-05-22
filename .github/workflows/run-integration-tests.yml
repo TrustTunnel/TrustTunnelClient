@@ -83,11 +83,12 @@ jobs:
 
       - name: Make binaries executable
         run: |
-          chmod +x output/trusttunnel_client/trusttunnel_client
-          chmod +x output/trusttunnel_endpoint/trusttunnel_endpoint
-          cp output/trusttunnel_client/trusttunnel_client output/
-          cp output/trusttunnel_endpoint/trusttunnel_endpoint output/
+          mv output/trusttunnel_client/trusttunnel_client output/tc_bin
+          mv output/trusttunnel_endpoint/trusttunnel_endpoint output/te_bin
           rm -rf output/trusttunnel_client output/trusttunnel_endpoint
+          mv output/tc_bin output/trusttunnel_client
+          mv output/te_bin output/trusttunnel_endpoint
+          chmod +x output/trusttunnel_client output/trusttunnel_endpoint
 
       - name: Run tests (${{ matrix.transport }} ${{ matrix.mode }})
         env:
