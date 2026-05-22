@@ -8,9 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Linux C API wrappers vpn_linux_tunnel_create and vpn_linux_tunnel_destroy
+
 ### Changed
 
+- Opt-in Linux package build mode for exporting WIN_EXPORT symbols in C API builds without affecting default Linux builds
+
 ### Removed
+
+## [1.1.3] - 2026-05-08
+
+### Added
+
+- Added C++ ring buffer implementation for use in Flutter Client
+
+### Changed
+
+- Improved network change detection under Linux
+
+### Fixed
+
+- Fixed link-local IPv6 system DNS server detection under macOS
 
 ## [1.0.63] - 2026-05-04
 

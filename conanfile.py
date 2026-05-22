@@ -17,10 +17,12 @@ class VpnLibsConan(ConanFile):
     options = {
         "with_ghc": [True, False],
         "sanitize": [None, "ANY"],
+        "capi_linux_exports": [True, False],
     }
     default_options = {
         "with_ghc": False,
         "sanitize": None,  # None means none
+        "capi_linux_exports": False,
     }
     # A list of paths to patches. The paths must be relative to the conanfile directory.
     # They are applied in case of the version equals 777 and mostly intended to be used
@@ -74,6 +76,8 @@ class VpnLibsConan(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        if self.settings.os == "Linux" and self.options.capi_linux_exports:
+            tc.cache_variables["VPNLIBS_CAPI_LINUX_EXPORTS"] = True
         if self.options.sanitize:
             tc.cache_variables["CMAKE_C_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
             tc.cache_variables["CMAKE_CXX_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"

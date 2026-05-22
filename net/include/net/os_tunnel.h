@@ -97,6 +97,20 @@ WIN_EXPORT void vpn_win_tunnel_settings_destroy(VpnWinTunnelSettings *settings);
  */
 WIN_EXPORT const VpnOsTunnelSettings *vpn_os_tunnel_settings_defaults();
 
+#if defined(__linux__) && !defined(ANDROID)
+/**
+ * Create Linux tunnel.
+ * @param settings Tunnel settings. See `vpn_os_tunnel_settings_defaults()` for recommended defaults.
+ * @return Newly created tunnel or NULL.
+ */
+WIN_EXPORT void *vpn_linux_tunnel_create(VpnOsTunnelSettings *settings);
+
+/**
+ * Destroy Linux tunnel.
+ */
+WIN_EXPORT void vpn_linux_tunnel_destroy(void *linux_tunnel);
+#endif
+
 #ifdef _WIN32
 /**
  * Additional default settings for Win tunnel. For common settings, see `vpn_os_tunnel_settings_defaults()`.
