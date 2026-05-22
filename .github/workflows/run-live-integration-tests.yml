@@ -79,16 +79,15 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          path: output
+          path: download
 
-      - name: Make binaries executable
+      - name: Prepare binaries
         run: |
-          mv output/trusttunnel_client/trusttunnel_client output/tc_bin
-          mv output/trusttunnel_endpoint/trusttunnel_endpoint output/te_bin
-          rm -rf output/trusttunnel_client output/trusttunnel_endpoint
-          mv output/tc_bin output/trusttunnel_client
-          mv output/te_bin output/trusttunnel_endpoint
+          mkdir -p output
+          mv download/trusttunnel_client/trusttunnel_client output/
+          mv download/trusttunnel_endpoint/trusttunnel_endpoint output/
           chmod +x output/trusttunnel_client output/trusttunnel_endpoint
+          rm -rf download
 
       - name: Run tests (${{ matrix.transport }} ${{ matrix.mode }})
         env:
