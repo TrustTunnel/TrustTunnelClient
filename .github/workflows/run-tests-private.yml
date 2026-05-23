@@ -41,6 +41,7 @@ jobs:
 
           python3 -m pip install conan --upgrade
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+          npm install -g markdownlint-cli
 
           make lint
 
