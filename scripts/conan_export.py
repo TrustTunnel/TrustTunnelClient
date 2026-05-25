@@ -3,7 +3,7 @@
 """
 This script exports the vpn-libs package to the local Conan cache.
 
-By default, without any arguments, it exports the latest version from `conandata.yml`.
+By default, without any arguments, it exports the latest version from git tags.
 
 Pass `all` as an argument to export all versions (e.g., `conan_export.py all`).
 
@@ -19,33 +19,53 @@ import subprocess
 import sys
 import re
 
-import yaml
-
 work_dir = os.path.dirname(os.path.realpath(__file__))
 project_dir = os.path.dirname(work_dir)
 
-with open(os.path.join(project_dir, "conandata.yml"), "r") as file:
-    yaml_data = yaml.safe_load(file)
+
+def get_all_versions():
+    """Get all version tags from git."""
+    result = subprocess.run(
+        ["git", "tag", "-l", "v*"],
+        check=True,
+        capture_output=True,
+        cwd=project_dir
+    )
+    tags = result.stdout.decode().strip().split('\n')
+    # Filter and extract version numbers from tags like 'v1.0.0'
+    versions = []
+    for tag in tags:
+        if tag and re.match(r'^v\d+\.\d+\.\d+$', tag):
+            versions.append(tag[1:])  # Remove 'v' prefix
+    return sorted(versions, key=lambda v: [int(x) for x in v.split('.')])
+
+
+def get_latest_version():
+    """Get the latest version tag from git."""
+    versions = get_all_versions()
+    return versions[-1] if versions else None
+
 
 versions = []
 if len(sys.argv) == 1:
-    if len(yaml_data["commit_hash"]) > 0:
-        versions.append(list(yaml_data["commit_hash"].keys())[-1])
+    latest = get_latest_version()
+    if latest:
+        versions.append(latest)
+    else:
+        print("No version tags found")
+        sys.exit(1)
 elif sys.argv[1] == "all":
-    for version in yaml_data["commit_hash"]:
-        versions.append(version)
+    versions = get_all_versions()
 elif sys.argv[1] == "local":
-    result = subprocess.run(["git", "rev-parse", "--short","HEAD"], check=True, capture_output=True)
+    result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], check=True, capture_output=True)
     last_commit_hash = result.stdout.decode().splitlines()[0]
     versions.append(last_commit_hash)
+else:
+    versions.append(sys.argv[1])
 
 for version in versions:
     if re.match(r'\d+\.\d+\.\d+', version) is not None:
-        hash1 = yaml_data["commit_hash"][version]["hash"]
-        result = subprocess.run(["git", "log", "--reverse", "--ancestry-path", hash1 + "..HEAD", "--pretty=%h"],
-                                check=True, capture_output=True)
-        the_hash = result.stdout.decode().splitlines()[0]
-        print("HASH is ", the_hash)
-        subprocess.run(["git", "checkout", the_hash], check=True)
+        # Checkout the tag for the version
+        subprocess.run(["git", "checkout", f"v{version}"], check=True, cwd=project_dir)
 
     subprocess.run(["conan", "export", project_dir, "--user", "adguard", "--channel", "oss", "--version", version])

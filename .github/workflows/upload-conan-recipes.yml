@@ -1,0 +1,16 @@
+name: Upload conan recipes
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - After auto-tag
+
+jobs:
+  upload-conan-recipes:
+    name: Upload conan recipes
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/upload-conan-recipes.yml@master
+    with:
+      export_script_path: scripts/export_conan.sh
+    secrets: inherit

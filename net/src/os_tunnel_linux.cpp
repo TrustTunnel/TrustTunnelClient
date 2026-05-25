@@ -361,3 +361,30 @@ void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip -6 rule del prio 30800 sport {} lookup main", PRIVILEGED_PORTS));
     sys_cmd_netns_ignore_errors(m_netns, AG_FMT("ip -6 rule del prio 30800 sport {} lookup main", VNC_PORTS));
 }
+
+void *ag::vpn_linux_tunnel_create(ag::VpnOsTunnelSettings *settings) {
+    if (settings == nullptr) {
+        return nullptr;
+    }
+
+    auto *tunnel = new ag::VpnLinuxTunnel{};
+    auto res = tunnel->init(settings, std::nullopt);
+    if (res.code != 0) {
+        dbglog(logger, "Error initializing tunnel: {}", res.text ? res.text : "(null)");
+        tunnel->deinit();
+        delete tunnel;
+        return nullptr;
+    }
+
+    return tunnel;
+}
+
+void ag::vpn_linux_tunnel_destroy(void *linux_tunnel) {
+    auto *tunnel = (ag::VpnLinuxTunnel *) linux_tunnel;
+    if (tunnel == nullptr) {
+        return;
+    }
+
+    tunnel->deinit();
+    delete tunnel;
+}

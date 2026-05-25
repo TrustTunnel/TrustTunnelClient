@@ -13,9 +13,9 @@ on:
 jobs:
   markdown-lint:
     runs-on: ubuntu-latest
-    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Markdown Lint
         uses: nosborn/github-action-markdown-cli@v3.5.0
         with:
