@@ -54,12 +54,8 @@ private:
         // Create the lock file if it doesn't exist. It's just an empty
         // synchronization marker — harmless to create, independent of the
         // ring buffer data file lifecycle.
-        HANDLE h = CreateFileW(wpath.c_str(),
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                nullptr,
-                OPEN_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL,
+        HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                 nullptr);
         if (h == INVALID_HANDLE_VALUE) {
             return INVALID_HANDLE_VALUE;

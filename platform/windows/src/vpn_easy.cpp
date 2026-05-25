@@ -560,9 +560,8 @@ static int32_t setup_pipe_client(const wchar_t *pipe_name) {
         return VPN_EASY_SVC_ERR_OTHER;
     }
 
-    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(
-            pipe_name, g_svc_state.stop_event, make_pipe_handler(),
-            std::chrono::duration_cast<std::chrono::milliseconds>(SERVICE_OPERATION_TIMEOUT));
+    g_svc_state.pipe_client = std::make_unique<ag::vpn_easy::PipeClient>(pipe_name, g_svc_state.stop_event,
+            make_pipe_handler(), std::chrono::duration_cast<std::chrono::milliseconds>(SERVICE_OPERATION_TIMEOUT));
 
     g_svc_state.io_thread = std::thread(pipe_io_thread);
 
@@ -589,8 +588,8 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
         g_svc_state.is_attached = false;
 
         size_t config_len = strlen(toml_config);
-        g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_START,
-                {reinterpret_cast<const uint8_t *>(toml_config), config_len});
+        g_svc_state.pipe_client->send(
+                VPN_EASY_SVC_MSG_START, {reinterpret_cast<const uint8_t *>(toml_config), config_len});
         return 0;
     }
 
@@ -655,8 +654,8 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
 }
 
 int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe_name,
-        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
-        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg, on_connection_info_json_t connection_info_cb,
+        void *connection_info_cb_arg) {
     std::scoped_lock lock{g_svc_state.mutex};
 
     if (g_svc_state.pipe_client) {
@@ -671,15 +670,21 @@ int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe
 
     bool success = false;
     ag::utils::ScopeExit cleanup{[&] {
-        if (success) { return; }
+        if (success) {
+            return;
+        }
         g_svc_state.reset();
     }};
 
     // Check service is running.
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
-    if (!scm) { return map_scm_error("OpenSCManagerW"); }
+    if (!scm) {
+        return map_scm_error("OpenSCManagerW");
+    }
     AutoScHandle svc{OpenServiceW(scm.get(), service_name, SERVICE_QUERY_STATUS)};
-    if (!svc) { return map_scm_error("OpenServiceW"); }
+    if (!svc) {
+        return map_scm_error("OpenServiceW");
+    }
     SERVICE_STATUS status{};
     if (!QueryServiceStatus(svc.get(), &status)) {
         dbglog(g_logger, "QueryServiceStatus: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
@@ -704,7 +709,9 @@ int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe
 
 void vpn_easy_service_detach() {
     std::scoped_lock lock{g_svc_state.mutex};
-    if (!g_svc_state.pipe_client) { return; }
+    if (!g_svc_state.pipe_client) {
+        return;
+    }
     g_svc_state.reset();
 }
 
@@ -736,7 +743,7 @@ int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_n
 
     if (!wait_for_service_state(svc.get(), SERVICE_STOPPED, SERVICE_OPERATION_TIMEOUT)) {
         errlog(g_logger, "Service did not stop within timeout");
-        
+
         std::scoped_lock lock{g_svc_state.mutex};
         g_svc_state.reset();
         return VPN_EASY_SVC_ERR_TIMED_OUT;

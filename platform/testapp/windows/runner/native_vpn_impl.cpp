@@ -21,8 +21,7 @@ NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &
         , m_service_name(std::move(service_name))
         , m_pipe_name(std::move(pipe_name)) {
     // Read all persisted connection info records on construction (before VPN is started)
-    vpn_easy_service_read_all_connection_info(
-            m_ring_buffer_path.c_str(), s_notify_connection_info, this);
+    vpn_easy_service_read_all_connection_info(m_ring_buffer_path.c_str(), s_notify_connection_info, this);
 
     // Try to attach to a running service to detect current VPN state.
     int32_t attach_result = attach_service();
@@ -71,21 +70,19 @@ int32_t NativeVpnImpl::install_service() {
         MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, &ring_buffer_path_w[0], ring_buffer_path_len);
     }
 
-    return vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(),
-            m_service_name.c_str(), L"TrustTunnel VPN Service",
-            L"Provides VPN connectivity for the TrustTunnel client.", ring_buffer_path_w.c_str());
+    return vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(), m_service_name.c_str(),
+            L"TrustTunnel VPN Service", L"Provides VPN connectivity for the TrustTunnel client.",
+            ring_buffer_path_w.c_str());
 }
 
 int32_t NativeVpnImpl::attach_service() {
     return vpn_easy_service_attach(
-            m_service_name.c_str(), m_pipe_name.c_str(), 
-            s_notify_state_changed, this, s_notify_connection_info, this);
+            m_service_name.c_str(), m_pipe_name.c_str(), s_notify_state_changed, this, s_notify_connection_info, this);
 }
 
 int32_t NativeVpnImpl::start_service(const std::string &config) {
-    return vpn_easy_service_start(
-            m_service_name.c_str(), m_pipe_name.c_str(), config.c_str(),
-            s_notify_state_changed, this, s_notify_connection_info, this);
+    return vpn_easy_service_start(m_service_name.c_str(), m_pipe_name.c_str(), config.c_str(), s_notify_state_changed,
+            this, s_notify_connection_info, this);
 }
 
 std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {

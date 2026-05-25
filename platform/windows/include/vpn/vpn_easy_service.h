@@ -174,8 +174,8 @@ WIN_EXPORT int32_t vpn_easy_service_stop(const wchar_t *service_name, const wcha
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
 WIN_EXPORT int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe_name,
-        on_state_changed_t state_changed_cb, void *state_changed_cb_arg,
-        on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg);
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg, on_connection_info_json_t connection_info_cb,
+        void *connection_info_cb_arg);
 
 /**
  * Detach from the VPN service. Tears down the pipe connection and stops the IO thread.
