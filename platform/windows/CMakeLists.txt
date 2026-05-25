@@ -53,3 +53,39 @@ link_libraries(vpn_easy_a)
 
 add_unit_test(vpn_easy_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(vpn_easy_ring_buffer_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+
+# Install the shared library (DLL + import lib).  The shared library contains
+# all transitive static dependencies linked in — no third-party .lib files
+# needed by the consumer.  The import lib (vpn_easy.lib) is used at link time;
+# the DLL (vpn_easy.dll) is needed at runtime.
+install(TARGETS vpn_easy
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    COMPONENT Runtime
+)
+
+# Install the service executable
+install(TARGETS vpn_easy_service
+    RUNTIME DESTINATION bin
+    COMPONENT Runtime
+)
+
+# Install public headers
+install(DIRECTORY include/vpn
+    DESTINATION include
+    COMPONENT Runtime
+)
+
+# Install the platform.h header (needed by vpn_easy.h and vpn_easy_service.h)
+install(FILES ${ROOT_DIR}/common/include/vpn/platform.h
+    DESTINATION include/vpn
+    COMPONENT Runtime
+)
+
+# Install the CMake package config file
+install(
+    FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TrustTunnelClientWindowsConfig.cmake
+    DESTINATION lib/cmake/TrustTunnelClientWindows
+    COMPONENT Runtime
+)
