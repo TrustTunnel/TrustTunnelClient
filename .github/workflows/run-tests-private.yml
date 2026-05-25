@@ -34,26 +34,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Lint C++
+      - name: Lint
         run: |
           set -e
           set -x
 
-          LLVM_MAJOR_VER="$(
-            for d in /usr/lib/llvm-*; do
-              v="${d##*/llvm-}"
-              case "$v" in
-                (*[!0-9]*|'') : ;;
-                (*) echo "$v" ;;
-              esac
-            done | sort -n | tail -1
-          )"
-          apt install -y "clang-format-$LLVM_MAJOR_VER" "clang-tidy-$LLVM_MAJOR_VER" "clangd-$LLVM_MAJOR_VER"
-
           python3 -m pip install conan --upgrade
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+          npm install -g markdownlint-cli
 
-          make lint-cpp
+          make lint
 
       - name: Build and run tests
         run: |
