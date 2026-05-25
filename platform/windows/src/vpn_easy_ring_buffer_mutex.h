@@ -5,29 +5,30 @@
 
 #include <string>
 
-namespace ag::vpn_easy {
+namespace ag {
+namespace vpn_easy {
 
 /**
- * Acquire a cross-process named mutex protecting a PersistentRingBuffer file.
- * Both the service (writer) and the app (reader) must acquire this mutex before
- * touching the ring buffer to avoid reading partially-written slots.
+ * Acquire an exclusive byte-range lock on a lock file for cross-process ring
+ * buffer synchronization. Uses a separate ".lock" file and LockFileEx instead
+ * of a named mutex, avoiding cross-session namespace and privilege issues:
+ * any process with directory access can take the lock.
  *
- * The mutex name is derived from the file path hash so that different ring buffer
- * files get independent mutexes.
+ * Both the service (writer, session 0) and the app (reader, session N) must
+ * acquire this lock before touching the ring buffer to avoid reading
+ * partially-written slots.
  */
 class RingBufferLock {
 public:
     explicit RingBufferLock(const std::string &file_path)
-            : m_mutex(open_or_create_mutex(file_path)) {
-        if (m_mutex) {
-            WaitForSingleObject(m_mutex, INFINITE);
-        }
+            : m_handle(open_and_lock(file_path)) {
     }
 
     ~RingBufferLock() {
-        if (m_mutex) {
-            ReleaseMutex(m_mutex);
-            CloseHandle(m_mutex);
+        if (m_handle != INVALID_HANDLE_VALUE) {
+            OVERLAPPED ov{};
+            UnlockFileEx(m_handle, 0, 1, 0, &ov);
+            CloseHandle(m_handle);
         }
     }
 
@@ -35,23 +36,48 @@ public:
     RingBufferLock &operator=(const RingBufferLock &) = delete;
 
     explicit operator bool() const {
-        return m_mutex != nullptr;
+        return m_handle != INVALID_HANDLE_VALUE;
     }
 
 private:
-    static HANDLE open_or_create_mutex(const std::string &file_path) {
-        size_t hash = std::hash<std::string>{}(file_path);
-        std::wstring name = L"Global\\TrustTunnelRingBuffer_" + std::to_wstring(hash);
-        HANDLE m = CreateMutexW(nullptr, FALSE, name.c_str());
-        if (!m && GetLastError() == ERROR_ACCESS_DENIED) {
-            // Fall back to Local\\ namespace if Global\\ is not allowed
-            name = L"Local\\TrustTunnelRingBuffer_" + std::to_wstring(hash);
-            m = CreateMutexW(nullptr, FALSE, name.c_str());
+    static HANDLE open_and_lock(const std::string &file_path) {
+        // Build the lock file path: "<ring_buffer_path>.lock"
+        std::string lock_path = file_path + ".lock";
+
+        int wpath_len = MultiByteToWideChar(CP_UTF8, 0, lock_path.c_str(), -1, nullptr, 0);
+        if (wpath_len <= 0) {
+            return INVALID_HANDLE_VALUE;
         }
-        return m;
+        std::wstring wpath(wpath_len - 1, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, lock_path.c_str(), -1, &wpath[0], wpath_len);
+
+        // Create the lock file if it doesn't exist. It's just an empty
+        // synchronization marker — harmless to create, independent of the
+        // ring buffer data file lifecycle.
+        HANDLE h = CreateFileW(wpath.c_str(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr,
+                OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            return INVALID_HANDLE_VALUE;
+        }
+
+        OVERLAPPED ov{};
+
+        // Blocking exclusive lock on byte 0. Will wait until available.
+        if (!LockFileEx(h, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &ov)) {
+            CloseHandle(h);
+            return INVALID_HANDLE_VALUE;
+        }
+
+        return h;
     }
 
-    HANDLE m_mutex;
+    HANDLE m_handle;
 };
 
-} // namespace ag::vpn_easy
+} // namespace vpn_easy
+} // namespace ag
