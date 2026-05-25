@@ -1,0 +1,16 @@
+name: Check CHANGELOG and auto-tag
+
+on:
+  push:
+    branches:
+      - master
+      - 'stable-*'
+
+jobs:
+  autotag:
+    name: Check CHANGELOG and auto-tag
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/autotag.yml@master
+    secrets: inherit
+    permissions:
+      contents: write

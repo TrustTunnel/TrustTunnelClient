@@ -8,6 +8,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 
 option(VPNLIBS_ENABLE_LIVE_TESTS "Register live tests in CTest" OFF)
+option(VPNLIBS_CAPI_LINUX_EXPORTS "Resolve WIN_EXPORT to default visibility in Linux C API package builds" OFF)
 
 find_package(quiche)
 if (NOT quiche_DIR)
@@ -31,6 +32,10 @@ endif ()
 
 if (IPV6_UNAVAILABLE)
     add_compile_definitions(IPV6_UNAVAILABLE)
+endif()
+
+if (CMAKE_SYSTEM_NAME STREQUAL Linux AND VPNLIBS_CAPI_LINUX_EXPORTS)
+    add_compile_definitions(VPNLIBS_CAPI_LINUX_EXPORTS=1)
 endif()
 
 add_subdirectory(core)

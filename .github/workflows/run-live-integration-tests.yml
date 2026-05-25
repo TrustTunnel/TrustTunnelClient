@@ -1,0 +1,113 @@
+name: Run live integration tests
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    name: Build binaries
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+    container:
+      image: adguard/core-libs:2.10
+    steps:
+      - name: Checkout client
+        uses: actions/checkout@v6
+        with:
+          path: vpn-libs
+
+      - name: Checkout endpoint
+        uses: actions/checkout@v6
+        with:
+          repository: TrustTunnel/TrustTunnel
+          path: vpn-libs-endpoint
+
+      - name: Build client and endpoint
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+        run: |
+          set -x -e
+
+          mkdir -p output
+          export OUTPUT_DIR=${PWD}/output
+          export SOURCE_DIR=${PWD}
+
+          vpn-libs/integration-tests/build_client.sh
+          vpn-libs/integration-tests/build_endpoint.sh
+
+      - name: Upload client binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: trusttunnel_client
+          path: output/trusttunnel_client
+
+      - name: Upload endpoint binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: trusttunnel_endpoint
+          path: output/trusttunnel_endpoint
+
+  run-tests:
+    name: Run live integration tests
+    needs: build-binaries
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+    container:
+      image: adguard/core-libs-testing:2.10.0
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        transport: [http2, http3]
+        mode: [socks, tun]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: download
+
+      - name: Prepare binaries
+        run: |
+          mkdir -p output
+          mv download/trusttunnel_client/trusttunnel_client output/
+          mv download/trusttunnel_endpoint/trusttunnel_endpoint output/
+          chmod +x output/trusttunnel_client output/trusttunnel_endpoint
+          rm -rf download
+
+      - name: Run tests (${{ matrix.transport }} ${{ matrix.mode }})
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          TEST_DIR: ${{ github.workspace }}/integration-tests/tests
+          LIVE_TESTS: 1
+        run: |
+          set -x -e
+
+          # Nameserver with global routable IP is required here.
+          # 94.140.14.140 is AdGuard Unfiltered DNS
+          echo nameserver 94.140.14.140 > /etc/resolv.conf
+
+          ${TEST_DIR}/main/run.sh ${{ matrix.transport }} ${{ matrix.mode }}
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: live-integration-test-logs-${{ matrix.transport }}-${{ matrix.mode }}
+          path: |
+            output/*.log
+            output/*.txt

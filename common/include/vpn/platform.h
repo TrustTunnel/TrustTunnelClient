@@ -156,7 +156,7 @@ static inline uint32_t gettid() {
 #define AG_EXPORT
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(VPNLIBS_CAPI_LINUX_EXPORTS)
 #define WIN_EXPORT AG_EXPORT
 #else
 #define WIN_EXPORT
