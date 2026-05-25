@@ -26,7 +26,6 @@ private:
     std::string m_ring_buffer_path;
     std::wstring m_service_name;
     std::wstring m_pipe_name;
-    bool m_is_started = false;
 
     /** Install the Windows service. Returns 0 on success, error code on failure. */
     int32_t install_service();

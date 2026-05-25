@@ -1,4 +1,5 @@
 #include "native_vpn_impl.h"
+#include "vpn/vpn.h"
 #include "vpn/vpn_easy.h"
 #include "vpn/vpn_easy_service.h"
 
@@ -63,7 +64,12 @@ int32_t NativeVpnImpl::install_service() {
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
     std::wstring service_exe = (exe_dir / L"vpn_easy_service.exe").wstring();
     std::wstring log_path = exe_dir / L"vpn_easy_service.log";
-    std::wstring ring_buffer_path_w(m_ring_buffer_path.begin(), m_ring_buffer_path.end());
+    std::wstring ring_buffer_path_w;
+    int ring_buffer_path_len = MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, nullptr, 0);
+    if (ring_buffer_path_len > 0) {
+        ring_buffer_path_w.assign(ring_buffer_path_len - 1, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, &ring_buffer_path_w[0], ring_buffer_path_len);
+    }
 
     return vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(),
             m_service_name.c_str(), L"TrustTunnel VPN Service",
@@ -100,21 +106,13 @@ std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
         warnlog(m_logger, "Failed to start VPN service: {}", start_result);
         return FlutterError("SERVICE_START", "Failed to start VPN service");
     }
-
-    m_is_started = true;
     return std::nullopt;
 }
 
 std::optional<FlutterError> NativeVpnImpl::Stop() {
-    if (!m_is_started) {
-        return std::nullopt;
-    }
-
     int32_t stop_result = vpn_easy_service_stop(m_service_name.c_str(), m_pipe_name.c_str());
     if (stop_result != 0) {
         warnlog(m_logger, "Failed to stop VPN service: {}", stop_result);
     }
-
-    m_is_started = false;
     return std::nullopt;
 }
