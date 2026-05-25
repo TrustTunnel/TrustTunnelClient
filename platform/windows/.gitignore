@@ -1,0 +1,4 @@
+# Build script artifacts (created by scripts/build_package.ps1)
+wintun/
+staging/
+artifacts/
