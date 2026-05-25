@@ -515,7 +515,6 @@ static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
 /// Delivers DISCONNECTED when the pipe closes. Resources are cleaned up externally.
 static void pipe_io_thread() {
     g_svc_state.pipe_client->loop();
-    
     if (g_svc_state.state_changed_cb) {
         g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
     }
