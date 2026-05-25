@@ -151,18 +151,6 @@ WIN_EXPORT int32_t vpn_easy_service_start(const wchar_t *service_name, const wch
 WIN_EXPORT int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_name);
 
 /**
- * Query the current state of the VPN service.
- *
- * This will send a `VPN_EASY_SVC_MSG_QUERY_STATE` message to the service, and will receive a
- * `VPN_EASY_SVC_MSG_STATE_CHANGED` message containing the current VPN state value.
- *
- * @param service_name The service name that was passed to `vpn_easy_service_install()`.
- * @param pipe_name The name of the pipe that was passed to `vpn_easy_service_install()`.
- * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
- */
-WIN_EXPORT int32_t vpn_easy_service_query_state(const wchar_t *service_name, const wchar_t *pipe_name);
-
-/**
  * Connect to a running VPN service to monitor its state. Does not start the VPN.
  * The service must already be running (typically started by a previous call to
  * `vpn_easy_service_start()`). If the service is not running, returns
