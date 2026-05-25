@@ -177,7 +177,7 @@ void vpn_easy_stop_ex(vpn_easy_t *vpn) {
     delete vpn;
 }
 
-void vpn_easy_read_all_connection_info(
+void vpn_easy_service_read_all_connection_info(
         const char *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
     if (!ring_buffer_path || !connection_info_cb) {
         return;

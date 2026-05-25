@@ -21,7 +21,7 @@ NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &
         , m_service_name(std::move(service_name))
         , m_pipe_name(std::move(pipe_name)) {
     // Read all persisted connection info records on construction (before VPN is started)
-    vpn_easy_read_all_connection_info(
+    vpn_easy_service_read_all_connection_info(
             m_ring_buffer_path.c_str(), s_notify_connection_info, this);
 
     // Try to attach to a running service to detect current VPN state.

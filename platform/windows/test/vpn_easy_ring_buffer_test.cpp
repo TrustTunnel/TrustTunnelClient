@@ -9,7 +9,7 @@
 #include <windows.h>
 
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
-#include "vpn/vpn_easy.h"
+#include "vpn/vpn_easy_service.h"
 
 namespace {
 
@@ -48,7 +48,7 @@ protected:
 TEST_F(RingBufferTest, ReadAllEmptyFile) {
     // File doesn't exist yet — read should not crash and not call the callback
     bool called = false;
-    vpn_easy_read_all_connection_info(
+    vpn_easy_service_read_all_connection_info(
             m_path.c_str(),
             [](void *arg, const char * /*json*/) {
                 *static_cast<bool *>(arg) = true;
@@ -61,7 +61,7 @@ TEST_F(RingBufferTest, ReadAllExistingRecords) {
     write_records(5);
 
     std::vector<std::string> received;
-    vpn_easy_read_all_connection_info(
+    vpn_easy_service_read_all_connection_info(
             m_path.c_str(),
             [](void *arg, const char *json) {
                 static_cast<std::vector<std::string> *>(arg)->emplace_back(json);
@@ -85,7 +85,7 @@ TEST_F(RingBufferTest, ReadAllCorruptedFileClears) {
     }
 
     bool called = false;
-    vpn_easy_read_all_connection_info(
+    vpn_easy_service_read_all_connection_info(
             m_path.c_str(),
             [](void *arg, const char * /*json*/) {
                 *static_cast<bool *>(arg) = true;
