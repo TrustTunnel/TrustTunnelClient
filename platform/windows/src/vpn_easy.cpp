@@ -381,7 +381,7 @@ int32_t vpn_easy_service_install(const wchar_t *image_path_, const wchar_t *logf
     }
 
     AutoScHandle svc{CreateServiceW(scm.get(), name, display_name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr)};
+            SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr)};
     if (!svc) {
         if (ERROR_SERVICE_EXISTS == GetLastError()) {
             return VPN_EASY_SVC_ERR_SERVICE_EXISTS;
