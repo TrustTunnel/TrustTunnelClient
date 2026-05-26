@@ -56,7 +56,7 @@ Output: `artifacts/trusttunnel-client-windows-<arch>-<version>.zip`
 
 The ZIP archive contains a complete CMake package:
 
-```
+```bash
 trusttunnel-client-windows-amd64-1.1.3/
 ├── include/
 │   └── vpn/
@@ -189,6 +189,7 @@ $env:GITHUB_TOKEN = "ghp_..."  # PAT with write:packages scope
 ### Architecture: Separate Packages Per Architecture
 
 amd64 and arm64 are distributed as **separate** packages because:
+
 - Smaller download size for the consumer
 - No ambiguity about which binaries are being used
 - Maven coordinates naturally distinguish architectures
