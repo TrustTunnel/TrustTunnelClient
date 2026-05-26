@@ -25,7 +25,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` as top-level keys in
   `trusttunnel_client.toml`; absent values fall back to the defaults from `vpn_get_default_settings()`.
 
-
 ### Deprecated
 
 ### Removed
