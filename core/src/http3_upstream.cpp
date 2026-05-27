@@ -12,6 +12,7 @@
 #include "net/tls.h"
 #include "net/udp_socket.h"
 #include "net/utils.h"
+#include "verify_callback_common.h"
 #include "vpn/internal/vpn_client.h"
 #include "vpn/utils.h"
 
@@ -534,19 +535,8 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
 
 int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http3Upstream *) arg;
-    auto *cert = X509_STORE_CTX_get0_cert(store_ctx);
-    auto *chain = X509_STORE_CTX_get0_untrusted(store_ctx);
-    auto *ssl = (SSL *) X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-
-    const char *host_name = !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
-            ? self->vpn->upstream_config.endpoint->remote_id
-            : self->vpn->upstream_config.endpoint->name;
-
-    int ret = self->vpn->parameters.cert_verify_handler.func(host_name,
-            (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl, VT_ENDPOINT},
-            self->vpn->parameters.cert_verify_handler.arg);
+    auto [ret, host_name, cert, chain] = verify_endpoint_cert(store_ctx, self->vpn);
     self->m_cert_verify_failed = (ret != 1);
-
     if (ret != 1) {
         log_upstream(self, warn, "QUIC/H3 certificate verification failed for host '{}'", host_name);
         log_upstream(self, warn, "  {}", tls_get_cert_diagnostic_info(cert, chain));
