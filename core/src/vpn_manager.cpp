@@ -705,7 +705,7 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, c
         return result;
     } else {
         log_vpn(vpn, err, "Failed to verify certificate for host '{}'", host_name ? host_name : "<null>");
-        log_vpn(vpn, dbg, "  {}", tls_get_cert_diagnostic_info(ctx.cert, ctx.chain));
+        log_vpn(vpn, err, "  {}", tls_get_cert_diagnostic_info(ctx.cert, ctx.chain));
 #ifdef OPENSSL_IS_BORINGSSL
         if (ctx.ssl) {
             SSL_send_fatal_alert(ctx.ssl, SSL_AD_UNKNOWN_CA);
@@ -720,7 +720,7 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, c
         log_vpn(vpn, err, "Server host name or IP doesn't match certificate. Expected host: '{}', IP: '{}'",
                 host_name ? host_name : "<null>",
                 (host_ip && host_ip->sa_family != AF_UNSPEC) ? SocketAddress(host_ip).str().c_str() : "<none>");
-        log_vpn(vpn, dbg, "  {}", tls_get_cert_diagnostic_info(ctx.cert, nullptr));
+        log_vpn(vpn, err, "  {}", tls_get_cert_diagnostic_info(ctx.cert, nullptr));
 #ifdef OPENSSL_IS_BORINGSSL
         if (ctx.ssl) {
             SSL_send_fatal_alert(ctx.ssl, SSL_AD_CERTIFICATE_UNKNOWN);
