@@ -834,8 +834,6 @@ int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     if (ret != 1) {
         log_upstream(self, warn, "HTTP/2 certificate verification failed for host '{}'", host_name);
         log_upstream(self, warn, "  {}", tls_get_cert_diagnostic_info(cert, chain));
-    } else {
-        log_upstream(self, trace, "Certificate verification succeeded for host '{}'", host_name);
     }
     return ret;
 }
