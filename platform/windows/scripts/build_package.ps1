@@ -148,7 +148,7 @@ cmake -S "$PlatformDir" -B "$BuildDir" -G Ninja ^
     -DCMAKE_CXX_COMPILER=cl.exe ^
     -DCMAKE_INSTALL_PREFIX="$StagingDir"
 if %errorlevel% neq 0 exit /b %errorlevel%
-cmake --build "$BuildDir" --target vpn_easy vpn_easy_service
+cmake --build "$BuildDir" --target vpn_easy vpn_easy_service service_installer
 if %errorlevel% neq 0 exit /b %errorlevel%
 cmake --install "$BuildDir"
 if %errorlevel% neq 0 exit /b %errorlevel%
