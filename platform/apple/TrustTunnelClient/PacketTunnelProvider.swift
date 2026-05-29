@@ -14,7 +14,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private var bundleIdentifier = ""
     private var appGroup: String = ""
     private var startProcessed = false
-    private let logger = Logger(category: "PacketTunnel")
+    private let logger = SystemLogger(category: "PacketTunnel")
 
     private let ADGUARD_DNS_SERVERS = ["46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff"]
     private let FAKE_DNS_SERVER = ["198.18.53.53"]

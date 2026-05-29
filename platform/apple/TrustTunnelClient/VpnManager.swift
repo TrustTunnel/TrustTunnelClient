@@ -49,7 +49,7 @@ public final class VpnManager {
     private var bundleIdentifier: String
     private var appGroup: String
     private var readIndex: UInt64? = nil
-    private let logger = Logger(category: "VpnManager")
+    private let logger = SystemLogger(category: "VpnManager")
 
     public init(bundleIdentifier: String,
                         appGroup: String,
