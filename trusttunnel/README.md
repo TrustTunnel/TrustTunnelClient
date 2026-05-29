@@ -251,8 +251,8 @@ If validation fails, the service is not installed. The config path is resolved
 to an absolute path and baked into the service registration — the service will
 always start with that config file.
 
-The service is registered with **manual** start type
-(`SERVICE_DEMAND_START`) and is started immediately after installation.
+The service is registered with **automatic** start type
+(`SERVICE_AUTO_START`) and is started immediately after installation.
 
 ### Starting and Stopping the Service
 
