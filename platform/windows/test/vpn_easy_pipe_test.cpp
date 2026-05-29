@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -1131,4 +1132,153 @@ TEST(PipeSecurityDescriptor, ForAuthenticatedUsersReturnsValidDescriptor) {
     ASSERT_TRUE(sd);
     ASSERT_NE(sd.get(), nullptr);
     EXPECT_TRUE(IsValidSecurityDescriptor(sd.get()));
+}
+
+// ---------------------------------------------------------------------------
+// VPN_EASY_SVC_MSG_QUERY_STATE / VPN_EASY_SVC_MSG_CONNECTION_INFO transport
+// ---------------------------------------------------------------------------
+
+TEST_F(PipeTest, ServerEchoesQueryStateMessage) {
+    // Verify that QUERY_STATE messages (added in the attach/detach branch) can
+    // be sent and received through the pipe framing layer.
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+
+    // QUERY_STATE has an empty payload.
+    auto frame = make_framed(VPN_EASY_SVC_MSG_QUERY_STATE, {});
+    ASSERT_TRUE(write_all(client.get(), frame));
+
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_QUERY_STATE);
+    EXPECT_TRUE(msgs[0].payload.empty());
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerReceivesConnectionInfoMessage) {
+    // Verify that CONNECTION_INFO messages (used by the attach/detach feature)
+    // are correctly framed and delivered through the pipe.
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+
+    const std::string json = R"({"host":"example.com","port":443,"protocol":"TLS"})";
+    auto frame = make_framed(VPN_EASY_SVC_MSG_CONNECTION_INFO,
+            {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+    ASSERT_TRUE(write_all(client.get(), frame));
+
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_CONNECTION_INFO);
+    std::string payload_str(msgs[0].payload.begin(), msgs[0].payload.end());
+    EXPECT_EQ(payload_str, json);
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientReceivesQueryStateResponseFromServer) {
+    // Simulate the service responding to QUERY_STATE with a STATE_CHANGED
+    // message — same pattern used by vpn_easy_service_attach().
+    PipeServer *server_ptr = nullptr;
+    PipeEndpoint::Handler server_handler = [&](VpnEasyServiceMessageType what, ag::Uint8View data) {
+        if (what == VPN_EASY_SVC_MSG_QUERY_STATE) {
+            // Reply with a STATE_CHANGED message containing VPN_SS_DISCONNECTED (0).
+            uint32_t net_state = htonl(0);
+            server_ptr->send(VPN_EASY_SVC_MSG_STATE_CHANGED,
+                    {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
+        }
+    };
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
+    server_ptr = &server;
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Send QUERY_STATE; the server should reply with STATE_CHANGED.
+    client.send(VPN_EASY_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(client_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_STATE_CHANGED);
+    ASSERT_EQ(msgs[0].payload.size(), sizeof(uint32_t));
+    uint32_t received_state = 0;
+    memcpy(&received_state, msgs[0].payload.data(), sizeof(received_state));
+    EXPECT_EQ(ntohl(received_state), 0u);
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientReceivesConnectionInfoFromServer) {
+    // Simulate the service sending a CONNECTION_INFO message to the client,
+    // which is then dispatched via the client's handler — same path used by
+    // vpn_easy_service_start() and vpn_easy_service_attach().
+    PipeServer *server_ptr = nullptr;
+    PipeEndpoint::Handler server_handler = [&](VpnEasyServiceMessageType, ag::Uint8View) {
+        // On first connection, send a CONNECTION_INFO message.
+        static bool sent = false;
+        if (!sent) {
+            const std::string json = R"({"host":"10.0.0.1","port":8080})";
+            server_ptr->send(VPN_EASY_SVC_MSG_CONNECTION_INFO,
+                    {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+            sent = true;
+        }
+    };
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
+    server_ptr = &server;
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Send a message to trigger the server's connection-info push.
+    client.send(VPN_EASY_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(client_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_CONNECTION_INFO);
+    std::string payload_str(msgs[0].payload.begin(), msgs[0].payload.end());
+    EXPECT_EQ(payload_str, R"({"host":"10.0.0.1","port":8080})");
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
 }
