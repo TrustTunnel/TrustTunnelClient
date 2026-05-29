@@ -1,13 +1,5 @@
 // service_installer.exe — Elevated helper for installing/uninstalling the VPN service.
 //
-// This executable is designed to be launched with elevated (administrator) permissions
-// to perform service management operations. It links statically against vpn_easy_a
-// to also get ag::Logger support.
-//
-// Usage:
-//   service_installer.exe install <image_path> <logfile_path> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
-//   service_installer.exe uninstall <name>
-//
 // Exit codes:
 //   0 — Success
 //   1 — Invalid usage / arguments

@@ -6,8 +6,8 @@
 #include <filesystem>
 
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <shellapi.h>
+#include <windows.h>
 
 static void s_notify_state_changed(void *arg, int state) {
     static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
