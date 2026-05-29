@@ -55,7 +55,8 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
 # Link TrustTunnel adapter
-add_subdirectory(../../../windows ${CMAKE_CURRENT_BINARY_DIR}/vpn_easy)
+add_subdirectory(../../../windows ${CMAKE_CURRENT_BINARY_DIR}/vpn_easy EXCLUDE_FROM_ALL)
 target_link_libraries(${BINARY_NAME} PRIVATE vpn_easy_a)
 # Ensure the VPN service executable is built alongside the testapp
 add_dependencies(${BINARY_NAME} vpn_easy_service)
+add_dependencies(${BINARY_NAME} service_installer)

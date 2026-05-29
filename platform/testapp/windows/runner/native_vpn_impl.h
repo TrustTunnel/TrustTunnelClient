@@ -29,6 +29,8 @@ private:
 
     /** Install the Windows service. Returns 0 on success, error code on failure. */
     int32_t install_service();
+    /** Uninstall the Windows service. Returns 0 on success, error code on failure. */
+    int32_t uninstall_service();
     /** Attach to a running Windows service. Returns 0 on success, error code on failure. */
     int32_t attach_service();
     /** Start the Windows service. Returns 0 on success, error code on failure. */

@@ -5,6 +5,10 @@
 
 #include <filesystem>
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+
 static void s_notify_state_changed(void *arg, int state) {
     static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
 }
@@ -70,9 +74,77 @@ int32_t NativeVpnImpl::install_service() {
         MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, &ring_buffer_path_w[0], ring_buffer_path_len);
     }
 
-    return vpn_easy_service_install(service_exe.c_str(), log_path.c_str(), m_pipe_name.c_str(), m_service_name.c_str(),
-            L"TrustTunnel VPN Service", L"Provides VPN connectivity for the TrustTunnel client.",
-            ring_buffer_path_w.c_str());
+    std::wstring helper_exe = (exe_dir / L"service_installer.exe").wstring();
+
+    // Build the command-line arguments for service_installer.exe:
+    //   install <image_path> <logfile_path> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
+    std::wstring params = L"install";
+    params += L" \"" + service_exe + L"\"";
+    params += L" \"" + log_path + L"\"";
+    params += L" \"" + m_pipe_name + L"\"";
+    params += L" \"" + m_service_name + L"\"";
+    params += L" \"TrustTunnel VPN Service\"";
+    params += L" \"Provides VPN connectivity for the TrustTunnel client.\"";
+    params += L" \"" + ring_buffer_path_w + L"\"";
+
+    // Launch the helper with UAC elevation (runas verb triggers the consent prompt).
+    // SEE_MASK_NOCLOSEPROCESS is required to get sei.hProcess back — without it,
+    // hProcess is NULL and we can't wait for the process or get its exit code.
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = helper_exe.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    // Wait for the elevated helper to finish.
+    WaitForSingleObject(sei.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(sei.hProcess, &exit_code);
+    CloseHandle(sei.hProcess);
+
+    return static_cast<int32_t>(exit_code);
+}
+
+int32_t NativeVpnImpl::uninstall_service() {
+    wchar_t exe_path[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+    std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
+    std::wstring helper_exe = (exe_dir / L"service_installer.exe").wstring();
+
+    std::wstring params = L"uninstall \"" + m_service_name + L"\"";
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = helper_exe.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            return VPN_EASY_SVC_ERR_ACCESS;
+        }
+        return VPN_EASY_SVC_ERR_OTHER;
+    }
+
+    WaitForSingleObject(sei.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(sei.hProcess, &exit_code);
+    CloseHandle(sei.hProcess);
+
+    return static_cast<int32_t>(exit_code);
 }
 
 int32_t NativeVpnImpl::attach_service() {
