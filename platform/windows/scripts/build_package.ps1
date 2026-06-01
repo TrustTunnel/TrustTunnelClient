@@ -68,13 +68,13 @@ switch ($Arch) {
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PlatformDir = Split-Path -Parent $ScriptDir   # platform/windows/
 $RootDir = Split-Path -Parent (Split-Path -Parent $PlatformDir) # repo root
-$BuildDir = Join-Path $PlatformDir "build" $Arch
-$StagingDir = Join-Path $PlatformDir "staging" "trusttunnel-client-windows-$Arch-$Version"
+$BuildDir = Join-Path (Join-Path $PlatformDir "build") $Arch
+$StagingDir = Join-Path (Join-Path $PlatformDir "staging") "trusttunnel-client-windows-$Arch-$Version"
 $ArtifactsDir = Join-Path $PlatformDir "artifacts"
 $WintunExtractDir = Join-Path $PlatformDir "wintun"
 
 # Read wintun version from third-party/wintun/VERSION
-$WintunVersion = (Get-Content (Join-Path $RootDir "third-party" "wintun" "VERSION")).Trim()
+$WintunVersion = (Get-Content (Join-Path (Join-Path $RootDir "third-party") "wintun\VERSION")).Trim()
 
 if ($WintunUrl -eq "") {
     $WintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
@@ -99,7 +99,7 @@ if (-not $SkipWintun) {
 
     # Extract the ZIP. The archive contains a top-level "wintun/" directory,
     # so after extraction the structure is: <WintunExtractDir>/wintun/bin/<arch>/wintun.dll
-    if (-not (Test-Path (Join-Path $WintunExtractDir "wintun" "bin" $WintunSubdir "wintun.dll"))) {
+    if (-not (Test-Path (Join-Path (Join-Path (Join-Path (Join-Path $WintunExtractDir "wintun") "bin") $WintunSubdir) "wintun.dll"))) {
         if (Test-Path $WintunExtractDir) {
             Remove-Item -Recurse -Force $WintunExtractDir
         }
@@ -183,8 +183,8 @@ if (-not $SkipWintun) {
 
     # After extraction the path follows the same convention as deploy_cli.yaml:
     # <WintunExtractDir>/wintun/bin/<WintunSubdir>/wintun.dll
-    $wintunDll = Join-Path $WintunExtractDir "wintun" "bin" $WintunSubdir "wintun.dll"
-    $wintunLicense = Join-Path $WintunExtractDir "wintun" "LICENSE.txt"
+    $wintunDll = Join-Path (Join-Path (Join-Path (Join-Path $WintunExtractDir "wintun") "bin") $WintunSubdir) "wintun.dll"
+    $wintunLicense = Join-Path (Join-Path $WintunExtractDir "wintun") "LICENSE.txt"
 
     if (-not (Test-Path $wintunDll)) {
         Write-Error "wintun.dll not found at: $wintunDll"
@@ -192,7 +192,7 @@ if (-not $SkipWintun) {
         exit 1
     }
 
-    Copy-Item -Force $wintunDll (Join-Path $StagingDir "bin" "wintun.dll")
+    Copy-Item -Force $wintunDll (Join-Path (Join-Path $StagingDir "bin") "wintun.dll")
     Write-Host "Copied wintun.dll ($WintunSubdir)"
 
     if (Test-Path $wintunLicense) {
