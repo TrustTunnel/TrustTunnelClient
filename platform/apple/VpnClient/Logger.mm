@@ -1,10 +1,8 @@
 #import "Logger.h"
-
-#include <mutex>
+#import <os/log.h>
 
 #include "common/logger.h"
-
-#import <os/log.h>
+#include <mutex>
 
 namespace {
 
@@ -35,13 +33,26 @@ NSString *to_ns_string(std::string_view message) {
     return string ?: @"";
 }
 
+const char *to_log_level_name(ag::LogLevel level) {
+    switch (level) {
+    case ag::LOG_LEVEL_ERROR:
+        return "ERROR";
+    case ag::LOG_LEVEL_WARN:
+        return "WARN";
+    case ag::LOG_LEVEL_INFO:
+        return "INFO";
+    case ag::LOG_LEVEL_DEBUG:
+        return "DEBUG";
+    case ag::LOG_LEVEL_TRACE:
+        return "TRACE";
+    }
+
+    return "UNKNOWN";
+}
+
 void log_to_default_sink(ag::LogLevel level, std::string_view message) {
-    static const char *const levels[] = {
-            [ag::LOG_LEVEL_ERROR] = "ERROR", [ag::LOG_LEVEL_WARN] = "WARN",   [ag::LOG_LEVEL_INFO] = "INFO",
-            [ag::LOG_LEVEL_DEBUG] = "DEBUG", [ag::LOG_LEVEL_TRACE] = "TRACE",
-    };
     static os_log_t log_handle = os_log_create("com.adguard.TrustTunnel.VpnClientFramework", "VpnClient");
-    os_log(log_handle, "[%{public}s]\t%{public}.*s", levels[level], (int)message.size(), message.data());
+    os_log(log_handle, "[%{public}s]\t%{public}.*s", to_log_level_name(level), (int)message.size(), message.data());
 }
 
 void dispatch_log(ag::LogLevel level, std::string_view message) {
@@ -63,7 +74,12 @@ void install_native_callback() {
     ag::Logger::set_callback([](ag::LogLevel level, std::string_view message) { dispatch_log(level, message); });
 }
 
-__attribute__((constructor)) static void initialize_native_logger() { install_native_callback(); }
+class NativeLoggerInitializer {
+public:
+    NativeLoggerInitializer() { install_native_callback(); }
+};
+
+static NativeLoggerInitializer g_native_logger_initializer;
 
 } // namespace
 
