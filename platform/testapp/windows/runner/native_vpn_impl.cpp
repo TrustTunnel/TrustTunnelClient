@@ -72,6 +72,9 @@ int32_t NativeVpnImpl::install_service() {
     if (ring_buffer_path_len > 0) {
         ring_buffer_path_w.assign(ring_buffer_path_len - 1, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, &ring_buffer_path_w[0], ring_buffer_path_len);
+    } else {
+        errlog(m_logger, "Failed to convert ring buffer path to wide string");
+        return VPN_EASY_SVC_ERR_OTHER;
     }
 
     std::wstring helper_exe = (exe_dir / L"service_installer.exe").wstring();
