@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,7 +24,7 @@ public:
     /// will cause the existing file to be treated as corrupted. Call `clear()`
     /// first to start fresh with new parameters.
     explicit PersistentRingBuffer(
-            std::string path, uint32_t max_records = MAX_RECORDS, uint32_t max_record_bytes = MAX_RECORD_BYTES);
+            std::filesystem::path path, uint32_t max_records = MAX_RECORDS, uint32_t max_record_bytes = MAX_RECORD_BYTES);
 
     bool append(std::string_view record);
     std::optional<RingBufferReadResult> read_all() const;
@@ -31,7 +32,7 @@ public:
     bool clear();
 
 private:
-    std::string m_path;
+    std::filesystem::path m_path;
     uint32_t m_max_records;
     uint32_t m_max_record_bytes;
 };
