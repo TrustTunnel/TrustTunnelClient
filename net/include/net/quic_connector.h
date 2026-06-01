@@ -6,16 +6,11 @@
 
 #include <event2/util.h>
 
-#ifndef DISABLE_HTTP3
-#include <quiche.h>
-#endif
-
 #include "common/defs.h"
+#include "common/http/http3.h"
 #include "net/socket_manager.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
-
-#include "vpn/platform.h"
 
 #include <openssl/ssl.h>
 
@@ -54,15 +49,13 @@ struct QuicConnectorConnectParameters {
     SSL *ssl;
     Millis timeout;          // How long to wait for server response before giving up.
     Millis max_idle_timeout; // QUIC connection's maximum idle timeout.
-    uint32_t quic_version;
+    //uint32_t quic_version;  //TODO: delete
 };
 
 #ifndef DISABLE_HTTP3
 struct QuicConnectorResult {
     evutil_socket_t fd;                               // UDP socket's file descriptor.
-    ag::DeclPtr<quiche_conn, &quiche_conn_free> conn; // Owning pointer to a QUIC connection object.
-    SSL *ssl;       // Non-owning pointer to the SSL object owned by the QUIC connection object.
-    Uint8Span data; // The first UDP payload received from the server. Valid until the connector is destroyed.
+    std::unique_ptr<ag::http::Http3Client> h3_client; // TODO: comments
 };
 #else
 struct QuicConnectorResult {};

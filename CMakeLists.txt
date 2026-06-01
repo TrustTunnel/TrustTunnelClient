@@ -10,11 +10,6 @@ set(CMAKE_CXX_STANDARD 20)
 option(VPNLIBS_ENABLE_LIVE_TESTS "Register live tests in CTest" OFF)
 option(VPNLIBS_CAPI_LINUX_EXPORTS "Resolve WIN_EXPORT to default visibility in Linux C API package builds" OFF)
 
-find_package(quiche)
-if (NOT quiche_DIR)
-    set(DISABLE_HTTP3 ON)
-endif()
-
 if (DISABLE_HTTP3)
     add_compile_definitions(DISABLE_HTTP3)
 endif ()
