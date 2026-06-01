@@ -512,7 +512,10 @@ static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
 }
 
 /// IO thread entry point for both start() and attach().
-/// Delivers DISCONNECTED when the pipe closes. Resources are cleaned up externally.
+/// Delivers DISCONNECTED whenever the pipe loop exits, regardless of reason.
+/// This is intentional: when the service is stopped externally (e.g. `sc stop`),
+/// the app must be notified. In the case of an app-initiated stop/detach
+/// the DISCONNECTED notification is harmless.
 static void pipe_io_thread() {
     g_svc_state.pipe_client->loop();
     if (g_svc_state.state_changed_cb) {
