@@ -177,7 +177,6 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
             const SizedBox(height: 10.0),
-            const SizedBox(height: 10.0),
             Text(
               'VPN State: ${vpnStateWatcher.state.name}',
               style: Theme.of(context).textTheme.headlineMedium,
