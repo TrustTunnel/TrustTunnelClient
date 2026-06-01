@@ -2,6 +2,7 @@
 #include "vpn/vpn_easy.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -29,7 +30,7 @@ static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static vpn_easy_t *g_vpn;
 static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
-static std::string g_ring_buffer_path;
+static std::filesystem::path g_ring_buffer_path;
 static std::mutex g_state_mutex;
 /// Current VPN session state. Updated by `send_state()` and reset on VPN stop.
 static int32_t g_current_vpn_state = ag::VPN_SS_DISCONNECTED;
@@ -174,12 +175,7 @@ int wmain(int argc, wchar_t **argv) {
     g_pipe_name = argv[2];
 
     {
-        int len = WideCharToMultiByte(CP_UTF8, 0, argv[3], -1, nullptr, 0, nullptr, nullptr);
-        if (len <= 0) {
-            return 1;
-        }
-        g_ring_buffer_path.assign(len - 1, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, argv[3], -1, g_ring_buffer_path.data(), len, nullptr, nullptr);
+        g_ring_buffer_path = std::filesystem::path(argv[3]);
         g_ring_buffer.emplace(g_ring_buffer_path);
     }
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <common/logger.h>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -9,7 +10,7 @@
 
 class NativeVpnImpl : public NativeVpnInterface {
 public:
-    NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks, std::string ring_buffer_path,
+    NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks, std::filesystem::path ring_buffer_path,
             std::wstring service_name, std::wstring pipe_name);
     ~NativeVpnImpl() override;
 
@@ -23,7 +24,7 @@ private:
     ag::Logger m_logger{"NativeVpnImpl"};
     FlutterCallbacks m_callbacks;
     IUIThreadDispatcher *m_dispatcher;
-    std::string m_ring_buffer_path;
+    std::filesystem::path m_ring_buffer_path;
     std::wstring m_service_name;
     std::wstring m_pipe_name;
 

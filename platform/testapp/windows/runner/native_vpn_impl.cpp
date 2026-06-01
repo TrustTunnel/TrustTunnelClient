@@ -18,14 +18,14 @@ static void s_notify_connection_info(void *arg, const char *json) {
 }
 
 NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
-        std::string ring_buffer_path, std::wstring service_name, std::wstring pipe_name)
+        std::filesystem::path ring_buffer_path, std::wstring service_name, std::wstring pipe_name)
         : m_callbacks(std::move(callbacks))
         , m_dispatcher(dispatcher)
         , m_ring_buffer_path(std::move(ring_buffer_path))
         , m_service_name(std::move(service_name))
         , m_pipe_name(std::move(pipe_name)) {
     // Read all persisted connection info records on construction (before VPN is started)
-    vpn_easy_service_read_all_connection_info(m_ring_buffer_path.c_str(), s_notify_connection_info, this);
+    vpn_easy_service_read_all_connection_info(m_ring_buffer_path.string().c_str(), s_notify_connection_info, this);
 
     // Try to attach to a running service to detect current VPN state.
     int32_t attach_result = attach_service();
@@ -65,17 +65,9 @@ int32_t NativeVpnImpl::install_service() {
     wchar_t exe_path[MAX_PATH];
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
-    std::wstring service_exe = (exe_dir / L"vpn_easy_service.exe").wstring();
+    std::wstring service_exe = exe_dir / L"vpn_easy_service.exe";
     std::wstring log_path = exe_dir / L"vpn_easy_service.log";
-    std::wstring ring_buffer_path_w;
-    int ring_buffer_path_len = MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, nullptr, 0);
-    if (ring_buffer_path_len > 0) {
-        ring_buffer_path_w.assign(ring_buffer_path_len - 1, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, m_ring_buffer_path.c_str(), -1, &ring_buffer_path_w[0], ring_buffer_path_len);
-    } else {
-        errlog(m_logger, "Failed to convert ring buffer path to wide string");
-        return VPN_EASY_SVC_ERR_OTHER;
-    }
+    std::wstring ring_buffer_path_w = m_ring_buffer_path.wstring();
 
     std::wstring helper_exe = (exe_dir / L"service_installer.exe").wstring();
 

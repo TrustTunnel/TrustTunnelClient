@@ -1,9 +1,10 @@
 #pragma once
 
+#include <filesystem>
+#include <string>
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-
-#include <string>
 
 namespace ag {
 namespace vpn_easy {
@@ -20,7 +21,7 @@ namespace vpn_easy {
  */
 class RingBufferLock {
 public:
-    explicit RingBufferLock(const std::string &file_path)
+    explicit RingBufferLock(const std::filesystem::path &file_path)
             : m_handle(open_and_lock(file_path)) {
     }
 
@@ -40,16 +41,11 @@ public:
     }
 
 private:
-    static HANDLE open_and_lock(const std::string &file_path) {
+    static HANDLE open_and_lock(const std::filesystem::path &file_path) {
         // Build the lock file path: "<ring_buffer_path>.lock"
-        std::string lock_path = file_path + ".lock";
-
-        int wpath_len = MultiByteToWideChar(CP_UTF8, 0, lock_path.c_str(), -1, nullptr, 0);
-        if (wpath_len <= 0) {
-            return INVALID_HANDLE_VALUE;
-        }
-        std::wstring wpath(wpath_len - 1, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, lock_path.c_str(), -1, &wpath[0], wpath_len);
+        std::filesystem::path lock_path = file_path;
+        lock_path += ".lock";
+        std::wstring wpath = lock_path.wstring();
 
         // Create the lock file if it doesn't exist. It's just an empty
         // synchronization marker — harmless to create, independent of the
