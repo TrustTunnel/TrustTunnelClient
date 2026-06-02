@@ -13,7 +13,13 @@ class Tun (
     @SerialName("excluded_routes")
     val excludedRoutes: List<String>,
     @SerialName("mtu_size")
-    val mtuSize: Long
+    val mtuSize: Long,
+    @SerialName("per_app_proxy")
+    val perAppProxy: Boolean = false,
+    @SerialName("bypass_apps")
+    val bypassApps: Boolean = false,
+    @SerialName("proxy_apps")
+    val proxyApps: List<String> = emptyList()
 )
 
 @Serializable
