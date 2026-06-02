@@ -456,6 +456,7 @@ VpnError VpnClient::listen(std::unique_ptr<ClientListener> listener, const VpnLi
     this->listener_config = vpn_listener_config_clone(config);
 
     VpnError error = {.code = VPN_EC_ERROR};
+    bool need_update_dns_handler_params = true;
 
     if (this->listener_config.timeout_ms == 0) {
         this->listener_config.timeout_ms = VPN_DEFAULT_TCP_TIMEOUT_MS;
@@ -489,10 +490,11 @@ VpnError VpnClient::listen(std::unique_ptr<ClientListener> listener, const VpnLi
                 error.text = "Failed to start DNS upstream health check";
                 goto fail;
             }
+            need_update_dns_handler_params = false;
         }
     }
 
-    if (!this->tunnel->update_dns_handler_parameters()) {
+    if (need_update_dns_handler_params && !this->tunnel->update_dns_handler_parameters()) {
         error.text = "Failed to initialize the DNS handler";
         goto fail;
     }
