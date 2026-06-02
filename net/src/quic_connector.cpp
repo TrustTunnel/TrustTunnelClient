@@ -308,7 +308,7 @@ static void do_report(ag::QuicConnector *self) {
     }
     self->result.emplace(ag::QuicConnectorResult{
         .fd = ag::udp_socket_release_fd(self->socket.release()),
-        .h3_client = std::move(self->client),
+        .client = std::move(self->client),
     });
     self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_READY, nullptr);
 }

@@ -1,9 +1,5 @@
 #include <algorithm>
 
-#ifndef DISABLE_HTTP3
-#include <quiche.h>
-#endif
-
 #include "common/socket_address.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
@@ -159,7 +155,7 @@ static void initiate_recovery(Vpn *vpn) {
     vpn->recovery.to_next = time_to_next;
 }
 
-static void pinger_handler(void *arg, const LocationsPingerResult *result) {
+static void pinger_handler(void *arg, LocationsPingerResult *result) {
     if (result == nullptr) {
         // ignore ping finished event
         return;
@@ -202,9 +198,9 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
             result->ping_ms);
 
     if (result->is_quic) {
-        vpn->client.quic_connector.reset((QuicConnector *) result->conn_state);
+        vpn->client.quic_connector = std::move(result->quic_conn_result);
     } else {
-        vpn->client.tcp_socket.reset((TcpSocket *) result->conn_state);
+        vpn->client.tcp_socket.reset((TcpSocket *) result->tcp_conn_state);
     }
 
     vpn->client.update_bypass_ip_availability();
@@ -290,9 +286,6 @@ static void run_ping(void *ctx, void *) {
             .anti_dpi = vpn->upstream_config->anti_dpi,
             .handoff = true,
             .quic_max_idle_timeout_ms = quic_max_idle_timeout,
-#ifndef DISABLE_HTTP3
-            .quic_version = QUICHE_PROTOCOL_VERSION,
-#endif
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.

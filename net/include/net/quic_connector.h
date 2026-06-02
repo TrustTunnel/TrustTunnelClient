@@ -52,14 +52,21 @@ struct QuicConnectorConnectParameters {
     //uint32_t quic_version;  //TODO: delete
 };
 
-#ifndef DISABLE_HTTP3
 struct QuicConnectorResult {
+#ifndef DISABLE_HTTP3
     evutil_socket_t fd;                               // UDP socket's file descriptor.
-    std::unique_ptr<ag::http::Http3Client> h3_client; // TODO: comments
-};
-#else
-struct QuicConnectorResult {};
+    std::unique_ptr<ag::http::Http3Client> client;    // TODO: comments
 #endif
+    void reset() {
+#ifndef DISABLE_HTTP3
+        client.reset();
+        if (fd != EVUTIL_INVALID_SOCKET) {
+            evutil_closesocket(fd);
+            fd = EVUTIL_INVALID_SOCKET;
+        }
+#endif
+    }
+};
 
 QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters);
 

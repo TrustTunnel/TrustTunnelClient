@@ -2,6 +2,7 @@
 
 #include "net/network_manager.h"
 #include "net/utils.h"
+#include "net/quic_connector.h"
 #include "vpn/event_loop.h"
 
 namespace ag {
@@ -39,17 +40,16 @@ typedef struct {
                                        // If `true`, pass the connection state with the ping result.
     const VpnRelay *relay_parallel;    // Ping through this relay in parallel with normal pings.
     uint32_t quic_max_idle_timeout_ms; // QUIC connection max idle timeout. Set `0` to use the default.
-    uint32_t quic_version;             // QUIC version. Set `0` to use the default.
 } LocationsPingerInfo;
 
-typedef struct {
+typedef struct LocationsPingerResult {
     const char *id; // location id
     int ping_ms;    // selected endpoint's ping (negative if none of the location endpoints successfully pinged)
     const VpnEndpoint *endpoint; // selected endpoint
     const VpnRelay *relay;       // non-null if the selected endpoint was pinged through a relay
     bool is_quic;                // Whether the established connection is QUIC
-    void *conn_state;            // For internal use. Applications should ignore this field.
-                                 // If `handoff` is `true`, this is the connection state object.
+    QuicConnectorResult quic_conn_result; // QUIC handoff: fd + Http3Client
+    void *tcp_conn_state = nullptr;  // TCP handoff: owning TcpSocket* (unchanged from before)
 } LocationsPingerResult;
 
 typedef struct {
@@ -58,7 +58,7 @@ typedef struct {
      * @param arg User argument
      * @param result Contains ping result or nullptr if pinging was finished
      */
-    void (*func)(void *arg, const LocationsPingerResult *result);
+    void (*func)(void *arg, LocationsPingerResult *result);
     void *arg; // user argument
 } LocationsPingerHandler;
 

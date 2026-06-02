@@ -2,9 +2,9 @@
 
 #include <span>
 
-#include "common/http/http3.h"
 #include "net/network_manager.h"
 #include "net/utils.h"
+#include "net/quic_connector.h"
 #include "vpn/event_loop.h"
 
 namespace ag {
@@ -26,8 +26,7 @@ struct PingResult {
     int ms;                      // RTT value
     const VpnRelay *relay;       // non-null if the endpoint was pinged through a relay
     bool is_quic;                // Whether the established connection is QUIC
-    std::unique_ptr<ag::http::Http3Client> client; // QUIC handoff: owning Http3Client with pre-established connection
-    evutil_socket_t quic_fd = EVUTIL_INVALID_SOCKET; //QUIC handoff: UDP socket fd — MUST be transferred, never create a new one
+    QuicConnectorResult quic_conn_result; // QUIC handoff: Http3Client grouped together
     void *tcp_conn_state; //TCP handoff: owning TcpSocket (unchanged from before)
 };
 
@@ -69,7 +68,7 @@ struct PingInfo {
 };
 
 struct PingHandler {
-    void (*func)(void *arg, const PingResult *result);
+    void (*func)(void *arg, PingResult *result);
     void *arg;
 };
 

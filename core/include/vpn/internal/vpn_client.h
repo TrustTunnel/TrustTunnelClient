@@ -190,7 +190,7 @@ public:
     VpnMode exclusions_mode = VPN_MODE_GENERAL;
 
     // One of these is handed off from the pinger. An upstream can then snatch it up.
-    ag::DeclPtr<QuicConnector, &quic_connector_destroy> quic_connector;
+    QuicConnectorResult quic_connector;
     ag::DeclPtr<TcpSocket, &tcp_socket_destroy> tcp_socket;
 };
 
