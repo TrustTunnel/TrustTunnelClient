@@ -303,7 +303,7 @@ void ag::DnsHandlerClientListenerBase::deinit() {
 }
 
 uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
-        const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message) {
+        const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message, bool force_bypass) {
     auto id_it = m_conn_id_by_upstream_conn_id.find(info.upstream_conn_id);
     if (id_it == m_conn_id_by_upstream_conn_id.end()) {
         uint64_t listener_conn_id = vpn->listener_conn_id_generator.get();
@@ -319,6 +319,7 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
                 .protocol = info.proto,
                 .src = &info.addrs->src,
                 .dst = &info.addrs->dst,
+                .flags = force_bypass ? CCRF_DNS_HANDLER_BYPASS : 0,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
 
@@ -830,8 +831,8 @@ void ag::DnsHandler::send_request(bool system_proxy, bool ipv6, bool tcp, uint64
     assert_use(placed);
 }
 
-void ag::DnsHandler::send_request_as_listener(const ConnectionInfo &info, U8View message) {
-    uint64_t listener_conn_id = send_as_listener(info, message);
+void ag::DnsHandler::send_request_as_listener(const ConnectionInfo &info, U8View message, bool force_bypass) {
+    uint64_t listener_conn_id = send_as_listener(info, message, force_bypass);
     log_handler(this, dbg, "[L:{}] {}", listener_conn_id, info);
 }
 
@@ -870,7 +871,7 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
     // Note: now obsolete inverse queries (RFC 1035) will result in `dns_utils::InapplicablePacket`.
     // The DNS proxy doesn't support them.
     if (!std::holds_alternative<dns_utils::DecodedRequest>(decode_result)) {
-        send_request_as_listener(info, message);
+        send_request_as_listener(info, message, /*bypass*/ false);
         return;
     }
 
@@ -901,12 +902,13 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
     if (included && m_client) {
         log_handler(this, dbg, "{} qname: {} -> DNS proxy", info, request.name);
         send_request(/*system proxy*/ false, ipv6, tcp, info.upstream_conn_id, message);
-    } else if (!included) {
+    } else if (!included && !m_parameters.alt_exclusions_route) {
         log_handler(this, dbg, "{} qname: {} -> system DNS proxy", info, request.name);
         send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
     } else {
-        log_handler(this, dbg, "{} qname: {} -> {}", info, request.name, tunnel_addr_to_str(&info.addrs->dst));
-        send_request_as_listener(info, message);
+        log_handler(this, dbg, "{} qname: {} -> {}{}", info, request.name, tunnel_addr_to_str(&info.addrs->dst),
+                !included ? " (bypass upstream)" : "");
+        send_request_as_listener(info, message, /*bypass*/ !included);
     }
 }
 

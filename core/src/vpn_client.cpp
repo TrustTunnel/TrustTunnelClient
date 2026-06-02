@@ -383,9 +383,6 @@ static VpnError start_dns_proxy_listener(VpnClient *self) {
         return {VPN_EC_INVALID_SETTINGS, "Failed to initialize DNS proxy listener"};
     }
     self->dns_proxy_listener_password = std::move(password);
-    if (!self->tunnel->update_dns_handler_parameters()) {
-        return {VPN_EC_ERROR, "Failed to initialize the DNS handler"};
-    }
     return {VPN_EC_NOERROR};
 }
 
@@ -490,6 +487,11 @@ VpnError VpnClient::listen(std::unique_ptr<ClientListener> listener, const VpnLi
                 goto fail;
             }
         }
+    }
+
+    if (!this->tunnel->update_dns_handler_parameters()) {
+        error.text = "Failed to initialize the DNS handler";
+        goto fail;
     }
 
     log_client(this, dbg, "Done");

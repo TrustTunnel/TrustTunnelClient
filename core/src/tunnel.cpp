@@ -514,7 +514,10 @@ static void report_connection_info(const Tunnel *self, VpnConnection *conn, cons
 }
 
 static std::optional<DnsHandlerParameters> make_dns_handler_parameters(Tunnel *self) {
-    DnsHandlerParameters parameters{.cert_verify_handler = self->vpn->parameters.cert_verify_handler};
+    DnsHandlerParameters parameters{
+            .cert_verify_handler = self->vpn->parameters.cert_verify_handler,
+            .alt_exclusions_route = self->vpn->listener_config.dns_alt_exclusions_route,
+    };
     if (self->vpn->listener_config.dns_upstreams.size) {
         if (!self->vpn->dns_proxy_listener) {
             log_tun(self, warn, "There are user-provided DNS upstreams, but the DNS proxy listener is not initialized");
@@ -1557,8 +1560,15 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             return;
         }
 
-        if (listener.get() == this->vpn->dns_proxy_listener.get() || listener.get() == this->dns_handler.get()) {
+        if (listener.get() == this->vpn->dns_proxy_listener.get()) {
             this->complete_connect_request(conn->client_id, VPN_CA_FORCE_REDIRECT);
+            return;
+        }
+
+        if (listener.get() == this->dns_handler.get()) {
+            VpnConnectAction action =
+                    (client_event->flags & CCRF_DNS_HANDLER_BYPASS) ? VPN_CA_FORCE_BYPASS : VPN_CA_FORCE_REDIRECT;
+            this->complete_connect_request(conn->client_id, action);
             return;
         }
 
