@@ -319,6 +319,48 @@ INSTANTIATE_TEST_SUITE_P(DnsRouting, NoProxy,
         testing::Combine(testing::Values(VPN_MODE_GENERAL, VPN_MODE_SELECTIVE), testing::Values(VPN_CA_DEFAULT),
                 testing::Values("example.com"), testing::Values("example.com", "github.com")));
 
+// Same as `NoProxy`, but with `VpnListenerConfig::dns_alt_exclusions_route` enabled.
+class AltExclusionsRoute : public DnsRouting {
+public:
+    void SetUp() override {
+        // The flag must be set before the tunnel (and thus the DNS handler) is initialized in the base `SetUp`.
+        vpn.listener_config.dns_alt_exclusions_route = true;
+        DnsRouting::SetUp();
+    }
+};
+
+TEST_P(AltExclusionsRoute, Test) {
+    auto [mode, action, exclusion, domain] = GetParam();
+    vpn.update_exclusions(mode, exclusion);
+
+    ASSERT_NO_FATAL_FAILURE(open_connection());
+    ASSERT_NO_FATAL_FAILURE(raise_dns_request(domain));
+    run_event_loop_once();
+
+    bool excluded =
+            (mode == VPN_MODE_GENERAL && exclusion == domain) || (mode == VPN_MODE_SELECTIVE && exclusion != domain);
+
+    if (excluded) {
+        // Queries for excluded domains must go to their original destination through the bypass upstream,
+        // instead of being redirected to the system DNS proxy.
+        ASSERT_EQ(1, bypass_upstream->connections.size());
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+        ASSERT_EQ(dst, bypass_upstream->last_destination);
+    } else {
+        // Queries for included domains keep the default behaviour: routed through the endpoint (redirect) upstream.
+        ASSERT_EQ(1, redirect_upstream->connections.size());
+        ASSERT_EQ(0, bypass_upstream->connections.size());
+    }
+
+    // In either case the system DNS proxy must not be used.
+    ASSERT_EQ(0, system_complete);
+    ASSERT_EQ(0, system_unexpected);
+}
+
+INSTANTIATE_TEST_SUITE_P(DnsRouting, AltExclusionsRoute,
+        testing::Combine(testing::Values(VPN_MODE_GENERAL, VPN_MODE_SELECTIVE), testing::Values(VPN_CA_DEFAULT),
+                testing::Values("example.com"), testing::Values("example.com", "github.com")));
+
 class AppInitiatedDnsRouting : public DnsRouting {
 public:
     void SetUp() override {
