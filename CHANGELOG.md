@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- An alternative route for DNS queries for excluded domains, selected with `VpnListenerConfig::dns_alt_exclusions_route`.
+
 ### Changed
 
 ### Deprecated
