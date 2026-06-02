@@ -64,7 +64,8 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         }
 
         fun stop(context: Context) {
-            getConfigStorage(context).clear()
+            // Do not clear the config storage so that QSTileService can use the last config
+            // getConfigStorage(context).clear()
             start(context, ACTION_STOP, null)
         }
         fun start(context: Context, config: String?) = start(context, ACTION_START, config)
@@ -112,6 +113,18 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         private val eventsSync = ThreadManager.create("events-sync", 1)
         private var appNotifier: AppNotifier? = null
+
+        const val ACTION_VPN_STATE_CHANGED = "com.adguard.trusttunnel.VPN_STATE_CHANGED"
+        const val EXTRA_VPN_STATE = "vpn_state"
+
+        fun isRunning(): Boolean {
+            return lastState == VpnState.CONNECTED.code || lastState == VpnState.CONNECTING.code
+        }
+
+        fun getLastConfig(context: Context): String? {
+            return getConfigStorage(context).load()
+        }
+
         fun setAppNotifier(file: File, notifier: AppNotifier) = eventsSync.execute {
             connectionInfoFile = PersistentRingBuffer(file)
             appNotifier = notifier
@@ -346,6 +359,11 @@ class VpnService : android.net.VpnService(), VpnClientListener {
     override fun onStateChanged(state: Int) = eventsSync.execute {
         lastState = state
         appNotifier?.onStateChanged(state)
+
+        val intent = Intent(ACTION_VPN_STATE_CHANGED)
+        intent.putExtra(EXTRA_VPN_STATE, state)
+        intent.setPackage(applicationContext.packageName)
+        sendBroadcast(intent)
     }
 
     override fun onConnectionInfo(info: String) = eventsSync.execute {
