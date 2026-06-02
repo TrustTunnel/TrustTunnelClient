@@ -49,7 +49,7 @@
   or one NOT present in domain exclusions in SELECTIVE mode.
 
   In the diagram above, ServerUpstream represents the `ServerUpstream` that is connected to a VPN endpoint.
-  BypassUpstream represents the `DirectUpstream`, which as a local proxy.
+  BypassUpstream represents the `DirectUpstream`, which is a local proxy.
   ClientListener represents both the `ClientListener` that handles application traffic and the SOCKS5
   listener that is configured as the DNS proxy's outbound proxy: `VpnClient::dns_proxy_listener`.
 
