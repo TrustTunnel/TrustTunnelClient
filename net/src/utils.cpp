@@ -957,6 +957,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     }
 
     SslPtr ssl{SSL_new(ctx.get())};
+    infolog(g_logger, "TEST: make_ssl called: quic={} type={}", quic, (int)type);
     if (!SocketAddress{sni}.valid()) {
         if (0 == SSL_set_tlsext_host_name(ssl.get(), sni)) {
             return "Failed to set SNI";
@@ -1018,7 +1019,9 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
     static constexpr uint16_t GROUPS[] = {
             SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519, SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
-    if (vpn_post_quantum_group_enabled() && !SSL_set1_group_ids(ssl.get(), GROUPS, std::size(GROUPS))) {
+    bool pq_enabled = vpn_post_quantum_group_enabled();
+    infolog(g_logger, "TEST: make_ssl: post_quantum_enabled={}, quic={}", pq_enabled, quic);
+    if (pq_enabled && !SSL_set1_group_ids(ssl.get(), GROUPS, std::size(GROUPS))) {
         return "Failed to set groups";
     }
 

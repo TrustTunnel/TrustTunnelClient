@@ -117,7 +117,6 @@ struct Ping {
     bool handoff;
 
     uint32_t quic_max_idle_timeout_ms;
-    uint32_t quic_version;
 
     int minimum_round_timeout_ms;
 };
@@ -239,7 +238,6 @@ static void do_connect(void *arg, bool shortcut) {
                 .ssl = conn->ssl.release(), // Always consumed by `quic_connector_connect`.
                 .timeout = Millis{self->round_timeout_ms},
                 .max_idle_timeout = Millis{self->quic_max_idle_timeout_ms},
-                .quic_version = self->quic_version,
         };
         error = quic_connector_connect(conn->quic_connector.get(), &parameters);
     } else {
@@ -592,7 +590,6 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     constexpr auto TIMEOUT_MULTIPLIER = 10;
     self->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms ? info->quic_max_idle_timeout_ms
                                                                     : TIMEOUT_MULTIPLIER * DEFAULT_PING_TIMEOUT_MS;
-    self->quic_version = info->quic_version ? info->quic_version : QUICHE_PROTOCOL_VERSION;
 #endif
 
     constexpr uint32_t DEFAULT_IF_IDX = 0;
