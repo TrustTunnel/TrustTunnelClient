@@ -52,8 +52,8 @@ bool FlutterWindow::OnCreate() {
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
     std::filesystem::path ring_buffer_path = exe_dir / "connection_info.dat";
 
-    native_interface_ = std::make_unique<NativeVpnImpl>(
-            this, std::move(callbacks), std::move(ring_buffer_path), L"TrustTunnelVpn", L"\\\\.\\pipe\\trusttunnel_vpn");
+    native_interface_ = std::make_unique<NativeVpnImpl>(this, std::move(callbacks), std::move(ring_buffer_path),
+            L"TrustTunnelVpn", L"\\\\.\\pipe\\trusttunnel_vpn");
     NativeVpnInterface::SetUp(messanger, native_interface_.get());
 
     return true;

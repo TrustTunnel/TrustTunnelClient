@@ -1177,8 +1177,8 @@ TEST_F(PipeTest, ServerReceivesConnectionInfoMessage) {
     ASSERT_TRUE(client);
 
     const std::string json = R"({"host":"example.com","port":443,"protocol":"TLS"})";
-    auto frame = make_framed(VPN_EASY_SVC_MSG_CONNECTION_INFO,
-            {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+    auto frame = make_framed(
+            VPN_EASY_SVC_MSG_CONNECTION_INFO, {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
     ASSERT_TRUE(write_all(client.get(), frame));
 
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
@@ -1200,8 +1200,8 @@ TEST_F(PipeTest, ClientReceivesQueryStateResponseFromServer) {
         if (what == VPN_EASY_SVC_MSG_QUERY_STATE) {
             // Reply with a STATE_CHANGED message containing VPN_SS_DISCONNECTED (0).
             uint32_t net_state = htonl(0);
-            server_ptr->send(VPN_EASY_SVC_MSG_STATE_CHANGED,
-                    {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
+            server_ptr->send(
+                    VPN_EASY_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
         }
     };
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
@@ -1247,8 +1247,8 @@ TEST_F(PipeTest, ClientReceivesConnectionInfoFromServer) {
         static bool sent = false;
         if (!sent) {
             const std::string json = R"({"host":"10.0.0.1","port":8080})";
-            server_ptr->send(VPN_EASY_SVC_MSG_CONNECTION_INFO,
-                    {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+            server_ptr->send(
+                    VPN_EASY_SVC_MSG_CONNECTION_INFO, {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
             sent = true;
         }
     };

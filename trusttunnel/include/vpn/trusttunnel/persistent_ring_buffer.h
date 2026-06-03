@@ -23,8 +23,8 @@ public:
     /// Changing `max_records` or `max_record_bytes` after data has been written
     /// will cause the existing file to be treated as corrupted. Call `clear()`
     /// first to start fresh with new parameters.
-    explicit PersistentRingBuffer(
-            std::filesystem::path path, uint32_t max_records = MAX_RECORDS, uint32_t max_record_bytes = MAX_RECORD_BYTES);
+    explicit PersistentRingBuffer(std::filesystem::path path, uint32_t max_records = MAX_RECORDS,
+            uint32_t max_record_bytes = MAX_RECORD_BYTES);
 
     bool append(std::string_view record);
     std::optional<RingBufferReadResult> read_all() const;

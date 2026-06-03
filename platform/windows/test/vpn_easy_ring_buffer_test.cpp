@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
- #include <atomic>
- #include <chrono>
- #include <cstdio>
- #include <filesystem>
- #include <memory>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -294,8 +294,7 @@ TEST_F(RingBufferTest, ReadAllRecordsPreservedAfterRead) {
     // Reading all connection info should not modify the ring buffer.
     write_records(3);
 
-    vpn_easy_service_read_all_connection_info(
-            m_path.c_str(), [](void *, const char *) {}, nullptr);
+    vpn_easy_service_read_all_connection_info(m_path.c_str(), [](void *, const char *) {}, nullptr);
 
     // The records should still be present after the read.
     ag::PersistentRingBuffer buffer(m_path);
