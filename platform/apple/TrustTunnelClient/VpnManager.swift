@@ -36,6 +36,8 @@ public struct AppSettings {
     }
 }
 
+/// Logs emitted by VpnManager respect Logger.setCallback.
+/// Set the callback before creating VpnManager if you want to capture logs emitted during initialization.
 public final class VpnManager {
     private var apiQueue: DispatchQueue
     private var queue: DispatchQueue
@@ -49,7 +51,7 @@ public final class VpnManager {
     private var bundleIdentifier: String
     private var appGroup: String
     private var readIndex: UInt64? = nil
-    private let logger = SystemLogger(category: "VpnManager")
+    private let logger = Logger(category: "VpnManager")
 
     public init(bundleIdentifier: String,
                         appGroup: String,

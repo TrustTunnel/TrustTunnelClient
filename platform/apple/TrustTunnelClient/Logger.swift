@@ -2,47 +2,7 @@ import Foundation
 import VpnClientFramework
 import os
 
-final class SystemLogger {
-    private let logger: os.Logger
-
-    init(category: String) {
-        logger = os.Logger(subsystem: "com.adguard.TrustTunnel.TrustTunnelClient", category: category)
-    }
-
-    func info(_ message: String) {
-        if Logger.dispatch(.info, message: message) {
-            return
-        }
-
-        logger.notice("\(message, privacy: .public)")
-    }
-
-    func warn(_ message: String) {
-        if Logger.dispatch(.warn, message: message) {
-            return
-        }
-
-        logger.warning("\(message, privacy: .public)")
-    }
-
-    func error(_ message: String) {
-        if Logger.dispatch(.error, message: message) {
-            return
-        }
-
-        logger.error("\(message, privacy: .public)")
-    }
-
-    func debug(_ message: String) {
-        if Logger.dispatch(.debug, message: message) {
-            return
-        }
-
-        logger.debug("\(message, privacy: .public)")
-    }
-}
-
-public final class Logger {
+public class Logger {
     public enum LogLevel: Int {
         case error = 0
         case warn = 1
@@ -53,9 +13,54 @@ public final class Logger {
 
     public typealias Callback = (LogLevel, String) -> Void
 
+    private let category: String
+    private let logger: os.Logger
+
     private static let callbackGuard = NSLock()
     private static var callback: Callback?
 
+    public init(category: String) {
+        self.category = category
+        logger = os.Logger(subsystem: "com.adguard.TrustTunnel.TrustTunnelClient", category: category)
+    }
+
+    public func info(_ message: String) {
+        if Self.dispatch(.info, message: Self.formatMessage(category: category, message: message)) {
+            return
+        }
+
+        logger.notice("\(message, privacy: .public)")
+    }
+
+    public func warn(_ message: String) {
+        if Self.dispatch(.warn, message: Self.formatMessage(category: category, message: message)) {
+            return
+        }
+
+        logger.warning("\(message, privacy: .public)")
+    }
+
+    public func error(_ message: String) {
+        if Self.dispatch(.error, message: Self.formatMessage(category: category, message: message)) {
+            return
+        }
+
+        logger.error("\(message, privacy: .public)")
+    }
+
+    public func debug(_ message: String) {
+        if Self.dispatch(.debug, message: Self.formatMessage(category: category, message: message)) {
+            return
+        }
+
+        logger.debug("\(message, privacy: .public)")
+    }
+
+    /// Set the logging callback for both TrustTunnelClient and VpnClientFramework logs.
+    ///
+    /// Call this as early as possible if you want to capture initialization logs.
+    /// In particular, subclasses of AGPacketTunnelProvider should call it from their initializer,
+    /// and applications should set it before creating VpnManager if they expect to see logs emitted there.
     public static func setCallback(_ callback: Callback?) {
         callbackGuard.lock()
         self.callback = callback
@@ -81,6 +86,10 @@ public final class Logger {
 
         callback(logLevel, message)
         return true
+    }
+
+    private static func formatMessage(category: String, message: String) -> String {
+        return "\(category) \(message)"
     }
 }
 

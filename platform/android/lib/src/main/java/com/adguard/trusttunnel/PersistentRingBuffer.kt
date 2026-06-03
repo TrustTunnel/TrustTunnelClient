@@ -1,6 +1,5 @@
 package com.adguard.trusttunnel
 
-import com.adguard.trusttunnel.log.LoggerManager
 import java.io.File
 
 class PersistentRingBuffer(
@@ -11,7 +10,7 @@ class PersistentRingBuffer(
             System.loadLibrary("trusttunnel_android")
         }
 
-        private val LOG = LoggerManager.getLogger("PersistentRingBuffer")
+        private val LOG = Logger("PersistentRingBuffer")
 
         @JvmStatic
         private external fun nativeAppend(path: String, record: String): Boolean

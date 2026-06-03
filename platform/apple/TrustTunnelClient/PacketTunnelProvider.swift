@@ -8,13 +8,16 @@ enum TunnelError : Error {
     case start_failed;
 }
 
+/// Logs emitted by this base class respect Logger.setCallback.
+/// Call Logger.setCallback from the initializer of your subclass if you want
+/// to capture logs emitted from the provider in the expected sink from the start.
 open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private let clientQueue = DispatchQueue(label: "packet.tunnel.queue", qos: .userInitiated)
     private var vpnClient: VpnClient? = nil
     private var bundleIdentifier = ""
     private var appGroup: String = ""
     private var startProcessed = false
-    private let logger = SystemLogger(category: "PacketTunnel")
+    private let logger = Logger(category: "PacketTunnel")
 
     private let ADGUARD_DNS_SERVERS = ["46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff"]
     private let FAKE_DNS_SERVER = ["198.18.53.53"]

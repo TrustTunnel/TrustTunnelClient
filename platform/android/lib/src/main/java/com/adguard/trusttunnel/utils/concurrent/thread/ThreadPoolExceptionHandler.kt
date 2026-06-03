@@ -1,11 +1,11 @@
 package com.adguard.trusttunnel.utils.concurrent.thread
 
-import com.adguard.trusttunnel.log.LoggerManager
+import com.adguard.trusttunnel.Logger
 
 class ThreadPoolExceptionHandler : Thread.UncaughtExceptionHandler {
 
     companion object {
-        private val LOG = LoggerManager.getLogger("ThreadPoolExceptionHandler")
+        private val LOG = Logger("ThreadPoolExceptionHandler")
     }
 
     override fun uncaughtException(thread: Thread, throwable: Throwable) {

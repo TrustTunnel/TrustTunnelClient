@@ -7,9 +7,11 @@ import com.adguard.trusttunnel.Logger
  */
 class NativeLogger {
     companion object {
+        private val logger = Logger.getLogger("TrustTunnel_Native")
+
         init {
             setupSlf4j()
-            Logger.dispatch(Logger.LogLevel.INFO, "Logging initialized")
+            logger.info("Logging initialized")
         }
 
         var defaultLogLevel: NativeLoggerLevel
@@ -26,7 +28,7 @@ class NativeLogger {
 
         @JvmStatic
         fun log(level: Int, message: String?) {
-            Logger.dispatch(Logger.LogLevel.fromCode(level), message.orEmpty())
+            Logger.dispatchNative(Logger.LogLevel.fromCode(level), message.orEmpty())
         }
     }
 }
