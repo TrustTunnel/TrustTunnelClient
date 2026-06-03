@@ -91,10 +91,6 @@ if (-not $SkipWintun) {
 
     if (-not (Test-Path $wintunZip)) {
         Invoke-WebRequest -Uri $WintunUrl -OutFile $wintunZip
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to download wintun from: $WintunUrl"
-            exit 1
-        }
     }
 
     # Extract the ZIP. The archive contains a top-level "wintun/" directory,
