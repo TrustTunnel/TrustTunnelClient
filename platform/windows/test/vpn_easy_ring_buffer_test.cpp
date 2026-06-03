@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <cstdio>
-#include <filesystem>
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
+ #include <filesystem>
+ #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
