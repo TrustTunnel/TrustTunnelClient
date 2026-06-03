@@ -11,7 +11,7 @@ Easy wrapper for the TrustTunnel VPN API — essentially `trusttunnel_client` as
 
 ```powershell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build --target vpn_easy vpn_easy_service
+cmake --build build --target vpn_easy vpn_easy_service service_installer
 ```
 
 ## Distribution Package
@@ -32,7 +32,7 @@ Output: `artifacts/trusttunnel-client-windows-<arch>-<version>.zip`
 trusttunnel-client-windows-amd64-1.1.3/
 ├── include/vpn/          # vpn_easy.h, vpn_easy_service.h, platform.h
 ├── lib/                  # vpn_easy.lib + CMake config
-├── bin/                  # vpn_easy.dll, vpn_easy_service.exe, wintun.dll
+├── bin/                  # vpn_easy.dll, vpn_easy_service.exe, service_installer.exe, wintun.dll
 └── WINTUN_LICENSE.txt
 ```
 
@@ -71,20 +71,21 @@ list(APPEND CMAKE_PREFIX_PATH "${trusttunnelclientwindows_SOURCE_DIR}")
 find_package(TrustTunnelClientWindows REQUIRED)
 
 target_link_libraries(${BINARY_NAME} PRIVATE TrustTunnelClientWindows::vpn_easy)
-add_dependencies(${BINARY_NAME} TrustTunnelClientWindows::vpn_easy_service)
+add_dependencies(${BINARY_NAME} TrustTunnelClientWindows::vpn_easy_service TrustTunnelClientWindows::service_installer)
 ```
 
 To switch between Maven and local testing, only change `TRUSTTUNNEL_URL`.
 
 ### Deploying Runtime Binaries
 
-`vpn_easy.dll`, `vpn_easy_service.exe`, and `wintun.dll` must be next to the app executable at runtime. Copy them as a post-build step:
+`vpn_easy.dll`, `vpn_easy_service.exe`, `service_installer.exe`, and `wintun.dll` must be next to the app executable at runtime. Copy them as a post-build step:
 
 ```cmake
 set(_TT_BIN_DIR "${trusttunnelclientwindows_SOURCE_DIR}/bin")
 add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/vpn_easy.dll" $<TARGET_FILE_DIR:${BINARY_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/vpn_easy_service.exe" $<TARGET_FILE_DIR:${BINARY_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/service_installer.exe" $<TARGET_FILE_DIR:${BINARY_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/wintun.dll" $<TARGET_FILE_DIR:${BINARY_NAME}>
 )
 ```
