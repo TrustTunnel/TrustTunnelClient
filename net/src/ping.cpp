@@ -23,7 +23,6 @@
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "net/network_manager.h"
-#include "net/quic_connector.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"

@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <openssl/ssl.h>
+
 #include "common/http/http3.h"
 #include "common/logger.h"
 #include "http_icmp_multiplexer.h"

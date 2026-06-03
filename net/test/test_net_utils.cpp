@@ -14,7 +14,6 @@
 
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
-#include <quiche.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
 
@@ -38,7 +37,6 @@ TEST(NetUtils, RetrieveSystemDnsServers) {
 #endif // _WIN32
 
 static std::vector<uint8_t> prepare_client_hello(const char *sni);
-static std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni);
 static std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni);
 
 struct TestDatum {
@@ -61,30 +59,6 @@ TEST(NetUtils, JA4Tcp) {
     for (const auto &[sni, fingerprints] : TEST_DATA_TCP) {
         auto client_hello = prepare_client_hello(sni.c_str());
         auto fingerprint = ag::ja4::compute({client_hello.data(), client_hello.size()}, /*quic*/ false);
-        ASSERT_NE(fingerprints.end(), std::find(fingerprints.begin(), fingerprints.end(), fingerprint)) << fingerprint;
-    }
-}
-
-TEST(NetUtils, JA4Quic) {
-    ag::vpn_post_quantum_group_set_enabled(true);
-    for (const auto &[sni, fingerprints] : TEST_DATA_QUIC) {
-        auto initials = prepare_quic_initials(sni.c_str());
-        std::vector<uint8_t> handshake;
-        for (const std::vector<uint8_t> &initial : initials) {
-            auto header = ag::quic_utils::parse_quic_header({initial.data(), initial.size()});
-            ASSERT_TRUE(header);
-            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-            auto decrypted = ag::quic_utils::decrypt_initial({initial.data(), initial.size()}, *header);
-            ASSERT_TRUE(decrypted);
-            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-            auto reassembled = ag::quic_utils::reassemble_initial_crypto_frames({decrypted->data(), decrypted->size()});
-            ASSERT_TRUE(reassembled);
-            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-            handshake.insert(handshake.end(), reassembled->begin(), reassembled->end());
-        }
-        fprintf(stderr, "JA4Quic: total handshake bytes=%zu, initials=%zu\n", handshake.size(), initials.size());
-        auto fingerprint = ag::ja4::compute({handshake.data(), handshake.size()}, /*quic*/ true);
-        fprintf(stderr, "JA4Quic: fingerprint=%s\n", fingerprint.c_str());
         ASSERT_NE(fingerprints.end(), std::find(fingerprints.begin(), fingerprints.end(), fingerprint)) << fingerprint;
     }
 }
@@ -192,41 +166,6 @@ std::vector<uint8_t> prepare_client_hello(const char *sni) {
     assert(ret > 0);
     initial.resize(ret);
     return initial;
-}
-
-std::list<std::vector<uint8_t>> prepare_quic_initials(const char *sni) {
-    ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
-    static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
-    ag::SslPtr ssl;
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_QUICHE);
-    assert(std::holds_alternative<ag::SslPtr>(r));
-    ssl = std::move(std::get<ag::SslPtr>(r));
-    uint8_t scid[QUICHE_MAX_CONN_ID_LEN];
-    RAND_bytes(scid, sizeof(scid));
-    ag::SocketAddress dummy_address(ag::SocketAddressStorage{.sa_family = AF_INET});
-    ag::DeclPtr<quiche_config, &quiche_config_free> config{quiche_config_new(QUICHE_PROTOCOL_VERSION)};
-    quiche_config_set_max_recv_udp_payload_size(config.get(), UINT16_MAX);
-    quiche_config_set_max_send_udp_payload_size(config.get(), UINT16_MAX);
-    // clang-format off
-    ag::DeclPtr<quiche_conn, &quiche_conn_free> qconn{quiche_conn_new_with_tls(
-            scid, sizeof(scid), RUST_EMPTY, 0,
-            dummy_address.c_sockaddr(), dummy_address.c_socklen(),
-            dummy_address.c_sockaddr(), dummy_address.c_socklen(),
-            config.get(), ssl.release(), false)};
-    // clang-format on
-    std::list<std::vector<uint8_t>> initials;
-    quiche_send_info info{};
-    for (;;) {
-        std::vector<uint8_t> &initial = initials.emplace_back();
-        initial.resize(UINT16_MAX);
-        ssize_t ret = quiche_conn_send(qconn.get(), initial.data(), initial.size(), &info);
-        assert(ret == QUICHE_ERR_DONE || ret > 0);
-        if (ret == QUICHE_ERR_DONE) {
-            initials.pop_back();
-            break;
-        }
-    }
-    return initials;
 }
 
 // ngtcp2_crypto_conn_ref glue: allows BoringSSL QUIC callbacks to reach ngtcp2_conn

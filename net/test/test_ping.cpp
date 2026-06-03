@@ -68,6 +68,16 @@ public:
     }
 };
 
+static void standard_ping_cb(void *ctx, PingResult *result) {
+    auto *test_ctx = (TestCtx *) ctx;
+    if (result->status == PING_FINISHED) {
+        test_ctx->finished = true;
+        event_base_loopbreak(test_ctx->base);
+        return;
+    }
+    test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+}
+
 TEST_F(PingTest, Single) {
     static const std::pair<const char *, PingStatus> TEST_DATA[] = {
             {"1.1.1.1:443", PING_OK},
@@ -89,21 +99,7 @@ TEST_F(PingTest, Single) {
             .timeout_ms = LONG_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 
@@ -152,21 +148,7 @@ TEST_F(PingTest, Timeout) {
             .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 
@@ -206,7 +188,7 @@ TEST_F(PingTest, Multiple) {
         };
         test_ctx.ping.reset(ping_start(&info,
                 {
-                        [](void *ctx, const PingResult *result) {
+                        [](void *ctx, PingResult *result) {
                             auto *contexts = (std::vector<TestCtx> *) ctx;
 
                             auto i = std::ranges::find_if(*contexts, [ping = result->ping](const TestCtx &item) {
@@ -225,7 +207,7 @@ TEST_F(PingTest, Multiple) {
                                 return;
                             }
 
-                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
+                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
                         },
                         &contexts,
                 }));
@@ -265,21 +247,7 @@ TEST_F(PingTest, AllAddressesInvalid) {
             .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 
@@ -314,7 +282,7 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingResult *result) {
                         auto *test_ctx = (TestCtx *) ctx;
 
                         if (!test_ctx->cancelled) {
@@ -338,7 +306,7 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
                     },
                     &test_ctx,
             }));
@@ -385,7 +353,7 @@ TEST_F(PingTest, DestroyInProgressPing) {
 
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingResult *result) {
                         auto *test_ctx = (TestCtx *) ctx;
 
                         // This means "callback called" for this test
@@ -397,7 +365,7 @@ TEST_F(PingTest, DestroyInProgressPing) {
                             test_ctx->finished = true;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
                     },
                     &test_ctx,
             }));
@@ -433,7 +401,7 @@ TEST_F(PingTest, MultipleRounds) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingResult *result) {
                         auto *test_ctx = (TestCtxRounds *) ctx;
 
                         if (result->status == PING_FINISHED) {
@@ -442,7 +410,7 @@ TEST_F(PingTest, MultipleRounds) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(std::move(*result));
                     },
                     &test_ctx,
             }));
@@ -499,7 +467,7 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, const PingResult *result) {
+                    [](void *ctx, PingResult *result) {
                         auto *test_ctx = (TestCtxRounds *) ctx;
 
                         if (result->status == PING_FINISHED) {
@@ -508,7 +476,7 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(std::move(*result));
                     },
                     &test_ctx,
             }));

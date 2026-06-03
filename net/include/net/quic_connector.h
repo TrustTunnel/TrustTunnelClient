@@ -5,14 +5,13 @@
 #include <span>
 
 #include <event2/util.h>
+#include <openssl/ssl.h>
 
 #include "common/defs.h"
 #include "common/http/http3.h"
 #include "net/socket_manager.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
-
-#include <openssl/ssl.h>
 
 namespace ag {
 

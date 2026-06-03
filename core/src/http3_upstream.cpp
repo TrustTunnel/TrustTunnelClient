@@ -86,8 +86,6 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     }
 
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-    const VpnHttp3UpstreamConfig &h3_config = this->PROTOCOL_CONFIG->http3;
 
     // Let the connection live long enough to perform a health check.
     m_max_idle_timeout = 2 * (upstream_config.timeout + upstream_config.health_check_timeout);
@@ -828,12 +826,6 @@ std::pair<uint64_t, Http3Upstream::TcpConnection *> Http3Upstream::get_tcp_conn_
     return r;
 }
 
-static int collect_header(uint8_t *name, size_t name_len, uint8_t *value, size_t value_len, void *arg) {
-    auto *h = (HttpHeaders *) arg;
-    h->put_field(std::string{(char *) name, name_len}, std::string((char *) value, value_len));
-    return 0;
-}
-
 void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *headers) {
     // Handle 407 (Proxy Authentication Required) on ANY stream as a fatal session error.
     // We defer the error reporting to avoid unsafe callback calls directly from handle_response.
@@ -1138,6 +1130,7 @@ void Http3Upstream::complete_read(void *arg, TaskId) {
         if (conn.has_unread_data()) {
             self->process_pending_data(conn.stream_id);
         }
+        i = next;
     }
 
     if (self->m_h3_client) {

@@ -20,7 +20,6 @@
 #include "common/socket_address.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
-#include "net/quic_connector.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"

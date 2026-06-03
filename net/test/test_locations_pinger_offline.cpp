@@ -95,13 +95,13 @@ TEST_F(LocationsPingerOfflineTest, SingleOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         vpn_event_loop_exit(ctx->loop, Millis{0});
@@ -131,7 +131,7 @@ TEST_F(LocationsPingerOfflineTest, WholeLocationFailedOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         // waiting all the callbacks
                         if (result == nullptr) {
@@ -140,7 +140,7 @@ TEST_F(LocationsPingerOfflineTest, WholeLocationFailedOffline) {
                             return;
                         }
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                     },
                     &test_ctx,
             },
@@ -179,13 +179,13 @@ TEST_F(LocationsPingerOfflineTest, MultipleOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
@@ -227,13 +227,13 @@ TEST_F(LocationsPingerOfflineTest, TimeoutOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
@@ -274,13 +274,13 @@ TEST_F(LocationsPingerOfflineTest, StopFromCallbackOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         locations_pinger_stop(ctx->pinger.get());
@@ -317,13 +317,13 @@ TEST_F(LocationsPingerOfflineTest, StopNotFromCallbackOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = *result;
+                        ctx->results[result->id] = std::move(*result);
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                     },
@@ -351,7 +351,7 @@ TEST_F(LocationsPingerOfflineTest, EmptyLocationsFinishesImmediately) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         if (result == nullptr) {
                             ctx->finished = true;
@@ -378,7 +378,7 @@ TEST_F(LocationsPingerOfflineTest, DestroyFromCallbackWhenPingStartFails) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, const LocationsPingerResult *result) {
+                    [](void *arg, LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         if (result == nullptr) {
                             // "Done" signal: destroy pinger while still on the call stack of
