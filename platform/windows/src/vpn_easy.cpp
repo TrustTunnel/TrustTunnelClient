@@ -452,12 +452,38 @@ static struct ServiceControllerState {
     HANDLE stop_event = nullptr;
     std::unique_ptr<ag::vpn_easy::PipeClient> pipe_client;
     std::thread io_thread;
-    on_state_changed_t state_changed_cb = nullptr;
-    void *state_changed_cb_arg = nullptr;
-    on_connection_info_json_t connection_info_cb = nullptr;
-    void *connection_info_cb_arg = nullptr;
     /// True when the pipe connection was established via attach()
     bool is_attached = false;
+
+    /// Grouped callback state, protected by `callbacks_mutex`.
+    /// The IO thread only ever acquires `callbacks_mutex`, never `mutex`, so no deadlock is possible.
+    struct Callbacks {
+        on_state_changed_t state_changed_cb = nullptr;
+        void *state_changed_cb_arg = nullptr;
+        on_connection_info_json_t connection_info_cb = nullptr;
+        void *connection_info_cb_arg = nullptr;
+    };
+
+    mutable std::mutex callbacks_mutex;
+    Callbacks callbacks;
+
+    /// Snapshot the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    Callbacks get_callbacks() const {
+        std::scoped_lock lock{callbacks_mutex};
+        return callbacks;
+    }
+
+    /// Replace the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    void set_callbacks(Callbacks cbs) {
+        std::scoped_lock lock{callbacks_mutex};
+        callbacks = std::move(cbs);
+    }
+
+    /// Clear the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    void clear_callbacks() {
+        std::scoped_lock lock{callbacks_mutex};
+        callbacks = {};
+    }
 
     /// Tear down the pipe session and clear all state. Caller must hold `mutex`.
     void reset() {
@@ -472,10 +498,7 @@ static struct ServiceControllerState {
             CloseHandle(stop_event);
             stop_event = nullptr;
         }
-        state_changed_cb = nullptr;
-        state_changed_cb_arg = nullptr;
-        connection_info_cb = nullptr;
-        connection_info_cb_arg = nullptr;
+        clear_callbacks();
         is_attached = false;
     }
 } g_svc_state;
@@ -484,6 +507,7 @@ static struct ServiceControllerState {
 /// Dispatches STATE_CHANGED and CONNECTION_INFO through g_svc_state callbacks.
 static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
     return [](VpnEasyServiceMessageType what, ag::Uint8View data) {
+        auto cbs = g_svc_state.get_callbacks();
         switch (what) {
         case VPN_EASY_SVC_MSG_STATE_CHANGED: {
             if (data.size() < sizeof(uint32_t)) {
@@ -493,15 +517,15 @@ static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
             uint32_t net_state = 0;
             memcpy(&net_state, data.data(), sizeof(net_state));
             auto state = static_cast<int32_t>(ntohl(net_state));
-            if (g_svc_state.state_changed_cb) {
-                g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, state);
+            if (cbs.state_changed_cb) {
+                cbs.state_changed_cb(cbs.state_changed_cb_arg, state);
             }
             break;
         }
         case VPN_EASY_SVC_MSG_CONNECTION_INFO: {
             std::string json(reinterpret_cast<const char *>(data.data()), data.size());
-            if (g_svc_state.connection_info_cb) {
-                g_svc_state.connection_info_cb(g_svc_state.connection_info_cb_arg, json.c_str());
+            if (cbs.connection_info_cb) {
+                cbs.connection_info_cb(cbs.connection_info_cb_arg, json.c_str());
             }
             break;
         }
@@ -518,8 +542,9 @@ static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
 /// the DISCONNECTED notification is harmless.
 static void pipe_io_thread() {
     g_svc_state.pipe_client->loop();
-    if (g_svc_state.state_changed_cb) {
-        g_svc_state.state_changed_cb(g_svc_state.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
+    auto cbs = g_svc_state.get_callbacks();
+    if (cbs.state_changed_cb) {
+        cbs.state_changed_cb(cbs.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
     }
 }
 
@@ -584,10 +609,7 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
     // Reuse an existing attached (monitoring) connection.
     if (g_svc_state.pipe_client && g_svc_state.is_attached) {
         infolog(g_logger, "Reusing attached connection to start VPN");
-        g_svc_state.state_changed_cb = state_changed_cb;
-        g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
-        g_svc_state.connection_info_cb = connection_info_cb;
-        g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
+        g_svc_state.set_callbacks({state_changed_cb, state_changed_cb_arg, connection_info_cb, connection_info_cb_arg});
         g_svc_state.is_attached = false;
 
         size_t config_len = strlen(toml_config);
@@ -602,10 +624,7 @@ int32_t vpn_easy_service_start(const wchar_t *service_name, const wchar_t *pipe_
     }
 
     // Save callbacks early so the handler lambda can reference them.
-    g_svc_state.state_changed_cb = state_changed_cb;
-    g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
-    g_svc_state.connection_info_cb = connection_info_cb;
-    g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
+    g_svc_state.set_callbacks({state_changed_cb, state_changed_cb_arg, connection_info_cb, connection_info_cb_arg});
 
     // ScopeExit: on any error return, clean up everything and clear callbacks.
     bool success = false;
@@ -666,10 +685,7 @@ int32_t vpn_easy_service_attach(const wchar_t *service_name, const wchar_t *pipe
         return VPN_EASY_SVC_ERR_OTHER;
     }
 
-    g_svc_state.state_changed_cb = state_changed_cb;
-    g_svc_state.state_changed_cb_arg = state_changed_cb_arg;
-    g_svc_state.connection_info_cb = connection_info_cb;
-    g_svc_state.connection_info_cb_arg = connection_info_cb_arg;
+    g_svc_state.set_callbacks({state_changed_cb, state_changed_cb_arg, connection_info_cb, connection_info_cb_arg});
 
     bool success = false;
     ag::utils::ScopeExit cleanup{[&] {
