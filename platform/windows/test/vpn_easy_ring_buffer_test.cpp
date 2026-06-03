@@ -18,11 +18,11 @@
 
 namespace {
 
-std::string temp_file_path() {
-    char tmp_path[MAX_PATH];
-    GetTempPathA(MAX_PATH, tmp_path);
-    char tmp_file[MAX_PATH];
-    GetTempFileNameA(tmp_path, "rb_", 0, tmp_file);
+std::wstring temp_file_path() {
+    wchar_t tmp_path[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp_path);
+    wchar_t tmp_file[MAX_PATH];
+    GetTempFileNameW(tmp_path, L"rb_", 0, tmp_file);
     return tmp_file;
 }
 
@@ -44,7 +44,7 @@ protected:
         }
     }
 
-    std::string m_path;
+    std::wstring m_path;
     std::error_code m_error;
 };
 
@@ -82,7 +82,7 @@ TEST_F(RingBufferTest, ReadAllExistingRecords) {
 TEST_F(RingBufferTest, ReadAllCorruptedFileClears) {
     // Write something that isn't a valid ring buffer
     {
-        FILE *f = fopen(m_path.c_str(), "wb");
+        FILE *f = _wfopen(m_path.c_str(), L"wb");
         ASSERT_NE(f, nullptr);
         const char garbage[] = "not a ring buffer";
         fwrite(garbage, 1, sizeof(garbage), f);
@@ -117,15 +117,15 @@ protected:
         m_path = temp_file_path();
         std::filesystem::remove(m_path, m_error);
         // Also clean up any stale lock file
-        std::filesystem::remove(m_path + ".lock", m_error);
+        std::filesystem::remove(std::wstring(m_path) + L".lock", m_error);
     }
 
     void TearDown() override {
         std::filesystem::remove(m_path, m_error);
-        std::filesystem::remove(m_path + ".lock", m_error);
+        std::filesystem::remove(std::wstring(m_path) + L".lock", m_error);
     }
 
-    std::string m_path;
+    std::wstring m_path;
     std::error_code m_error;
 };
 
@@ -136,7 +136,7 @@ TEST_F(RingBufferLockTest, AcquireLockOnNewFile) {
     EXPECT_TRUE(static_cast<bool>(lock));
 
     // The lock file should now exist on disk.
-    EXPECT_TRUE(std::filesystem::exists(m_path + ".lock"));
+    EXPECT_TRUE(std::filesystem::exists(std::wstring(m_path) + L".lock"));
 }
 
 TEST_F(RingBufferLockTest, AcquireLockOnExistingFile) {
@@ -185,7 +185,7 @@ TEST_F(RingBufferLockTest, ExclusiveLockBlocksSecondLocker) {
 
 TEST_F(RingBufferLockTest, LockOnInvalidPath) {
     // A path to a nonexistent deep directory should fail to acquire the lock.
-    ag::vpn_easy::RingBufferLock lock("Z:\\nonexistent\\deep\\path\\buffer.dat");
+    ag::vpn_easy::RingBufferLock lock(L"Z:\\nonexistent\\deep\\path\\buffer.dat");
     EXPECT_FALSE(static_cast<bool>(lock));
 }
 

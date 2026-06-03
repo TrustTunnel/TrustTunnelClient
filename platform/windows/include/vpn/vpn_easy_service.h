@@ -86,7 +86,7 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
 
 /**
  * Create and start a VPN service. This function requires administrator privileges. The service is configured
- * to start automatically at system startup. After startup, the service is listening on a named pipe `pipe_name`,
+ * to start manually (on demand). After startup, the service is listening on a named pipe `pipe_name`,
  * and can be controlled by connecting and sending messages on that pipe. The protocol details are given by the
  * description of `VpnEasyServiceMessageType` enumeration. Anyone can read/write from/to the pipe.
  * @param image_path The absolute path to the `vpn_easy_service` executable.
@@ -192,14 +192,14 @@ WIN_EXPORT void vpn_easy_service_detach();
  * the function returns normally. If the file is corrupted, it is cleared
  * and the function returns normally.
  *
- * @param ring_buffer_path Path to the PersistentRingBuffer file (UTF-8).
+ * @param ring_buffer_path Path to the PersistentRingBuffer file.
  * @param connection_info_cb A function called for each record. The `json`
  *                           parameter is a null-terminated UTF-8 JSON string
  *                           valid only for the duration of the callback.
  * @param connection_info_cb_arg An argument passed to each invocation.
  */
 WIN_EXPORT void vpn_easy_service_read_all_connection_info(
-        const char *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg);
+        const wchar_t *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg);
 
 #ifdef __cplusplus
 }; // extern "C"

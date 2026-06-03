@@ -178,18 +178,20 @@ void vpn_easy_stop_ex(vpn_easy_t *vpn) {
 }
 
 void vpn_easy_service_read_all_connection_info(
-        const char *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+        const wchar_t *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
     if (!ring_buffer_path || !connection_info_cb) {
         return;
     }
 
-    ag::vpn_easy::RingBufferLock lock(ring_buffer_path);
+    std::filesystem::path fs_path(ring_buffer_path);
+
+    ag::vpn_easy::RingBufferLock lock(fs_path);
     if (!lock) {
-        warnlog(g_logger, "Failed to acquire ring buffer lock for '{}'", ring_buffer_path);
+        warnlog(g_logger, "Failed to acquire ring buffer lock for '{}'", fs_path.string());
         return;
     }
 
-    ag::PersistentRingBuffer buffer(ring_buffer_path);
+    ag::PersistentRingBuffer buffer(std::move(fs_path));
     auto result = buffer.read_all();
     if (!result.has_value()) {
         warnlog(g_logger, "PersistentRingBuffer at '{}' is corrupted, clearing", ring_buffer_path);
