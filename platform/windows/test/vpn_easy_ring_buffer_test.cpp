@@ -243,7 +243,7 @@ TEST_F(RingBufferTest, ReadAllSingleRecord) {
 }
 
 TEST_F(RingBufferTest, ReadAllManyRecords) {
-    // Write enough records to exercise the ring buffer's wrapping behavior.
+    // Write multiple records and verify that read-all returns them in order.
     constexpr int COUNT = 50;
     write_records(COUNT);
 
@@ -258,6 +258,27 @@ TEST_F(RingBufferTest, ReadAllManyRecords) {
     ASSERT_EQ(received.size(), static_cast<size_t>(COUNT));
     for (int i = 0; i < COUNT; ++i) {
         EXPECT_EQ(received[i], "{\"id\":" + std::to_string(i) + "}");
+    }
+}
+
+TEST_F(RingBufferTest, ReadAllOverlap) {
+    // Check the ring buffer override behavior.
+    constexpr int COUNT = 510;
+    constexpr int MAX_COUNT = 500; // ag::PersistentRingBuffer::MAX_RECORDS
+    write_records(COUNT);
+
+    std::vector<std::string> received;
+    vpn_easy_service_read_all_connection_info(
+            m_path.c_str(),
+            [](void *arg, const char *json) {
+                static_cast<std::vector<std::string> *>(arg)->emplace_back(json);
+            },
+            &received);
+
+    ASSERT_EQ(received.size(), static_cast<size_t>(MAX_COUNT));
+    for (int i = 0; i < MAX_COUNT; ++i) {
+        // `i + 10` because the ring buffer should have overwritten the first 10 records (COUNT - MAX_COUNT = 10)
+        EXPECT_EQ(received[i], "{\"id\":" + std::to_string(i + 10) + "}");
     }
 }
 
