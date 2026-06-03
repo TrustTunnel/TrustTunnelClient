@@ -1,8 +1,8 @@
 #pragma once
 
 #include "net/network_manager.h"
-#include "net/utils.h"
 #include "net/quic_connector.h"
+#include "net/utils.h"
 #include "vpn/event_loop.h"
 
 namespace ag {
@@ -45,11 +45,11 @@ typedef struct {
 typedef struct LocationsPingerResult {
     const char *id; // location id
     int ping_ms;    // selected endpoint's ping (negative if none of the location endpoints successfully pinged)
-    const VpnEndpoint *endpoint; // selected endpoint
-    const VpnRelay *relay;       // non-null if the selected endpoint was pinged through a relay
-    bool is_quic;                // Whether the established connection is QUIC
+    const VpnEndpoint *endpoint;          // selected endpoint
+    const VpnRelay *relay;                // non-null if the selected endpoint was pinged through a relay
+    bool is_quic;                         // Whether the established connection is QUIC
     QuicConnectorResult quic_conn_result; // QUIC handoff: fd + Http3Client
-    void *tcp_conn_state = nullptr;  // TCP handoff: owning TcpSocket* (unchanged from before)
+    void *tcp_conn_state = nullptr;       // TCP handoff: owning TcpSocket* (unchanged from before)
 } LocationsPingerResult;
 
 typedef struct {

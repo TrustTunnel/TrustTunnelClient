@@ -410,7 +410,8 @@ TEST_F(PingTest, MultipleRounds) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
+                                std::move(*result));
                     },
                     &test_ctx,
             }));
@@ -476,7 +477,8 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
+                                std::move(*result));
                     },
                     &test_ctx,
             }));

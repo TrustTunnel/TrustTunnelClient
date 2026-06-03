@@ -3,8 +3,8 @@
 #include <span>
 
 #include "net/network_manager.h"
-#include "net/utils.h"
 #include "net/quic_connector.h"
+#include "net/utils.h"
 #include "vpn/event_loop.h"
 
 namespace ag {
@@ -19,15 +19,15 @@ enum PingStatus {
 };
 
 struct PingResult {
-    Ping *ping;                  // ping pointer (don't delete from callback unless PING_FINISHED is reported)
-    PingStatus status;           // ping status
-    int socket_error;            // has sense if `status` == `PING_SOCKET_ERROR`
-    const VpnEndpoint *endpoint; // pinged endpoint
-    int ms;                      // RTT value
-    const VpnRelay *relay;       // non-null if the endpoint was pinged through a relay
-    bool is_quic;                // Whether the established connection is QUIC
+    Ping *ping;                           // ping pointer (don't delete from callback unless PING_FINISHED is reported)
+    PingStatus status;                    // ping status
+    int socket_error;                     // has sense if `status` == `PING_SOCKET_ERROR`
+    const VpnEndpoint *endpoint;          // pinged endpoint
+    int ms;                               // RTT value
+    const VpnRelay *relay;                // non-null if the endpoint was pinged through a relay
+    bool is_quic;                         // Whether the established connection is QUIC
     QuicConnectorResult quic_conn_result; // QUIC handoff: Http3Client grouped together
-    void *tcp_conn_state; //TCP handoff: owning TcpSocket (unchanged from before)
+    void *tcp_conn_state;                 // TCP handoff: owning TcpSocket (unchanged from before)
 };
 
 struct PingInfo {

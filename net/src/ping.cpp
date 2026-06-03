@@ -315,7 +315,6 @@ static void do_report(void *arg) {
         if (it->best_result_ms.has_value()) {
             result.is_quic = it->use_quic;
             if (self->handoff) {
-                //result.conn_state = it->use_quic ? (void *) it->quic_connector.release() : it->tcp_socket.release();
                 auto qr = quic_connector_get_result(it->quic_connector.get());
                 if (it->use_quic && qr) {
                     result.quic_conn_result = std::move(*qr);

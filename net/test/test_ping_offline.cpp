@@ -412,7 +412,8 @@ TEST_F(PingOfflineTest, MultipleRounds) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
+                                std::move(*result));
                     },
                     &test_ctx,
             }));

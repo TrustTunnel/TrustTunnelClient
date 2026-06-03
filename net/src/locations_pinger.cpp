@@ -34,7 +34,7 @@ struct PingedEndpoint {
     void *tcp_conn_state = nullptr;
 
     PingedEndpoint(AutoVpnEndpoint endpoint, int ping_ms, const VpnRelay *relay, bool is_quic,
-        QuicConnectorResult quic_conn_result, void *tcp_conn_state)
+            QuicConnectorResult quic_conn_result, void *tcp_conn_state)
             : endpoint{std::move(endpoint)}
             , ping_ms{ping_ms}
             , is_quic{is_quic}

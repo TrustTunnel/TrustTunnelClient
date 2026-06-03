@@ -12,10 +12,10 @@
 #include "net/utils.h"
 #include "vpn/utils.h"
 
-#include <openssl/rand.h>
-#include <openssl/ssl.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
+#include <openssl/rand.h>
+#include <openssl/ssl.h>
 
 #include "ja4.h"
 
@@ -68,16 +68,13 @@ struct QuicCapture {
     std::vector<uint8_t> initial_data;
 };
 
-static int capture_set_read_secret(
-        SSL *, ssl_encryption_level_t, const SSL_CIPHER *, const uint8_t *, size_t) {
+static int capture_set_read_secret(SSL *, ssl_encryption_level_t, const SSL_CIPHER *, const uint8_t *, size_t) {
     return 1;
 }
-static int capture_set_write_secret(
-        SSL *, ssl_encryption_level_t, const SSL_CIPHER *, const uint8_t *, size_t) {
+static int capture_set_write_secret(SSL *, ssl_encryption_level_t, const SSL_CIPHER *, const uint8_t *, size_t) {
     return 1;
 }
-static int capture_add_handshake_data(
-        SSL *ssl, ssl_encryption_level_t level, const uint8_t *data, size_t len) {
+static int capture_add_handshake_data(SSL *ssl, ssl_encryption_level_t level, const uint8_t *data, size_t len) {
     if (level == ssl_encryption_initial) {
         auto *cap = static_cast<QuicCapture *>(SSL_get_app_data(ssl));
         if (cap) {
@@ -204,8 +201,7 @@ std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     callbacks.rand = [](uint8_t *dest, size_t destlen, const ngtcp2_rand_ctx *) {
         RAND_bytes(dest, (int) destlen);
     };
-    callbacks.get_new_connection_id = [](ngtcp2_conn *, ngtcp2_cid *cid, uint8_t *token, size_t cidlen,
-                                                void *) -> int {
+    callbacks.get_new_connection_id = [](ngtcp2_conn *, ngtcp2_cid *cid, uint8_t *token, size_t cidlen, void *) -> int {
         cid->datalen = cidlen;
         RAND_bytes(cid->data, (int) cidlen);
         RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN);
@@ -243,8 +239,8 @@ std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     ngtcp2_cid_init(&scid, scid_buf, sizeof(scid_buf));
 
     ngtcp2_conn *conn_ptr = nullptr;
-    [[maybe_unused]] int rv = ngtcp2_conn_client_new(&conn_ptr, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings,
-            &params, nullptr, &ctx);
+    [[maybe_unused]] int rv = ngtcp2_conn_client_new(
+            &conn_ptr, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params, nullptr, &ctx);
     assert(rv == 0 && conn_ptr != nullptr);
     ag::DeclPtr<ngtcp2_conn, &ngtcp2_conn_del> conn{conn_ptr};
     ctx.conn = conn_ptr;

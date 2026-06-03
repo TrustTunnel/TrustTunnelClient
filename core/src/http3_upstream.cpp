@@ -158,8 +158,10 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
     SocketAddress peer(upstream_config.endpoint->address);
     http::QuicNetworkPath path{
-            .local = local.c_sockaddr(), .local_len = local.c_socklen(),
-            .remote = peer.c_sockaddr(), .remote_len = peer.c_socklen(),
+            .local = local.c_sockaddr(),
+            .local_len = local.c_socklen(),
+            .remote = peer.c_sockaddr(),
+            .remote_len = peer.c_socklen(),
     };
 
     auto result = http::Http3Client::connect(m_h3_settings, make_upstream_callbacks(this), path, std::move(ssl));
@@ -451,10 +453,9 @@ VpnConnectionStats Http3Upstream::get_connection_stats() const {
     }
     auto info = m_h3_client->get_stats();
     return {
-        .rtt_us = uint32_t(info.smoothed_rtt / 1000), // nanoseconds → microseconds
-        .packet_loss_ratio = (info.pkt_sent > 0)
-                ? static_cast<double>(info.pkt_lost) / static_cast<double>(info.pkt_sent)
-                : 0.0,
+            .rtt_us = uint32_t(info.smoothed_rtt / 1000), // nanoseconds → microseconds
+            .packet_loss_ratio =
+                    (info.pkt_sent > 0) ? static_cast<double>(info.pkt_lost) / static_cast<double>(info.pkt_sent) : 0.0,
     };
 }
 
@@ -485,9 +486,11 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
         SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(upstream->m_socket.get()));
         SocketAddress peer(upstream->vpn->upstream_config.endpoint->address);
         http::QuicNetworkPath path{
-            .local = local.c_sockaddr(), .local_len = local.c_socklen(),
-            .remote = peer.c_sockaddr(), .remote_len = peer.c_socklen(),
-    };
+                .local = local.c_sockaddr(),
+                .local_len = local.c_socklen(),
+                .remote = peer.c_sockaddr(),
+                .remote_len = peer.c_socklen(),
+        };
 
         upstream->m_in_handler = true;
         for (size_t i = 0; i < READ_BUDGET; ++i) {
@@ -496,7 +499,7 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
                 if (int err = evutil_socket_geterror(udp_socket_get_fd(upstream->m_socket.get()));
                         err != 0 && !AG_ERR_IS_EAGAIN(err)) {
                     log_upstream(upstream, dbg, "Read error: {} ({})", evutil_socket_error_to_string(err), err);
-                        }
+                }
                 break;
             }
             log_upstream(upstream, trace, "Read {} bytes from endpoint", r);
@@ -514,8 +517,7 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
             upstream->m_h3_client->flush();
             // Schedule post-receive work (retry_connect_requests, poll_connections)
             if (!upstream->m_post_receive_task_id.has_value()) {
-                upstream->m_post_receive_task_id = event_loop::submit(
-                        upstream->vpn->parameters.ev_loop,
+                upstream->m_post_receive_task_id = event_loop::submit(upstream->vpn->parameters.ev_loop,
                         {
                                 .arg = upstream,
                                 .action =
@@ -738,8 +740,7 @@ void Http3Upstream::on_output(void *arg, const http::QuicNetworkPath &, Uint8Vie
 
     if (VpnError err = udp_socket_write(self->m_socket.get(), chunk.data(), chunk.size()); err.code != 0) {
         log_upstream(self, dbg, "Failed to send QUIC packet: {} ({})", safe_to_string_view(err.text), err.code);
-        if (!AG_ERR_IS_EAGAIN(err.code) && err.code != AG_ENOBUFS
-                && !self->m_flush_error_task_id.has_value()) {
+        if (!AG_ERR_IS_EAGAIN(err.code) && err.code != AG_ENOBUFS && !self->m_flush_error_task_id.has_value()) {
             self->m_flush_error_task_id = event_loop::submit(self->vpn->parameters.ev_loop,
                     {
                             self,
@@ -774,8 +775,8 @@ void Http3Upstream::on_data_sent(void *arg, uint64_t /*stream_id*/, size_t /*n*/
 void Http3Upstream::on_expiry_update(void *arg, Nanos period) {
     auto *self = (Http3Upstream *) arg;
     if (!self->m_quic_timer) {
-        self->m_quic_timer.reset(event_new(
-                vpn_event_loop_get_base(self->vpn->parameters.ev_loop), -1, 0, quic_timer_callback, self));
+        self->m_quic_timer.reset(
+                event_new(vpn_event_loop_get_base(self->vpn->parameters.ev_loop), -1, 0, quic_timer_callback, self));
     }
     uint64_t timeout_ms = uint64_t(duration_cast<milliseconds>(period).count());
     // Cap by our own idle timeout so we don't let the connection silently die
@@ -797,8 +798,7 @@ void Http3Upstream::on_window_update(void *arg, uint64_t stream_id, size_t n) {
     conn->window_remaining += n;
 
     // Schedule SERVER_EVENT_DATA_SENT if the window was previously exhausted
-    if (conn->flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES)
-            && !self->m_notify_sent_task_id.has_value()) {
+    if (conn->flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && !self->m_notify_sent_task_id.has_value()) {
         self->m_notify_sent_task_id = event_loop::submit(self->vpn->parameters.ev_loop,
                 {
                         self,
@@ -934,8 +934,8 @@ Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
 
     HttpHeaders headers = make_http_connect_request(HTTP_VER_3_0, dst_addr, app_name, m_credentials);
     http::Request request(http::HTTP_3_0);
-    request.method(std::string(headers.method));        // "CONNECT"
-    request.authority(std::string(headers.authority));  // "host:port"
+    request.method(std::string(headers.method));       // "CONNECT"
+    request.authority(std::string(headers.authority)); // "host:port"
     for (const auto &field : headers.fields) {
         request.headers().put(field.name, field.value); // proxy-authorization, user-agent
     }
@@ -944,8 +944,7 @@ Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
 
     auto stream_id_result = m_h3_client->submit_request(request, /*eof=*/false);
     if (!stream_id_result.has_value()) {
-        log_upstream(this, dbg, "Failed to send connect request: {}",
-                stream_id_result.error()->str());
+        log_upstream(this, dbg, "Failed to send connect request: {}", stream_id_result.error()->str());
         // Treat as retriable — the stream limit may not be exhausted yet
         return {std::nullopt, true};
     }
@@ -1064,14 +1063,12 @@ void Http3Upstream::poll_tcp_connections() {
 
         auto &[conn_id, conn] = *i;
         if (conn.flags.test(TcpConnection::TCF_ESTABLISHED) && conn.flags.test(TcpConnection::TCF_READ_ENABLED)
-                && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED)
-                && conn.has_unread_data()) {
+                && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED) && conn.has_unread_data()) {
             this->process_pending_data(conn.stream_id);
         }
 
         if (conn.flags.test(TcpConnection::TCF_ESTABLISHED) && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED)
-                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES)
-                && conn.window_remaining > 0) {
+                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && conn.window_remaining > 0) {
             conn.flags.reset(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
             ServerDataSentEvent event = {conn_id, std::exchange(conn.sent_bytes_to_notify, 0)};
             this->handler.func(this->handler.arg, SERVER_EVENT_DATA_SENT, &event);

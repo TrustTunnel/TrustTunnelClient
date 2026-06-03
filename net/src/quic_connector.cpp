@@ -108,25 +108,24 @@ ag::VpnError ag::quic_connector_connect(
 
     // Set up callbacks for the ping phase
     ag::http::Http3Client::Callbacks callbacks{
-        .arg = connector,
-        .on_handshake_completed = on_client_handshake_completed,
-        .on_response = nullptr,              // no requests during ping
-        .on_body = nullptr,
-        .on_stream_closed = nullptr,
-        .on_close = on_client_close,
-        .on_output = on_client_output,
-        .on_expiry_update = on_client_expiry_update,
+            .arg = connector,
+            .on_handshake_completed = on_client_handshake_completed,
+            .on_response = nullptr, // no requests during ping
+            .on_body = nullptr,
+            .on_stream_closed = nullptr,
+            .on_close = on_client_close,
+            .on_output = on_client_output,
+            .on_expiry_update = on_client_expiry_update,
     };
 
     // Build QuicNetworkPath
-    SocketAddress local = local_socket_address_from_fd(
-            udp_socket_get_fd(connector->socket.get()));
+    SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(connector->socket.get()));
     SocketAddress peer = parameters->peer ? *parameters->peer : SocketAddress{};
     ag::http::QuicNetworkPath path{
-        .local = local.c_sockaddr(),
-        .local_len = local.c_socklen(),
-        .remote = peer.c_sockaddr(),
-        .remote_len = peer.c_socklen(),
+            .local = local.c_sockaddr(),
+            .local_len = local.c_socklen(),
+            .remote = peer.c_sockaddr(),
+            .remote_len = peer.c_socklen(),
     };
 
     // Create Http3Client
@@ -246,10 +245,10 @@ void socket_handler(void *arg, ag::UdpSocketEvent what, void *data) {
         // Feed response to ngtcp2 to continue handshake
         ag::SocketAddress local = ag::local_socket_address_from_fd(udp_socket_get_fd(self->socket.get()));
         ag::http::QuicNetworkPath path{
-            .local = local.c_sockaddr(),
-            .local_len = local.c_socklen(),
-            .remote = self->peer.c_sockaddr(),
-            .remote_len = self->peer.c_socklen(),
+                .local = local.c_sockaddr(),
+                .local_len = local.c_socklen(),
+                .remote = self->peer.c_sockaddr(),
+                .remote_len = self->peer.c_socklen(),
         };
         self->client->input(path, {self->server_payload, (size_t) ret});
         // input() may have completed handshake → do_report → socket.release()
@@ -274,8 +273,8 @@ static void do_report(ag::QuicConnector *self) {
         return;
     }
     self->result.emplace(ag::QuicConnectorResult{
-        .fd = ag::udp_socket_release_fd(self->socket.release()),
-        .client = std::move(self->client),
+            .fd = ag::udp_socket_release_fd(self->socket.release()),
+            .client = std::move(self->client),
     });
     self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_READY, nullptr);
 }
