@@ -194,7 +194,7 @@ void vpn_easy_service_read_all_connection_info(
     ag::PersistentRingBuffer buffer(std::move(fs_path));
     auto result = buffer.read_all();
     if (!result.has_value()) {
-        warnlog(g_logger, "PersistentRingBuffer at '{}' is corrupted, clearing", ring_buffer_path);
+        warnlog(g_logger, "PersistentRingBuffer at '{}' is corrupted, clearing", fs_path.string());
         buffer.clear();
         return;
     }
