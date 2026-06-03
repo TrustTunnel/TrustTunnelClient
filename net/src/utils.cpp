@@ -918,7 +918,7 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
         U8View tls_client_random_mask) {
-    bool quic = type == MSPT_QUICHE || type == MSPT_NGTCP2;
+    bool quic = type == MSPT_NGTCP2;
     DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
     if (verification_callback && arg) {
         SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);

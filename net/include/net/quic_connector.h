@@ -49,13 +49,12 @@ struct QuicConnectorConnectParameters {
     SSL *ssl;
     Millis timeout;          // How long to wait for server response before giving up.
     Millis max_idle_timeout; // QUIC connection's maximum idle timeout.
-    //uint32_t quic_version;  //TODO: delete
 };
 
 struct QuicConnectorResult {
 #ifndef DISABLE_HTTP3
-    evutil_socket_t fd;                               // UDP socket's file descriptor.
-    std::unique_ptr<ag::http::Http3Client> client;    // TODO: comments
+    evutil_socket_t fd;                            // UDP socket's file descriptor.
+    std::unique_ptr<ag::http::Http3Client> client; // Established HTTP/3 client, ready to be handed off to the upstream.
 #endif
     void reset() {
 #ifndef DISABLE_HTTP3

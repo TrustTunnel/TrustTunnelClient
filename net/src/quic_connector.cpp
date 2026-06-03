@@ -61,7 +61,7 @@ struct ag::QuicConnector {
     SocketAddress peer; // server address, saved from connect() for path construction
     int64_t deadline_ns = 0;
     ag::TaskId report_task = -1;
-    uint8_t server_payload[QUIC_MAX_UDP_PAYLOAD_SIZE]{};
+    uint8_t server_payload[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE]{};
     size_t server_payload_size = 0;
     std::optional<ag::VpnError> error;
     std::optional<ag::QuicConnectorResult> result;
@@ -131,7 +131,7 @@ ag::VpnError ag::quic_connector_connect(
 
     // Create Http3Client
     SSL *ssl_raw = ssl.get(); // save raw pointer before move
-    auto result = ag::http::Http3Client::connect(settings, callbacks, path, std::move(ssl)); //TODO: settings???
+    auto result = ag::http::Http3Client::connect(settings, callbacks, path, std::move(ssl));
     if (!result.has_value()) {
         connector->ssl = nullptr;
         return {.code = -1, .text = "Failed to create Http3Client"};
@@ -142,43 +142,10 @@ ag::VpnError ag::quic_connector_connect(
     // Send Initial packet
     connector->client->flush();
 
-    //quiche_config_verify_peer(config.get(), true);
-    //quiche_config_set_application_protos(
-    //        config.get(), (uint8_t *) QUICHE_H3_APPLICATION_PROTOCOL, strlen(QUICHE_H3_APPLICATION_PROTOCOL));
-    //quiche_config_set_max_idle_timeout(config.get(), parameters->max_idle_timeout.count());
-    //quiche_config_set_initial_max_data(config.get(), QUIC_CONNECTION_WINDOW_SIZE);
-    //quiche_config_set_initial_max_stream_data_bidi_local(config.get(), QUIC_STREAM_WINDOW_SIZE);
-    //quiche_config_set_initial_max_stream_data_bidi_remote(config.get(), QUIC_STREAM_WINDOW_SIZE);
-    //quiche_config_set_initial_max_stream_data_uni(config.get(), QUIC_STREAM_WINDOW_SIZE);
-    //quiche_config_set_initial_max_streams_bidi(config.get(), QUIC_MAX_STREAMS_NUM);
-    //quiche_config_set_initial_max_streams_uni(config.get(), QUIC_MAX_STREAMS_NUM);
-    //quiche_config_set_max_recv_udp_payload_size(config.get(), QUIC_MAX_UDP_PAYLOAD_SIZE);
-    //quiche_config_set_max_send_udp_payload_size(config.get(), QUIC_MAX_UDP_PAYLOAD_SIZE);
-    //quiche_config_set_disable_active_migration(config.get(), true);
-    //quiche_config_set_max_connection_window(config.get(), QUIC_CONNECTION_WINDOW_SIZE);
-    //quiche_config_set_max_stream_window(config.get(), QUIC_STREAM_WINDOW_SIZE);
-    //
-    //uint8_t scid[QUIC_LOCAL_CONN_ID_LEN];
-    //static_assert(std::size(scid) <= QUICHE_MAX_CONN_ID_LEN);
-    //if (0 == RAND_bytes(scid, std::size(scid))) {
-    //    return {.code = -1, .text = "Failed to generate connection ID"};
-    //}
-
     connector->timer.reset(evtimer_new(vpn_event_loop_get_base(connector->parameters.ev_loop), on_timer, connector));
     if (!connector->timer) {
         return {.code = -1, .text = "Failed to create a timer"};
     }
-
-    //connector->ssl = ssl.get();
-    //SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(connector->socket.get()));
-    //SocketAddress peer = parameters->peer ? *parameters->peer : SocketAddress{};
-    //connector->conn.reset(quiche_conn_new_with_tls(scid, sizeof(scid), RUST_EMPTY, 0, local_address.c_sockaddr(),
-    //        local_address.c_socklen(), peer.c_sockaddr(), peer.c_socklen(), config.get(), ssl.release(),
-    //        /*is_server*/ false));
-    //if (connector->conn == nullptr) {
-    //    connector->ssl = nullptr;
-    //    return {.code = -1, .text = "Failed to create a QUIC connection object"};
-    //}
 
     int64_t now_ns = ag::get_time_monotonic_nanos();
     connector->deadline_ns = std::chrono::nanoseconds{parameters->timeout}.count() + now_ns;
