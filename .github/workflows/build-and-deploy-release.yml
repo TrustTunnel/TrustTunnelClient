@@ -232,7 +232,9 @@ jobs:
     runs-on:
       - ephemeral
       - ephemeral-windows
-      - registry.int.agrd.dev/windows/windows11-github-msvc2022:20260505-1859
+      - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
+      - ephemeral-limit-memory-6144
+      - ephemeral-limit-cpu-8
     permissions:
       contents: read
       id-token: write
