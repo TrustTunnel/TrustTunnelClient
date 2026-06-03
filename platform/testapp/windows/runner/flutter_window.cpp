@@ -46,7 +46,7 @@ bool FlutterWindow::OnCreate() {
     auto *messanger = flutter_controller_->engine()->messenger();
     FlutterCallbacks callbacks(messanger);
 
-    // Determine a path for the persistent ring buffer in the app's data directory
+    // Determine a path for the persistent ring buffer next to the executable
     wchar_t exe_path[MAX_PATH];
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
