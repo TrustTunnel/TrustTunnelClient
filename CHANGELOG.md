@@ -8,7 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Add logging callback APIs for Android and Apple adapters to let applications override native log output handling.
+- Add Apple `NativeLogger` API in `VpnClientFramework` and expose callback forwarding in `TrustTunnelClient.Logger`.
+
 ### Changed
+
+- Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
+- Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
 
 ### Deprecated
 
