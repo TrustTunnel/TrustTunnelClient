@@ -231,7 +231,7 @@ jobs:
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
-      - ephemeral-windows
+      - ephemeral-vmwin
       - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
