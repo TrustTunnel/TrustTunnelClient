@@ -614,7 +614,7 @@ bool ag::DnsHandler::start_dns_proxy() {
     }
 
     m_dns_proxy = std::make_unique<DnsProxyAccessor>(
-            DnsProxyAccessor::Parameters{.upstreams = std::move(m_parameters.dns_upstreams),
+            DnsProxyAccessor::Parameters{.upstreams = m_parameters.dns_upstreams,
                     .socks_listener_address = m_parameters.dns_proxy_listener_address,
                     .socks_listener_username = m_parameters.dns_proxy_listener_username,
                     .socks_listener_password = m_parameters.dns_proxy_listener_password,
@@ -799,6 +799,10 @@ void ag::DnsHandler::on_dns_change(void *arg) {
     auto *self = (DnsHandler *) arg;
     log_handler(self, info, "Restarting system DNS proxy");
     self->start_system_dns_proxy();
+    // Restart user DNS proxy as well, because an external event like AG WFP filter
+    // reload can break the upstream UDP sockets of the user DNS proxy even when
+    // the DNS servers haven't changed.
+    self->start_dns_proxy();
 }
 
 void ag::DnsHandler::on_network_change() {
