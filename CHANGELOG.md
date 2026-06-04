@@ -8,7 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Add new settings to `VpnSettings` for controlling site exclusion behavior:
+    - `exclusions_tcp_early_ack_enabled` (default: `false`): when enabled, all TCP connections to scannable
+      ports are initially routed through a fake upstream to read the TLS SNI before making any real connection.
+      This ensures site exclusions work correctly when a secure DNS resolver is configured outside of
+      AdGuard VPN or when the exclusion list contains wildcard entries (e.g. `*.example.com`).
+    - `exclusions_preresolve_enabled` (default: `true`): controls whether DNS-resolvable exclusions are
+      pre-resolved in the background after the exclusion list is updated.
+    - `exclusions_preresolve_max_queries` (default: `50`): limits the number of domains pre-resolved.
+      Setting this to `0` uses the default value.
+    Default values for all three settings are available via `vpn_get_default_settings()`.
+
 ### Changed
+
+- `trusttunnel_client` config now supports `exclusions_tcp_early_ack_enabled`,
+  `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` as top-level keys in
+  `trusttunnel_client.toml`; absent values fall back to the defaults from `vpn_get_default_settings()`.
 
 ### Deprecated
 
