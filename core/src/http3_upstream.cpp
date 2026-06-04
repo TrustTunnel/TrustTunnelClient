@@ -92,8 +92,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     m_h3_settings.max_idle_timeout = Micros{m_max_idle_timeout};
 
     // Handoff — reuse connection pre-established by ping
-    if (this->vpn->quic_connector.client) {
-        m_h3_client = std::move(this->vpn->quic_connector.client);
+    if (this->vpn->quic_connector->client) {
+        m_h3_client = std::move(this->vpn->quic_connector->client);
         m_ssl_object = m_h3_client->get_ssl(); // non-owning; Http3Client owns SSL
 
         UdpSocketParameters params{
@@ -104,8 +104,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
                 .socket_manager = this->vpn->parameters.network_manager->socket,
                 .log_prefix = AG_FMT("h3-upstream-{}", this->id),
         };
-        m_socket.reset(udp_socket_acquire_fd(&params, this->vpn->quic_connector.fd));
-        this->vpn->quic_connector.fd = EVUTIL_INVALID_SOCKET;
+        m_socket.reset(udp_socket_acquire_fd(&params, this->vpn->quic_connector->fd));
+        this->vpn->quic_connector->fd = EVUTIL_INVALID_SOCKET;
         if (!m_socket) {
             log_upstream(this, err, "Failed to acquire UDP socket fd");
             m_h3_client.reset();

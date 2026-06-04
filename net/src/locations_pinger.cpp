@@ -14,6 +14,7 @@
 #include "common/logger.h"
 #include "common/socket_address.h"
 #include "net/network_manager.h"
+#include "net/quic_connector.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
 #include "ping.h"
@@ -30,16 +31,13 @@ struct PingedEndpoint {
     int ping_ms = 0;
     AutoVpnRelay relay;
     bool is_quic = false;
-    QuicConnectorResult quic_conn_result;
-    void *tcp_conn_state = nullptr;
+    void *conn_state;
 
-    PingedEndpoint(AutoVpnEndpoint endpoint, int ping_ms, const VpnRelay *relay, bool is_quic,
-            QuicConnectorResult quic_conn_result, void *tcp_conn_state)
+    PingedEndpoint(AutoVpnEndpoint endpoint, int ping_ms, const VpnRelay *relay, bool is_quic, void *conn_state)
             : endpoint{std::move(endpoint)}
             , ping_ms{ping_ms}
             , is_quic{is_quic}
-            , quic_conn_result{std::move(quic_conn_result)}
-            , tcp_conn_state{tcp_conn_state} {
+            , conn_state{conn_state} {
         if (relay) {
             this->relay = vpn_relay_clone(relay);
         }
@@ -104,12 +102,12 @@ static size_t get_smallest_ping_priority(const LocationsCtx *, const SocketAddre
     return -(ping_ms + 1);
 }
 
-static PingedEndpoint *select_endpoint_from_list(
-        LocationsCtx *location, std::vector<PingedEndpoint> &addresses, PingerSort priority_func) {
-    PingedEndpoint *selected = nullptr;
+static const PingedEndpoint *select_endpoint_from_list(
+        const LocationsCtx *location, const std::vector<PingedEndpoint> &addresses, PingerSort priority_func) {
+    const PingedEndpoint *selected = nullptr;
     size_t selected_priority = 0;
 
-    for (PingedEndpoint &i : addresses) {
+    for (const PingedEndpoint &i : addresses) {
         size_t i_priority = priority_func(location, &i.endpoint->address, i.ping_ms);
         if (selected == nullptr || selected_priority < i_priority) {
             selected = &i;
@@ -120,8 +118,8 @@ static PingedEndpoint *select_endpoint_from_list(
     return selected;
 }
 
-static PingedEndpoint *select_endpoint(LocationsCtx *location, PingerSort sorter) {
-    PingedEndpoint *selected = select_endpoint_from_list(location, location->pinged_ipv6, sorter);
+static const PingedEndpoint *select_endpoint(const LocationsCtx *location, PingerSort sorter) {
+    const PingedEndpoint *selected = select_endpoint_from_list(location, location->pinged_ipv6, sorter);
     if (selected == nullptr) {
         selected = select_endpoint_from_list(location, location->pinged_ipv4, sorter);
     }
@@ -130,16 +128,17 @@ static PingedEndpoint *select_endpoint(LocationsCtx *location, PingerSort sorter
 }
 
 static void destroy_conn_state(PingedEndpoint &endpoint) {
-    endpoint.quic_conn_result = {}; // destructor closes fd + resets h3_client
-    if (endpoint.tcp_conn_state) {
-        tcp_socket_destroy((TcpSocket *) endpoint.tcp_conn_state);
-        endpoint.tcp_conn_state = nullptr;
+    if (endpoint.is_quic) {
+        std::unique_ptr<QuicConnectorResult>{(QuicConnectorResult *) endpoint.conn_state};
+    } else {
+        tcp_socket_destroy((TcpSocket *) endpoint.conn_state);
     }
+    endpoint.conn_state = nullptr;
 }
 
 static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info) {
-    LocationsCtx *location = &info.location_ctx;
-    PingedEndpoint *selected =
+    const LocationsCtx *location = &info.location_ctx;
+    const PingedEndpoint *selected =
             select_endpoint(location, pinger->query_all_interfaces ? &get_smallest_ping_priority : &get_addr_priority);
 
     for (auto *v : {&info.location_ctx.pinged_ipv4, &info.location_ctx.pinged_ipv6}) {
@@ -154,8 +153,7 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
     result.id = location->info->id;
     if (selected != nullptr) {
         result.is_quic = selected->is_quic;
-        result.quic_conn_result = std::move(selected->quic_conn_result);
-        result.tcp_conn_state = selected->tcp_conn_state;
+        result.conn_state = selected->conn_state;
         result.ping_ms = selected->ping_ms;
         for (size_t i = 0; i < location->info->endpoints.size; ++i) {
             VpnEndpoint *ep = &location->info->endpoints.data[i];
@@ -184,7 +182,7 @@ static void finalize_location(LocationsPinger *pinger, FinalizeLocationInfo info
     }
 }
 
-static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *pinger, PingResult *result) {
+static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *pinger, const PingResult *result) {
     auto i = pinger->locations.find(result->ping);
     if (i == pinger->locations.end()) {
         return std::nullopt;
@@ -202,7 +200,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
         });
         if (it == dst.end()) { // Add new result
             dst.emplace_back(vpn_endpoint_clone(result->endpoint), result->ms, result->relay, result->is_quic,
-                    std::move(result->quic_conn_result), result->tcp_conn_state);
+                    result->conn_state);
         } else {
             if (!pinger->query_all_interfaces && pinger->main_protocol != VPN_UP_AUTO) {
                 log_location(pinger, ping_get_id(result->ping), warn,
@@ -216,8 +214,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
                 it->ping_ms = result->ms;
                 destroy_conn_state(*it);
                 it->is_quic = result->is_quic;
-                it->quic_conn_result = std::move(result->quic_conn_result);
-                it->tcp_conn_state = result->tcp_conn_state;
+                it->conn_state = result->conn_state;
             }
         }
         break;
@@ -246,7 +243,7 @@ static std::optional<FinalizeLocationInfo> process_ping_result(LocationsPinger *
     return std::nullopt;
 }
 
-static void ping_handler(void *arg, PingResult *result) {
+static void ping_handler(void *arg, const PingResult *result) {
     auto *pinger = (LocationsPinger *) arg;
 
     if (auto finalize_info = process_ping_result(pinger, result); finalize_info.has_value()) {

@@ -71,7 +71,7 @@ static const VpnEndpoint *find_endpoint_in_context(const TestCtx *ctx, const Vpn
     return nullptr;
 }
 
-static void standard_runner_cb(void *arg, LocationsPingerResult *result) {
+static void standard_runner_cb(void *arg, const LocationsPingerResult *result) {
     auto *ctx = (TestCtx *) arg;
     const char *id = result->id;
     const VpnEndpoint *ep = result->endpoint;
@@ -296,7 +296,7 @@ TEST_F(LocationsPingerRunnerOfflineTest, RelayAddressesOffline) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (RelayCtx *) arg;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
@@ -350,7 +350,7 @@ TEST_F(LocationsPingerRunnerOfflineTest, QuicToTlsFallbackOffline) {
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (QuicFallbackCtx *) arg;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
@@ -415,7 +415,7 @@ TEST_F(LocationsPingerRunnerOfflineTest, QuicToTlsFallbackAndRelayAddressesOffli
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (RelayFallbackCtx *) arg;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
@@ -477,7 +477,7 @@ TEST_F(LocationsPingerRunnerOfflineTest, NoRelayIfAnyAccessibleWithoutRelayQuicO
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (DirectPreferredCtx *) arg;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);
@@ -537,7 +537,7 @@ TEST_F(LocationsPingerRunnerOfflineTest, NoRelayIfAnyAccessibleWithoutRelayOffli
     };
     runner.reset(locations_pinger_runner_create(&info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (NoRelayCtx *) arg;
                         if (result->endpoint) {
                             ctx->endpoint = vpn_endpoint_clone(result->endpoint);

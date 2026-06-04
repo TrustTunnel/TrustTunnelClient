@@ -20,6 +20,7 @@
 #include "common/socket_address.h"
 #include "net/locations_pinger.h"
 #include "net/network_manager.h"
+#include "net/quic_connector.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
@@ -189,7 +190,7 @@ public:
     VpnMode exclusions_mode = VPN_MODE_GENERAL;
 
     // One of these is handed off from the pinger. An upstream can then snatch it up.
-    QuicConnectorResult quic_connector;
+    std::unique_ptr<QuicConnectorResult> quic_connector;
     ag::DeclPtr<TcpSocket, &tcp_socket_destroy> tcp_socket;
 };
 

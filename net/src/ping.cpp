@@ -317,9 +317,9 @@ static void do_report(void *arg) {
             if (self->handoff) {
                 auto qr = quic_connector_get_result(it->quic_connector.get());
                 if (it->use_quic && qr) {
-                    result.quic_conn_result = std::move(*qr);
+                    result.conn_state = qr.release();
                 } else {
-                    result.tcp_conn_state = it->tcp_socket.release();
+                    result.conn_state = it->tcp_socket.release();
                 }
             }
             if (it->relay->address.sa_family) {

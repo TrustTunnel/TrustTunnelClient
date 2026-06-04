@@ -34,7 +34,7 @@ extern "C" VpnEventLoop *locations_pinger_runner_get_loop(LocationsPingerRunner 
     return runner->ev_loop.get();
 }
 
-static void runner_handler(void *arg, LocationsPingerResult *result) {
+static void runner_handler(void *arg, const LocationsPingerResult *result) {
     auto *runner = (LocationsPingerRunner *) arg;
     if (result) {
         runner->handler.func(runner->handler.arg, result);

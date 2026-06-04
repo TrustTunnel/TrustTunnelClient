@@ -94,7 +94,7 @@ TEST_F(LocationsPingerTest, Single) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -131,7 +131,7 @@ TEST_F(LocationsPingerTest, WholeLocationFailed) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -178,7 +178,7 @@ TEST_F(LocationsPingerTest, Multiple) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -236,7 +236,7 @@ TEST_F(LocationsPingerTest, DISABLED_Timeout) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -280,7 +280,7 @@ TEST_F(LocationsPingerTest, StopFromCallback) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -318,7 +318,7 @@ TEST_F(LocationsPingerTest, StopNotFromCallback) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }

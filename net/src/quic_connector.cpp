@@ -16,7 +16,7 @@ ag::VpnError ag::quic_connector_connect(QuicConnector *, const QuicConnectorConn
     abort();
 }
 
-std::optional<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConnector *) {
+std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConnector *) {
     abort();
 }
 
@@ -64,7 +64,7 @@ struct ag::QuicConnector {
     uint8_t server_payload[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE]{};
     size_t server_payload_size = 0;
     std::optional<ag::VpnError> error;
-    std::optional<ag::QuicConnectorResult> result;
+    std::unique_ptr<QuicConnectorResult> result;
 };
 
 ag::QuicConnector *ag::quic_connector_create(const ag::QuicConnectorParameters *parameters) {
@@ -154,7 +154,7 @@ ag::VpnError ag::quic_connector_connect(
     return {};
 }
 
-std::optional<ag::QuicConnectorResult> ag::quic_connector_get_result(ag::QuicConnector *connector) {
+std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(ag::QuicConnector *connector) {
     return std::move(connector->result);
 }
 
@@ -272,7 +272,7 @@ static void do_report(ag::QuicConnector *self) {
         self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_ERROR, &*self->error);
         return;
     }
-    self->result.emplace(ag::QuicConnectorResult{
+    self->result = std::make_unique<ag::QuicConnectorResult>(ag::QuicConnectorResult{
             .fd = ag::udp_socket_release_fd(self->socket.release()),
             .client = std::move(self->client),
     });

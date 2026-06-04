@@ -75,7 +75,7 @@ public:
     }
 };
 
-static void standard_ping_cb(void *ctx, PingResult *result) {
+static void standard_ping_cb(void *ctx, const PingResult *result) {
     auto *test_ctx = (TestCtx *) ctx;
     if (result->status == PING_FINISHED) {
         test_ctx->finished = true;
@@ -187,7 +187,7 @@ TEST_F(PingOfflineTest, Multiple) {
         };
         test_ctx.ping.reset(ping_start(&info,
                 {
-                        [](void *ctx, PingResult *result) {
+                        [](void *ctx, const PingResult *result) {
                             auto *contexts = (std::vector<TestCtx> *) ctx;
 
                             auto found = std::ranges::find_if(*contexts, [ping = result->ping](const TestCtx &item) {
@@ -282,7 +282,7 @@ TEST_F(PingOfflineTest, DestroyInProgressPingAfterCallback) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, PingResult *result) {
+                    [](void *ctx, const PingResult *result) {
                         auto *test_ctx = (TestCtx *) ctx;
 
                         if (!test_ctx->cancelled) {
@@ -354,7 +354,7 @@ TEST_F(PingOfflineTest, DestroyInProgressPing) {
 
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, PingResult *result) {
+                    [](void *ctx, const PingResult *result) {
                         auto *test_ctx = (TestCtx *) ctx;
 
                         if (!test_ctx->cancelled) {
@@ -403,7 +403,7 @@ TEST_F(PingOfflineTest, MultipleRounds) {
     };
     test_ctx.ping.reset(ping_start(&info,
             {
-                    [](void *ctx, PingResult *result) {
+                    [](void *ctx, const PingResult *result) {
                         auto *test_ctx = (TestCtxRounds *) ctx;
 
                         if (result->status == PING_FINISHED) {

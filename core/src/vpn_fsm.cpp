@@ -155,7 +155,7 @@ static void initiate_recovery(Vpn *vpn) {
     vpn->recovery.to_next = time_to_next;
 }
 
-static void pinger_handler(void *arg, LocationsPingerResult *result) {
+static void pinger_handler(void *arg, const LocationsPingerResult *result) {
     if (result == nullptr) {
         // ignore ping finished event
         return;
@@ -198,9 +198,9 @@ static void pinger_handler(void *arg, LocationsPingerResult *result) {
             result->ping_ms);
 
     if (result->is_quic) {
-        vpn->client.quic_connector = std::move(result->quic_conn_result);
+        vpn->client.quic_connector.reset((QuicConnectorResult *) result->conn_state);
     } else {
-        vpn->client.tcp_socket.reset((TcpSocket *) result->tcp_conn_state);
+        vpn->client.tcp_socket.reset((TcpSocket *) result->conn_state);
     }
 
     vpn->client.update_bypass_ip_availability();

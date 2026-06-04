@@ -1,7 +1,6 @@
 #pragma once
 
 #include "net/network_manager.h"
-#include "net/quic_connector.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
 
@@ -42,14 +41,13 @@ typedef struct {
     uint32_t quic_max_idle_timeout_ms; // QUIC connection max idle timeout. Set `0` to use the default.
 } LocationsPingerInfo;
 
-typedef struct LocationsPingerResult {
+typedef struct {
     const char *id; // location id
     int ping_ms;    // selected endpoint's ping (negative if none of the location endpoints successfully pinged)
-    const VpnEndpoint *endpoint;          // selected endpoint
-    const VpnRelay *relay;                // non-null if the selected endpoint was pinged through a relay
-    bool is_quic;                         // Whether the established connection is QUIC
-    QuicConnectorResult quic_conn_result; // QUIC handoff: fd + Http3Client
-    void *tcp_conn_state = nullptr;       // TCP handoff: owning TcpSocket* (unchanged from before)
+    const VpnEndpoint *endpoint; // selected endpoint
+    const VpnRelay *relay;       // non-null if the selected endpoint was pinged through a relay
+    bool is_quic;                // Whether the established connection is QUIC
+    void *conn_state;            // For internal use. Applications should ignore this field.
 } LocationsPingerResult;
 
 typedef struct {
@@ -58,7 +56,7 @@ typedef struct {
      * @param arg User argument
      * @param result Contains ping result or nullptr if pinging was finished
      */
-    void (*func)(void *arg, LocationsPingerResult *result);
+    void (*func)(void *arg, const LocationsPingerResult *result);
     void *arg; // user argument
 } LocationsPingerHandler;
 

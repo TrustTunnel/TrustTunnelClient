@@ -95,7 +95,7 @@ TEST_F(LocationsPingerOfflineTest, SingleOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -131,7 +131,7 @@ TEST_F(LocationsPingerOfflineTest, WholeLocationFailedOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         // waiting all the callbacks
                         if (result == nullptr) {
@@ -179,7 +179,7 @@ TEST_F(LocationsPingerOfflineTest, MultipleOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -227,7 +227,7 @@ TEST_F(LocationsPingerOfflineTest, TimeoutOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -274,7 +274,7 @@ TEST_F(LocationsPingerOfflineTest, StopFromCallbackOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -317,7 +317,7 @@ TEST_F(LocationsPingerOfflineTest, StopNotFromCallbackOffline) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         if (result == nullptr) {
                             return;
                         }
@@ -351,7 +351,7 @@ TEST_F(LocationsPingerOfflineTest, EmptyLocationsFinishesImmediately) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         if (result == nullptr) {
                             ctx->finished = true;
@@ -378,7 +378,7 @@ TEST_F(LocationsPingerOfflineTest, DestroyFromCallbackWhenPingStartFails) {
 
     test_ctx.pinger.reset(locations_pinger_start(&test_ctx.info,
             {
-                    [](void *arg, LocationsPingerResult *result) {
+                    [](void *arg, const LocationsPingerResult *result) {
                         auto *ctx = (TestCtx *) arg;
                         if (result == nullptr) {
                             // "Done" signal: destroy pinger while still on the call stack of

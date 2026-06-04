@@ -78,7 +78,7 @@ VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorCon
  * Return the result object.
  * Return `nullopt` if not ready or if the result object has already been returned once.
  */
-std::optional<QuicConnectorResult> quic_connector_get_result(QuicConnector *connector);
+std::unique_ptr<QuicConnectorResult> quic_connector_get_result(QuicConnector *connector);
 
 /**
  * Return the log prefix.
