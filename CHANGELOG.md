@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.1.5-beta.1] - 2026-06-04
+
+### Added
+
 - Add new settings to `VpnSettings` for controlling site exclusion behavior:
     - `exclusions_tcp_early_ack_enabled` (default: `false`): when enabled, all TCP connections to scannable
       ports are initially routed through a fake upstream to read the TLS SNI before making any real connection.
@@ -24,14 +38,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `trusttunnel_client` config now supports `exclusions_tcp_early_ack_enabled`,
   `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` as top-level keys in
   `trusttunnel_client.toml`; absent values fall back to the defaults from `vpn_get_default_settings()`.
-
-### Deprecated
-
-### Removed
-
-### Fixed
-
-### Security
 
 ## [1.1.4] - 2026-05-22
 
