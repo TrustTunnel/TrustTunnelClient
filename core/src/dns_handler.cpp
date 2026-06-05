@@ -613,8 +613,8 @@ bool ag::DnsHandler::start_dns_proxy() {
         return false;
     }
 
-    m_dns_proxy = std::make_unique<DnsProxyAccessor>(
-            DnsProxyAccessor::Parameters{.upstreams = m_parameters.dns_upstreams,
+    m_dns_proxy =
+            std::make_unique<DnsProxyAccessor>(DnsProxyAccessor::Parameters{.upstreams = m_parameters.dns_upstreams,
                     .socks_listener_address = m_parameters.dns_proxy_listener_address,
                     .socks_listener_username = m_parameters.dns_proxy_listener_username,
                     .socks_listener_password = m_parameters.dns_proxy_listener_password,
