@@ -1,6 +1,5 @@
 package com.adguard.trusttunnel
 
-import com.adguard.trusttunnel.log.LoggerManager
 import com.akuleshov7.ktoml.Toml
 import com.akuleshov7.ktoml.TomlInputConfig
 import kotlinx.serialization.SerialName
@@ -33,7 +32,7 @@ class VpnServiceConfig (
     val endpoint: Endpoint
 ) {
     companion object {
-        private val LOG = LoggerManager.getLogger("VpnServiceConfig")
+        private val LOG = Logger("VpnServiceConfig")
         fun parseToml(config: String): VpnServiceConfig? {
             try {
                 val toml = Toml(

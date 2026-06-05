@@ -10,7 +10,7 @@ See [README.md](README.md) for full product details and
 ## Tech Stack
 
 - **C++20** (primary), **C11** — core libraries
-- **Rust 1.85** — `trusttunnel/setup_wizard/`, `trusttunnel/settings/`,
+- **Rust 1.95** — `trusttunnel/setup_wizard/`, `trusttunnel/settings/`,
   `trusttunnel/deeplink-ffi/`
 - **Kotlin** — Android platform adapter
 - **Swift / Objective-C** — Apple platform adapter
@@ -18,7 +18,7 @@ See [README.md](README.md) for full product details and
 - **CMake 3.24+** — build system
 - **Conan 2.0.5+** — C++ package manager
 - **Ninja** — build backend
-- **Clang / LLVM 17+** (LLVM 19 on macOS) — compiler and tooling
+- **Clang / LLVM 21+** — compiler and tooling
   (Windows builds use MSVC `cl.exe`, not clang)
 - **clang-format 21+** — required by `make lint-cpp` / `make clang-format`
 - **Python 3** — `scripts/bootstrap_conan_deps.py`, Conan wrappers
