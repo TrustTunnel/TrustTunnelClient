@@ -48,6 +48,7 @@ typedef struct {
     const VpnRelay *relay;       // non-null if the selected endpoint was pinged through a relay
     bool is_quic;                // Whether the established connection is QUIC
     void *conn_state;            // For internal use. Applications should ignore this field.
+                                 // If `handoff` is `true`, this is the connection state object.
 } LocationsPingerResult;
 
 typedef struct {

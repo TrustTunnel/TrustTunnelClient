@@ -75,7 +75,7 @@ static void standard_runner_cb(void *arg, const LocationsPingerResult *result) {
     auto *ctx = (TestCtx *) arg;
     const char *id = result->id;
     const VpnEndpoint *ep = result->endpoint;
-    ctx->results[id] = std::move(*result);
+    ctx->results[id] = *result;
     ctx->results[id].endpoint = find_endpoint_in_context(ctx, ep);
     ctx->result_ids[id] = id;
 }

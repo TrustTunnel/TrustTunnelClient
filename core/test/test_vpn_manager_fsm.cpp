@@ -156,12 +156,10 @@ protected:
             }
         }
 
-        LocationsPingerResult result = result_.has_value()
-                ? std::move(*result_)
-                : LocationsPingerResult{this->vpn->upstream_config->location.id, 10,
-                          this->vpn->upstream_config->location.endpoints.data};
+        LocationsPingerResult result = result_.value_or(LocationsPingerResult{
+                this->vpn->upstream_config->location.id, 10, this->vpn->upstream_config->location.endpoints.data});
         auto pinger_handler = pinger_start_info.get_arg<LocationsPingerHandler>(1);
-        this->vpn->submit([pinger_handler, result = std::move(result)]() mutable {
+        this->vpn->submit([pinger_handler, result]() {
             pinger_handler.func(pinger_handler.arg, &result);
         });
     }

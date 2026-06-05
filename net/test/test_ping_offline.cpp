@@ -82,7 +82,7 @@ static void standard_ping_cb(void *ctx, const PingResult *result) {
         event_base_loopbreak(test_ctx->base);
         return;
     }
-    test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+    test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
 }
 
 TEST_F(PingOfflineTest, Single) {
@@ -206,7 +206,7 @@ TEST_F(PingOfflineTest, Multiple) {
                                 return;
                             }
 
-                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                         },
                         &contexts,
                 }));
@@ -306,7 +306,7 @@ TEST_F(PingOfflineTest, DestroyInProgressPingAfterCallback) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                     },
                     &test_ctx,
             }));
@@ -365,7 +365,7 @@ TEST_F(PingOfflineTest, DestroyInProgressPing) {
                             test_ctx->finished = true;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                     },
                     &test_ctx,
             }));
@@ -412,8 +412,7 @@ TEST_F(PingOfflineTest, MultipleRounds) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
-                                std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(*result);
                     },
                     &test_ctx,
             }));

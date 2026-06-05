@@ -75,7 +75,7 @@ static void standard_ping_cb(void *ctx, const PingResult *result) {
         event_base_loopbreak(test_ctx->base);
         return;
     }
-    test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+    test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
 }
 
 TEST_F(PingTest, Single) {
@@ -207,7 +207,7 @@ TEST_F(PingTest, Multiple) {
                                 return;
                             }
 
-                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                            test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                         },
                         &contexts,
                 }));
@@ -306,7 +306,7 @@ TEST_F(PingTest, DestroyInProgressPingAfterCallback) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                     },
                     &test_ctx,
             }));
@@ -365,7 +365,7 @@ TEST_F(PingTest, DestroyInProgressPing) {
                             test_ctx->finished = true;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = std::move(*result);
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
                     },
                     &test_ctx,
             }));
@@ -410,8 +410,7 @@ TEST_F(PingTest, MultipleRounds) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
-                                std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(*result);
                     },
                     &test_ctx,
             }));
@@ -477,8 +476,7 @@ TEST_F(PingTest, DISABLED_QueryAllInterfaces) {
                             return;
                         }
 
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(
-                                std::move(*result));
+                        test_ctx->results[SocketAddress(result->endpoint->address).str()].emplace_back(*result);
                     },
                     &test_ctx,
             }));

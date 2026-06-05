@@ -116,9 +116,7 @@ TEST(NetUtils, JA4Ngtcp2Quic) {
             // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
             handshake.insert(handshake.end(), reassembled->begin(), reassembled->end());
         }
-        fprintf(stderr, "JA4Ngtcp2Quic: total handshake bytes=%zu, initials=%zu\n", handshake.size(), initials.size());
         auto fingerprint = ag::ja4::compute({handshake.data(), handshake.size()}, /*quic*/ true);
-        fprintf(stderr, "JA4Ngtcp2Quic: fingerprint=%s\n", fingerprint.c_str());
         ASSERT_NE(fingerprints.end(), std::find(fingerprints.begin(), fingerprints.end(), fingerprint)) << fingerprint;
     }
 }
@@ -140,11 +138,9 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     // Trigger ClientHello generation; returns SSL_ERROR_WANT_READ waiting for server
     SSL_do_handshake(ssl.get());
 
-    fprintf(stderr, "Ngtcp2 ClientHello (raw TLS) size=%zu\n", capture.initial_data.size());
     ASSERT_FALSE(capture.initial_data.empty()) << "No TLS data was captured";
 
     auto fingerprint = ag::ja4::compute({capture.initial_data.data(), capture.initial_data.size()}, /*quic*/ true);
-    fprintf(stderr, "Ngtcp2 JA4 fingerprint=%s\n", fingerprint.c_str());
     // Expected to match Chrome 135 QUIC fingerprint, same as JA4Quic test
     EXPECT_EQ("q13d0311h3_55b375c5d22e_653d80c3fe9d", fingerprint) << "Ngtcp2 fingerprint mismatch";
 }

@@ -99,7 +99,7 @@ TEST_F(LocationsPingerTest, Single) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         vpn_event_loop_exit(ctx->loop, Millis{0});
@@ -136,7 +136,7 @@ TEST_F(LocationsPingerTest, WholeLocationFailed) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         vpn_event_loop_exit(ctx->loop, Millis{0});
@@ -184,7 +184,7 @@ TEST_F(LocationsPingerTest, Multiple) {
                         }
                         auto *ctx = (TestCtx *) arg;
                         assert(ctx->results.count(result->id) == 0);
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
@@ -241,7 +241,7 @@ TEST_F(LocationsPingerTest, DISABLED_Timeout) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         if (ctx->results.size() == ctx->info.locations.size) {
@@ -285,7 +285,7 @@ TEST_F(LocationsPingerTest, StopFromCallback) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                     },
@@ -323,7 +323,7 @@ TEST_F(LocationsPingerTest, StopNotFromCallback) {
                             return;
                         }
                         auto *ctx = (TestCtx *) arg;
-                        ctx->results[result->id] = std::move(*result);
+                        ctx->results[result->id] = *result;
                         ctx->results[result->id].endpoint = find_endpoint_in_context(ctx, result->endpoint);
                         ctx->result_ids[result->id] = result->id;
                         locations_pinger_stop(ctx->pinger.get());

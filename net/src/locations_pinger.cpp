@@ -31,7 +31,7 @@ struct PingedEndpoint {
     int ping_ms = 0;
     AutoVpnRelay relay;
     bool is_quic = false;
-    void *conn_state;
+    void *conn_state = nullptr;
 
     PingedEndpoint(AutoVpnEndpoint endpoint, int ping_ms, const VpnRelay *relay, bool is_quic, void *conn_state)
             : endpoint{std::move(endpoint)}
