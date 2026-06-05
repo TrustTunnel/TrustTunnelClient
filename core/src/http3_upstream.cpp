@@ -674,10 +674,8 @@ void Http3Upstream::on_udp_packet() {
         log_upstream(this, trace, "Read {} bytes from endpoint", r);
         r = quiche_conn_recv(quic_conn, buffer, r, &info);
         if (r < 0) {
-            log_upstream(this, warn, "Failed to process packet: {}", magic_enum::enum_name((quiche_error) r));
-            if (r == QUICHE_ERR_TLS_FAIL) {
-                log_upstream(this, warn, "TLS handshake failure (cert_verify_failed={})", m_cert_verify_failed);
-            }
+            log_upstream(this, warn, "Failed to process packet: {} (cert_verify_failed={})",
+                    magic_enum::enum_name((quiche_error) r), m_cert_verify_failed);
             break;
         }
 
