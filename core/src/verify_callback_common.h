@@ -2,6 +2,8 @@
 
 #include <openssl/x509.h>
 
+#include <common/tls/cert_utils.h>
+
 #include "net/tls.h"
 #include "vpn/internal/vpn_client.h"
 

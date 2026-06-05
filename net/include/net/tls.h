@@ -120,10 +120,4 @@ X509_STORE *tls_create_ca_store();
  */
 TlsParseResult tls_parse(TlsReader *t);
 
-/**
- * Format certificate diagnostic info (Subject, Issuer, Chain length).
- * Returns an empty string if cert is null.
- */
-std::string tls_get_cert_diagnostic_info(X509 *cert, STACK_OF(X509) * chain);
-
 } // namespace ag

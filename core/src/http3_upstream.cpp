@@ -539,7 +539,7 @@ int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     self->m_cert_verify_failed = (ret != 1);
     if (ret != 1) {
         log_upstream(self, warn, "QUIC/H3 certificate verification failed for host '{}'", host_name);
-        log_upstream(self, warn, "  {}", tls_get_cert_diagnostic_info(cert, chain));
+        log_upstream(self, warn, "  {}", ag::tls::get_cert_diagnostic_info(cert, chain));
     }
     return ret;
 }
