@@ -8,9 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Add logging callback APIs for Android and Apple adapters to let applications override native log output handling.
+- Add Apple `NativeLogger` API in `VpnClientFramework` and expose callback forwarding in `TrustTunnelClient.Logger`.
 - An alternative route for DNS queries for excluded domains, selected with `VpnListenerConfig::dns_alt_exclusions_route`.
 
 ### Changed
+
+- Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
+- Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
 
 ### Deprecated
 
@@ -19,6 +24,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.1] - 2026-06-04
+
+### Added
+
+- Add new settings to `VpnSettings` for controlling site exclusion behavior:
+    - `exclusions_tcp_early_ack_enabled` (default: `false`): when enabled, all TCP connections to scannable
+      ports are initially routed through a fake upstream to read the TLS SNI before making any real connection.
+      This ensures site exclusions work correctly when a secure DNS resolver is configured outside of
+      AdGuard VPN or when the exclusion list contains wildcard entries (e.g. `*.example.com`).
+    - `exclusions_preresolve_enabled` (default: `true`): controls whether DNS-resolvable exclusions are
+      pre-resolved in the background after the exclusion list is updated.
+    - `exclusions_preresolve_max_queries` (default: `50`): limits the number of domains pre-resolved.
+      Setting this to `0` uses the default value.
+    Default values for all three settings are available via `vpn_get_default_settings()`.
+
+### Changed
+
+- `trusttunnel_client` config now supports `exclusions_tcp_early_ack_enabled`,
+  `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` as top-level keys in
+  `trusttunnel_client.toml`; absent values fall back to the defaults from `vpn_get_default_settings()`.
 
 ## [1.1.4] - 2026-05-22
 
@@ -381,7 +407,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...HEAD
+[1.1.5-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.5-beta.1
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63
 [1.0.62]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.56...v1.0.62

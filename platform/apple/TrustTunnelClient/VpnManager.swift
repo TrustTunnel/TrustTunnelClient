@@ -36,6 +36,8 @@ public struct AppSettings {
     }
 }
 
+/// Logs emitted by VpnManager respect Logger.setCallback.
+/// Set the callback before creating VpnManager if you want to capture logs emitted during initialization.
 public final class VpnManager {
     private var apiQueue: DispatchQueue
     private var queue: DispatchQueue

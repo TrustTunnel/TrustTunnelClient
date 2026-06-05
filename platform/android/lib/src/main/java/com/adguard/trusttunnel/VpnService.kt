@@ -12,7 +12,6 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
-import com.adguard.trusttunnel.log.LoggerManager
 import com.adguard.trusttunnel.utils.NetworkUtils
 import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
 import java.io.File
@@ -20,7 +19,7 @@ import java.io.File
 class VpnService : android.net.VpnService(), VpnClientListener {
 
     companion object {
-        private val LOG = LoggerManager.getLogger("VpnService")
+        private val LOG = Logger("VpnService")
         private val NETWORK_MANAGER_SYNC = Any()
 
         // Network monitoring
