@@ -82,8 +82,8 @@
   for the "system" DNS proxy.
 
   If ServerUpstream is not connected to a VPN endpoint, and the kill switch setting is off, then all DNS queries are
-  forwarded to the "system" DNS proxy. If the kill switch setting is on, DNS queries are dropped, except those for
-  which `vpn_network_manager_check_app_request_domain` returns `true`, which are forwarded to the "system" DNS proxy.
+  treated as EXCLUDED. If the kill switch setting is on, DNS queries are dropped, except those for
+  which `vpn_network_manager_check_app_request_domain` returns `true`, which are treated as EXCLUDED.
 
   DnsHandler is also responsible for parsing DNS responses and performing actions based on their content,
   such as adding exclusion suspects (see `DomainFilter::add_exclusion_suspect()`) or removing ECH parameters

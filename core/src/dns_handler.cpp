@@ -882,11 +882,22 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
 
     if (!ServerUpstream::vpn->tunnel->endpoint_upstream_connected) {
         if (!ServerUpstream::vpn->kill_switch_on) {
+            if (m_parameters.alt_exclusions_route) {
+                log_handler(this, dbg, "{} qname: {} -> direct upstream (not connected)", info, request.name);
+                send_request_as_listener(info, message, /*bypass*/ true);
+                return;
+            }
             log_handler(this, dbg, "{} qname: {} -> system DNS proxy (not connected)", info, request.name);
             send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
             return;
         }
         if (vpn_network_manager_check_app_request_domain(request.name.c_str())) {
+            if (m_parameters.alt_exclusions_route) {
+                log_handler(
+                        this, dbg, "{} qname: {} -> direct upstream (not connected, app request)", info, request.name);
+                send_request_as_listener(info, message, /*bypass*/ true);
+                return;
+            }
             log_handler(this, dbg, "{} qname: {} -> system DNS proxy (not connected, app request)", info, request.name);
             send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
             return;
@@ -906,9 +917,10 @@ void ag::DnsHandler::on_dns_request(const ConnectionInfo &info, U8View message) 
         log_handler(this, dbg, "{} qname: {} -> system DNS proxy", info, request.name);
         send_request(/*system proxy*/ true, ipv6, tcp, info.upstream_conn_id, message);
     } else {
+        bool bypass = !included;
         log_handler(this, dbg, "{} qname: {} -> {}{}", info, request.name, tunnel_addr_to_str(&info.addrs->dst),
-                !included ? " (bypass upstream)" : "");
-        send_request_as_listener(info, message, /*bypass*/ !included);
+                bypass ? " (direct upstream)" : "");
+        send_request_as_listener(info, message, bypass);
     }
 }
 
