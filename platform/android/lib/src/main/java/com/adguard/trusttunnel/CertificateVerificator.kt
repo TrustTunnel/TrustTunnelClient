@@ -1,6 +1,5 @@
 package com.adguard.trusttunnel
 
-import com.adguard.trusttunnel.log.LoggerManager
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.security.KeyStore
@@ -16,7 +15,7 @@ class CertificateVerificator {
     private val certificateFactory: CertificateFactory
     private val trustManagerFactory: TrustManagerFactory
     companion object {
-        private val LOG = LoggerManager.getLogger("CertificateVerificator")
+        private val LOG = Logger("CertificateVerificator")
     }
     init {
         try {

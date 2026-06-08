@@ -23,6 +23,12 @@ work_dir = os.path.dirname(os.path.realpath(__file__))
 project_dir = os.path.dirname(work_dir)
 
 
+def semver_decompose(version):
+    """Return a sortable tuple for a version string."""
+    match = re.match(r'(\d+)\.(\d+)\.(\d+)(.*)', version)
+    return tuple(int(x) if i < 3 else x for i, x in enumerate(match.groups()))
+
+
 def get_all_versions():
     """Get all version tags from git."""
     result = subprocess.run(
@@ -35,9 +41,9 @@ def get_all_versions():
     # Filter and extract version numbers from tags like 'v1.0.0'
     versions = []
     for tag in tags:
-        if tag and re.match(r'^v\d+\.\d+\.\d+$', tag):
+        if tag and re.match(r'^v\d+\.\d+\.\d+(?:[-+.]?[A-Za-z0-9.-]+)*$', tag):
             versions.append(tag[1:])  # Remove 'v' prefix
-    return sorted(versions, key=lambda v: [int(x) for x in v.split('.')])
+    return sorted(versions, key=semver_decompose)
 
 
 def get_latest_version():

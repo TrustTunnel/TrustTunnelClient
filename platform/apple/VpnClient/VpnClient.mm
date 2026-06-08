@@ -181,16 +181,6 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
             stateChangeHandler:(StateChangeHandler)stateChangeHandler {
     self = [super init];
     if (self) {
-
-        ag::Logger::set_callback([](ag::LogLevel level, std::string_view message) {
-            static const char *const levels[] = {
-                [ag::LOG_LEVEL_ERROR] = "ERROR",   [ag::LOG_LEVEL_WARN] = "WARN",   [ag::LOG_LEVEL_INFO] = "INFO",
-                [ag::LOG_LEVEL_DEBUG] = "DEBUG", [ag::LOG_LEVEL_TRACE] = "TRACE",
-            };
-            static os_log_t log_handle = os_log_create("com.adguard.TrustTunnel.VpnClientFramework", "VpnClient");
-            os_log(log_handle, "[%{public}s]\t%{public}.*s", levels[level], (int)message.size(), message.data());
-        });
-
         toml::parse_result parse_result = toml::parse(config.UTF8String);
         if (!parse_result) {
             errlog(g_logger, "Failed to parse configuration: {}", parse_result.error().description());

@@ -1,7 +1,6 @@
 package com.adguard.trusttunnel
 
 import android.os.ParcelFileDescriptor
-import com.adguard.trusttunnel.log.LoggerManager
 import com.adguard.trusttunnel.log.NativeLogger
 import com.adguard.trusttunnel.log.NativeLoggerLevel
 import java.io.Closeable
@@ -17,7 +16,7 @@ class VpnClient (
             // ensure it is initialized.
             NativeLogger.defaultLogLevel = NativeLoggerLevel.INFO
         }
-        private val LOG = LoggerManager.getLogger("VpnClient")
+        private val LOG = Logger("VpnClient")
 
         fun excludeCidr(includedRoutes: List<String>, excludedRoutes: List<String>): List<String>? {
             return excludeCidr(includedRoutes.toTypedArray(), excludedRoutes.toTypedArray())?.toList()

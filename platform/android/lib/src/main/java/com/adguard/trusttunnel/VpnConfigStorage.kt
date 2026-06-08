@@ -2,12 +2,11 @@ package com.adguard.trusttunnel
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.adguard.trusttunnel.log.LoggerManager
 
 class VpnConfigStorage(context: Context) {
 
     companion object {
-        private val LOG = LoggerManager.getLogger("VpnConfigStorage")
+        private val LOG = Logger("VpnConfigStorage")
         private const val PREFS_NAME = "trusttunnel_vpn"
         private const val KEY_CONFIG = "vpn_config"
     }

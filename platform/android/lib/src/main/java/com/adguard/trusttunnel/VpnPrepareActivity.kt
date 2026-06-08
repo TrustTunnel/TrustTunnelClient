@@ -8,7 +8,6 @@ import android.content.pm.ActivityInfo
 import android.net.VpnService
 import android.os.Bundle
 import android.view.Surface
-import com.adguard.trusttunnel.log.LoggerManager
 import java.util.concurrent.TimeoutException
 
 /**
@@ -98,7 +97,7 @@ class VpnPrepareActivity : Activity() {
         private const val MAX_WAIT_TIME = 60 * 1000
         private const val PREPARE_VPN_REQUEST_CODE = 1234
 
-        private val LOG = LoggerManager.getLogger("VpnPrepareActivity")
+        private val LOG = Logger("VpnPrepareActivity")
 
         /**
          * This object acts as a wait handle. The algorithm is:
