@@ -6,6 +6,7 @@ import 'package:testapp/flutter_callbacks_impl.dart';
 import 'package:testapp/native_communication.dart';
 import 'package:flutter_highlight/themes/gruvbox-dark.dart';
 import 'dart:io' show File, Platform;
+import 'package:path/path.dart' as p;
 
 import 'config.dart';
 
@@ -130,7 +131,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
     if (!mounted) return;
 
-    final dirName = File(files.first).parent.path.split('/').last;
+    final dirName = p.basename(File(files.first).parent.path);
 
     showModalBottomSheet(
       context: context,
@@ -189,7 +190,7 @@ class _MyHomePageState extends State<MyHomePage> {
         });
 
         return AlertDialog(
-        title: Text(path.split('/').last),
+        title: Text(p.basename(path)),
         content: SizedBox(
           width: double.maxFinite,
           height: MediaQuery.of(context).size.height * 0.7,
@@ -403,7 +404,7 @@ class _LogFileList extends StatelessWidget {
               itemCount: files.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (_, i) {
-                final name = files[i].split('/').last;
+                final name = p.basename(files[i]);
                 return ListTile(
                   leading: const Icon(Icons.description),
                   title: Text(name),
