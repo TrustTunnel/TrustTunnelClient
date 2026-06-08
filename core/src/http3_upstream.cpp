@@ -9,8 +9,10 @@
 
 #include "net/http_session.h"
 #include "net/quic_connector.h"
+#include "net/tls.h"
 #include "net/udp_socket.h"
 #include "net/utils.h"
+#include "verify_callback_common.h"
 #include "vpn/internal/vpn_client.h"
 #include "vpn/utils.h"
 
@@ -533,16 +535,12 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
 
 int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http3Upstream *) arg;
-    auto *cert = X509_STORE_CTX_get0_cert(store_ctx);
-    auto *chain = X509_STORE_CTX_get0_untrusted(store_ctx);
-    auto *ssl = (SSL *) X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-    int ret = self->vpn->parameters.cert_verify_handler.func(
-            !safe_to_string_view(self->vpn->upstream_config.endpoint->remote_id).empty()
-                    ? self->vpn->upstream_config.endpoint->remote_id
-                    : self->vpn->upstream_config.endpoint->name,
-            (sockaddr *) &self->vpn->upstream_config.endpoint->address, {cert, chain, ssl, VT_ENDPOINT},
-            self->vpn->parameters.cert_verify_handler.arg);
+    auto [ret, host_name, cert, chain] = verify_endpoint_cert(store_ctx, self->vpn);
     self->m_cert_verify_failed = (ret != 1);
+    if (ret != 1) {
+        log_upstream(self, warn, "QUIC/H3 certificate verification failed for host '{}'", host_name);
+        log_upstream(self, warn, "  {}", ag::tls::get_cert_diagnostic_info(cert, chain));
+    }
     return ret;
 }
 
@@ -676,7 +674,8 @@ void Http3Upstream::on_udp_packet() {
         log_upstream(this, trace, "Read {} bytes from endpoint", r);
         r = quiche_conn_recv(quic_conn, buffer, r, &info);
         if (r < 0) {
-            log_upstream(this, warn, "Failed to process packet: {}", magic_enum::enum_name((quiche_error) r));
+            log_upstream(this, warn, "Failed to process packet: {} (cert_verify_failed={})",
+                    magic_enum::enum_name((quiche_error) r), m_cert_verify_failed);
             break;
         }
 
@@ -1056,7 +1055,7 @@ void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
     }
 
     if (!error.has_value() && m_cert_verify_failed) {
-        log_upstream(this, dbg, "TLS certificate verification failed");
+        log_upstream(this, warn, "TLS certificate verification failed");
         error = {VPN_EC_CERTIFICATE_VERIFICATION_FAILED, "TLS certificate verification failed"};
     }
     if (!error.has_value() && m_quic_conn != nullptr) {
