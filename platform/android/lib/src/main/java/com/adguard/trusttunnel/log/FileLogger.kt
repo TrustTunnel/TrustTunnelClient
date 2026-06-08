@@ -106,11 +106,13 @@ class FileLogger(
         for (idx in (archiveCount - 1 downTo 1)) {
             val src = File(directory, "$baseName.$idx.log")
             val dst = File(directory, "$baseName.${idx + 1}.log")
+            dst.delete()
             src.renameTo(dst)
         }
         // Rotate current → .1
         val current = File(directory, "$baseName.log")
         val archived = File(directory, "$baseName.1.log")
+        archived.delete()
         current.renameTo(archived)
         openOrCreateFile()
     }
