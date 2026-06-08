@@ -84,7 +84,8 @@ class FileLogger(
     /** Lock-free append (runs on single-thread executor). */
     private fun appendLine(level: Logger.LogLevel, message: String) {
         val raf = file ?: return
-        val line = "${timestamp()} [${levelTag(level)}] $message\n"
+        val escaped = message.replace("\u001E", "\\x1E")
+        val line = "${timestamp()} [${levelTag(level)}] $escaped\n\u001E"
         try {
             raf.write(line.toByteArray(Charsets.UTF_8))
             currentSize += line.length.toLong()

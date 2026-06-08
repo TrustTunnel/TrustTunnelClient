@@ -135,7 +135,8 @@ public final class FileLogger {
 
         let timestamp = Self.now()
         let levelTag = Self.tag(for: level)
-        let line = "\(timestamp) [\(levelTag)] \(message)\n"
+        let escaped = message.replacingOccurrences(of: "\u{1E}", with: "\\x1E")
+        let line = "\(timestamp) [\(levelTag)] \(escaped)\n\u{1E}"
 
         guard let data = line.data(using: .utf8) else { return }
 

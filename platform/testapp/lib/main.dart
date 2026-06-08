@@ -143,20 +143,36 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _viewLogFile(BuildContext parentContext, String path) {
-    String contents;
+    String raw;
     try {
       final file = File(path);
       if (!file.existsSync()) {
-        contents = '[File not found: $path]';
+        raw = '';
       } else {
-        contents = file.readAsStringSync();
+        raw = file.readAsStringSync();
         // Avoid displaying extremely large files
-        if (contents.length > 500_000) {
-          contents = contents.substring(0, 500_000) + '\n\n... [truncated]';
+        if (raw.length > 500_000) {
+          raw = raw.substring(0, 500_000);
         }
       }
     } catch (e) {
-      contents = '[Error reading file: $e]';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reading log file: $e')),
+        );
+      }
+      return;
+    }
+
+    final entries = _parseLogEntries(raw);
+
+    if (entries.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No log entries found')),
+        );
+      }
+      return;
     }
 
     Navigator.of(parentContext).pop(); // close bottom sheet
@@ -177,11 +193,20 @@ class _MyHomePageState extends State<MyHomePage> {
         content: SizedBox(
           width: double.maxFinite,
           height: MediaQuery.of(context).size.height * 0.7,
-          child: SingleChildScrollView(
+          child: ListView.separated(
             controller: scrollController,
-            child: SelectableText(
-              contents,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            itemCount: entries.length,
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              thickness: 1,
+              color: Colors.grey.shade300,
+            ),
+            itemBuilder: (_, i) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: SelectableText(
+                entries[i],
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
             ),
           ),
         ),
@@ -194,6 +219,27 @@ class _MyHomePageState extends State<MyHomePage> {
       );
       },
     );
+  }
+
+  /// Parse log entries from raw file content.
+  ///
+  /// Tries the new \x1E record separator first. Falls back to \n-based
+  /// splitting for backward compatibility with old log files.
+  static List<String> _parseLogEntries(String raw) {
+    // Try \x1E first (new format)
+    final byRs = raw.split('\x1E');
+    if (byRs.length > 1) {
+      return byRs
+          .map((e) => e.trimRight())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    // Fallback: old format — split by \n
+    return raw
+        .split('\n')
+        .map((e) => e.trimRight())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 
   @override
