@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.Charsets
 
 /**
  * A rotating file logger that installs itself as the global [Logger] callback.
@@ -87,8 +88,9 @@ class FileLogger(
         val escaped = message.replace("\u001E", "\\x1E")
         val line = "${timestamp()} [${levelTag(level)}] $escaped\n\u001E"
         try {
-            raf.write(line.toByteArray(Charsets.UTF_8))
-            currentSize += line.length.toLong()
+            val bytes = line.toByteArray(Charsets.UTF_8)
+            raf.write(bytes)
+            currentSize += bytes.size.toLong()
             if (currentSize >= maxFileSize) {
                 rotate()
             }
