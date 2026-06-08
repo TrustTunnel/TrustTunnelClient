@@ -52,6 +52,7 @@ public final class VpnManager {
     private var appGroup: String
     private var readIndex: UInt64? = nil
     private let logger = Logger(category: "VpnManager")
+    private let fileLogger: FileLogger?
 
     public init(bundleIdentifier: String,
                         appGroup: String,
@@ -64,6 +65,13 @@ public final class VpnManager {
         self.appGroup = appGroup
         self.stateChangeCallback = stateChangeCallback
         self.connectionInfoCallback = connectionInfoCallback
+        if !appGroup.isEmpty, let logsDir = FileLogger.logsDirectory(appGroup: appGroup) {
+            let logger = FileLogger(directory: logsDir, baseName: FileLogger.appBaseName)
+            logger.install()
+            self.fileLogger = logger
+        } else {
+            self.fileLogger = nil
+        }
         self.apiQueue.async {
             self.startObservingStatus(manager: self.getManager())
             if !self.appGroup.isEmpty {
