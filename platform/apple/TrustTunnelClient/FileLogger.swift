@@ -49,7 +49,7 @@ public final class FileLogger {
     }
 
     deinit {
-        queue.sync { self.closeFile() }
+        queue.async { self.closeFile() }
     }
 
     /// Register this logger as the global log sink.
