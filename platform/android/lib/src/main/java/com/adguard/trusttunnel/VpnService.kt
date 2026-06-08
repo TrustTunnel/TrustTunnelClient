@@ -174,7 +174,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             val exportDirName = "trusttunnel_android_logs_$dateStr"
             val exportDir = File(context.cacheDir, exportDirName)
 
-            return fileLogger!!.snapshotTo(exportDir)
+            return fileLogger?.snapshotTo(exportDir) ?: emptyList()
         }
     }
 
