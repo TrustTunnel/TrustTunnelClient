@@ -9,6 +9,8 @@
 
 #include <magic_enum/magic_enum.hpp>
 
+#include <common/tls/cert_utils.h>
+
 #include "common/move_only_function.h"
 #include "socks_listener.h"
 #include "tun_device_listener.h"
@@ -704,7 +706,8 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, c
         result = 1;
         return result;
     } else {
-        log_vpn(vpn, err, "Failed to verify certificate");
+        log_vpn(vpn, warn, "Failed to verify certificate for host '{}'", host_name ? host_name : "<null>");
+        log_vpn(vpn, warn, "  {}", ag::tls::get_cert_diagnostic_info(ctx.cert, ctx.chain));
 #ifdef OPENSSL_IS_BORINGSSL
         if (ctx.ssl) {
             SSL_send_fatal_alert(ctx.ssl, SSL_AD_UNKNOWN_CA);
@@ -716,7 +719,10 @@ static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, c
             && (host_name == nullptr || !tls_verify_cert_host_name(ctx.cert, host_name))
             && (host_ip == nullptr || host_ip->sa_family == AF_UNSPEC
                     || !tls_verify_cert_ip(ctx.cert, SocketAddress(host_ip).str().c_str()))) {
-        log_vpn(vpn, err, "Server host name or IP doesn't match certificate");
+        log_vpn(vpn, warn, "Server host name or IP doesn't match certificate. Expected host: '{}', IP: '{}'",
+                host_name ? host_name : "<null>",
+                (host_ip && host_ip->sa_family != AF_UNSPEC) ? SocketAddress(host_ip).str().c_str() : "<none>");
+        log_vpn(vpn, warn, "  {}", ag::tls::get_cert_diagnostic_info(ctx.cert, nullptr));
 #ifdef OPENSSL_IS_BORINGSSL
         if (ctx.ssl) {
             SSL_send_fatal_alert(ctx.ssl, SSL_AD_CERTIFICATE_UNKNOWN);
