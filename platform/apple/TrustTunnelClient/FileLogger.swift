@@ -131,8 +131,6 @@ public final class FileLogger {
     }
 
     private func appendLine(level: Logger.LogLevel, message: String) {
-        guard let handle = fileHandle else { return }
-
         let timestamp = Self.now()
         let levelTag = Self.tag(for: level)
         let escaped = message.replacingOccurrences(of: "\u{1E}", with: "\\x1E")
@@ -140,13 +138,15 @@ public final class FileLogger {
 
         guard let data = line.data(using: .utf8) else { return }
 
+        if currentSize + data.count > maxFileSize {
+            rotate()
+        }
+
+        guard let handle = fileHandle else { return }
+
         do {
             try handle.write(contentsOf: data)
             currentSize += data.count
-
-            if currentSize >= maxFileSize {
-                rotate()
-            }
         } catch {
             // Write failed — nothing actionable; could log to os_log but skip
             // to avoid infinite recursion.
