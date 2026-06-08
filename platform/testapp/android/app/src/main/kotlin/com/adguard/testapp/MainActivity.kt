@@ -13,11 +13,13 @@ class MainActivity : FlutterActivity() {
 
         val binaryMessenger = flutterEngine.dartExecutor.binaryMessenger
 
+        // One-time adapter initialization — sets up logging and network monitoring
+        VpnService.initialize(applicationContext)
+
         // Register implementation for native vpn interface
         NativeVpnInterface.setUp(binaryMessenger, NativeVpnImpl(activity))
         val connectionInfoFile = File(applicationContext.filesDir, "connection_info.dat")
         val appNotifier = AppNotifierImpl(FlutterCallbacks(binaryMessenger), this)
         VpnService.setAppNotifier(connectionInfoFile, appNotifier)
-        VpnService.startNetworkManager(activity)
     }
 }
