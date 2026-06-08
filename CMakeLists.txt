@@ -29,6 +29,11 @@ if (IPV6_UNAVAILABLE)
     add_compile_definitions(IPV6_UNAVAILABLE)
 endif()
 
+if (SANITIZE)
+    add_compile_options("-fsanitize=address")
+    link_libraries("-fsanitize=address")
+endif(SANITIZE)
+
 if (CMAKE_SYSTEM_NAME STREQUAL Linux AND VPNLIBS_CAPI_LINUX_EXPORTS)
     add_compile_definitions(VPNLIBS_CAPI_LINUX_EXPORTS=1)
 endif()

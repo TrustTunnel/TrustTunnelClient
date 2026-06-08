@@ -315,7 +315,7 @@ static void do_report(void *arg) {
         if (it->best_result_ms.has_value()) {
             result.is_quic = it->use_quic;
             if (self->handoff) {
-                auto qr = quic_connector_get_result(it->quic_connector.get());
+                auto qr = it->quic_connector ? quic_connector_get_result(it->quic_connector.get()) : nullptr;
                 if (it->use_quic && qr) {
                     result.conn_state = qr.release();
                 } else {
