@@ -82,6 +82,7 @@ private:
     std::unordered_map<uint64_t, uint64_t> m_tcp_conn_by_stream_id;
     std::unordered_map<uint64_t, RetriableTcpConnectRequest> m_retriable_tcp_requests;
     std::unordered_map<uint64_t, bool> m_closing_connections; // value is graceful flag
+    event_loop::AutoTaskId m_open_session_task_id;
     event_loop::AutoTaskId m_complete_read_task_id;
     event_loop::AutoTaskId m_notify_sent_task_id;
     event_loop::AutoTaskId m_close_connections_task_id;

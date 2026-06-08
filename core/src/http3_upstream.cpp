@@ -118,7 +118,12 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         m_kex_group_nid = SSL_get_negotiated_group((SSL *) m_ssl_object);
         udp_socket_set_timeout(m_socket.get(), upstream_config.timeout);
         m_state = H3US_ESTABLISHED;
-        this->handler.func(this->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
+        m_open_session_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
+                {this, [](void *arg, TaskId) {
+                     auto *self = (Http3Upstream *) arg;
+                     self->m_open_session_task_id.release();
+                     self->handler.func(self->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
+                 }});
         return true;
     }
 

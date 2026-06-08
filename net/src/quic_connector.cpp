@@ -138,16 +138,19 @@ ag::VpnError ag::quic_connector_connect(
     connector->client = std::move(result.value());
     connector->ssl = ssl_raw; // SSL now owned by Http3Client; keep non-owning pointer
 
-    // Send Initial packet
-    connector->client->flush();
+    // Set deadline and create timer BEFORE flush, because flush() may trigger
+    // on_client_expiry_update which uses both deadline_ns and timer
+    int64_t now_ns = ag::get_time_monotonic_nanos();
+    connector->deadline_ns = std::chrono::nanoseconds{parameters->timeout}.count() + now_ns;
 
     connector->timer.reset(evtimer_new(vpn_event_loop_get_base(connector->parameters.ev_loop), on_timer, connector));
     if (!connector->timer) {
         return {.code = -1, .text = "Failed to create a timer"};
     }
 
-    int64_t now_ns = ag::get_time_monotonic_nanos();
-    connector->deadline_ns = std::chrono::nanoseconds{parameters->timeout}.count() + now_ns;
+    // Send Initial packet
+    connector->client->flush();
+
     timeval tv = ag::ms_to_timeval(0);
     evtimer_add(connector->timer.get(), &tv);
 
