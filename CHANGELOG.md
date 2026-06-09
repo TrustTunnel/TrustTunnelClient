@@ -8,13 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Add logging callback APIs for Android and Apple adapters to let applications override native log output handling.
-- Add Apple `NativeLogger` API in `VpnClientFramework` and expose callback forwarding in `TrustTunnelClient.Logger`.
-
 ### Changed
-
-- Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
-- Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
 
 ### Deprecated
 
@@ -23,6 +17,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.2] - 2026-06-09
+
+### Added
+
+- Add logging callback APIs for Android and Apple adapters to let applications override native log output handling.
+- Add Apple `NativeLogger` API in `VpnClientFramework` and expose callback forwarding in `TrustTunnelClient.Logger`.
+
+### Changed
+
+- Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
+- Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
+- Updated dns-libs to 2.8.54
 
 ## [1.1.5-beta.1] - 2026-06-04
 
@@ -406,7 +413,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...HEAD
+[1.1.5-beta.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...v1.1.5-beta.2
 [1.1.5-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.5-beta.1
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63

@@ -2,8 +2,9 @@ from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 from conan.tools.files import patch, copy
 from conan.tools.apple import is_apple_os
+from conan.tools.scm import Git
 from os.path import join
-import re
+import re, os, shutil
 
 
 class VpnLibsConan(ConanFile):
@@ -31,8 +32,8 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.8.51@adguard/oss", transitive_headers=True)
-        self.requires("native_libs_common/8.1.28@adguard/oss", transitive_headers=True)
+        self.requires("dns-libs/2.8.54@adguard/oss", transitive_headers=True)
+        self.requires("native_libs_common/8.1.33@adguard/oss", transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
@@ -62,15 +63,21 @@ class VpnLibsConan(ConanFile):
         self.options["pcre2"].build_pcre2grep = False
         self.options["dns-libs"].tcpip = False
 
+    def export_sources(self):
+        if self.version == "local":
+            git = Git(self)
+            included = git.included_files()
+            for i in included:
+                dst = os.path.join(self.export_sources_folder, i)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(i, dst)
+
     def source(self):
-        self.run(f"git init . && git remote add origin {self.vcs_url} && git fetch --tags")
-        if re.match(r'\d+\.\d+\.\d+', self.version) is not None:
-            # Use git tag for versioned releases
-            self.run("git checkout -f v%s" % self.version)
-        else:
-            self.run("git checkout -f %s" % self.version)
-            for p in self.patch_files:
-                patch(self, patch_file=p)
+        if os.listdir(self.source_folder):
+            return
+
+        git = Git(self)
+        git.fetch_commit(self.vcs_url, f"v{self.version}")
 
     def generate(self):
         deps = CMakeDeps(self)
