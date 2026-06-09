@@ -49,7 +49,9 @@ public final class FileLogger {
     }
 
     deinit {
-        queue.async { self.closeFile() }
+        // Close manually to omit capturing `self`
+        let fileHandle = self.fileHandle
+        queue.async { try? fileHandle?.close() }
     }
 
     /// Register this logger as the global log sink.
