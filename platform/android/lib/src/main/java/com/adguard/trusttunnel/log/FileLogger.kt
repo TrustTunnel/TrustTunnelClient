@@ -7,6 +7,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Callable
 
 /**
  * A rotating file logger that installs itself as the global [Logger] callback.
@@ -18,10 +19,10 @@ import java.time.format.DateTimeFormatter
  *
  * Total disk budget ≈ `maxFileSize * (archiveCount + 1)`.
  *
- * Writes are lock-free appends on a single-thread executor for performance.
- * Rotation and [snapshotTo] are synchronized against each other via [rotationLock].
- * A trailing line may be truncated in a snapshot if a write is in progress —
- * this is the same documented trade-off as the Apple implementation.
+ * All file operations (appends, rotation, and snapshotting) are serialized on a
+ * single-thread executor. This guarantees that no write is in progress when a
+ * snapshot is taken, eliminating the partial-write race that would otherwise
+ * exist between [snapshotTo] and [appendLine].
  */
 class FileLogger(
     private val directory: File,
@@ -34,7 +35,6 @@ class FileLogger(
         const val VPN_BASE_NAME = "vpn"
     }
 
-    private val rotationLock = Any()
     private val writeExecutor = ThreadManager.create("file-logger-$baseName", 1)
 
     private var file: RandomAccessFile? = null
@@ -54,29 +54,36 @@ class FileLogger(
     }
 
     /**
-     * Snapshot current log files to [destDir] (synchronized against rotation).
+     * Snapshot current log files to [destDir].
+     *
+     * The snapshot is submitted to the same single-thread executor that handles
+     * writes and rotation, guaranteeing no write is in progress when files are
+     * copied. Blocks the caller until the snapshot completes.
      *
      * Returns absolute paths of successfully copied files.
      * Non-existent files are silently skipped.
      */
-    fun snapshotTo(destDir: File): List<String> = synchronized(rotationLock) {
-        destDir.mkdirs()
-        val result = mutableListOf<String>()
-        val candidates = (0..archiveCount).map { idx ->
-            if (idx == 0) File(directory, "$baseName.log")
-            else File(directory, "$baseName.$idx.log")
-        }
-        for (source in candidates) {
-            if (!source.exists()) continue
-            val dest = File(destDir, source.name)
-            try {
-                source.copyTo(dest, overwrite = true)
-                result.add(dest.absolutePath)
-            } catch (_: IOException) {
-                // Skip — file may have been rotated away
+    fun snapshotTo(destDir: File): List<String> {
+        val future = writeExecutor.submit(Callable<List<String>> {
+            destDir.mkdirs()
+            val result = mutableListOf<String>()
+            val candidates = (0..archiveCount).map { idx ->
+                if (idx == 0) File(directory, "$baseName.log")
+                else File(directory, "$baseName.$idx.log")
             }
-        }
-        result
+            for (source in candidates) {
+                if (!source.exists()) continue
+                val dest = File(destDir, source.name)
+                try {
+                    source.copyTo(dest, overwrite = true)
+                    result.add(dest.absolutePath)
+                } catch (_: IOException) {
+                    // Skip — file may have been rotated away
+                }
+            }
+            result
+        })
+        return future.get()
     }
 
     // ---- private ----
@@ -98,8 +105,8 @@ class FileLogger(
         }
     }
 
-    /** Rotation — synchronized against snapshot. */
-    private fun rotate() = synchronized(rotationLock) {
+    /** Rotation — runs on the same single-thread executor as writes. */
+    private fun rotate() {
         closeFile()
         // Shift archives: (n) → (n+1), drop oldest
         for (idx in (archiveCount - 1 downTo 1)) {
