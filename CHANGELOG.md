@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
 - Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
+- Updated dns-libs to 2.8.54
 
 ### Deprecated
 
