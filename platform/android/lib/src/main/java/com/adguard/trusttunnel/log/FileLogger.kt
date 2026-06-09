@@ -7,7 +7,6 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.time.Instant
 import java.time.format.DateTimeFormatter
-import java.util.Charsets
 
 /**
  * A rotating file logger that installs itself as the global [Logger] callback.
