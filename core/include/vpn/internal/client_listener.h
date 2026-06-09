@@ -32,12 +32,17 @@ enum ClientConnectResult {
     CCR_UNREACH, // destination peer is unreachable
 };
 
+enum ClientConnectRequestFlags : uint32_t {
+    CCRF_DNS_HANDLER_BYPASS = 1 << 0, // Used by DnsHandler to request routing through bypass upstream
+};
+
 struct ClientConnectRequest {
     uint64_t id;               /**< connection identifier */
     int protocol;              /**< protocol */
     const SocketAddress *src;  /**< source address */
     const TunnelAddress *dst;  /**< destination address */
     std::string_view app_name; /**< name of application that initiated this request */
+    uint32_t flags;            /**< see ClientConnectRequestFlags */
 };
 
 struct ClientRead {

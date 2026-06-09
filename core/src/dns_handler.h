@@ -24,20 +24,20 @@
    | Application |
    +------|------+
           |
-          |1
-          v
-   +--------------+      4      +----------------+     4      +----------------+
-   |ClientListener|------1----->|     Tunnel     |-----3----->| ServerUpstream |
-   +--------------+             +----------------+            +----------------+
-          ^                         |        ^                        |
-          |4                        |1       |3                      3|4
-          |                         v        |                        v
-    +-----------+               +----------------+              +------------+
-    | DNS proxy |<------4-------|   DnsHandler   |              |  Internet  |
+          |1                            +-----------------------2b-----------------------+
+          v                             |                                                |
+   +--------------+      4      +----------------+     4      +----------------+ +----------------+
+   |ClientListener|------1----->|     Tunnel     |-----3----->| ServerUpstream | | BypassUpstream |
+   +--------------+             +----------------+            +----------------+ +----------------+
+          ^                         |        ^                        |                  |
+          |4                        |1     2b|3                      3|4                 |
+          |                         v        |                        v                  |
+    +-----------+               +----------------+              +------------+           |
+    | DNS proxy |<------4-------|   DnsHandler   |              |  Internet  |<----2b----+
     +-----------+               +----------------+              +------------+
                                          |                            ^
-                                         |2                           |
-                                         v                           2|
+                                         |2a                          |
+                                         v                          2a|
                                +------------------+                   |
                                | System DNS proxy |-------------------+
                                +------------------+
@@ -49,6 +49,7 @@
   or one NOT present in domain exclusions in SELECTIVE mode.
 
   In the diagram above, ServerUpstream represents the `ServerUpstream` that is connected to a VPN endpoint.
+  BypassUpstream represents the `DirectUpstream`, which is a local proxy.
   ClientListener represents both the `ClientListener` that handles application traffic and the SOCKS5
   listener that is configured as the DNS proxy's outbound proxy: `VpnClient::dns_proxy_listener`.
 
@@ -59,8 +60,12 @@
   1. An application sends a DNS message over UDP or TCP on port 53. These connections are always routed through a
      special upstream, implemented by DnsHandler, which parses and decides where to forward the DNS messages.
 
-  2. If the queried domain name is EXCLUDED, the DNS message is forwarded to the "system" DNS proxy,
-     configured with the system DNS servers as upstreams, and then sent over the Internet directly.
+  2. If the queried domain name is EXCLUDED:
+     a. If `DnsHandlerParameters::alt_exclusions_route` is `false`, the DNS message is forwarded to the "system"
+        DNS proxy, configured with the system DNS servers as upstreams, and then sent over the Internet directly.
+     b. If `DnsHandlerParameters::alt_exclusions_route` is `true`, the DNS message is sent to its original
+        destination through the bypass upstream. DnsHandler acts as a `ClientListener` similarly to step 3,
+        marking the connection request so that Tunnel routes it through the bypass upstream.
 
   3. If the queried domain name is INCLUDED, and there aren't any user-configured DNS upstreams,
      the DNS message is sent to its original destination. To achieve this, DnsHandler acts as a `ClientListener`:
@@ -77,8 +82,8 @@
   for the "system" DNS proxy.
 
   If ServerUpstream is not connected to a VPN endpoint, and the kill switch setting is off, then all DNS queries are
-  forwarded to the "system" DNS proxy. If the kill switch setting is on, DNS queries are dropped, except those for
-  which `vpn_network_manager_check_app_request_domain` returns `true`, which are forwarded to the "system" DNS proxy.
+  treated as EXCLUDED. If the kill switch setting is on, DNS queries are dropped, except those for
+  which `vpn_network_manager_check_app_request_domain` returns `true`, which are treated as EXCLUDED.
 
   DnsHandler is also responsible for parsing DNS responses and performing actions based on their content,
   such as adding exclusion suspects (see `DomainFilter::add_exclusion_suspect()`) or removing ECH parameters
@@ -175,7 +180,8 @@ protected:
     virtual void on_dns_response(uint64_t upstream_conn_id, U8View message) = 0;
 
     // Return an existing or new `listener_conn_id`.
-    uint64_t send_as_listener(const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message);
+    uint64_t send_as_listener(
+            const DnsHandlerServerUpstreamBase::ConnectionInfo &info, U8View message, bool force_bypass);
 
     void close_listener_connection_by_upstream_conn_id(uint64_t listener_conn_id);
 
@@ -222,7 +228,12 @@ struct DnsHandlerParameters {
     /** User-provided DNS server addresses specified in `ag::VpnListenerConfig::dns_upstreams`. */
     std::vector<DnsProxyAccessor::Upstream> dns_upstreams;
     /** Cert verify callback for the DNS proxies. */
-    CertVerifyHandler cert_verify_handler;
+    CertVerifyHandler cert_verify_handler = {};
+    /**
+     * If `true`, queries for excluded domains go through the bypass upstream to
+     * their original destination instead of being redirected to the system DNS proxy.
+     */
+    bool alt_exclusions_route = false;
 };
 
 class DnsHandler : public DnsHandlerServerUpstreamBase, public DnsHandlerClientListenerBase {
@@ -274,7 +285,7 @@ private:
     void on_upstream_connection_closed(uint64_t upstream_conn_id) override;
 
     void send_request(bool system_proxy, bool ipv6, bool tcp, uint64_t upstream_conn_id, U8View message);
-    void send_request_as_listener(const ConnectionInfo &info, U8View message);
+    void send_request_as_listener(const ConnectionInfo &info, U8View message, bool force_bypass);
 
     void shutdown();
 
