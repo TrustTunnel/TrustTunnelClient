@@ -1,3 +1,4 @@
+#include <memory>
 #include <vector>
 
 #include "common/utils.h"
@@ -256,13 +257,13 @@ void ag::vpn_win_tunnel_settings_destroy(ag::VpnWinTunnelSettings *settings) {
 
 std::unique_ptr<ag::VpnOsTunnel> ag::make_vpn_tunnel() {
 #ifdef _WIN32
-    std::unique_ptr<ag::VpnWinTunnel> tunnel{new ag::VpnWinTunnel{}};
+    auto tunnel = std::make_unique<ag::VpnWinTunnel>();
     return tunnel;
 #elif __APPLE__ && !TARGET_OS_IPHONE
-    std::unique_ptr<ag::VpnMacTunnel> tunnel{new ag::VpnMacTunnel{}};
+    auto tunnel = std::make_unique<ag::VpnMacTunnel>();
     return tunnel;
 #elif __linux__ && !ANDROID
-    std::unique_ptr<ag::VpnLinuxTunnel> tunnel{new ag::VpnLinuxTunnel{}};
+    auto tunnel = std::make_unique<ag::VpnLinuxTunnel>();
     return tunnel;
 #else
     return nullptr;
