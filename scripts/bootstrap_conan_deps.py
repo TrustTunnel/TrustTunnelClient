@@ -83,6 +83,6 @@ try:
 
     for v in nlc_versions:
         subprocess.run(["git", "checkout", "master"], check=True)
-        subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
+        subprocess.run([os.path.join(nlc_dir, "scripts", "export_conan.sh"), v], check=True)
 finally:
     remove_dir_if_exists(nlc_dir)
