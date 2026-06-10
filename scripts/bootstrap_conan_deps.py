@@ -70,7 +70,7 @@ try:
                     and ('@adguard/oss"' in line):
                 nlc_versions.append(line.split('@')[0].split('/')[1])
 
-    subprocess.run(["python3", os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)
+    subprocess.run([os.path.join("scripts", "export_conan.sh"), dns_libs_version], check=True)
 finally:
     remove_dir_if_exists(dns_libs_dir)
 
