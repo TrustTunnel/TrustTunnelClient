@@ -184,8 +184,10 @@ TEST_F(RingBufferLockTest, ExclusiveLockBlocksSecondLocker) {
 }
 
 TEST_F(RingBufferLockTest, LockOnInvalidPath) {
-    // A path to a nonexistent deep directory should fail to acquire the lock.
-    ag::vpn_easy::RingBufferLock lock(L"Z:\\nonexistent\\deep\\path\\buffer.dat");
+    // '?' is a reserved character in Windows paths, so CreateFileW always
+    // rejects it with ERROR_INVALID_NAME. This makes the negative test
+    // deterministic, independent of which drive letters are mounted.
+    ag::vpn_easy::RingBufferLock lock(L"?:\\nonexistent\\deep\\path\\buffer.dat");
     EXPECT_FALSE(static_cast<bool>(lock));
 }
 
