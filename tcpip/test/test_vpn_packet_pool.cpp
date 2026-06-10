@@ -1,12 +1,14 @@
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "vpn_packet_pool.h"
 
 using namespace ag;
 
 TEST(VpnPacketPool, Functional) {
     constexpr size_t pool_capacity = 20;
-    std::unique_ptr<VpnPacketPool> pool{new VpnPacketPool(pool_capacity, DEFAULT_MTU_SIZE)};
+    auto pool = std::make_unique<VpnPacketPool>(pool_capacity, DEFAULT_MTU_SIZE);
     std::vector<VpnPacket> packets;
     VpnPacket packet = pool->get_packet();
 
