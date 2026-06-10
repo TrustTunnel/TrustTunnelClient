@@ -1,22 +1,29 @@
 # Build and package the TrustTunnel Windows adapter for distribution.
 #
+# Architecture names match the `build-windows` release job
+# (.github/workflows/build-and-deploy-release.yml): x86_64, i686, aarch64.
+#
 # Usage:
-#   .\build_package.ps1 [-Version <semver>] [-Arch <amd64|arm64>] [-BuildType <RelWithDebInfo|Release|Debug>] [-SkipBuild] [-SkipWintun] [-WintunUrl <url>]
+#   .\build_package.ps1 -Version <semver> [-Arch <x86_64|i686|aarch64>] [-BuildType <RelWithDebInfo|Release|Debug>] [-Sign] [-SkipBuild] [-SkipWintun] [-WintunUrl <url>]
 #
 # Examples:
-#   .\build_package.ps1                        # Build amd64 RelWithDebInfo, version from git tag
-#   .\build_package.ps1 -Arch arm64            # Build arm64
-#   .\build_package.ps1 -Version 1.2.3         # Override version
-#   .\build_package.ps1 -SkipBuild             # Skip build, only package existing artifacts
-#   .\build_package.ps1 -WintunUrl "https://artifactory.example.com/wintun-0.14.1.zip"
+#   .\build_package.ps1 -Version 1.2.3                     # Build x86_64 RelWithDebInfo
+#   .\build_package.ps1 -Version 1.2.3 -Arch aarch64       # Build arm64
+#   .\build_package.ps1 -Version 1.2.3 -Arch i686          # Build 32-bit x86
+#   .\build_package.ps1 -Version 1.2.3 -Sign               # Code-sign binaries (requires SIGNER_URL + SIGNER_API_KEY)
+#   .\build_package.ps1 -Version 1.2.3 -SkipBuild          # Skip build, only package existing artifacts
+#   .\build_package.ps1 -Version 1.2.3 -WintunUrl "https://artifactory.example.com/wintun-0.14.1.zip"
 #
 # Output:
 #   artifacts/trusttunnel-client-windows-<arch>-<version>.zip
 
 param(
-    [string]$Version = "",
-    [string]$Arch = "amd64",
+    [Parameter(Mandatory=$true)]
+    [string]$Version,
+    [ValidateSet("x86_64", "i686", "aarch64")]
+    [string]$Arch = "x86_64",
     [string]$BuildType = "RelWithDebInfo",
+    [switch]$Sign = $false,
     [switch]$SkipBuild = $false,
     [switch]$SkipWintun = $false,
     [string]$WintunUrl = ""
@@ -24,22 +31,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ---------------------------------------------------------------------------
-# Resolve version
-# ---------------------------------------------------------------------------
-if ($Version -eq "") {
-    $gitTag = git describe --tags --exact-match 2>$null
-    if ($LASTEXITCODE -eq 0 -and $gitTag -match '^\d+\.\d+\.\d+') {
-        $Version = $gitTag
-    } else {
-        $gitDesc = git describe --tags --always --dirty 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $Version = $gitDesc -replace '^v', ''
-        } else {
-            $Version = "0.0.0-dev"
-        }
-    }
-}
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PlatformDir = Split-Path -Parent $ScriptDir   # platform/windows/
+$RootDir = Split-Path -Parent (Split-Path -Parent $PlatformDir) # repo root
 
 Write-Host "=== TrustTunnel Windows Adapter Package Build ===" -ForegroundColor Cyan
 Write-Host "Version:    $Version"
@@ -48,26 +42,28 @@ Write-Host "BuildType:  $BuildType"
 Write-Host ""
 
 # ---------------------------------------------------------------------------
-# Map architecture to MSVC toolset and wintun subdirectory
+# Map architecture to MSVC toolset and wintun subdirectory.
+# Names follow the `build-windows` release job conventions.
 # ---------------------------------------------------------------------------
 switch ($Arch) {
-    "amd64" {
-        $VcvarsArch = "x64"
+    "x86_64" {
+        $VcvarsArch = "amd64"
         $WintunSubdir = "amd64"
     }
-    "arm64" {
-        $VcvarsArch = "arm64"
+    "i686" {
+        $VcvarsArch = "amd64_x86"
+        $WintunSubdir = "x86"
+    }
+    "aarch64" {
+        $VcvarsArch = "amd64_arm64"
         $WintunSubdir = "arm64"
     }
     default {
-        Write-Error "Unsupported architecture: $Arch. Use 'amd64' or 'arm64'."
+        Write-Error "Unsupported architecture: $Arch. Use 'x86_64', 'i686' or 'aarch64'."
         exit 1
     }
 }
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PlatformDir = Split-Path -Parent $ScriptDir   # platform/windows/
-$RootDir = Split-Path -Parent (Split-Path -Parent $PlatformDir) # repo root
 $BuildDir = Join-Path (Join-Path $PlatformDir "build") $Arch
 $StagingDir = Join-Path (Join-Path $PlatformDir "staging") "trusttunnel-client-windows-$Arch-$Version"
 $ArtifactsDir = Join-Path $PlatformDir "artifacts"
