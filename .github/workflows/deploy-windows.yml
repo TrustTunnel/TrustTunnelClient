@@ -1,0 +1,77 @@
+name: Deploy Windows library
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-windows:
+    name: Deploy library / Windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: windows-gh-packages
+    runs-on:
+      - ephemeral
+      - ephemeral-vmwin
+      - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
+      - ephemeral-limit-memory-6144
+      - ephemeral-limit-cpu-8
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Retrieve Windows signing secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: trusttunnel-windows-signing
+          secrets: |
+            secret/data/ci-secrets/trusttunnel-windows-signing trustTunnelWinSignerSecretApiKey | SIGNER_API_KEY
+
+      - name: Configure Conan
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+        run: |
+          & conan remote add --index 0 art $Env:CONAN_REPO_URL
+        shell: powershell
+
+      - name: Detect version
+        id: version
+        run: |
+          $versionLine = Get-Content CHANGELOG.md | Select-String -Pattern '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' | Select-Object -First 1
+          if (!$versionLine) { throw 'Failed to detect VERSION from CHANGELOG.md' }
+          $VERSION = ($versionLine.ToString() -replace '^## \[', '' -replace '\].*', '').Trim()
+          "version=$VERSION" | Out-File -FilePath $Env:GITHUB_OUTPUT -Append
+        shell: powershell
+
+      - name: Build and publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGNER_URL: ${{ vars.SIGNER_URL }}
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+          TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $repository = 'TrustTunnel/TrustTunnelClient'
+          $wintunVersion = (Get-Content third-party\wintun\VERSION).Trim()
+          $wintunUrl = "$Env:ARTIFACTORY_URL/adguard-pods/binaries/wintun-$wintunVersion.zip"
+
+          foreach ($arch in @('x86_64', 'i686', 'aarch64')) {
+            Write-Host "=== Building and publishing $arch ===" -ForegroundColor Cyan
+            & platform\windows\scripts\build_package.ps1 `
+              -Arch $arch `
+              -Version $Env:VERSION `
+              -WintunUrl $wintunUrl `
+              -Sign
+            if (!$?) { throw "build_package.ps1 failed for $arch" }
+
+            & platform\windows\scripts\publish_maven.ps1 `
+              -Arch $arch `
+              -Version $Env:VERSION `
+              -Repository $repository
+            if (!$?) { throw "publish_maven.ps1 failed for $arch" }
+          }
+        shell: powershell
