@@ -168,6 +168,30 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 }
 
 # ---------------------------------------------------------------------------
+# Code-sign the binaries (optional). Uses the same signer helper and flow as
+# the `build-windows` release job. Requires SIGNER_URL and SIGNER_API_KEY.
+# ---------------------------------------------------------------------------
+if ($Sign) {
+    Write-Host "--- Signing binaries ---" -ForegroundColor Yellow
+
+    $signHelper = Join-Path (Join-Path $RootDir "scripts") "win_sign_binary.py"
+    $binDir = Join-Path $StagingDir "bin"
+
+    function Sign-File([string]$Path) {
+        Write-Host "Signing: $Path"
+        & python -m pip install --disable-pip-version-check -q requests
+        if (!$?) { throw 'Failed to install Python requests' }
+        & python $signHelper $Path
+        if (!$?) { throw "Signing helper failed for: $Path" }
+        Write-Host "Success"
+    }
+
+    Sign-File (Join-Path $binDir "vpn_easy.dll")
+    Sign-File (Join-Path $binDir "vpn_easy_service.exe")
+    Sign-File (Join-Path $binDir "service_installer.exe")
+}
+
+# ---------------------------------------------------------------------------
 # Add wintun.dll to the staging directory
 # ---------------------------------------------------------------------------
 if (-not $SkipWintun) {
