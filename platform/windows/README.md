@@ -16,12 +16,19 @@ cmake --build build --target vpn_easy vpn_easy_service service_installer
 
 ## Distribution Package
 
-```powershell
-# Build ZIP for amd64 (default)
-./scripts/build_package.ps1
+Architecture names match the `build-windows` release job: `x86_64`, `i686`, `aarch64`.
 
-# Build for arm64 / override version / use internal wintun mirror
-./scripts/build_package.ps1 -Arch arm64 -Version 1.2.3 -WintunUrl "https://artifactory.example.com/binaries/wintun-0.14.1.zip"
+`-Version` is required — pass the exact version you intend to build.
+
+```powershell
+# Build ZIP for x86_64 (default arch)
+./scripts/build_package.ps1 -Version 1.2.3
+
+# Build for aarch64 / use internal wintun mirror
+./scripts/build_package.ps1 -Version 1.2.3 -Arch aarch64 -WintunUrl "https://artifactory.example.com/binaries/wintun-0.14.1.zip"
+
+# Build 32-bit x86
+./scripts/build_package.ps1 -Version 1.2.3 -Arch i686
 ```
 
 Output: `artifacts/trusttunnel-client-windows-<arch>-<version>.zip`
@@ -29,7 +36,7 @@ Output: `artifacts/trusttunnel-client-windows-<arch>-<version>.zip`
 ### Package Structure
 
 ```text
-trusttunnel-client-windows-amd64-1.1.3/
+trusttunnel-client-windows-x86_64-1.1.3/
 ├── include/vpn/          # vpn_easy.h, vpn_easy_service.h, platform.h
 ├── lib/                  # vpn_easy.lib + CMake config
 ├── bin/                  # vpn_easy.dll, vpn_easy_service.exe, service_installer.exe, wintun.dll
@@ -47,9 +54,11 @@ include(FetchContent)
 
 set(TRUSTTUNNEL_VERSION "1.1.3")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
-    set(TRUSTTUNNEL_ARCH "amd64")
+    set(TRUSTTUNNEL_ARCH "x86_64")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
-    set(TRUSTTUNNEL_ARCH "arm64")
+    set(TRUSTTUNNEL_ARCH "aarch64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "X86|x86|i686")
+    set(TRUSTTUNNEL_ARCH "i686")
 endif()
 
 # For Maven: use the GitHub Packages URL below.
@@ -93,9 +102,9 @@ add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
 ## Publishing to GitHub Maven Packages
 
 ```powershell
-$env:GITHUB_USERNAME = "your-username"
-$env:GITHUB_TOKEN = "ghp_..."  # PAT with write:packages scope
+$env:TOKEN = "ghp_..."  # PAT with write:packages scope
 
-./scripts/publish_maven.ps1 -Version 1.1.3 -Arch amd64
-./scripts/publish_maven.ps1 -Version 1.1.3 -Arch arm64
+./scripts/publish_maven.ps1 -Version 1.1.3 -Arch x86_64
+./scripts/publish_maven.ps1 -Version 1.1.3 -Arch i686
+./scripts/publish_maven.ps1 -Version 1.1.3 -Arch aarch64
 ```
