@@ -1,36 +1,43 @@
 # Publish the TrustTunnel Windows adapter package to GitHub Maven Packages.
 #
+# Architecture names match the `build-windows` release job: x86_64, i686, aarch64.
+# The artifact is published under the same Maven coordinates convention used by
+# the Android/Apple adapters (groupId com.adguard.trusttunnel).
+#
 # Prerequisites:
 #   - A GitHub Personal Access Token with `write:packages` scope
 #   - The ZIP archive built by build_package.ps1
 #
 # Usage:
-#   .\publish_maven.ps1 -Version 1.2.3 -Arch amd64
-#   .\publish_maven.ps1 -Version 1.2.3 -Arch arm64
+#   .\publish_maven.ps1 -Version 1.2.3 -Arch x86_64
+#   .\publish_maven.ps1 -Version 1.2.3 -Arch i686
+#   .\publish_maven.ps1 -Version 1.2.3 -Arch aarch64
 #
 # Environment variables (alternatively pass as parameters):
-#   GITHUB_TOKEN - GitHub PAT with write:packages scope
+#   TOKEN - GitHub PAT with write:packages scope
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Version,
     [Parameter(Mandatory=$true)]
-    [ValidateSet("amd64", "arm64")]
+    [ValidateSet("x86_64", "i686", "aarch64")]
     [string]$Arch,
-    [string]$GitHubToken = $env:GITHUB_TOKEN,
+    [string]$GitHubToken = $env:TOKEN,
     [string]$Repository = "TrustTunnel/TrustTunnelClient"
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $GitHubToken) {
-    Write-Error "GitHub token required. Set GITHUB_TOKEN env var or pass as parameter."
+    Write-Error "GitHub token required. Set TOKEN env var or pass as parameter."
     exit 1
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ArtifactsDir = Join-Path (Split-Path -Parent $ScriptDir) "artifacts"
-$ZipFileName = "trusttunnel-client-windows-$Arch-$Version.zip"
+$ArtifactId = "trusttunnel-client-windows-$Arch"
+$GroupPath = "com/adguard/trusttunnel"
+$ZipFileName = "$ArtifactId-$Version.zip"
 $ZipFile = Join-Path $ArtifactsDir $ZipFileName
 
 if (-not (Test-Path $ZipFile)) {
@@ -45,7 +52,7 @@ Write-Host "Arch:       $Arch"
 Write-Host "Package:    $ZipFile"
 Write-Host ""
 
-$MavenUrl = "https://maven.pkg.github.com/$Repository/com/adguard/trusttunnel/trusttunnel-client-windows-$Arch/$Version/$ZipFileName"
+$MavenUrl = "https://maven.pkg.github.com/$Repository/$GroupPath/$ArtifactId/$Version/$ZipFileName"
 
 Write-Host "Uploading..." -NoNewline
 
