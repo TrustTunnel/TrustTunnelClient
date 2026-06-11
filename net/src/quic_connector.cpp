@@ -40,6 +40,8 @@ std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConne
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
 
+#include "vpn/platform.h"
+
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 
