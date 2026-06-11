@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.1.5-beta.4] - 2026-06-11
+
+### Added
+
+- File logging and logs exporting for apple and android platform adapters. See `VpnManager.exportLogs()` and `VpnService.exportLogs`.
+
 ## [1.1.5-beta.3] - 2026-06-09
 
 ### Added
@@ -419,7 +425,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...HEAD
+[1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
 [1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3
 [1.1.5-beta.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...v1.1.5-beta.2
 [1.1.5-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.5-beta.1

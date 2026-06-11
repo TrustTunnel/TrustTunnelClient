@@ -5,7 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:testapp/flutter_callbacks_impl.dart';
 import 'package:testapp/native_communication.dart';
 import 'package:flutter_highlight/themes/gruvbox-dark.dart';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
+import 'package:path/path.dart' as p;
 
 import 'config.dart';
 
@@ -106,6 +107,142 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  Future<void> _exportAndShowLogs() async {
+    List<String> files;
+    try {
+      files = await _nativeVpnInterface.exportLogs();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export logs: $e')),
+        );
+      }
+      return;
+    }
+
+    if (files.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No log files available')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    final dirName = p.basename(File(files.first).parent.path);
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => _LogFileList(
+        dirName: dirName,
+        files: files,
+        onView: (path) => _viewLogFile(ctx, path),
+      ),
+    );
+  }
+
+  void _viewLogFile(BuildContext parentContext, String path) {
+    String raw;
+    try {
+      final file = File(path);
+      if (!file.existsSync()) {
+        raw = '';
+      } else {
+        raw = file.readAsStringSync();
+        // Avoid displaying extremely large files
+        if (raw.length > 500_000) {
+          raw = raw.substring(0, 500_000);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reading log file: $e')),
+        );
+      }
+      return;
+    }
+
+    final entries = _parseLogEntries(raw);
+
+    if (entries.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No log entries found')),
+        );
+      }
+      return;
+    }
+
+    Navigator.of(parentContext).pop(); // close bottom sheet
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final scrollController = ScrollController();
+        // Scroll to the bottom after the first frame — newest logs are at the end
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (scrollController.hasClients) {
+            scrollController.jumpTo(scrollController.position.maxScrollExtent);
+          }
+        });
+
+        return AlertDialog(
+        title: Text(p.basename(path)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: ListView.separated(
+            controller: scrollController,
+            itemCount: entries.length,
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              thickness: 1,
+              color: Colors.grey.shade300,
+            ),
+            itemBuilder: (_, i) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: SelectableText(
+                entries[i],
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+      },
+    );
+  }
+
+  /// Parse log entries from raw file content.
+  ///
+  /// Tries the new \x1E record separator first. Falls back to \n-based
+  /// splitting for backward compatibility with old log files.
+  static List<String> _parseLogEntries(String raw) {
+    // Try \x1E first (new format)
+    final byRs = raw.split('\x1E');
+    if (byRs.length > 1) {
+      return byRs
+          .map((e) => e.trimRight())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    // Fallback: old format — split by \n
+    return raw
+        .split('\n')
+        .map((e) => e.trimRight())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -173,6 +310,13 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
             const SizedBox(height: 10.0),
+            Center(
+              child: ElevatedButton(
+                onPressed: _exportAndShowLogs,
+                child: const Text('Export Logs'),
+              ),
+            ),
+            const SizedBox(height: 10.0),
             Text(
               vpnStateWatcher.state.name,
               style: Theme.of(context).textTheme.headlineMedium,
@@ -223,5 +367,56 @@ class _MyHomePageState extends State<MyHomePage> {
       await openAppSettings();
       return false;
     }
+  }
+}
+
+class _LogFileList extends StatelessWidget {
+  const _LogFileList({required this.dirName, required this.files, required this.onView});
+
+  final String dirName;
+  final List<String> files;
+  final void Function(String path) onView;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Exported Log Files',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+            child: Text(
+              dirName,
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+            ),
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: files.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final name = p.basename(files[i]);
+                return ListTile(
+                  leading: const Icon(Icons.description),
+                  title: Text(name),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => onView(files[i]),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 }
