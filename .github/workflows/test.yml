@@ -43,7 +43,7 @@ jobs:
   publish:
     name: Publish draft pre-release
     needs: prepare
-    uses: AdGuardSoftwareLimited/actions/.github/workflows/deploy-to-gh-release.yml@feature/libs_gh_release
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/create-gh-release.yml@feature/libs_gh_release
     permissions:
       contents: read
       id-token: write   # required for Octopass OIDC
