@@ -120,6 +120,16 @@ FsmTransitionTable vpn_fsm::get_transition_table() {
 static void postponement_window_timer_cb(evutil_socket_t, short, void *arg);
 
 static void initiate_recovery(Vpn *vpn) {
+    if (vpn->recovery_attempts >= vpn->upstream_config->recovery.attempts) {
+        log_vpn(vpn, dbg, "Maximum number of recovery attempts has been made");
+        vpn->submit([vpn] {
+            log_vpn(vpn, dbg, "Disconnecting: failed recovery");
+            vpn->pending_error = {VPN_EC_LOCATION_UNAVAILABLE, "Maximum number of recovery attempts has been made"};
+            vpn->fsm.perform_transition(CE_SHUTDOWN, nullptr);
+        });
+        return;
+    }
+
     time_point now = steady_clock::now();
     Millis elapsed{};
     if (vpn->recovery.start_ts != time_point<steady_clock>{}) {
@@ -144,6 +154,7 @@ static void initiate_recovery(Vpn *vpn) {
             [vpn]() {
                 log_vpn(vpn, dbg, "Recovering session...");
                 vpn->recovery.attempt_start_ts = steady_clock::now();
+                ++vpn->recovery_attempts;
                 vpn->fsm.perform_transition(vpn_fsm::CE_DO_RECOVERY, nullptr);
             },
             time_to_next);
@@ -403,6 +414,7 @@ static void finalize_recovery(void *ctx, void *) {
 
     vpn->client.update_bypass_ip_availability();
     vpn->recovery = {};
+    vpn->recovery_attempts = 0;
     vpn->stop_pinging();
     vpn->postponement_window_timer.reset();
     vpn->complete_postponed_requests();

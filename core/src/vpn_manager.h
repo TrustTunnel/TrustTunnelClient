@@ -95,6 +95,7 @@ struct Vpn {
     std::thread executor_thread;
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     vpn_manager::RecoveryInfo recovery = {};
+    uint32_t recovery_attempts = 0;
     VpnHandler handler = {};
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
     AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> upstream_config;

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
+  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
+  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
+  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
+
 ### Changed
 
 ### Deprecated
