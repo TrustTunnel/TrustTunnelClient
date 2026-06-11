@@ -134,7 +134,7 @@ static const struct EventLoopStaticInitializer {
 } ENSURE_INITIALIZED [[maybe_unused]];
 
 VpnEventLoop *vpn_event_loop_create() {
-    std::unique_ptr<VpnEventLoop> loop{new VpnEventLoop{}};
+    auto loop = std::make_unique<VpnEventLoop>();
     if (loop->ev_base == nullptr) {
         log_loop(loop, err, "Failed to create event base");
         return nullptr;
