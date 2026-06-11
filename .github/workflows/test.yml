@@ -45,6 +45,7 @@ jobs:
     needs: prepare
     uses: AdGuardSoftwareLimited/actions/.github/workflows/deploy-to-gh-release.yml@feature/libs_gh_release
     permissions:
+      contents: read
       id-token: write   # required for Octopass OIDC
     with:
       target_repo: TrustTunnel/TrustTunnelClient
