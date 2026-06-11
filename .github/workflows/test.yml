@@ -39,7 +39,7 @@ jobs:
         with:
           name: release-files
           path: artifacts/*
-    
+  
   publish:
     name: Publish draft pre-release
     needs: prepare
