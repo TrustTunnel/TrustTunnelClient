@@ -2,6 +2,11 @@ name: Deploy Apple library
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (e.g. 1.2.3). If omitted, the version is detected from CHANGELOG.md."
+        required: false
+        type: string
 
 jobs:
   deploy-apple:
@@ -28,8 +33,16 @@ jobs:
       - name: Detect version
         id: version
         run: |
-          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+[^]]*\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([^]]+)\].*/\1/')
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set version
+        run: |
+          ./scripts/set_version.sh ${{ steps.version.outputs.version }}
 
       - name: Build xcframeworks
         run: |
