@@ -21,7 +21,7 @@ jobs:
     with:
       team: corelibs
       target_repo: 'git@github.com:TrustTunnel/TrustTunnelClient.git'
-      disable_workflows_target: all -bench.yml -lint-md.yml -lint-rust.yml -run-tests-public.yml
+      disable_workflows_target: all -bench.yml -lint-md.yml -lint-rust.yml -run-tests-public.yml -setup-workflows.yml
       disable_workflows_source: bench.yml lint-md.yml lint-rust.yml run-tests-public.yml
     secrets: inherit
     permissions:
