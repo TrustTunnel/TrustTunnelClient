@@ -27,11 +27,6 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: Invalid version format. Expected X.Y.Z (e.g., 1.2.0)"
-    exit 1
-fi
-
 echo "Setting version to $VERSION"
 
 # Android Gradle
