@@ -47,6 +47,7 @@ jobs:
     permissions:
       id-token: write   # required for Octopass OIDC
     with:
+      target_repo: TrustTunnel/TrustTunnelClient
       tag_name: v${{ needs.prepare.outputs.version }}-test.${{ github.run_number }}
       artifact_name: release-files
       body: |
