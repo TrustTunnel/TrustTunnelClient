@@ -34,10 +34,14 @@ enum ClientConnectionState {
 };
 
 struct RecoveryInfo {
-    std::chrono::time_point<std::chrono::steady_clock> start_ts;           // session recovery start timestamp
-    std::chrono::time_point<std::chrono::steady_clock> attempt_start_ts;   // last recovery attempt start timestamp
-    Millis attempt_interval{ag::VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS}; // last interval between recovery attempts
-    Millis to_next{};                                                      // left to next attempt
+    struct {
+        std::chrono::time_point<std::chrono::steady_clock> start_ts;           // session recovery start timestamp
+        std::chrono::time_point<std::chrono::steady_clock> attempt_start_ts;   // last recovery attempt start timestamp
+        Millis between_attempts{ag::VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS}; // last interval between recovery attempts
+        Millis to_next{};                                                      // left to next attempt
+    } time;
+    uint32_t attempts = 0;
+    event_loop::AutoTaskId task;
 };
 
 struct SelectedEndpointInfo {
@@ -95,7 +99,6 @@ struct Vpn {
     std::thread executor_thread;
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     vpn_manager::RecoveryInfo recovery = {};
-    uint32_t recovery_attempts = 0;
     VpnHandler handler = {};
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
     AutoPod<VpnUpstreamConfig, vpn_upstream_config_destroy> upstream_config;

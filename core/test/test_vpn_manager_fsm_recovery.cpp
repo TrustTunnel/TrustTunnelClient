@@ -7,6 +7,7 @@
 
 #include "test_mock_c.h"
 #include "vpn/internal/server_upstream.h"
+#include "vpn_fsm.h"
 #include "vpn_manager.h"
 
 using namespace ag;
@@ -190,6 +191,17 @@ struct ConnectingVpnManagerTest : MockedTest {
     void raise_client_event(                             // NOLINT(readability-make-member-function-const)
             vpn_client::Event e, void *data = nullptr) { // NOLINT(readability-make-member-function-const)
         vpn->client.parameters.handler.func(vpn->client.parameters.handler.arg, e, data);
+    }
+
+    // Drive a `CE_NETWORK_CHANGE` through the event loop.
+    // `vpn_notify_network_change` can't be used here because it requires the loop to be
+    // active, while this fixture drives a hijacked loop manually. This mirrors what
+    // `vpn_notify_network_change` submits internally.
+    void notify_network_change(VpnNetworkState state) { // NOLINT(readability-make-member-function-const)
+        vpn->submit([vpn = this->vpn, state]() {
+            vpn->network_changed_before_recovery = true;
+            vpn->fsm.perform_transition(vpn_fsm::CE_NETWORK_CHANGE, (void *) &state);
+        });
     }
 };
 
@@ -461,4 +473,79 @@ TEST_F(ConnectedVpnManagerTest, HonorsRecoveryAttemptsSettingReping) {
 
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
     ASSERT_EQ(VPN_EC_LOCATION_UNAVAILABLE, vpn_error.code);
+}
+
+// Check that when recovery is aborted by a fatal disconnect the recovery state is reset,
+// so a subsequent connection does not start with a dirty attempt counter or a leftover
+// scheduled recovery task.
+TEST_F(ConnectedVpnManagerTest, RecoveryStateResetAfterFatalDisconnect) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+
+    // Make a failing recovery attempt so the attempt counter and a scheduled task exist.
+    ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt());
+    ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
+    ASSERT_GT(vpn->recovery.attempts, 0u);
+    ASSERT_TRUE(vpn->recovery.task.has_value());
+
+    // A fatal error aborts recovery and disconnects the client.
+    VpnError error = {.code = VPN_EC_AUTH_REQUIRED, .text = "fatal"};
+    raise_client_event(vpn_client::EVENT_ERROR, &error);
+    ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+
+    // The recovery state must be clean: zero attempts and no pending recovery task.
+    ASSERT_EQ(0u, vpn->recovery.attempts);
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+}
+
+// Check that a network change while waiting for recovery triggers an immediate recovery
+// attempt and cancels the previously scheduled recovery task, so the stale task can't fire
+// later and clobber the recovery state.
+TEST_F(ConnectedVpnManagerTest, NetworkChangeDuringRecoveryCancelsPendingTask) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_WAITING_RECOVERY));
+
+    // A recovery attempt is scheduled and pending.
+    ASSERT_TRUE(vpn->recovery.task.has_value());
+    const uint32_t attempts_before = vpn->recovery.attempts;
+
+    // A network change triggers recovery immediately (the 0ms task wins over the 1s timer).
+    notify_network_change(VPN_NS_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+
+    // The previously scheduled recovery task must have been cancelled.
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+    // The network-change-triggered recovery must not be double-counted as an extra attempt.
+    ASSERT_EQ(attempts_before, vpn->recovery.attempts);
+}
+
+// Check that a flapping network keeps the client recovering indefinitely: losing the
+// network resets the recovery attempt budget.
+TEST_F(ConnectedVpnManagerTest, FlappingNetworkKeepsRecovering) {
+    constexpr uint32_t ATTEMPTS = 2;
+    vpn->upstream_config->recovery.attempts = ATTEMPTS;
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        // Exhaust the recovery budget down to its last allowed attempt without giving up.
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "cycle " << cycle;
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY)) << "cycle " << cycle;
+        ASSERT_EQ(ATTEMPTS, vpn->recovery.attempts) << "cycle " << cycle;
+
+        // Losing the network resets the recovery state...
+        notify_network_change(VPN_NS_NOT_CONNECTED);
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_FOR_NETWORK)) << "cycle " << cycle;
+        ASSERT_EQ(0u, vpn->recovery.attempts) << "cycle " << cycle;
+        ASSERT_FALSE(vpn->recovery.task.has_value()) << "cycle " << cycle;
+
+        // ...so when the network returns the client keeps recovering instead of giving up.
+        notify_network_change(VPN_NS_CONNECTED);
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY)) << "cycle " << cycle;
+    }
+
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+    vpn->selected_endpoint.emplace(vpn_endpoint_clone(ENDPOINTS.data()), std::nullopt);
+    vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
+    raise_client_event(vpn_client::EVENT_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
 }

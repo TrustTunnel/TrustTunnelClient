@@ -176,8 +176,9 @@ typedef struct {
     uint32_t location_update_period_ms;
     /**
      * The maximum number of recovery attempts that the library will make before transitioning into the
-     * `VPN_SS_DISCONNECTED` state with the `VPN_EC_LOCATION_UNAVAILABLE` error code. Successful recovery
-     * resets the counter. If set to `0`, `VPN_DEFAULT_RECOVERY_ATTEMPTS` will be assigned.
+     * `VPN_SS_DISCONNECTED` state with the `VPN_EC_LOCATION_UNAVAILABLE` error code. The counter resets
+     * on successful recovery, network change or client disconnect.
+     * If set to `0`, `VPN_DEFAULT_RECOVERY_ATTEMPTS` will be assigned.
      */
     uint32_t attempts;
 } VpnUpstreamSessionRecoverySettings;

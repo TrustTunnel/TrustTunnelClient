@@ -83,7 +83,7 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {VPN_SS_WAITING_RECOVERY, CE_DO_RECOVERY,         need_to_ping_on_recovery, run_ping,               VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_DO_RECOVERY,         Fsm::OTHERWISE,           connect_client,         VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
-        {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           do_disconnect,          Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
+        {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           Fsm::DO_NOTHING,        Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_WAITING_RECOVERY, CE_ABANDON_ENDPOINT,    is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
 
         {VPN_SS_RECOVERING,       CE_NETWORK_CHANGE,      network_lost,             do_disconnect,           VPN_SS_WAITING_FOR_NETWORK, raise_state},
@@ -120,10 +120,11 @@ FsmTransitionTable vpn_fsm::get_transition_table() {
 static void postponement_window_timer_cb(evutil_socket_t, short, void *arg);
 
 static void initiate_recovery(Vpn *vpn) {
-    if (vpn->recovery_attempts >= vpn->upstream_config->recovery.attempts) {
+    if (vpn->recovery.attempts >= vpn->upstream_config->recovery.attempts) {
         log_vpn(vpn, dbg, "Maximum number of recovery attempts has been made");
         vpn->submit([vpn] {
             log_vpn(vpn, dbg, "Disconnecting: failed recovery");
+            vpn->recovery = {};
             vpn->pending_error = {VPN_EC_LOCATION_UNAVAILABLE, "Maximum number of recovery attempts has been made"};
             vpn->fsm.perform_transition(CE_SHUTDOWN, nullptr);
         });
@@ -132,10 +133,10 @@ static void initiate_recovery(Vpn *vpn) {
 
     time_point now = steady_clock::now();
     Millis elapsed{};
-    if (vpn->recovery.start_ts != time_point<steady_clock>{}) {
-        elapsed = std::max(duration_cast<Millis>(now - vpn->recovery.attempt_start_ts), Millis{});
+    if (vpn->recovery.time.start_ts != time_point<steady_clock>{}) {
+        elapsed = std::max(duration_cast<Millis>(now - vpn->recovery.time.attempt_start_ts), Millis{});
     } else {
-        vpn->recovery.start_ts = now;
+        vpn->recovery.time.start_ts = now;
         vpn->postponement_window_timer.reset(
                 evtimer_new(vpn_event_loop_get_base(vpn->ev_loop.get()), postponement_window_timer_cb, vpn));
         timeval tv = ms_to_timeval(VPN_DEFAULT_POSTPONEMENT_WINDOW_MS);
@@ -144,30 +145,31 @@ static void initiate_recovery(Vpn *vpn) {
 
     // try to recover immediately if a previous attempt has taken the whole period
     Millis time_to_next{};
-    if (vpn->recovery.attempt_interval >= elapsed) {
-        time_to_next = vpn->recovery.attempt_interval - elapsed;
+    if (vpn->recovery.time.between_attempts >= elapsed) {
+        time_to_next = vpn->recovery.time.between_attempts - elapsed;
     }
 
     log_vpn(vpn, dbg, "Time to next recovery: {}", time_to_next);
 
-    vpn->submit(
+    ++vpn->recovery.attempts;
+    vpn->recovery.task = event_loop::schedule(
+            vpn->ev_loop.get(),
             [vpn]() {
                 log_vpn(vpn, dbg, "Recovering session...");
-                vpn->recovery.attempt_start_ts = steady_clock::now();
-                ++vpn->recovery_attempts;
+                vpn->recovery.time.attempt_start_ts = steady_clock::now();
                 vpn->fsm.perform_transition(vpn_fsm::CE_DO_RECOVERY, nullptr);
             },
             time_to_next);
 
-    vpn->recovery.attempt_interval =
-            std::chrono::round<Millis>(vpn->recovery.attempt_interval * vpn->upstream_config->recovery.backoff_rate);
+    vpn->recovery.time.between_attempts =
+            std::chrono::round<Millis>(vpn->recovery.time.between_attempts * vpn->upstream_config->recovery.backoff_rate);
     time_point next_attempt_ts = now + time_to_next;
-    if (next_attempt_ts - vpn->recovery.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
+    if (next_attempt_ts - vpn->recovery.time.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
         log_vpn(vpn, dbg, "Resetting recovery state due to the recovery took too long");
-        vpn->recovery = {};
+        vpn->recovery.time = {};
     }
 
-    vpn->recovery.to_next = time_to_next;
+    vpn->recovery.time.to_next = time_to_next;
 }
 
 static void pinger_handler(void *arg, const LocationsPingerResult *result) {
@@ -253,7 +255,7 @@ static bool need_to_ping_on_recovery(const void *ctx, void *) {
     }
 
     time_point now = steady_clock::now();
-    return now - vpn->recovery.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms};
+    return now - vpn->recovery.time.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms};
 }
 
 static bool fall_into_recovery(const void *ctx, void *) {
@@ -308,7 +310,7 @@ static void run_ping(void *ctx, void *) {
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
     if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay.has_value()
-            && vpn->recovery.start_ts != time_point<steady_clock>{}) {
+            && vpn->recovery.time.start_ts != time_point<steady_clock>{}) {
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         pinger_info.relay_parallel = vpn->selected_endpoint->relay->get();
     }
@@ -318,6 +320,9 @@ static void run_ping(void *ctx, void *) {
 
     vpn->pending_error.reset();
     vpn->selected_endpoint.reset();
+
+    // We might have gotten here through CE_NETWORK_CHANGE with a pending recovery task. Cancel it.
+    vpn->recovery.task.reset();
 
     log_vpn(vpn, trace, "Done");
 }
@@ -403,7 +408,7 @@ static void reconnect_client(void *ctx, void *) {
 
     vpn->disconnect_client();
 
-    run_client_connect(vpn, std::min(vpn->recovery.attempt_interval, Millis{vpn->upstream_config->timeout_ms}));
+    run_client_connect(vpn, std::min(vpn->recovery.time.between_attempts, Millis{vpn->upstream_config->timeout_ms}));
 
     log_vpn(vpn, trace, "Done");
 }
@@ -414,7 +419,6 @@ static void finalize_recovery(void *ctx, void *) {
 
     vpn->client.update_bypass_ip_availability();
     vpn->recovery = {};
-    vpn->recovery_attempts = 0;
     vpn->stop_pinging();
     vpn->postponement_window_timer.reset();
     vpn->complete_postponed_requests();
@@ -427,6 +431,7 @@ static void do_disconnect(void *ctx, void *) {
     Vpn *vpn = (Vpn *) ctx;
     log_vpn(vpn, trace, "...");
 
+    vpn->recovery = {};
     vpn->disconnect();
 
     log_vpn(vpn, trace, "Done");
@@ -477,7 +482,7 @@ static void raise_state(void *ctx, void *) {
     case VPN_SS_WAITING_RECOVERY:
         event.waiting_recovery_info = {
                 .error = std::exchange(vpn->pending_error, std::nullopt).value_or(VpnError{}),
-                .time_to_next_ms = uint32_t(vpn->recovery.to_next.count()),
+                .time_to_next_ms = uint32_t(vpn->recovery.time.to_next.count()),
         };
         break;
     case VPN_SS_CONNECTED: {
