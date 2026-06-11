@@ -30,6 +30,8 @@ std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConne
 #include <optional>
 #include <utility>
 
+#include "vpn/platform.h"
+
 #include <event2/event.h>
 #include <event2/util.h>
 #include <magic_enum/magic_enum.hpp>
@@ -39,8 +41,6 @@ std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConne
 #include "net/udp_socket.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
-
-#include "vpn/platform.h"
 
 #include <openssl/rand.h>
 #include <openssl/ssl.h>

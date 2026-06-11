@@ -622,7 +622,7 @@ void Http3Upstream::on_response(void *arg, uint64_t stream_id, http::Response re
     auto *self = (Http3Upstream *) arg;
     HttpHeaders headers{.version = HTTP_VER_3_0, .status_code = response.status_code()};
     for (const auto &h : response.headers()) {
-        headers.fields.push_back({std::string(h.name), std::string(h.value)});
+        headers.fields.emplace_back(std::string(h.name), std::string(h.value));
     }
     self->handle_response(stream_id, &headers);
 }

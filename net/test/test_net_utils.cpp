@@ -218,19 +218,19 @@ std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     params.initial_max_streams_bidi = 100;
     params.initial_max_streams_uni = 3;
 
-    sockaddr_storage local_sa{}, remote_sa{};
-    local_sa.ss_family = AF_INET;
-    remote_sa.ss_family = AF_INET;
-    reinterpret_cast<sockaddr_in *>(&remote_sa)->sin_port = htons(443);
+    ag::SocketAddress local{"0.0.0.0", 0};
+    ag::SocketAddress remote{"0.0.0.0", 443};
     ngtcp2_path path{
-            .local = {.addr = reinterpret_cast<sockaddr *>(&local_sa), .addrlen = sizeof(sockaddr_in)},
-            .remote = {.addr = reinterpret_cast<sockaddr *>(&remote_sa), .addrlen = sizeof(sockaddr_in)},
+            .local = {.addr = (sockaddr *) local.c_sockaddr(), .addrlen = local.c_socklen()},
+            .remote = {.addr = (sockaddr *) remote.c_sockaddr(), .addrlen = remote.c_socklen()},
     };
 
-    uint8_t dcid_buf[NGTCP2_MAX_CIDLEN], scid_buf[NGTCP2_MAX_CIDLEN];
+    uint8_t dcid_buf[NGTCP2_MAX_CIDLEN];
+    uint8_t scid_buf[NGTCP2_MAX_CIDLEN];
     RAND_bytes(dcid_buf, sizeof(dcid_buf));
     RAND_bytes(scid_buf, sizeof(scid_buf));
-    ngtcp2_cid dcid, scid;
+    ngtcp2_cid dcid;
+    ngtcp2_cid scid;
     ngtcp2_cid_init(&dcid, dcid_buf, sizeof(dcid_buf));
     ngtcp2_cid_init(&scid, scid_buf, sizeof(scid_buf));
 
