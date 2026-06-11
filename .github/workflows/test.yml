@@ -1,0 +1,57 @@
+name: Test
+
+# Minimal end-to-end test harness for the reusable deploy-to-gh-release workflow.
+# A prepare job builds a small artifact and detects the version from CHANGELOG.md,
+# then the publish job hands that artifact to deploy-to-gh-release.yml, which
+# creates the GitHub Release as a *draft pre-release*.
+
+on:
+  pull_request:
+
+jobs:
+  prepare:
+    name: Prepare release artifact
+    runs-on: [team-corelibs]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release artifact
+        run: |
+          set -e -x
+          mkdir -p artifacts
+          echo "trusttunnel-client v${{ steps.version.outputs.version }} (draft pre-release test build)" \
+            > artifacts/trusttunnel_client-v${{ steps.version.outputs.version }}-test.txt
+          cp LICENSE artifacts/LICENSE.txt
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: artifacts/*
+
+  publish:
+    name: Publish draft pre-release
+    needs: prepare
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/deploy-to-gh-release.yml@feature/libs_gh_release
+    permissions:
+      id-token: write   # required for Octopass OIDC
+    with:
+      tag_name: v${{ needs.prepare.outputs.version }}-test.${{ github.run_number }}
+      artifact_name: release-files
+      body: |
+        Draft pre-release test build for v${{ needs.prepare.outputs.version }}
+        (run ${{ github.run_number }}, PR #${{ github.event.number }}).
+      draft: true
+      prerelease: true
+      team: corelibs
