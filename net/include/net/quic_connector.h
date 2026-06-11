@@ -4,6 +4,8 @@
 #include <optional>
 #include <span>
 
+#include "vpn/platform.h"
+
 #include <event2/util.h>
 #include <openssl/ssl.h>
 
