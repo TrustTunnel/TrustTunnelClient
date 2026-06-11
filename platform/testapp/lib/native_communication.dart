@@ -105,6 +105,38 @@ class NativeVpnInterface {
       return;
     }
   }
+
+  /// Export log files from the VPN process(es).
+  ///
+  /// Returns a list of absolute paths to snapshot files in a temporary
+  /// directory. The caller is responsible for cleaning up these files.
+  Future<List<String>> exportLogs() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.exportLogs$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<String>();
+    }
+  }
 }
 
 abstract class FlutterCallbacks {

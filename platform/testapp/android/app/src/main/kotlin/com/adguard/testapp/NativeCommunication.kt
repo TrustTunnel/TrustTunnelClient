@@ -62,6 +62,13 @@ private open class NativeCommunicationPigeonCodec : StandardMessageCodec() {
 interface NativeVpnInterface {
   fun start(config: String)
   fun stop()
+  /**
+   * Export log files from the VPN process(es).
+   *
+   * Returns a list of absolute paths to snapshot files in a temporary
+   * directory. The caller is responsible for cleaning up these files.
+   */
+  fun exportLogs(): List<String>
 
   companion object {
     /** The codec used by NativeVpnInterface. */
@@ -97,6 +104,21 @@ interface NativeVpnInterface {
             val wrapped: List<Any?> = try {
               api.stop()
               listOf(null)
+            } catch (exception: Throwable) {
+              NativeCommunicationPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.exportLogs$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.exportLogs())
             } catch (exception: Throwable) {
               NativeCommunicationPigeonUtils.wrapError(exception)
             }

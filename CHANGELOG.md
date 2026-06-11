@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- File logging and logs exporting for apple and android platform adapters. See `VpnManager.exportLogs()` and `VpnService.exportLogs`.
+
 ### Changed
 
 ### Deprecated
