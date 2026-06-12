@@ -10,7 +10,6 @@
 #include "vpn_fsm.h"
 #include "vpn_manager.h"
 
-using namespace std::chrono;
 using namespace ag::vpn_fsm;
 
 namespace ag {
@@ -131,9 +130,9 @@ static void initiate_recovery(Vpn *vpn) {
         return;
     }
 
-    time_point now = steady_clock::now();
+    auto now = SteadyClock::now();
     Millis elapsed{};
-    if (vpn->recovery.time.start_ts != time_point<steady_clock>{}) {
+    if (vpn->recovery.time.start_ts != SteadyClock::time_point{}) {
         elapsed = std::max(duration_cast<Millis>(now - vpn->recovery.time.attempt_start_ts), Millis{});
     } else {
         vpn->recovery.time.start_ts = now;
@@ -156,14 +155,15 @@ static void initiate_recovery(Vpn *vpn) {
             vpn->ev_loop.get(),
             [vpn]() {
                 log_vpn(vpn, dbg, "Recovering session...");
-                vpn->recovery.time.attempt_start_ts = steady_clock::now();
+                vpn->recovery.task.release();
+                vpn->recovery.time.attempt_start_ts = SteadyClock::now();
                 vpn->fsm.perform_transition(vpn_fsm::CE_DO_RECOVERY, nullptr);
             },
             time_to_next);
 
     vpn->recovery.time.between_attempts =
             std::chrono::round<Millis>(vpn->recovery.time.between_attempts * vpn->upstream_config->recovery.backoff_rate);
-    time_point next_attempt_ts = now + time_to_next;
+    auto next_attempt_ts = now + time_to_next;
     if (next_attempt_ts - vpn->recovery.time.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
         log_vpn(vpn, dbg, "Resetting recovery state due to the recovery took too long");
         vpn->recovery.time = {};
@@ -254,7 +254,7 @@ static bool need_to_ping_on_recovery(const void *ctx, void *) {
         return true;
     }
 
-    time_point now = steady_clock::now();
+    auto now = SteadyClock::now();
     return now - vpn->recovery.time.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms};
 }
 
@@ -310,7 +310,7 @@ static void run_ping(void *ctx, void *) {
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.
     if (vpn->selected_endpoint.has_value() && vpn->selected_endpoint->relay.has_value()
-            && vpn->recovery.time.start_ts != time_point<steady_clock>{}) {
+            && vpn->recovery.time.start_ts != SteadyClock::time_point{}) {
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         pinger_info.relay_parallel = vpn->selected_endpoint->relay->get();
     }
@@ -322,7 +322,10 @@ static void run_ping(void *ctx, void *) {
     vpn->selected_endpoint.reset();
 
     // We might have gotten here through CE_NETWORK_CHANGE with a pending recovery task. Cancel it.
-    vpn->recovery.task.reset();
+    if (vpn->recovery.task.has_value()) {
+        vpn->recovery.task.reset();
+        vpn->recovery.time.attempt_start_ts = SteadyClock::now();
+    }
 
     log_vpn(vpn, trace, "Done");
 }

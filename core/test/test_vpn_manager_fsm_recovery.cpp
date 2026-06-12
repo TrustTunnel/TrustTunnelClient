@@ -549,3 +549,31 @@ TEST_F(ConnectedVpnManagerTest, FlappingNetworkKeepsRecovering) {
     raise_client_event(vpn_client::EVENT_CONNECTED);
     ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
 }
+
+// Check that a network change short-cutting WAITING_RECOVERY -> RECOVERING through run_ping
+// records the recovery attempt start time. The lambda scheduled by `initiate_recovery` never
+// fires in this case, so without recording the timestamp in run_ping the next
+// `initiate_recovery` would measure `elapsed` from a stale (epoch) timestamp and collapse the
+// inter-attempt backoff delay to zero.
+TEST_F(ConnectedVpnManagerTest, NetworkChangeRecordsRecoveryAttemptStart) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_WAITING_RECOVERY));
+
+    // The scheduled recovery task hasn't fired yet, so no attempt has started.
+    ASSERT_EQ(SteadyClock::time_point{}, vpn->recovery.time.attempt_start_ts);
+
+    // A network change short-cuts straight into RECOVERING through run_ping.
+    const auto before = SteadyClock::now();
+    notify_network_change(VPN_NS_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+
+    // run_ping cancelled the pending timer and recorded the attempt start time.
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+    ASSERT_GE(vpn->recovery.time.attempt_start_ts, before);
+
+    // Fail this attempt; the next throttling computation must measure `elapsed` from the
+    // just-started attempt, so (almost) the full backoff interval remains until the next one.
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
+    ASSERT_GT(vpn->recovery.time.to_next, Millis{VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS} / 2);
+}
