@@ -161,10 +161,11 @@ static void initiate_recovery(Vpn *vpn) {
             },
             time_to_next);
 
-    vpn->recovery.time.between_attempts =
-            std::chrono::round<Millis>(vpn->recovery.time.between_attempts * vpn->upstream_config->recovery.backoff_rate);
+    vpn->recovery.time.between_attempts = std::chrono::round<Millis>(
+            vpn->recovery.time.between_attempts * vpn->upstream_config->recovery.backoff_rate);
     auto next_attempt_ts = now + time_to_next;
-    if (next_attempt_ts - vpn->recovery.time.start_ts >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
+    if (next_attempt_ts - vpn->recovery.time.start_ts
+            >= Millis{vpn->upstream_config->recovery.location_update_period_ms}) {
         log_vpn(vpn, dbg, "Resetting recovery state due to the recovery took too long");
         vpn->recovery.time = {};
     }
