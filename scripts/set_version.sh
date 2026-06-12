@@ -19,6 +19,17 @@
 
 set -e
 
+# Wrapper for sed in-place editing (handles macOS/Linux differences)
+# macOS (BSD sed) requires -i '' for in-place without backup
+# Linux (GNU sed) requires just -i
+sed_i() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
 VERSION=$1
 
 if [ -z "$VERSION" ]; then
@@ -27,47 +38,54 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-.+)?$ ]]; then
+    echo "Error: Invalid version format. Expected X.Y.Z or X.Y.Z-<suffix> (e.g., 1.2.0 or 1.2.3-beta.1)"
+    exit 1
+fi
+
+
 echo "Setting version to $VERSION"
 
 # Android Gradle
 gradle_file="platform/android/lib/build.gradle.kts"
 if [ -f "$gradle_file" ]; then
-    sed -i -e "s/^version = \".*\"/version = \"${VERSION}\"/" "$gradle_file"
+    sed_i -e "s/^version = \".*\"/version = \"${VERSION}\"/" "$gradle_file"
     echo "Updated ${gradle_file}"
 fi
 
 # Apple Xcode project
 pbxproj="platform/apple/TrustTunnelClient.xcodeproj/project.pbxproj"
 if [ -f "$pbxproj" ]; then
-    sed -i -E "s/(CURRENT_PROJECT_VERSION = )[0-9.]+/\1${VERSION}/" "$pbxproj"
-    sed -i -E "s/(DYLIB_CURRENT_VERSION = )[0-9.]+/\1${VERSION}/" "$pbxproj"
-    sed -i -E "s/(MARKETING_VERSION = )[0-9.]+/\1${VERSION}/" "$pbxproj"
+    sed_i -E "s/(CURRENT_PROJECT_VERSION = )[^;]+/\1${VERSION}/" "$pbxproj"
+    sed_i -E "s/(DYLIB_CURRENT_VERSION = )[^;]+/\1${VERSION}/" "$pbxproj"
+    sed_i -E "s/(MARKETING_VERSION = )[^;]+/\1${VERSION}/" "$pbxproj"
     echo "Updated ${pbxproj}"
 fi
 
 # Apple CMakeLists.txt
 vpn_client_cmake="platform/apple/VpnClient/CMakeLists.txt"
 if [ -f "$vpn_client_cmake" ]; then
-    sed -i -E "s/(VERSION )[0-9]+\.[0-9]+\.[0-9]+/\1${VERSION}/" "$vpn_client_cmake"
+    sed_i -E "s/(^[[:space:]]+VERSION )[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]*)?/\1${VERSION}/" "$vpn_client_cmake"
     echo "Updated ${vpn_client_cmake}"
 fi
 
 # Apple podspec
 spec_file="platform/apple/TrustTunnelClient.podspec"
 if [ -f "$spec_file" ]; then
-    sed -i -E "s/(s\.version *= *\")[0-9.]+/\1${VERSION}/" "$spec_file"
+    sed_i -E "s/(s\.version *= *\")[^\"]*/\1${VERSION}/" "$spec_file"
     echo "Updated ${spec_file}"
 fi
 
 # Windows resource files
-VERSION_COMMAS=$(echo "${VERSION}" | sed 's/\./,/g'),0
+# Strip pre-release suffix for numeric FILEVERSION/PRODUCTVERSION (e.g. 1,2,3,0)
+VERSION_COMMAS=$(echo "${VERSION}" | sed 's/-.*//' | sed 's/\./,/g'),0
 for rc_file in trusttunnel/trusttunnel_client.rc \
                trusttunnel/setup_wizard/resources/setup_wizard.rc; do
     if [ -f "$rc_file" ]; then
-        sed -i -e "s/^[[:space:]]*FILEVERSION .*/    FILEVERSION ${VERSION_COMMAS}/" "$rc_file"
-        sed -i -e "s/^[[:space:]]*PRODUCTVERSION .*/    PRODUCTVERSION ${VERSION_COMMAS}/" "$rc_file"
-        sed -i -e "s/\(VALUE \"FileVersion\", \"\)[0-9]*\.[0-9]*\.[0-9]*/\1${VERSION}/" "$rc_file"
-        sed -i -e "s/\(VALUE \"ProductVersion\", \"\)[0-9]*\.[0-9]*\.[0-9]*/\1${VERSION}/" "$rc_file"
+        sed_i -e "s/^[[:space:]]*FILEVERSION .*/    FILEVERSION ${VERSION_COMMAS}/" "$rc_file"
+        sed_i -e "s/^[[:space:]]*PRODUCTVERSION .*/    PRODUCTVERSION ${VERSION_COMMAS}/" "$rc_file"
+        sed_i -e "s/\(VALUE \"FileVersion\", \"\)[^\"]*/\1${VERSION}/" "$rc_file"
+        sed_i -e "s/\(VALUE \"ProductVersion\", \"\)[^\"]*/\1${VERSION}/" "$rc_file"
         echo "Updated ${rc_file}"
     fi
 done
@@ -91,7 +109,7 @@ echo "Updated ${version_rs}"
 # Install script
 install_sh="scripts/install.sh"
 if [ -f "$install_sh" ]; then
-    sed -i -e "s/^version='[0-9\.]*'$/version='${VERSION}'/" "$install_sh"
+    sed_i -e "s/^version='[^']*'$/version='${VERSION}'/" "$install_sh"
     echo "Updated ${install_sh}"
 fi
 
