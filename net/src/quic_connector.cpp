@@ -104,7 +104,11 @@ ag::VpnError ag::quic_connector_connect(
     // Configure Http3Settings
     ag::http::Http3Settings settings{};
     settings.max_idle_timeout = ag::Micros{parameters->max_idle_timeout};
-    // Other params (window size, max streams) use Http3Settings defaults
+    settings.initial_max_data = QUIC_CONNECTION_WINDOW_SIZE;
+    settings.initial_max_stream_data_bidi_local = QUIC_STREAM_WINDOW_SIZE;
+    settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
+    settings.initial_max_stream_data_uni = QUIC_STREAM_WINDOW_SIZE;
+    settings.initial_max_streams_bidi = QUIC_MAX_STREAMS_NUM;
 
     // Set up callbacks for the ping phase
     ag::http::Http3Client::Callbacks callbacks{

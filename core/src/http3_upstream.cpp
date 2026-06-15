@@ -92,6 +92,11 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     // Let the connection live long enough to perform a health check.
     m_max_idle_timeout = 2 * (upstream_config.timeout + upstream_config.health_check_timeout);
     m_h3_settings.max_idle_timeout = Micros{m_max_idle_timeout};
+    m_h3_settings.initial_max_data = QUIC_CONNECTION_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_bidi_local = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_uni = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_streams_bidi = QUIC_MAX_STREAMS_NUM;
 
     // Handoff — reuse connection pre-established by ping
     if (this->vpn->quic_connector->client) {
