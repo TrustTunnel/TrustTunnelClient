@@ -7,8 +7,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import androidx.annotation.RequiresApi
+import com.adguard.trusttunnel.Logger
 import com.adguard.trusttunnel.VpnClient
-import com.adguard.trusttunnel.log.LoggerManager
 import java.net.InetAddress
 import java.text.MessageFormat
 import java.util.Collections
@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class NetworkUtils {
     companion object {
-        private val LOG = LoggerManager.getLogger("NetworkUtils")
+        private val LOG = Logger("NetworkUtils")
 
         class NetworkCollector : ConnectivityManager.NetworkCallback() {
             fun startNotifying(vpnClient: VpnClient?) {

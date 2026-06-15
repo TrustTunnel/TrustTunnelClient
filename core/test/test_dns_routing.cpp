@@ -158,9 +158,11 @@ public:
 using Exclusion = std::string_view;
 using CheckedDomain = std::string_view;
 using TestSample = std::tuple<VpnMode, VpnConnectAction, Exclusion, CheckedDomain>;
-class DnsRouting : public testing::TestWithParam<TestSample> {
+
+// Common test infrastructure for the DNS routing fixtures, independent of the test parameter type.
+class DnsRoutingBase : public testing::Test {
 public:
-    DnsRouting()
+    DnsRoutingBase()
             : vpn({
                       .ev_loop = this->ev_loop.get(),
               }) {
@@ -188,17 +190,17 @@ public:
     }
 
     static void redirect_upstream_handler(void *arg, ServerEvent what, void *data) {
-        auto *test = (DnsRouting *) arg;
+        auto *test = (DnsRoutingBase *) arg;
         test->vpn.tunnel->upstream_handler(test->redirect_upstream, what, data);
     }
 
     static void bypass_upstream_handler(void *arg, ServerEvent what, void *data) {
-        auto *test = (DnsRouting *) arg;
+        auto *test = (DnsRoutingBase *) arg;
         test->vpn.tunnel->upstream_handler(test->bypass_upstream, what, data);
     }
 
     static void listener_handler(void *arg, ClientEvent what, void *data) {
-        auto *test = (DnsRouting *) arg;
+        auto *test = (DnsRoutingBase *) arg;
         test->vpn.tunnel->listener_handler(test->client_listener, what, data);
     }
 
@@ -284,6 +286,9 @@ public:
     }
 };
 
+// Parameterized by `TestSample` for the exclusion-mode/domain matrix tests.
+class DnsRouting : public DnsRoutingBase, public testing::WithParamInterface<TestSample> {};
+
 class NoProxy : public DnsRouting {};
 
 TEST_P(NoProxy, Test) {
@@ -319,39 +324,154 @@ INSTANTIATE_TEST_SUITE_P(DnsRouting, NoProxy,
         testing::Combine(testing::Values(VPN_MODE_GENERAL, VPN_MODE_SELECTIVE), testing::Values(VPN_CA_DEFAULT),
                 testing::Values("example.com"), testing::Values("example.com", "github.com")));
 
-class AppInitiatedDnsRouting : public DnsRouting {
+// Same as `NoProxy`, but with `VpnListenerConfig::dns_alt_exclusions_route` enabled.
+class AltExclusionsRoute : public DnsRouting {
 public:
     void SetUp() override {
+        // The flag must be set before the tunnel (and thus the DNS handler) is initialized in the base `SetUp`.
+        vpn.listener_config.dns_alt_exclusions_route = true;
         DnsRouting::SetUp();
+    }
+};
+
+TEST_P(AltExclusionsRoute, Test) {
+    auto [mode, action, exclusion, domain] = GetParam();
+    vpn.update_exclusions(mode, exclusion);
+
+    ASSERT_NO_FATAL_FAILURE(open_connection());
+    ASSERT_NO_FATAL_FAILURE(raise_dns_request(domain));
+    run_event_loop_once();
+
+    bool excluded =
+            (mode == VPN_MODE_GENERAL && exclusion == domain) || (mode == VPN_MODE_SELECTIVE && exclusion != domain);
+
+    if (excluded) {
+        // Queries for excluded domains must go to their original destination through the bypass upstream,
+        // instead of being redirected to the system DNS proxy.
+        ASSERT_EQ(1, bypass_upstream->connections.size());
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+        ASSERT_EQ(dst, bypass_upstream->last_destination);
+    } else {
+        // Queries for included domains keep the default behaviour: routed through the endpoint (redirect) upstream.
+        ASSERT_EQ(1, redirect_upstream->connections.size());
+        ASSERT_EQ(0, bypass_upstream->connections.size());
+    }
+
+    // In either case the system DNS proxy must not be used.
+    ASSERT_EQ(0, system_complete);
+    ASSERT_EQ(0, system_unexpected);
+}
+
+INSTANTIATE_TEST_SUITE_P(DnsRouting, AltExclusionsRoute,
+        testing::Combine(testing::Values(VPN_MODE_GENERAL, VPN_MODE_SELECTIVE), testing::Values(VPN_CA_DEFAULT),
+                testing::Values("example.com"), testing::Values("example.com", "github.com")));
+
+// Endpoint upstream is not connected, kill switch is OFF. The `dns_alt_exclusions_route` flag is the last tuple
+// element: when OFF, all DNS queries are forwarded to the system DNS proxy; when ON, they are treated as EXCLUDED
+// and sent to their original destination through the bypass upstream. In both cases the result is independent of
+// the exclusions configuration.
+using AltExcRouteFlag = bool;
+using NotConnectedSample = std::tuple<VpnMode, VpnConnectAction, Exclusion, CheckedDomain, AltExcRouteFlag>;
+
+class NotConnectedNoKillSwitch : public DnsRoutingBase, public testing::WithParamInterface<NotConnectedSample> {
+public:
+    void SetUp() override {
+        // The flag must be set before the tunnel (and thus the DNS handler) is initialized in the base `SetUp`.
+        vpn.listener_config.dns_alt_exclusions_route = std::get<4>(GetParam());
+        DnsRoutingBase::SetUp();
+        // Disconnect the endpoint upstream. The kill switch stays off (the default).
+        vpn.tunnel->on_before_endpoint_disconnect(redirect_upstream.get());
+        vpn.tunnel->upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_CLOSED, nullptr);
+        vpn.tunnel->on_after_endpoint_disconnect(redirect_upstream.get());
+        ASSERT_NO_FATAL_FAILURE(open_connection());
+    }
+};
+
+TEST_P(NotConnectedNoKillSwitch, RoutedAccordingToAltRoute) {
+    auto [mode, action, exclusion, domain, alt_route] = GetParam();
+    vpn.update_exclusions(mode, exclusion);
+
+    ASSERT_NO_FATAL_FAILURE(raise_dns_request(domain));
+
+    if (alt_route) {
+        run_event_loop_once();
+        // All queries are treated as EXCLUDED and sent to their original destination through the bypass upstream.
+        ASSERT_EQ(1, bypass_upstream->connections.size());
+        ASSERT_EQ(dst, bypass_upstream->last_destination);
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+        ASSERT_EQ(0, system_complete);
+        ASSERT_EQ(0, system_unexpected);
+    } else {
+        this->mock_system_dns_server->expect({
+                .request = MockDnsServer::Request{.tcp = false, .qtype = 1, .qname = AG_FMT("{}.", domain)},
+        });
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
+        vpn_event_loop_run(this->ev_loop.get());
+        ASSERT_EQ(1, this->system_complete);
+        ASSERT_EQ(0, this->system_unexpected);
+        ASSERT_EQ(0, bypass_upstream->connections.size());
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(DnsRouting, NotConnectedNoKillSwitch,
+        testing::Combine(testing::Values(VPN_MODE_GENERAL, VPN_MODE_SELECTIVE), testing::Values(VPN_CA_DEFAULT),
+                testing::Values("example.com"), testing::Values("example.com", "github.com"), testing::Bool()));
+
+// Endpoint upstream is not connected and the kill switch is ON: DNS queries are dropped, except those for
+// app-requested domains, which are treated as EXCLUDED. The `dns_alt_exclusions_route` parameter selects whether
+// such queries are forwarded to the system DNS proxy (false) or sent to their original destination through the
+// bypass upstream (true).
+class AppInitiatedDnsRouting : public DnsRoutingBase, public testing::WithParamInterface<AltExcRouteFlag> {
+public:
+    static constexpr const char *APP_REQUEST_DOMAIN = "app-requested.example.com";
+
+    void SetUp() override {
+        // The flag must be set before the tunnel (and thus the DNS handler) is initialized in the base `SetUp`.
+        vpn.listener_config.dns_alt_exclusions_route = GetParam();
+        DnsRoutingBase::SetUp();
         vpn.kill_switch_on = true;
         vpn.tunnel->on_before_endpoint_disconnect(redirect_upstream.get());
         vpn.tunnel->upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_CLOSED, nullptr);
         vpn.tunnel->on_after_endpoint_disconnect(redirect_upstream.get());
-        vpn_network_manager_notify_app_request_domain("forward-to-system.example.com", -1);
+        vpn_network_manager_notify_app_request_domain(APP_REQUEST_DOMAIN, -1);
         ASSERT_NO_FATAL_FAILURE(open_connection());
     }
 
     void TearDown() override {
-        vpn_network_manager_notify_app_request_domain("forward-to-system.example.com", 0);
+        vpn_network_manager_notify_app_request_domain(APP_REQUEST_DOMAIN, 0);
 
-        DnsRouting::TearDown();
+        DnsRoutingBase::TearDown();
     }
 };
 
-TEST_F(AppInitiatedDnsRouting, MatchingDomain) {
-    ASSERT_NO_FATAL_FAILURE(raise_dns_request("forward-to-system.example.com"));
-    this->mock_system_dns_server->expect({
-            .request = MockDnsServer::Request{.tcp = false, .qtype = 1, .qname = "forward-to-system.example.com."},
-    });
-    vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
-    vpn_event_loop_run(this->ev_loop.get());
-    ASSERT_EQ(1, this->system_complete);
-    ASSERT_EQ(0, this->system_unexpected);
-    ASSERT_EQ(0, bypass_upstream->connections.size());
-    ASSERT_EQ(0, redirect_upstream->connections.size());
+TEST_P(AppInitiatedDnsRouting, MatchingDomain) {
+    bool alt_route = GetParam();
+    ASSERT_NO_FATAL_FAILURE(raise_dns_request(APP_REQUEST_DOMAIN));
+
+    if (alt_route) {
+        run_event_loop_once();
+        // The app-requested domain is treated as EXCLUDED; with the alternative route it must go to its original
+        // destination through the bypass upstream instead of the system DNS proxy.
+        ASSERT_EQ(1, bypass_upstream->connections.size());
+        ASSERT_EQ(dst, bypass_upstream->last_destination);
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+        ASSERT_EQ(0, system_complete);
+        ASSERT_EQ(0, system_unexpected);
+    } else {
+        this->mock_system_dns_server->expect({
+                .request = MockDnsServer::Request{.tcp = false, .qtype = 1, .qname = AG_FMT("{}.", APP_REQUEST_DOMAIN)},
+        });
+        vpn_event_loop_exit(this->ev_loop.get(), DEFAULT_TIMEOUT);
+        vpn_event_loop_run(this->ev_loop.get());
+        ASSERT_EQ(1, this->system_complete);
+        ASSERT_EQ(0, this->system_unexpected);
+        ASSERT_EQ(0, bypass_upstream->connections.size());
+        ASSERT_EQ(0, redirect_upstream->connections.size());
+    }
 }
 
-TEST_F(AppInitiatedDnsRouting, NonMatchingDomain) {
+TEST_P(AppInitiatedDnsRouting, NonMatchingDomain) {
     constexpr auto TIMEOUT = ag::Millis{1000};
     ASSERT_NO_FATAL_FAILURE(raise_dns_request("example.org"));
     vpn_event_loop_exit(this->ev_loop.get(), TIMEOUT);
@@ -361,6 +481,8 @@ TEST_F(AppInitiatedDnsRouting, NonMatchingDomain) {
     ASSERT_EQ(0, bypass_upstream->connections.size());
     ASSERT_EQ(0, redirect_upstream->connections.size());
 }
+
+INSTANTIATE_TEST_SUITE_P(DnsRouting, AppInitiatedDnsRouting, testing::Bool());
 
 class CustomDnsRouting : public DnsRouting {
 public:

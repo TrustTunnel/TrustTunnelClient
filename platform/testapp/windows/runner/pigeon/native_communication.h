@@ -82,6 +82,11 @@ class NativeVpnInterface {
   virtual ~NativeVpnInterface() {}
   virtual std::optional<FlutterError> Start(const std::string& config) = 0;
   virtual std::optional<FlutterError> Stop() = 0;
+  // Export log files from the VPN process(es).
+  //
+  // Returns a list of absolute paths to snapshot files in a temporary
+  // directory. The caller is responsible for cleaning up these files.
+  virtual ErrorOr<flutter::EncodableList> ExportLogs() = 0;
 
   // The codec used by NativeVpnInterface.
   static const flutter::StandardMessageCodec& GetCodec();

@@ -138,6 +138,14 @@ typedef struct {
      *     quic://dns.adguard.com:8853 -- DNS-over-QUIC
      */
     AG_ARRAY_OF(const char *) dns_upstreams;
+    /**
+     * If `true`, DNS queries for excluded (or, in selective mode, not included) domains
+     * will be sent to their original destinations through the bypass upstream, instead
+     * of being redirected to the system DNS proxy.
+     *
+     * The default value is `false`.
+     */
+    bool dns_alt_exclusions_route;
 } VpnListenerConfig;
 
 typedef struct {

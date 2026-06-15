@@ -2,6 +2,11 @@ name: Deploy Android library
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (e.g. 1.2.3). If omitted, the version is detected from CHANGELOG.md."
+        required: false
+        type: string
 
 jobs:
   deploy-android:
@@ -24,6 +29,20 @@ jobs:
         run: |
           python3 -m pip install conan --upgrade
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      - name: Detect version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+[^]]*\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([^]]+)\].*/\1/')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set version
+        run: |
+          ./scripts/set_version.sh ${{ steps.version.outputs.version }}
 
       - name: Build Android library
         run: |
