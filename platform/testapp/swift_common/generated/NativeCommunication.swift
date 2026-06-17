@@ -93,6 +93,11 @@ class NativeCommunicationPigeonCodec: FlutterStandardMessageCodec, @unchecked Se
 protocol NativeVpnInterface {
   func start(config: String) throws
   func stop() throws
+  /// Export log files from the VPN process(es).
+  ///
+  /// Returns a list of absolute paths to snapshot files in a temporary
+  /// directory. The caller is responsible for cleaning up these files.
+  func exportLogs() throws -> [String]
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -128,6 +133,23 @@ class NativeVpnInterfaceSetup {
       }
     } else {
       stopChannel.setMessageHandler(nil)
+    }
+    /// Export log files from the VPN process(es).
+    ///
+    /// Returns a list of absolute paths to snapshot files in a temporary
+    /// directory. The caller is responsible for cleaning up these files.
+    let exportLogsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.exportLogs\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      exportLogsChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.exportLogs()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      exportLogsChannel.setMessageHandler(nil)
     }
   }
 }

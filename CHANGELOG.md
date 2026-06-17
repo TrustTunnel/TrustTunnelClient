@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Default MTU value increased from 1280 to 1350 to avoid possible QUIC fragmentation.
+
 ### Deprecated
 
 ### Removed
@@ -17,6 +19,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.4] - 2026-06-11
+
+### Added
+
+- File logging and logs exporting for apple and android platform adapters. See `VpnManager.exportLogs()` and `VpnService.exportLogs`.
+
+## [1.1.5-beta.3] - 2026-06-09
+
+### Added
+
+- An alternative route for DNS queries for excluded domains, selected with `VpnListenerConfig::dns_alt_exclusions_route`.
 
 ## [1.1.5-beta.2] - 2026-06-09
 
@@ -413,7 +427,9 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...HEAD
+[1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
+[1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3
 [1.1.5-beta.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...v1.1.5-beta.2
 [1.1.5-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.5-beta.1
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4

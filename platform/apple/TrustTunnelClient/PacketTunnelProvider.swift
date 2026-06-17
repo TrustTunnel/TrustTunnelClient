@@ -9,8 +9,9 @@ enum TunnelError : Error {
 }
 
 /// Logs emitted by this base class respect Logger.setCallback.
-/// Call Logger.setCallback from the initializer of your subclass if you want
-/// to capture logs emitted from the provider in the expected sink from the start.
+/// A `FileLogger` is installed automatically inside `startTunnel`, so subclass
+/// `init` logs are not captured to file unless the subclass calls
+/// `Logger.setCallback` in its initializer.
 open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private let clientQueue = DispatchQueue(label: "packet.tunnel.queue", qos: .userInitiated)
     private var vpnClient: VpnClient? = nil
@@ -18,6 +19,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     private var appGroup: String = ""
     private var startProcessed = false
     private let logger = Logger(category: "PacketTunnel")
+    private var fileLogger: FileLogger?
 
     private let ADGUARD_DNS_SERVERS = ["46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff"]
     private let FAKE_DNS_SERVER = ["198.18.53.53"]
@@ -37,6 +39,13 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             } else {
                 logger.warn("Query log processing is disabled because either application group or bundle identifier are not provided")
             }
+        }
+        if !self.appGroup.isEmpty, let logsDir = FileLogger.logsDirectory(appGroup: self.appGroup) {
+            let fileLog = FileLogger(directory: logsDir, baseName: FileLogger.extensionBaseName)
+            fileLog.install()
+            self.fileLogger = fileLog
+        } else {
+            self.fileLogger = nil
         }
         if (config == nil) {
             completionHandler(TunnelError.parse_config_failed)

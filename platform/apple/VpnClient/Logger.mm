@@ -74,18 +74,14 @@ void install_native_callback() {
     ag::Logger::set_callback([](ag::LogLevel level, std::string_view message) { dispatch_log(level, message); });
 }
 
-class NativeLoggerInitializer {
-public:
-    NativeLoggerInitializer() { install_native_callback(); }
-};
-
-static NativeLoggerInitializer g_native_logger_initializer;
-
 } // namespace
 
 @implementation NativeLogger
 
 + (void)setCallback:(NativeLoggerCallback)callback {
+    static std::once_flag once;
+    std::call_once(once, install_native_callback);
+
     std::scoped_lock lock(g_callback_guard);
     g_callback = [callback copy];
 }

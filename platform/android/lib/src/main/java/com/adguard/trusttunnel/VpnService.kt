@@ -12,9 +12,14 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
+import com.adguard.trusttunnel.log.FileLogger
 import com.adguard.trusttunnel.utils.NetworkUtils
 import com.adguard.trusttunnel.utils.concurrent.thread.ThreadManager
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class VpnService : android.net.VpnService(), VpnClientListener {
 
@@ -28,6 +33,9 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private lateinit var networkCallback: NetworkUtils.Companion.NetworkCollector
         private var connectionInfoFile: PersistentRingBuffer? = null
         private var currentStartId: Int = -1
+
+        private var fileLogger: FileLogger? = null
+        private var initialized = false
 
         private var vpnClient: VpnClient? = null
         @Volatile
@@ -127,6 +135,46 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                     appNotifier?.onConnectionInfo(record)
                 }
             }
+        }
+
+        /**
+         * Initialize the adapter. Call once at app startup (e.g., from
+         * [MainActivity.configureFlutterEngine]) to set up network monitoring and
+         * file logging from the very beginning.
+         *
+         * Idempotent — safe to call multiple times.
+         */
+        fun initialize(context: Context) {
+            if (initialized) return
+            initialized = true
+
+            // FileLogger — captures all logs from this point forward
+            val logsDir = File(context.filesDir, "logs")
+            val logger = FileLogger(logsDir, FileLogger.VPN_BASE_NAME)
+            logger.install()
+            fileLogger = logger
+
+            // Network monitoring — detect network changes for VPN recovery
+            startNetworkManager(context)
+        }
+
+        /**
+         * Export log files to a timestamped temp directory.
+         *
+         * Returns absolute paths to snapshot copies. Caller (Flutter) owns cleanup.
+         * Safe to call while VPN is active.
+         */
+        fun exportLogs(context: Context): List<String> {
+            if (!initialized) return emptyList()
+
+            val dateStr = SimpleDateFormat("yyyyMMdd'T'HHmmss", Locale.US).apply {
+                timeZone = TimeZone.getDefault()
+            }.format(Date())
+
+            val exportDirName = "trusttunnel_android_logs_$dateStr"
+            val exportDir = File(context.cacheDir, exportDirName)
+
+            return fileLogger?.snapshotTo(exportDir) ?: emptyList()
         }
     }
 

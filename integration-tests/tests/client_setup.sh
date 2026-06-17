@@ -119,7 +119,7 @@ excluded_routes = [
     "192.168.0.0/16",
     "224.0.0.0/3",
 ]
-mtu_size = 1280
+mtu_size = 1350
 EOF
   # Add optional TCP buffer size overrides
   if [[ -n "${TCP_RECV_BUF_SIZE:-}" ]]; then
