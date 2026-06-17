@@ -314,12 +314,17 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
         assert_use(placed);
         m_conn_id_by_upstream_conn_id.emplace(info.upstream_conn_id, listener_conn_id);
 
+        uint32_t flags = 0;
+        if (force_bypass) {
+            flags |= CCRF_DNS_HANDLER_BYPASS;
+        }
+
         ClientConnectRequest event{
                 .id = listener_conn_id,
                 .protocol = info.proto,
                 .src = &info.addrs->src,
                 .dst = &info.addrs->dst,
-                .flags = force_bypass ? CCRF_DNS_HANDLER_BYPASS : 0,
+                .flags = flags,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
 
