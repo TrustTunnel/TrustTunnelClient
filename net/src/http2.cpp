@@ -830,12 +830,14 @@ static int data_source_add(HttpStream *stream, const uint8_t *data, size_t len, 
         source = data_source_create();
         stream->data_source = source;
     }
-    source->has_eof |= eof;
     size_t pending = evbuffer_get_length(source->buf);
     if (pending > DATA_QUEUE_SIZE || len > DATA_QUEUE_SIZE - pending) {
         return NGHTTP2_ERR_BUFFER_ERROR;
     }
     int rv = evbuffer_add(source->buf, data, len);
+    if (rv == 0) {
+        source->has_eof |= eof;
+    }
     return rv;
 }
 
