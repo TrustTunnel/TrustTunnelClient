@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Retrieve GPG signing secrets
-        uses: hashicorp/vault-action@v3
+        uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_URL }}
           method: jwt
@@ -125,7 +125,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Retrieve GPG signing secrets
-        uses: hashicorp/vault-action@v3
+        uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_URL }}
           method: jwt
@@ -243,7 +243,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Retrieve Windows signing secrets
-        uses: hashicorp/vault-action@v3
+        uses: hashicorp/vault-action@v4
         with:
           url: ${{ vars.VAULT_URL }}
           method: jwt

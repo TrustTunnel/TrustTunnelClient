@@ -24,7 +24,7 @@
 
 using namespace ag; // NOLINT(google-build-using-namespace)
 
-static constexpr uint32_t DEFAULT_MTU = 1280;
+static constexpr uint32_t DEFAULT_MTU = 1350;
 static const Logger g_logger("TRUSTTUNNEL_CLIENT"); // NOLINT(readability-identifier-naming)
 
 static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_PROTO_MAP = {
