@@ -277,7 +277,7 @@ impl TunListener {
         ]
     }
     pub fn default_mtu_size() -> usize {
-        1280
+        1350
     }
 
     pub fn default_tcp_recv_buf_size() -> usize {

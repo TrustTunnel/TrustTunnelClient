@@ -314,12 +314,17 @@ uint64_t ag::DnsHandlerClientListenerBase::send_as_listener(
         assert_use(placed);
         m_conn_id_by_upstream_conn_id.emplace(info.upstream_conn_id, listener_conn_id);
 
+        uint32_t flags = 0;
+        if (force_bypass) {
+            flags |= CCRF_DNS_HANDLER_BYPASS;
+        }
+
         ClientConnectRequest event{
                 .id = listener_conn_id,
                 .protocol = info.proto,
                 .src = &info.addrs->src,
                 .dst = &info.addrs->dst,
-                .flags = force_bypass ? CCRF_DNS_HANDLER_BYPASS : 0,
+                .flags = flags,
         };
         this->handler.func(this->handler.arg, CLIENT_EVENT_CONNECT_REQUEST, &event);
 
@@ -627,6 +632,7 @@ bool ag::DnsHandler::start_dns_proxy() {
             });
 
     if (!m_dns_proxy->start()) {
+        m_dns_proxy.reset();
         log_handler(this, err, "Failed to start DNS proxy");
         return false;
     }
@@ -646,6 +652,7 @@ bool ag::DnsHandler::start_dns_proxy() {
     });
 
     if (!m_client->init()) {
+        m_client.reset();
         log_handler(this, err, "Failed to initialize DNS client");
         return false;
     }
@@ -653,6 +660,8 @@ bool ag::DnsHandler::start_dns_proxy() {
     return true;
 }
 
+// `start_system_dns_proxy()` MUST leave the client in a consistent/operable state on failure
+// (with possibly broken DNS). Next start might succeed and recover DNS functionality.
 bool ag::DnsHandler::start_system_dns_proxy() {
     SystemDnsServers servers = dns_manager_get_system_servers(ServerUpstream::vpn->parameters.network_manager->dns);
 
@@ -728,6 +737,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
         });
 
         if (!proxy->start()) {
+            proxy.reset();
             log_handler(this, err, "Failed to start system{} DNS proxy", servers == &servers_v6 ? " (IPv6)" : "");
             return false;
         }
@@ -749,6 +759,7 @@ bool ag::DnsHandler::start_system_dns_proxy() {
         });
 
         if (!client->init()) {
+            client.reset();
             log_handler(this, err, "Failed to initialize DNS client");
             return false;
         }
@@ -796,6 +807,7 @@ void ag::DnsHandler::client_handler(std::unordered_map<uint16_t, uint64_t> &map,
     }
 }
 
+// Ignore proxy start error on DNS/network change: we might succeed and recover on next change.
 void ag::DnsHandler::on_dns_change(void *arg) {
     auto *self = (DnsHandler *) arg;
     log_handler(self, info, "Restarting system DNS proxy");
