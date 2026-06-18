@@ -63,7 +63,7 @@ jobs:
               conan remove -c "*" || true
               conan cache clean || true
           - name: Mac
-            runs-on: '["ephemeral","ephemeral-mac","${{ vars.BUILD_IMAGE_VERSION_MACOS }}"]'
+            runs-on: '["ephemeral","ephemeral-mac","${{ vars.BUILD_IMAGE_VERSION_MACOS }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
             container-image: ''
             artifact-name: test-results-macos-private
             test-command: |
