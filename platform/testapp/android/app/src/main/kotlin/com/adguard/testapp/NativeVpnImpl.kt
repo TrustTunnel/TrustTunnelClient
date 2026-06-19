@@ -24,4 +24,8 @@ class NativeVpnImpl (
     override fun stop() {
         VpnService.stop(context);
     }
+
+    override fun exportLogs(): List<String> {
+        return VpnService.exportLogs(context)
+    }
 }

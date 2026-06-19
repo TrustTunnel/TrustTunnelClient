@@ -34,3 +34,8 @@ std::optional<FlutterError> NativeVpnImpl::Stop() {
     vpn_easy_stop();
     return std::nullopt;
 }
+
+ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
+    // Log export is not yet implemented for the Windows adapter
+    return flutter::EncodableList{};
+}

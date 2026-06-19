@@ -331,6 +331,7 @@ void ag::DnsClient::connect_socket() {
 
     if (VpnError error = tcp_socket_connect(m_tcp_socket.get(), &connect_parameters); error.code) {
         log_client(this, warn, "tcp_socket_connect(): ({}) {}", error.code, error.text);
+        m_tcp_socket.reset();
         return;
     }
 
