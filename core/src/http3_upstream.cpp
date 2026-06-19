@@ -25,10 +25,9 @@
 using namespace std::chrono;
 using namespace ag;
 
-// FIXME: these should be available from the HTTP/3 implementation
 enum Http3Upstream::Http3ErrorCode : uint64_t {
-    H3_NO_ERROR = 0x100,
-    H3_REQUEST_CANCELLED = 0x10c,
+    H3_NO_ERROR = NGHTTP3_H3_NO_ERROR,
+    H3_REQUEST_CANCELLED = NGHTTP3_H3_REQUEST_CANCELLED,
 };
 
 enum Http3Upstream::State : int {
