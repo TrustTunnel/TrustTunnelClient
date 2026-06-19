@@ -10,8 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Default MTU value increased from 1280 to 1350 to avoid possible QUIC fragmentation.
-
 ### Deprecated
 
 ### Removed
@@ -19,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.5] - 2026-06-19
+
+### Changed
+
+- Default MTU value increased from 1280 to 1350 to avoid possible QUIC fragmentation.
 
 ## [1.1.5-beta.4] - 2026-06-11
 
@@ -427,7 +431,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...HEAD
+[1.1.5-beta.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...v1.1.5-beta.5
 [1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
 [1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3
 [1.1.5-beta.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...v1.1.5-beta.2

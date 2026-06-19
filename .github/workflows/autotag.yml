@@ -1,16 +1,19 @@
 name: Check CHANGELOG and auto-tag
 
 on:
-  push:
-    branches:
-      - master
-      - 'stable-*'
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
 
 jobs:
   autotag:
     name: Check CHANGELOG and auto-tag
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/autotag.yml@master
-    secrets: inherit
+    if: github.repository_owner == 'AdGuardSoftwareLimited'
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/tag-from-changelog.yml@master
     permissions:
       contents: write
+    with:
+      team: corelibs
+      ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
