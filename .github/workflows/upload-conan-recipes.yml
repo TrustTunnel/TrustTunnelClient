@@ -10,7 +10,18 @@ jobs:
   upload-conan-recipes:
     name: Upload conan recipes
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/upload-conan-recipes.yml@master
-    with:
-      export_script_path: scripts/export_conan.sh
-    secrets: inherit
+    environment: conan-artifactory
+    runs-on: [team-corelibs]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Upload conan recipes
+        uses: AdGuardSoftwareLimited/native-libs-common/.github/actions/upload-conan-recipes@master
+        with:
+          export_script_path: scripts/export_conan.sh
+          conan_repo_url: ${{ vars.CONAN_REPO_URL }}
+          artifactory_user: ${{ secrets.ARTIFACTORY_USER }}
+          artifactory_api_key: ${{ secrets.ARTIFACTORY_API_KEY }}
