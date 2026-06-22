@@ -124,6 +124,8 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                                 self.reasserting = false
                             }
                             break
+                        case .waiting_for_network:
+                            fallthrough
                         case .waiting_for_recovery:
                             fallthrough
                         case .recovering:
