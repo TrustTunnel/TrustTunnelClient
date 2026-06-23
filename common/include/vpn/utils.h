@@ -187,6 +187,7 @@ struct VpnDefaultSettings {
     bool exclusions_tcp_early_ack_enabled;      /**< Default state for TCP early ACK for exclusions */
     bool exclusions_preresolve_enabled;         /**< Default state for pre-resolving exclusions in background */
     uint32_t exclusions_preresolve_max_queries; /**< Default max number of exclusion domains to pre-resolve */
+    const char *exclusions_scannable_ports;     /**< Default comma-separated list of scannable ports with ranges */
 };
 
 /**

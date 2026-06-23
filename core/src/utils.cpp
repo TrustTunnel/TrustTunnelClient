@@ -1,4 +1,8 @@
+#include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <numeric>
+#include <utility>
 
 #include "common/base64.h"
 #include "common/net_utils.h"
@@ -10,6 +14,71 @@
 #include "vpn/utils.h"
 
 namespace ag {
+
+PortRangeSet::PortRangeSet(std::vector<std::pair<uint16_t, uint16_t>> ranges) {
+    std::ranges::sort(ranges);
+    for (auto [start, finish] : ranges) {
+        if (start > finish) {
+            continue;
+        }
+        if (m_ranges.empty() || start > m_ranges.back().second + 1U) {
+            m_ranges.emplace_back(start, finish);
+        } else {
+            m_ranges.back().second = std::max(m_ranges.back().second, finish);
+        }
+    }
+}
+
+bool PortRangeSet::contains(uint16_t port) const {
+    auto it = std::ranges::upper_bound(m_ranges, port, {}, &std::pair<uint16_t, uint16_t>::first);
+    if (it == m_ranges.begin()) {
+        return false;
+    }
+    --it;
+    return port <= it->second;
+}
+
+PortRangeSet parse_scannable_ports(std::string_view str) {
+    auto parse_port = [](std::string_view token) -> std::optional<uint16_t> {
+        if (token.empty()) {
+            return std::nullopt;
+        }
+        uint16_t value = 0;
+        auto [ptr, ec] = std::from_chars(token.data(), token.data() + token.size(), value);
+        if (ec != std::errc{} || ptr != token.data() + token.size() || value == 0) {
+            return std::nullopt;
+        }
+        return value;
+    };
+
+    std::vector<std::pair<uint16_t, uint16_t>> ranges;
+    size_t pos = 0;
+    while (pos < str.size()) {
+        while (pos < str.size() && (str[pos] == ',' || std::isspace(static_cast<unsigned char>(str[pos])))) {
+            ++pos;
+        }
+        if (pos >= str.size()) {
+            break;
+        }
+        size_t end = pos;
+        while (end < str.size() && str[end] != ',' && !std::isspace(static_cast<unsigned char>(str[end]))) {
+            ++end;
+        }
+        std::string_view token = str.substr(pos, end - pos);
+        if (size_t colon = token.find(':'); colon != std::string_view::npos) {
+            auto start = parse_port(token.substr(0, colon));
+            auto finish = parse_port(token.substr(colon + 1));
+            if (start.has_value() && finish.has_value()) {
+                ranges.emplace_back(start.value(), finish.value());
+            }
+        } else if (auto p = parse_port(token); p.has_value()) {
+            ranges.emplace_back(p.value(), p.value());
+        }
+        pos = end;
+    }
+
+    return PortRangeSet{std::move(ranges)};
+}
 
 std::string tunnel_addr_to_str(const TunnelAddress *tun_addr) {
     std::string out;

@@ -219,6 +219,8 @@ public:
         ASSERT_EQ(ClientListener::InitResult::SUCCESS, client_listener->init(&vpn, {&listener_handler, this}));
         vpn.client_listener = client_listener;
 
+        vpn.exclusions_scannable_ports = ag::parse_scannable_ports("443,80,8080,8008,853");
+
         ASSERT_TRUE(tun.init(&vpn));
 
         tun.upstream_handler(vpn.endpoint_upstream, SERVER_EVENT_SESSION_OPENED, nullptr);
@@ -555,6 +557,23 @@ TEST_F(FakeConnectionTest, NonscannablePort) {
     tun.upstream_handler(redirect_upstream, SERVER_EVENT_CONNECTION_CLOSED, &redirect_id);
     ASSERT_EQ(client_listener->connections[client_id].state, TestListener::CS_COMPLETED);
     ASSERT_EQ(client_listener->connections[client_id].result, CCR_REJECT);
+}
+
+TEST_F(FakeConnectionTest, CustomScannablePortList) {
+    static constexpr auto TTL = ag::Secs{500};
+
+    dst = SocketAddress("1.1.1.2:777");
+    ASSERT_TRUE(vpn.domain_filter.update_exclusions(VPN_MODE_GENERAL, "excluded.example"));
+    vpn.domain_filter.add_exclusion_suspect(std::get<SocketAddress>(dst), TTL);
+    vpn.exclusions_scannable_ports = ag::parse_scannable_ports("700:800");
+
+    client_id = vpn.listener_conn_id_generator.get();
+    ASSERT_NO_FATAL_FAILURE(raise_client_connection(client_id));
+
+    // Port 777 is inside the custom scannable range, so the suspect exclusion path is taken
+    // and finalize_connect_action returns nullopt (deferred decision).
+    std::optional<VpnConnectAction> action = tun.finalize_connect_action({client_id, VPN_CA_DEFAULT, "some", 1});
+    ASSERT_FALSE(action.has_value());
 }
 
 TEST_F(FakeConnectionTest, NonexcludedDomain) {

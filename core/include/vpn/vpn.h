@@ -560,6 +560,13 @@ typedef struct {
     uint32_t exclusions_preresolve_max_queries;
 
     /**
+     * Comma-separated list of ports considered "scannable" for domain extraction and exclusion matching.
+     * Supports individual ports and ranges, e.g. "443,80,8080:8090,853".
+     * If empty, the default list is used.
+     */
+    ag::VpnStr exclusions_scannable_ports;
+
+    /**
      * Path to a directory where SSL sessions would be cached to persist
      * between vpn startups. Directory should be already created.
      * If null, SSL sessions will not be cached on disk.
