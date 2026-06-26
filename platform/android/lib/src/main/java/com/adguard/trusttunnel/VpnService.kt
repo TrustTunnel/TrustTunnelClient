@@ -296,7 +296,34 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 .setMtu(tunConfig.mtuSize.toInt())
                 .addAddress("172.20.2.13", 32)
                 .addAddress("fdfd:29::2", 64)
-                .addDisallowedApplication(applicationContext.packageName)
+
+            val selfPackageName = applicationContext.packageName
+            if (tunConfig.perAppProxy) {
+                if (tunConfig.bypassApps) {
+                    builder.addDisallowedApplication(selfPackageName)
+                    tunConfig.proxyApps.forEach { pkg ->
+                        if (pkg != selfPackageName) {
+                            try {
+                                builder.addDisallowedApplication(pkg)
+                            } catch (e: Exception) {
+                                LOG.warn("Failed to bypass app $pkg: $e")
+                            }
+                        }
+                    }
+                } else {
+                    tunConfig.proxyApps.forEach { pkg ->
+                        if (pkg != selfPackageName) {
+                            try {
+                                builder.addAllowedApplication(pkg)
+                            } catch (e: Exception) {
+                                LOG.warn("Failed to proxy app $pkg: $e")
+                            }
+                        }
+                    }
+                }
+            } else {
+                builder.addDisallowedApplication(selfPackageName)
+            }
             val dnsServers = if (config.endpoint.dnsUpstreams.isEmpty()) {
                 ADGUARD_DNS_SERVERS
             } else {
