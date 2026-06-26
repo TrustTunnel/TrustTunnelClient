@@ -55,8 +55,6 @@ private:
         std::unique_ptr<DataBuffer> unread_data;
         std::optional<ServerError> pending_error;
         size_t sent_bytes_to_notify = 0;
-        /** Remaining send window (bytes), tracked via on_window_update callback */
-        size_t window_remaining = http::Http3Settings::DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL;
 
         [[nodiscard]] bool has_unread_data() const;
     };
@@ -145,7 +143,6 @@ private:
     static void on_output(void *arg, const http::QuicNetworkPath &path, Uint8View chunk);
     static void on_data_sent(void *arg, uint64_t stream_id, size_t n);
     static void on_expiry_update(void *arg, Nanos period);
-    static void on_window_update(void *arg, uint64_t stream_id, size_t n);
 
     std::pair<uint64_t, TcpConnection *> get_tcp_conn_by_stream_id(uint64_t id);
     void handle_response(uint64_t stream_id, const HttpHeaders *headers);
@@ -161,6 +158,7 @@ private:
     int read_out_pending_data(uint64_t conn_id, TcpConnection *conn);
     int raise_read_event(uint64_t conn_id, U8View data);
     void poll_tcp_connections();
+    void poll_mux_connections();
     void poll_connections();
     void retry_connect_requests();
     static void complete_read(void *arg, TaskId task_id);

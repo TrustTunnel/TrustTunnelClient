@@ -96,6 +96,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     m_h3_settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
     m_h3_settings.initial_max_stream_data_uni = QUIC_STREAM_WINDOW_SIZE;
     m_h3_settings.initial_max_streams_bidi = QUIC_MAX_STREAMS_NUM;
+    m_h3_settings.max_window = QUIC_MAX_CONNECTION_WINDOW_SIZE;
+    m_h3_settings.max_stream_window = QUIC_MAX_STREAM_WINDOW_SIZE;
 
     // Handoff — reuse connection pre-established by ping
     if (this->vpn->quic_connector->client) {
@@ -316,12 +318,14 @@ ssize_t Http3Upstream::send(uint64_t id, const uint8_t *data, size_t length) {
         } else {
             r = (ssize_t) length;
             conn->sent_bytes_to_notify += length;
-            conn->window_remaining -= std::min(length, conn->window_remaining);
             conn->flags.set(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
             m_h3_client->flush();
         }
     } else if (m_udp_mux.check_connection(id)) {
         r = m_udp_mux.send(id, {data, length});
+        if (r > 0 && m_h3_client) {
+            m_h3_client->flush();
+        }
     } else {
         log_conn(this, id, err, "Trying to send data on already closed or nonexistent connection");
         r = -1;
@@ -340,11 +344,14 @@ size_t Http3Upstream::available_to_send(uint64_t id) {
     }
 
     if (auto it = m_tcp_connections.find(id); it != m_tcp_connections.end()) {
-        if (it->second.window_remaining == 0) {
-            // Mark: notify caller when the window opens (via on_window_update → poll_tcp_connections)
+        // Report the stream's real remaining send window so the inner stack applies proper
+        // backpressure. The window grows back as the peer sends MAX_STREAM_DATA frames
+        size_t capacity = m_h3_client ? m_h3_client->get_stream_send_capacity(it->second.stream_id) : 0;
+        if (capacity == 0) {
+            // Ask to be notified once the window reopens.
             it->second.flags.set(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
         }
-        return it->second.window_remaining;
+        return capacity;
     }
 
     log_conn(this, id, dbg, "Trying to get window size on closed or nonexistent connection");
@@ -591,7 +598,6 @@ http::Http3Client::Callbacks Http3Upstream::make_upstream_callbacks(Http3Upstrea
             .on_response = on_response,
             .on_trailer_headers = nullptr,
             .on_body = on_body,
-            .on_window_update = on_window_update,
             .on_stream_read_finished = nullptr,
             .on_stream_closed = on_stream_closed,
             .on_close = on_close,
@@ -773,6 +779,7 @@ void Http3Upstream::on_data_sent(void *arg, uint64_t /*stream_id*/, size_t /*n*/
                             auto *s = (Http3Upstream *) a;
                             s->m_notify_sent_task_id.release();
                             s->poll_tcp_connections();
+                            s->poll_mux_connections();
                         },
                 });
     }
@@ -785,37 +792,16 @@ void Http3Upstream::on_expiry_update(void *arg, Nanos period) {
         self->m_quic_timer.reset(
                 event_new(vpn_event_loop_get_base(self->vpn->parameters.ev_loop), -1, 0, quic_timer_callback, self));
     }
-    uint64_t timeout_ms = uint64_t(duration_cast<milliseconds>(period).count());
     // Cap by our own idle timeout so we don't let the connection silently die
-    timeout_ms = std::min(timeout_ms, uint64_t(duration_cast<milliseconds>(self->m_max_idle_timeout).count()));
-    const timeval tv = ms_to_timeval(uint32_t(timeout_ms));
+    Nanos capped = std::min(period, duration_cast<Nanos>(self->m_max_idle_timeout));
+    if (capped < Nanos::zero()) {
+        capped = Nanos::zero();
+    }
+    timeval tv{};
+    tv.tv_sec = decltype(tv.tv_sec)(duration_cast<seconds>(capped).count());
+    tv.tv_usec = decltype(tv.tv_usec)(duration_cast<microseconds>(capped).count() % 1000000);
     event_del(self->m_quic_timer.get());
     event_add(self->m_quic_timer.get(), &tv);
-}
-
-// Called when the server extends the send window for a stream (MAX_STREAM_DATA frame received)
-// n = additional bytes made available
-void Http3Upstream::on_window_update(void *arg, uint64_t stream_id, size_t n) {
-    auto *self = (Http3Upstream *) arg;
-    auto [conn_id, conn] = self->get_tcp_conn_by_stream_id(stream_id);
-    if (conn == nullptr) {
-        return;
-    }
-
-    conn->window_remaining += n;
-
-    // Schedule SERVER_EVENT_DATA_SENT if the window was previously exhausted
-    if (conn->flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && !self->m_notify_sent_task_id.has_value()) {
-        self->m_notify_sent_task_id = event_loop::submit(self->vpn->parameters.ev_loop,
-                {
-                        self,
-                        [](void *a, TaskId) {
-                            auto *s = (Http3Upstream *) a;
-                            s->m_notify_sent_task_id.release();
-                            s->poll_tcp_connections();
-                        },
-                });
-    }
 }
 
 std::pair<uint64_t, Http3Upstream::TcpConnection *> Http3Upstream::get_tcp_conn_by_stream_id(uint64_t id) {
@@ -1075,7 +1061,8 @@ void Http3Upstream::poll_tcp_connections() {
         }
 
         if (conn.flags.test(TcpConnection::TCF_ESTABLISHED) && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED)
-                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && conn.window_remaining > 0) {
+                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && m_h3_client
+                && m_h3_client->get_stream_send_capacity(conn.stream_id) > 0) {
             conn.flags.reset(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
             ServerDataSentEvent event = {conn_id, std::exchange(conn.sent_bytes_to_notify, 0)};
             this->handler.func(this->handler.arg, SERVER_EVENT_DATA_SENT, &event);
@@ -1085,8 +1072,19 @@ void Http3Upstream::poll_tcp_connections() {
     }
 }
 
+void Http3Upstream::poll_mux_connections() {
+    if (!m_h3_client) {
+        return;
+    }
+    if (std::optional<uint64_t> sid = m_udp_mux.get_stream_id();
+            sid.has_value() && m_h3_client->get_stream_send_capacity(*sid) > 0) {
+        m_udp_mux.report_sent_bytes();
+    }
+}
+
 void Http3Upstream::poll_connections() {
     poll_tcp_connections();
+    poll_mux_connections();
     if (m_h3_client) {
         m_h3_client->flush();
     }
@@ -1157,6 +1155,14 @@ int Http3Upstream::mux_send_data_callback(ServerUpstream *upstream, uint64_t str
 
     if (!self->m_h3_client) {
         return -1;
+    }
+
+    size_t stream_cap = self->m_h3_client->get_stream_send_capacity(stream_id);
+    size_t overhead = varint_len((uint64_t) data.size()) + varint_len(0); // HTTP/3 DATA frame overhead
+    if ((overhead + data.size()) > stream_cap) {
+        log_upstream(self, dbg, "Failed to send packet on {} stream: not enough stream capacity ({})",
+                stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP", stream_cap);
+        return 0; // Silently drop packet
     }
 
     if (auto err = self->m_h3_client->submit_body(stream_id, data, false); err != nullptr) {
