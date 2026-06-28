@@ -48,8 +48,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' \
-                        | gpg --import --batch --yes
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
 
       - name: Build for all architectures
         env:
@@ -151,8 +150,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' \
-                        | gpg --import --batch --yes
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
 
       - name: Sync signing certificates
         uses: AdGuardSoftwareLimited/apple-devices/.github/actions/match-sync@master
