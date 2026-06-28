@@ -141,8 +141,6 @@ jobs:
           source ./venv/bin/activate
           pip install conan
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-          bundle config --local path '.bundle/vendor'
-          bundle install
 
       - name: Detect version
         id: version
@@ -155,21 +153,19 @@ jobs:
           echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/'
                         | gpg --import --batch --yes
 
-      - name: Install code signing certificates
-        env:
-          REPO_ROOT: ${{ github.workspace }}
-        run: |
-          source ./venv/bin/activate
-          bundle exec fastlane remove_certs || true
-          bundle exec fastlane certs
+      - name: Sync signing certificates
+        uses: AdGuardSoftwareLimited/apple-devices/.github/actions/match-sync@master
+        with:
+          type: developer_id
+          app_id: com.adguard.trusttunnel.cli
+          keychain_name: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+          platform: macos
+          skip_profiles: "true"
+          vault_url: ${{ vars.VAULT_URL }}
 
       - name: Build universal binary
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
-          CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
-          GPG_KEY: devteam@adguard.com
-          REPO_ROOT: ${{ github.workspace }}
         run: |
           set -x -e
           source ./venv/bin/activate
@@ -197,17 +193,41 @@ jobs:
               ../build_arm64/trusttunnel/setup_wizard \
               ../build_x86_64/trusttunnel/setup_wizard
             strip setup_wizard
+          popd
 
-            codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime trusttunnel_client
-            codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" --options=runtime setup_wizard
+      - name: Code sign binaries
+        env:
+          CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
+          CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
+          CODESIGN_IDENTIFIER_WIZARD: "com.adguard.trusttunnel.client.wizard"
+          KEYCHAIN_PATH: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+        run: |
+          set -x -e
+          security unlock-keychain -p "" "${KEYCHAIN_PATH}"
+          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" \
+            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client
+          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER_WIZARD}" \
+            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/setup_wizard
 
-            BIN_PATH=${PWD}
-            pushd ${REPO_ROOT}
-              bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/trusttunnel_client"
-              bundle exec fastlane notari id:"${CODESIGN_IDENTIFIER}" bundle:"${BIN_PATH}/setup_wizard"
-              bundle exec fastlane remove_certs || true
-            popd
+      - name: Notarize trusttunnel_client
+        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
+        with:
+          bundle_path: ${{ github.workspace }}/build_universal/trusttunnel_client
+          vault_url: ${{ vars.VAULT_URL }}
 
+      - name: Notarize setup_wizard
+        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
+        with:
+          bundle_path: ${{ github.workspace }}/build_universal/setup_wizard
+          vault_url: ${{ vars.VAULT_URL }}
+
+      - name: GPG sign and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GPG_KEY: devteam@adguard.com
+        run: |
+          set -x -e
+          pushd build_universal
             gpg --default-key "${GPG_KEY}" --detach-sig \
                 --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
                 trusttunnel_client
