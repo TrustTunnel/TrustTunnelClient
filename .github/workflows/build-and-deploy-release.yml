@@ -48,7 +48,8 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo -n "$GPG_SECRET_KEY" | gpg --import --batch --yes
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/'
+                        | gpg --import --batch --yes
 
       - name: Build for all architectures
         env:
@@ -151,7 +152,8 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo -n "$GPG_SECRET_KEY" | gpg --import --batch --yes
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/'
+                        | gpg --import --batch --yes
 
       - name: Install code signing certificates
         env:
