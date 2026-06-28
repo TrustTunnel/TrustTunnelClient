@@ -56,6 +56,7 @@ jobs:
           GPG_KEY: devteam@adguard.com
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          #!/bin/bash
           set -x -e
 
           mkdir -p artifacts
