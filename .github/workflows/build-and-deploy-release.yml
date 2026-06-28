@@ -48,7 +48,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/'
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' \
                         | gpg --import --batch --yes
 
       - name: Build for all architectures
@@ -151,7 +151,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/'
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' \
                         | gpg --import --batch --yes
 
       - name: Sync signing certificates
@@ -311,7 +311,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 
           # Download Wintun
-          $wintunUrl = "$Env:ARTIFACTORY_URL/adguard-pods/binaries/wintun-0.14.1.zip"
+          $wintunUrl = "$Env:ARTIFACTORY_URL/artifactory/adguard-pods/binaries/wintun-0.14.1.zip"
           $wintunZip = Join-Path $PWD 'wintun-0.14.1.zip'
           Invoke-WebRequest -Uri $wintunUrl -OutFile $wintunZip
           Expand-Archive -Force -Path $wintunZip -DestinationPath 'wintun'
