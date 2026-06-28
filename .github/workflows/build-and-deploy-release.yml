@@ -48,7 +48,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
+          echo -n "$GPG_SECRET_KEY" | gpg --import --batch --yes
 
       - name: Build for all architectures
         env:
@@ -151,7 +151,7 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "$GPG_SECRET_KEY" | gpg --import --batch --yes
+          echo -n "$GPG_SECRET_KEY" | gpg --import --batch --yes
 
       - name: Install code signing certificates
         env:
