@@ -65,8 +65,6 @@ typedef AG_ARRAY_OF(const char) VpnStr;
 // QUIC defaults
 static constexpr uint64_t QUIC_CONNECTION_WINDOW_SIZE = 100ul * 1024 * 1024;
 static constexpr uint64_t QUIC_STREAM_WINDOW_SIZE = 1ul * 1024 * 1024;
-static constexpr uint64_t QUIC_MAX_CONNECTION_WINDOW_SIZE = QUIC_CONNECTION_WINDOW_SIZE;
-static constexpr uint64_t QUIC_MAX_STREAM_WINDOW_SIZE = QUIC_CONNECTION_WINDOW_SIZE;
 static constexpr uint64_t QUIC_MAX_STREAMS_NUM = 4ul * 1024;
 static constexpr uint8_t QUIC_H3_ALPN_PROTOS[] = {2, 'h', '3'};
 

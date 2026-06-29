@@ -96,8 +96,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     m_h3_settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
     m_h3_settings.initial_max_stream_data_uni = QUIC_STREAM_WINDOW_SIZE;
     m_h3_settings.initial_max_streams_bidi = QUIC_MAX_STREAMS_NUM;
-    m_h3_settings.max_window = QUIC_MAX_CONNECTION_WINDOW_SIZE;
-    m_h3_settings.max_stream_window = QUIC_MAX_STREAM_WINDOW_SIZE;
+    m_h3_settings.max_window = QUIC_CONNECTION_WINDOW_SIZE;
+    m_h3_settings.max_stream_window = QUIC_STREAM_WINDOW_SIZE;
 
     // Handoff — reuse connection pre-established by ping
     if (this->vpn->quic_connector->client) {
