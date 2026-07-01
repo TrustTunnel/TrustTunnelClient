@@ -723,7 +723,7 @@ void Http3Upstream::on_stream_closed(void *arg, uint64_t stream_id, int error_co
     if (auto [_, conn] = self->get_tcp_conn_by_stream_id(stream_id); conn != nullptr) {
         conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
     }
-    (void) stream_close_code; // used by the caller of close_stream, not here
+    self->close_stream(stream_id, stream_close_code);
 }
 
 // Called when the QUIC connection is closed
@@ -873,10 +873,13 @@ void Http3Upstream::close_stream(uint64_t stream_id, Http3ErrorCode err) {
     if (auto error = m_h3_client->reset_stream(stream_id, (int) err); error != nullptr) {
         log_stream(this, stream_id, dbg, "Failed to reset stream: {}", error->str());
     }
+    // Skip re-entrant flush inside a read callback; socket_handler flushes after the input() loop.
+    if (!m_in_handler) {
+        m_h3_client->flush();
+    }
     if (auto [_, conn] = this->get_tcp_conn_by_stream_id(stream_id); conn != nullptr) {
         conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
     }
-    // NOTE: caller is responsible for calling flush() after close_stream()
 }
 
 void Http3Upstream::process_pending_data(uint64_t stream_id) {
@@ -953,7 +956,6 @@ void Http3Upstream::close_tcp_connection(uint64_t id, bool graceful) {
         const TcpConnection *conn = &i->second;
         if (m_h3_client && !conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
             this->close_stream(i->second.stream_id, graceful ? H3_NO_ERROR : H3_REQUEST_CANCELLED);
-            m_h3_client->flush();
         }
     }
 
