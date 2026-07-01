@@ -263,7 +263,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
                             .anti_dpi = m_config.location.anti_dpi,
                     },
     };
-ª
+
     {
         VpnError err = vpn_connect(m_vpn, &parameters);
         if (err.code != 0) {
