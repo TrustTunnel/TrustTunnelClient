@@ -109,6 +109,13 @@ WIN_EXPORT void *vpn_linux_tunnel_create(VpnOsTunnelSettings *settings);
  * Destroy Linux tunnel.
  */
 WIN_EXPORT void vpn_linux_tunnel_destroy(void *linux_tunnel);
+
+/**
+ * Get the file descriptor of the Linux TUN device.
+ * @param linux_tunnel Tunnel object returned by @ref vpn_linux_tunnel_create
+ * @return File descriptor, or -1 on error.
+ */
+WIN_EXPORT int vpn_linux_tunnel_get_fd(void *linux_tunnel);
 #endif
 
 #ifdef _WIN32
