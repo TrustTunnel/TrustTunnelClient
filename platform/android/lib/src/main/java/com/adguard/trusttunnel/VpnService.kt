@@ -176,6 +176,16 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
             return fileLogger?.snapshotTo(exportDir) ?: emptyList()
         }
+
+        /**
+         * Delete all log files produced by the VPN service.
+         *
+         * Safe to call while the VPN is active.
+         */
+        fun clearLogs() {
+            if (!initialized) return
+            fileLogger?.clearLogs()
+        }
     }
 
     private var state = State.Stopped
