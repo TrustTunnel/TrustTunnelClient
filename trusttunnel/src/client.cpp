@@ -257,6 +257,10 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
                             .username = m_config.location.username.c_str(),
                             .password = m_config.location.password.c_str(),
                             .anti_dpi = m_config.location.anti_dpi,
+                            .recovery =
+                                    {
+                                            .attempts = UINT32_MAX,
+                                    },
                     },
     };
 
