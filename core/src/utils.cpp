@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <numeric>
+#include <utility>
 
 #include "common/base64.h"
 #include "common/net_utils.h"
@@ -10,6 +12,50 @@
 #include "vpn/utils.h"
 
 namespace ag {
+
+PortRangeSet::PortRangeSet(std::vector<std::pair<uint16_t, uint16_t>> ranges) {
+    std::ranges::sort(ranges);
+    for (auto [start, finish] : ranges) {
+        if (start > finish) {
+            continue;
+        }
+        if (m_ranges.empty() || start > m_ranges.back().second + 1U) {
+            m_ranges.emplace_back(start, finish);
+        } else {
+            m_ranges.back().second = std::max(m_ranges.back().second, finish);
+        }
+    }
+}
+
+bool PortRangeSet::contains(uint16_t port) const {
+    auto it = std::ranges::upper_bound(m_ranges, port, {}, &std::pair<uint16_t, uint16_t>::first);
+    if (it == m_ranges.begin()) {
+        return false;
+    }
+    --it;
+    return port <= it->second;
+}
+
+std::optional<PortRangeSet> parse_scannable_ports(std::string_view str) {
+    std::vector<std::pair<uint16_t, uint16_t>> ranges;
+    for (std::string_view token : utils::split_by_any_of(str, ", ", false, true)) {
+        if (size_t colon = token.find(':'); colon != std::string_view::npos) {
+            auto start = utils::to_integer<uint16_t>(token.substr(0, colon));
+            auto finish = utils::to_integer<uint16_t>(token.substr(colon + 1));
+            if (start.has_value() && finish.has_value() && start.value() != 0 && finish.value() != 0) {
+                ranges.emplace_back(start.value(), finish.value());
+            }
+        } else if (auto p = utils::to_integer<uint16_t>(token); p.has_value() && p.value() != 0) {
+            ranges.emplace_back(p.value(), p.value());
+        }
+    }
+
+    if (ranges.empty()) {
+        return std::nullopt;
+    }
+
+    return PortRangeSet{std::move(ranges)};
+}
 
 std::string tunnel_addr_to_str(const TunnelAddress *tun_addr) {
     std::string out;
