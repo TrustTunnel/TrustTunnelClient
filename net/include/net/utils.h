@@ -137,7 +137,6 @@ struct IcmpEchoRequestEvent {
 
 enum MakeSslProtocolType {
     MSPT_TLS,    /**< plain SSL object */
-    MSPT_QUICHE, /**< SSL object will be used with quiche */
     MSPT_NGTCP2, /**< SSL object will be used with ngtcp2 */
 };
 

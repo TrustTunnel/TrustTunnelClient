@@ -3,6 +3,7 @@
 #include <span>
 
 #include "net/network_manager.h"
+#include "net/quic_connector.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
 
@@ -63,7 +64,6 @@ struct PingInfo {
 
     /// QUIC parameters. Set 0 to use defaults.
     uint32_t quic_max_idle_timeout_ms = 0;
-    uint32_t quic_version = 0;
 };
 
 struct PingHandler {

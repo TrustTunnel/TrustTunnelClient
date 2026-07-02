@@ -164,7 +164,7 @@ struct QuicConnector {
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
 };
 
-QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters) {
+inline QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters) {
     auto *connector = new QuicConnector{};
     connector->parameters = *parameters;
     return connector;
@@ -175,7 +175,7 @@ struct MockQuicReadyTask {
     QuicConnectorHandler handler;
 };
 
-VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorConnectParameters *parameters) {
+inline VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorConnectParameters *parameters) {
     if (parameters->ssl != nullptr) {
         SSL_free(parameters->ssl);
     }
@@ -203,7 +203,7 @@ VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorCon
     return {.code = 0, .text = "mock quic connect started"};
 }
 
-void quic_connector_destroy(QuicConnector *connector) {
+inline void quic_connector_destroy(QuicConnector *connector) {
     *connector->alive = false;
     delete connector;
 }
