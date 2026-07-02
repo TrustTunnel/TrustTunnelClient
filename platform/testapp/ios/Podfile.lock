@@ -2,7 +2,7 @@ PODS:
   - Flutter (1.0.0)
   - permission_handler_apple (9.3.0):
     - Flutter
-  - TrustTunnelClient (0.99.71)
+  - TrustTunnelClient (1.1.4)
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
@@ -20,7 +20,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
-  TrustTunnelClient: e2f137c79fc4ee0da3ba1db36d9598c179ac424e
+  TrustTunnelClient: ccf98c534d8b724b7b2b9f5bb374b627e684c4fe
 
 PODFILE CHECKSUM: 9490c3d6dda800525ad719476aefcec10b9cef15
 

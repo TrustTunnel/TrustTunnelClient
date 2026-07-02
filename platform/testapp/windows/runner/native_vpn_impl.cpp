@@ -39,3 +39,8 @@ ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
     // Log export is not yet implemented for the Windows adapter
     return flutter::EncodableList{};
 }
+
+std::optional<FlutterError> NativeVpnImpl::ClearLogs() {
+    // Log clearing is not yet implemented for the Windows adapter
+    return std::nullopt;
+}
