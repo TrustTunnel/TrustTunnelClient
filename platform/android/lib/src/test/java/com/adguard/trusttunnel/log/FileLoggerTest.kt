@@ -230,11 +230,15 @@ class FileLoggerTest {
         val current = File(logDir, "clear.log")
         val archive = File(logDir, "clear.1.log")
         assertTrue("Current file should exist before clear", current.exists())
+        assertTrue("Current file is not empty", current.length().toInt() != 0)
         assertTrue("Archive file should exist before clear", archive.exists())
+        assertTrue("Archive file is not empty", archive.length().toInt() != 0)
 
         logger.clearLogs()
 
-        assertFalse("Current file should be removed", current.exists())
+        // `clearLogs` reopens the file so logging could proceed after
+        assertTrue("Current file exists", current.exists())
+        assertEquals("Current file is empty (clean), ${current.length()}", current.length(), 0)
         assertFalse("Archive file should be removed", archive.exists())
     }
 
