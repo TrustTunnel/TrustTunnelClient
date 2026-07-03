@@ -8,13 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching. Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
 - Add `clearLogs` method for platform adapters.
 
 ### Changed
 
+- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`.
+- `QuicConnector` now wraps `Http3Client` instead of `quiche_conn`.
+- `Http3Upstream` uses event-driven callbacks (`on_body`, `on_response`, etc.) instead of polling.
+- Updated `dns-libs` and `native_libs_common`.
+
 ### Deprecated
 
 ### Removed
+
+- quiche dependency — completely removed from build system, `CMakeLists.txt`, and `conanfile.py`.
+- `QUIC_LOCAL_CONN_ID_LEN`, `QUIC_MAX_UDP_PAYLOAD_SIZE` constants (now provided by ngtcp2).
+- `quic_version` configuration parameter — QUIC version is now auto-negotiated by ngtcp2.
+- `MSPT_QUICHE` enum value — replaced by `MSPT_NGTCP2`.
 
 ### Fixed
 

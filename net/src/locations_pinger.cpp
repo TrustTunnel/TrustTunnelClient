@@ -81,7 +81,6 @@ struct LocationsPinger {
     bool handoff;
     AutoVpnRelay relay_parallel;
     uint32_t quic_max_idle_timeout_ms;
-    uint32_t quic_version;
 };
 
 struct FinalizeLocationInfo {
@@ -130,7 +129,7 @@ static const PingedEndpoint *select_endpoint(const LocationsCtx *location, Pinge
 
 static void destroy_conn_state(PingedEndpoint &endpoint) {
     if (endpoint.is_quic) {
-        quic_connector_destroy((QuicConnector *) endpoint.conn_state);
+        std::unique_ptr<QuicConnectorResult>{(QuicConnectorResult *) endpoint.conn_state};
     } else {
         tcp_socket_destroy((TcpSocket *) endpoint.conn_state);
     }
@@ -263,7 +262,7 @@ static void start_location_ping(LocationsPinger *pinger) {
             {i->info->endpoints.data, i->info->endpoints.size}, pinger->timeout_ms,
             {pinger->interfaces.data(), pinger->interfaces.size()}, pinger->rounds, pinger->main_protocol,
             pinger->anti_dpi, pinger->handoff, {i->info->relays.data, i->info->relays.size}, *pinger->relay_parallel,
-            pinger->quic_max_idle_timeout_ms, pinger->quic_version};
+            pinger->quic_max_idle_timeout_ms};
     Ping *ping = ping_start(&ping_info, {ping_handler, pinger});
 
     // Must be extracted before pop_front() invalidates the iterator, and before finalize_location()
@@ -314,7 +313,6 @@ LocationsPinger *locations_pinger_start(const LocationsPingerInfo *info, Locatio
     pinger->anti_dpi = info->anti_dpi;
     pinger->handoff = info->handoff;
     pinger->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms;
-    pinger->quic_version = info->quic_version;
     if (info->relay_parallel) {
         pinger->relay_parallel = vpn_relay_clone(info->relay_parallel);
     }

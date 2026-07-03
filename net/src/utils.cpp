@@ -918,7 +918,7 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
         U8View tls_client_random_mask) {
-    bool quic = type == MSPT_QUICHE || type == MSPT_NGTCP2;
+    bool quic = type == MSPT_NGTCP2;
     DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
     if (verification_callback && arg) {
         SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
@@ -1018,7 +1018,8 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
     static constexpr uint16_t GROUPS[] = {
             SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519, SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
-    if (vpn_post_quantum_group_enabled() && !SSL_set1_group_ids(ssl.get(), GROUPS, std::size(GROUPS))) {
+    bool pq_enabled = vpn_post_quantum_group_enabled();
+    if (pq_enabled && !SSL_set1_group_ids(ssl.get(), GROUPS, std::size(GROUPS))) {
         return "Failed to set groups";
     }
 
