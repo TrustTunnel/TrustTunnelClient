@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.1.5-beta.6] - 2026-07-03
+
+### Added
+
 - Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching. Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
 
 ### Changed
@@ -17,18 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `Http3Upstream` uses event-driven callbacks (`on_body`, `on_response`, etc.) instead of polling.
 - Updated `dns-libs` and `native_libs_common`.
 
-### Deprecated
-
 ### Removed
 
 - quiche dependency — completely removed from build system, `CMakeLists.txt`, and `conanfile.py`.
 - `QUIC_LOCAL_CONN_ID_LEN`, `QUIC_MAX_UDP_PAYLOAD_SIZE` constants (now provided by ngtcp2).
 - `quic_version` configuration parameter — QUIC version is now auto-negotiated by ngtcp2.
 - `MSPT_QUICHE` enum value — replaced by `MSPT_NGTCP2`.
-
-### Fixed
-
-### Security
 
 ## [1.1.5-beta.5] - 2026-06-19
 
@@ -443,7 +451,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.6...HEAD
+[1.1.5-beta.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...v1.1.5-beta.6
 [1.1.5-beta.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...v1.1.5-beta.5
 [1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
 [1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3
