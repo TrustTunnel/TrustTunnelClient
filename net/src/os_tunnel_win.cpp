@@ -230,7 +230,7 @@ ag::VpnError ag::VpnWinTunnel::init(
     if (m_wintun_session == nullptr) {
         return {-1, "Unable to create wintun session"};
     }
-    if (!setup_mtu()) {
+    if (!setup_interface()) {
         errlog(logger, "{}", ag::sys::strerror(ag::sys::last_error()));
         return {-1, "Unable to set mtu for wintun session"};
     }
@@ -270,7 +270,7 @@ ag::VpnError ag::VpnWinTunnel::init(
     return {};
 }
 
-bool ag::VpnWinTunnel::setup_mtu() {
+bool ag::VpnWinTunnel::setup_interface() {
     MIB_IPINTERFACE_ROW row{};
     row.InterfaceIndex = m_if_index;
     // set mtu for ipv4 and ipv6
@@ -279,6 +279,8 @@ bool ag::VpnWinTunnel::setup_mtu() {
         SetLastError(error);
         return false;
     }
+    row.UseAutomaticMetric = FALSE;
+    row.Metric = 0;
     // needed on ipv4 for correct work
     row.SitePrefixLength = 0;
     row.NlMtu = m_settings->mtu;
@@ -289,6 +291,9 @@ bool ag::VpnWinTunnel::setup_mtu() {
     row.Family = AF_INET6;
     if (DWORD error = GetIpInterfaceEntry(&row); error == ERROR_SUCCESS) {
         row.NlMtu = m_settings->mtu;
+        // Has to be set separately for IPv6 -- not redundant.
+        row.UseAutomaticMetric = FALSE;
+        row.Metric = 0;
         error = SetIpInterfaceEntry(&row);
         if (error != ERROR_SUCCESS) {
             SetLastError(error);
@@ -324,6 +329,7 @@ static bool add_adapter_route(const ag::CidrRange &route, uint32_t if_index) {
 
     row.DestinationPrefix = ip_address_prefix_from_cidr_range(route);
     row.InterfaceIndex = if_index;
+    row.Metric = 0;
 
     DWORD error = CreateIpForwardEntry2(&row);
     if (error != ERROR_SUCCESS) {
