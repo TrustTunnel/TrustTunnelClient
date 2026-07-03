@@ -144,19 +144,6 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _clearLogs() async {
-    // On Apple, clearing logs requires the VPN to be stopped (the Network
-    // Extension owns extension.log and can't be reset from here). Keep the
-    // button tappable so the user gets feedback rather than a silently
-    // disabled control.
-    final state = context.read<VpnStateNotifier>().state;
-    if ((Platform.isIOS || Platform.isMacOS) && state != VpnState.disconnected) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Stop the VPN before clearing logs')),
-        );
-      }
-      return;
-    }
     try {
       await _nativeVpnInterface.clearLogs();
       if (mounted) {
