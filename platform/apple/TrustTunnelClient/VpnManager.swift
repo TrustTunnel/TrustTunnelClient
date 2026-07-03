@@ -501,42 +501,36 @@ public final class VpnManager {
         return results.map { $0.path }
     }
 
-    /// Remove all log files produced by both the app process and the Network
-    /// Extension process.
-    ///
-    /// The VPN **must be stopped** before calling this. Stopping guarantees the
-    /// Network Extension is not appending to `extension.log`, so that file can
-    /// be deleted directly from this process without the NE's open handle
-    /// leaking writes to a deleted (unlinked) inode. Returns `false` and does
-    /// nothing if the VPN is running.
-    ///
-    /// This process's own `app.log` is always being written (the app logs its
-    /// own events regardless of VPN state), so it is cleared through the live
-    /// `FileLogger` instance, which atomically drains pending writes, removes
-    /// the files, and reopens a fresh one on its serial queue — no app log is
-    /// dropped or written to an unlinked file during the clear.
+    /// Remove all log files from both the app and Network Extension processes.
+    /// Safe to call while the tunnel is running: the app clears `app.log`
+    /// through its live writer, and posts a Darwin notification so a running
+    /// NE clears its own open `extension.log` through its live writer. When the
+    /// NE is not running, its file is deleted directly.
     public func clearLogs() -> Bool {
-        let manager = self.queue.sync { self.vpnManager }
-        let stopped = manager?.connection.status == .disconnected
-            || manager?.connection.status == .invalid
-            || manager == nil
-        guard stopped else {
-            logger.warn("clearLogs: VPN must be stopped before clearing logs")
-            return false
-        }
         guard let logsDir = FileLogger.logsDirectory(appGroup: appGroup) else {
             return false
         }
 
-        // App process's own log — cleared through the live writer so its open
-        // handle is closed/reopened atomically with its own appends.
+        // Own log — cleared through the live writer.
         fileLogger?.clearLogs()
 
-        // Network Extension's log — the NE is stopped (precondition), so it has
-        // no open writer. Delete its files via the static method, mirroring how
-        // exportLogs snapshots each base name through FileLogger.snapshot(...).
-        // The NE uses archiveCount = 1, matching the app logger.
-        FileLogger.clearLogs(directory: logsDir, baseName: FileLogger.extensionBaseName)
+        let manager = self.queue.sync { self.vpnManager }
+        let neRunning = manager != nil
+            && manager!.connection.status != .disconnected
+            && manager!.connection.status != .invalid
+
+        if neRunning {
+            // NE holds the file open — ask it to clear its own log.
+            let name = "\(bundleIdentifier).\(ClearLogsParams.notificationName)" as CFString
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName(name),
+                nil, nil, true
+            )
+        } else {
+            // NE not running — delete the files directly.
+            FileLogger.clearLogs(directory: logsDir, baseName: FileLogger.extensionBaseName)
+        }
         return true
     }
 
