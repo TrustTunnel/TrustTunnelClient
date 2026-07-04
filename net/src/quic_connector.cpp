@@ -104,6 +104,7 @@ ag::VpnError ag::quic_connector_connect(
     // Configure Http3Settings
     ag::http::Http3Settings settings{};
     settings.max_idle_timeout = ag::Micros{parameters->max_idle_timeout};
+    settings.quic_version = parameters->quic_version;
     settings.initial_max_data = QUIC_CONNECTION_WINDOW_SIZE;
     settings.initial_max_stream_data_bidi_local = QUIC_STREAM_WINDOW_SIZE;
     settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
