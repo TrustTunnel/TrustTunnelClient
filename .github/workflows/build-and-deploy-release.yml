@@ -111,6 +111,16 @@ jobs:
           name: release-linux
           path: artifacts/trusttunnel_client-*.tar.gz
 
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
   build-macos:
     name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -247,6 +257,17 @@ jobs:
           name: release-macos
           path: build_universal/trusttunnel_client-*.tar.gz
 
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          source ./venv/bin/activate
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
   build-windows:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -263,26 +284,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Retrieve Windows signing secrets
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_URL }}
-          method: jwt
-          role: trusttunnel-windows-signing
-          secrets: |
-            secret/data/ci-secrets/trusttunnel-windows-signing trustTunnelWinSignerSecretApiKey | SIGNER_API_KEY
-
-      - name: Build and package
+      - name: Build
         env:
           CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
-          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
-          SIGNER_URL: ${{ vars.SIGNER_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
 
           & conan remote add --index 0 art $Env:CONAN_REPO_URL
-
-          $repoRoot = (Get-Location).Path
 
           # Save vcvars to switch between them
           $vcvars32 = cmd /c "vcvarsall amd64_x86 & set"
@@ -293,28 +301,10 @@ jobs:
               $v = $_.split("="); set-item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
             }
           }
-          function Sign-File([string]$Path) {
-            Write-Host "Signing: $Path"
-            & python -m pip install --disable-pip-version-check -q requests
-            if (!$?) { throw 'Failed to install Python requests' }
-            & python (Join-Path $repoRoot 'scripts\win_sign_binary.py') $Path
-            if (!$?) { throw "Signing helper failed for: $Path" }
-            Write-Host "Success"
-          }
 
-          $versionLine = Get-Content CHANGELOG.md | Select-String -Pattern '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' | Select-Object -First 1
-          if (!$versionLine) { throw 'Failed to detect VERSION from CHANGELOG.md' }
-          $VERSION = ($versionLine.ToString() -replace '^## \[', '' -replace '\].*', '').Trim()
+          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
 
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-
-          # Download Wintun
-          $wintunUrl = "$Env:ARTIFACTORY_URL/artifactory/adguard-pods/binaries/wintun-0.14.1.zip"
-          $wintunZip = Join-Path $PWD 'wintun-0.14.1.zip'
-          Invoke-WebRequest -Uri $wintunUrl -OutFile $wintunZip
-          Expand-Archive -Force -Path $wintunZip -DestinationPath 'wintun'
-
-          function Build-And-Package([string]$BuildDir, $VcvarsEnv, [string]$ArchName, [string]$WintunBinSubdir) {
+          function Build([string]$BuildDir, $VcvarsEnv, [string]$ArchName) {
             & {
               $VcvarsEnv | foreach { setvar $_ }
               New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
@@ -326,28 +316,98 @@ jobs:
               if (!$?) { exit 1 }
               & ninja trusttunnel_client setup_wizard
               if (!$?) { exit 1 }
-              Sign-File "trusttunnel\\trusttunnel_client.exe"
-              Sign-File "trusttunnel\\setup_wizard.exe"
               popd
             }
 
-            $NAME = "trusttunnel_client-v$VERSION-windows-$ArchName"
-            Copy-Item -Force LICENSE "$BuildDir\trusttunnel\LICENSE.txt"
-            Copy-Item -Force "wintun\wintun\bin\$WintunBinSubdir\wintun.dll" "$BuildDir\trusttunnel\wintun.dll"
-            Copy-Item -Force 'wintun\wintun\LICENSE.txt' "$BuildDir\trusttunnel\WINTUN_LICENSE.txt"
-            Compress-Archive -Force -DestinationPath ("artifacts\\$NAME.zip") -Path @(
-              "$BuildDir\\trusttunnel\\trusttunnel_client.exe",
-              "$BuildDir\\trusttunnel\\setup_wizard.exe",
-              "$BuildDir\\trusttunnel\\LICENSE.txt",
-              "$BuildDir\\trusttunnel\\wintun.dll",
-              "$BuildDir\\trusttunnel\\WINTUN_LICENSE.txt"
-            )
+            # Collect the unsigned executables; they are signed by the reusable
+            # sign-by-signer.yml workflow (sign-windows job) and packaged by package-windows.
+            New-Item -ItemType Directory -Force -Path "unsigned\$ArchName" | Out-Null
+            Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client.exe" "unsigned\$ArchName\trusttunnel_client.exe"
+            Copy-Item -Force "$BuildDir\trusttunnel\setup_wizard.exe" "unsigned\$ArchName\setup_wizard.exe"
           }
 
-          Build-And-Package "build64" $vcvars64 "x86_64" "amd64"
-          Build-And-Package "build32" $vcvars32 "i686" "x86"
-          Build-And-Package "buildarm64" $vcvarsarm64 "aarch64" "arm64"
+          Build "build64" $vcvars64 "x86_64"
+          Build "build32" $vcvars32 "i686"
+          Build "buildarm64" $vcvarsarm64 "aarch64"
         shell: powershell
+
+      - name: Upload unsigned executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-exe-unsigned
+          path: unsigned/
+
+      - name: Upload to Conan and cleanup
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
+          & conan upload -r art -c "*" 2>&1 | Select-String "Uploading" -SimpleMatch
+        shell: powershell
+
+  sign-windows:
+    name: Sign Windows binaries
+    needs: build-windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    permissions:
+      contents: read
+      id-token: write
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/sign-by-signer.yml@master
+    with:
+      team: corelibs
+      artifact-name: windows-exe-unsigned
+      files: '**/*.exe'
+      signed-artifact-name: windows-exe-signed
+
+  package-windows:
+    name: Package Windows release
+    needs: sign-windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download signed executables
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-exe-signed
+          path: signed
+
+      - name: Package
+        env:
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+        run: |
+          set -e -x
+
+          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+
+          mkdir -p artifacts
+
+          # Download Wintun
+          curl -fsSL -o wintun-0.14.1.zip "${ARTIFACTORY_URL}/artifactory/adguard-pods/binaries/wintun-0.14.1.zip"
+          unzip -o -q wintun-0.14.1.zip -d wintun
+
+          package() {
+            local arch="$1" wintun_subdir="$2"
+            local name="trusttunnel_client-v${VERSION}-windows-${arch}"
+            local stage="stage/${arch}"
+            mkdir -p "${stage}"
+            cp "signed/${arch}/trusttunnel_client.exe" "${stage}/trusttunnel_client.exe"
+            cp "signed/${arch}/setup_wizard.exe"       "${stage}/setup_wizard.exe"
+            cp LICENSE                                 "${stage}/LICENSE.txt"
+            cp "wintun/wintun/bin/${wintun_subdir}/wintun.dll" "${stage}/wintun.dll"
+            cp "wintun/wintun/LICENSE.txt"             "${stage}/WINTUN_LICENSE.txt"
+            # Flat zip (files at the archive root), matching the previous layout.
+            ( cd "${stage}" && zip -q -X "${GITHUB_WORKSPACE}/artifacts/${name}.zip" \
+                trusttunnel_client.exe setup_wizard.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
+          }
+
+          package x86_64 amd64
+          package i686   x86
+          package aarch64 arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -361,7 +421,7 @@ jobs:
 
   deploy:
     name: Deploy artifacts
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos, package-windows]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     environment: release-github
     runs-on: [team-corelibs]
