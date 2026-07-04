@@ -87,10 +87,13 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     }
 
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    const VpnHttp3UpstreamConfig &h3_config = this->PROTOCOL_CONFIG->http3;
 
     // Let the connection live long enough to perform a health check.
     m_max_idle_timeout = 2 * (upstream_config.timeout + upstream_config.health_check_timeout);
     m_h3_settings.max_idle_timeout = Micros{m_max_idle_timeout};
+    m_h3_settings.quic_version = h3_config.quic_version;
     m_h3_settings.initial_max_data = QUIC_CONNECTION_WINDOW_SIZE;
     m_h3_settings.initial_max_stream_data_bidi_local = QUIC_STREAM_WINDOW_SIZE;
     m_h3_settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;

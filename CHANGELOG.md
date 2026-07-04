@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Restore the `quic_version` HTTP/3 upstream configuration parameter that was
+  accidentally dropped during the quiche → ngtcp2 migration, wiring it through
+  to the QUIC version offered by ngtcp2 (`0` selects the default version).
+
 ### Security
 
 ## [1.1.5-beta.6] - 2026-07-03
