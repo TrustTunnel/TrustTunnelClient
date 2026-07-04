@@ -28,39 +28,14 @@ jobs:
       id-token: write
     secrets: inherit
 
-  # 2. Pick the Artifactory environment from the version being published: a clean
-  #    tag version (e.g. 1.1.5-beta.6) is a release and goes to production; a
-  #    "git describe" snapshot (e.g. 1.1.5-beta.6-1-gb65d25d5) goes to -dev.
-  select-environment:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on: [team-corelibs]
-    outputs:
-      environment: ${{ steps.select.outputs.environment }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          # Full history + tags so `git describe` can compute the
-          # <tag>-<n>-g<rev> snapshot version.
-          fetch-depth: 0
-
-      - name: Select environment from version
-        id: select
-        run: |
-          version=$(git describe --tags --match "v*" | sed 's/^v//')
-          if printf '%s' "$version" | grep -Eq -- '-[0-9]+-g[0-9a-f]+$'; then
-            environment=conan-artifactory-dev
-          else
-            environment=conan-artifactory
-          fi
-          echo "Version $version -> $environment"
-          echo "environment=$environment" >> "$GITHUB_OUTPUT"
-
-  # 3. Export and upload the Conan recipe to Artifactory at the snapshot version.
+  # 2. Export and upload the Conan recipe to Artifactory at the snapshot version.
+  #    Snapshots always go to the -dev environment, distinct from the production
+  #    releases published by publish-release; the git-described version cannot
+  #    collide with a released version anyway.
   upload-conan-recipes:
-    needs: [mirror, select-environment]
+    needs: mirror
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    environment: ${{ needs.select-environment.outputs.environment }}
+    environment: conan-artifactory-dev
     runs-on: [team-corelibs]
     steps:
       - name: Checkout
