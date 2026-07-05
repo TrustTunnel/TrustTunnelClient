@@ -1,4 +1,3 @@
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -94,74 +93,4 @@ TEST_F(CleanUpFiles, Test) {
         ASSERT_FALSE(fs::exists(fs::path(DIR) / fn, fs_err));
         ASSERT_FALSE(fs_err) << fs_err.message();
     }
-}
-
-TEST(PortRangeSetTest, IndividualPorts) {
-    PortRangeSet set = parse_scannable_ports("443,80,8080").value();
-    ASSERT_TRUE(set.contains(443));
-    ASSERT_TRUE(set.contains(80));
-    ASSERT_TRUE(set.contains(8080));
-    ASSERT_FALSE(set.contains(81));
-    ASSERT_FALSE(set.contains(0));
-}
-
-TEST(PortRangeSetTest, Range) {
-    PortRangeSet set = parse_scannable_ports("700:800").value();
-    ASSERT_FALSE(set.contains(699));
-    ASSERT_TRUE(set.contains(700));
-    ASSERT_TRUE(set.contains(750));
-    ASSERT_TRUE(set.contains(800));
-    ASSERT_FALSE(set.contains(801));
-}
-
-TEST(PortRangeSetTest, MixedAndWhitespace) {
-    PortRangeSet set = parse_scannable_ports("  443 , 80:82 , 853 ").value();
-    ASSERT_TRUE(set.contains(443));
-    ASSERT_TRUE(set.contains(80));
-    ASSERT_TRUE(set.contains(81));
-    ASSERT_TRUE(set.contains(82));
-    ASSERT_TRUE(set.contains(853));
-    ASSERT_FALSE(set.contains(83));
-}
-
-TEST(PortRangeSetTest, OverlappingRangesMerged) {
-    PortRangeSet set = parse_scannable_ports("700:750,745:800,850:900").value();
-    ASSERT_TRUE(set.contains(700));
-    ASSERT_TRUE(set.contains(800));
-    ASSERT_TRUE(set.contains(740));
-    ASSERT_FALSE(set.contains(801));
-    ASSERT_TRUE(set.contains(850));
-}
-
-TEST(PortRangeSetTest, InvalidTokensIgnored) {
-    PortRangeSet set = parse_scannable_ports("443,abc,0,80:90").value();
-    ASSERT_TRUE(set.contains(443));
-    ASSERT_TRUE(set.contains(85));
-    ASSERT_FALSE(set.contains(0));
-}
-
-TEST(PortRangeSetTest, EmptyString) {
-    ASSERT_FALSE(parse_scannable_ports("").has_value());
-}
-
-TEST(PortRangeSetTest, WhitespaceOnlyString) {
-    ASSERT_FALSE(parse_scannable_ports("   ").has_value());
-}
-
-TEST(PortRangeSetTest, InvalidOnlyString) {
-    ASSERT_FALSE(parse_scannable_ports("abc,0,foo:bar").has_value());
-}
-
-TEST(PortRangeSetTest, MaxPortRange) {
-    PortRangeSet set = parse_scannable_ports("65530:65535").value();
-    ASSERT_FALSE(set.contains(65529));
-    ASSERT_TRUE(set.contains(65530));
-    ASSERT_TRUE(set.contains(65535));
-}
-
-TEST(PortRangeSetTest, OverlappingRangesAtMax) {
-    PortRangeSet set = parse_scannable_ports("65530:65535,65535").value();
-    ASSERT_TRUE(set.contains(65530));
-    ASSERT_TRUE(set.contains(65535));
-    ASSERT_FALSE(set.contains(65529));
 }

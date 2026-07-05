@@ -155,7 +155,6 @@ mod tests {
             exclusions_tcp_early_ack_enabled: false,
             exclusions_preresolve_enabled: true,
             exclusions_preresolve_max_queries: 0,
-            exclusions_scannable_ports: Settings::default_exclusions_scannable_ports(),
             exclusions: vec![],
             endpoint: Endpoint {
                 hostname: "vpn.example.com".into(),

@@ -367,7 +367,6 @@ VpnDefaultSettings *vpn_get_default_settings() {
     settings->exclusions_tcp_early_ack_enabled = VPN_DEFAULT_EXCLUSIONS_TCP_EARLY_ACK_ENABLED;
     settings->exclusions_preresolve_enabled = VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_ENABLED;
     settings->exclusions_preresolve_max_queries = VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_MAX_QUERIES;
-    settings->exclusions_scannable_ports = VPN_DEFAULT_EXCLUSIONS_SCANNABLE_PORTS;
     return settings;
 }
 
