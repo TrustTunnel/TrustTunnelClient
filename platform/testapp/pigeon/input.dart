@@ -27,8 +27,6 @@ abstract class NativeVpnInterface {
   List<String> exportLogs();
 
   /// Clear all log files from the VPN process(es).
-  ///
-  /// On Apple, the VPN must be stopped before calling this.
   void clearLogs();
 }
 

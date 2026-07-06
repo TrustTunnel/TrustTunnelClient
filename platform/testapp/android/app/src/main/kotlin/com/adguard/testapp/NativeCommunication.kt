@@ -71,8 +71,6 @@ interface NativeVpnInterface {
   fun exportLogs(): List<String>
   /**
    * Clear all log files from the VPN process(es).
-   *
-   * On Apple, the VPN must be stopped before calling this.
    */
   fun clearLogs()
 

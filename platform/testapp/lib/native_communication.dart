@@ -139,8 +139,6 @@ class NativeVpnInterface {
   }
 
   /// Clear all log files from the VPN process(es).
-  ///
-  /// On Apple, the VPN must be stopped before calling this.
   Future<void> clearLogs() async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.clearLogs$pigeonVar_messageChannelSuffix';
     final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
