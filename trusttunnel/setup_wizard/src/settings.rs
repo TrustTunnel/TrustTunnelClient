@@ -94,6 +94,11 @@ excluded hosts are routed correctly without waiting for the first DNS response."
         #{doc(r#"Maximum number of exclusion domains to pre-resolve per cycle."#)}
         #[serde(default = "Settings::default_exclusions_preresolve_max_queries")]
         pub exclusions_preresolve_max_queries: u32,
+        #{doc(r#"Comma-separated list of ports considered "scannable" for domain extraction and exclusion matching.
+Supports individual ports and ranges, e.g. `443,80,8080:8090,853`.
+If empty, the default list is used."#)}
+        #[serde(default = "Settings::default_exclusions_scannable_ports")]
+        pub exclusions_scannable_ports: String,
         #{doc(r#"Domains and addresses which should be routed in a special manner.
 Supported syntax:
   * domain name
@@ -231,6 +236,12 @@ impl Settings {
         // VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_MAX_QUERIES
         50
     }
+
+    pub fn default_exclusions_scannable_ports() -> String {
+        // Keep in sync with common/src/default_settings.h
+        // VPN_DEFAULT_EXCLUSIONS_SCANNABLE_PORTS
+        "443,80,8080,8008,853".into()
+    }
 }
 
 impl Listener {
@@ -341,6 +352,9 @@ pub fn build(template: Option<&Settings>) -> Settings {
         exclusions_preresolve_max_queries: opt_field!(template, exclusions_preresolve_max_queries)
             .cloned()
             .unwrap_or_else(Settings::default_exclusions_preresolve_max_queries),
+        exclusions_scannable_ports: opt_field!(template, exclusions_scannable_ports)
+            .cloned()
+            .unwrap_or_else(Settings::default_exclusions_scannable_ports),
         exclusions: opt_field!(template, exclusions)
             .cloned()
             .unwrap_or_default(),
