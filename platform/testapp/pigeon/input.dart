@@ -25,6 +25,11 @@ abstract class NativeVpnInterface {
   /// Returns a list of absolute paths to snapshot files in a temporary
   /// directory. The caller is responsible for cleaning up these files.
   List<String> exportLogs();
+
+  /// Clear all log files from the VPN process(es).
+  ///
+  /// On Apple, the VPN must be stopped before calling this.
+  void clearLogs();
 }
 
 @FlutterApi()
