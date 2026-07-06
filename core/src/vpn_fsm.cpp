@@ -286,6 +286,7 @@ static void run_ping(void *ctx, void *) {
             .anti_dpi = vpn->upstream_config->anti_dpi,
             .handoff = true,
             .quic_max_idle_timeout_ms = quic_max_idle_timeout,
+            .quic_version = 0,
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.

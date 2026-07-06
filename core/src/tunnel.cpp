@@ -384,8 +384,11 @@ static TunnelDomainLookupAction pass_through_domain_lookup(
     return action;
 }
 
-static bool is_domain_scannable_port(const Tunnel *self, uint16_t port) {
-    return self->vpn->exclusions_scannable_ports.contains(port);
+static bool is_domain_scannable_port(uint16_t port) {
+    static constexpr uint16_t SCANNABLE_PORTS[] = {443, 80, 8080, 8008, 853};
+    return std::any_of(std::begin(SCANNABLE_PORTS), std::end(SCANNABLE_PORTS), [port](uint16_t i) {
+        return port == i;
+    });
 }
 
 static void dns_resolver_handler(void *arg, ClientEvent what, void *data) {
@@ -919,7 +922,7 @@ static std::shared_ptr<ServerUpstream> select_upstream(
                 conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN)
                 && (conn->flags.test(CONNF_SUSPECT_EXCLUSION) || self->vpn->exclusions_tcp_early_ack_enabled)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
-                && is_domain_scannable_port(self, dst->port())) {
+                && is_domain_scannable_port(dst->port())) {
             return self->fake_upstream;
         }
         return select_upstream(self, vpn_mode_to_action(self->vpn->domain_filter.get_mode()), nullptr);
@@ -1034,7 +1037,7 @@ std::optional<VpnConnectAction> Tunnel::finalize_connect_action(ConnectRequestRe
             break;
         }
         case DFMS_SUSPECT_EXCLUSION:
-            if (is_domain_scannable_port(this, dst->port())) {
+            if (is_domain_scannable_port(dst->port())) {
                 log_conn(this, conn, dbg, "Connection may target excluded host");
                 conn->flags.set(CONNF_SUSPECT_EXCLUSION);
             }

@@ -13,23 +13,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`.
-- `QuicConnector` now wraps `Http3Client` instead of `quiche_conn`.
-- `Http3Upstream` uses event-driven callbacks (`on_body`, `on_response`, etc.) instead of polling.
-- Updated `dns-libs` and `native_libs_common`.
-
 ### Deprecated
 
 ### Removed
 
-- quiche dependency — completely removed from build system, `CMakeLists.txt`, and `conanfile.py`.
-- `QUIC_LOCAL_CONN_ID_LEN`, `QUIC_MAX_UDP_PAYLOAD_SIZE` constants (now provided by ngtcp2).
-- `quic_version` configuration parameter — QUIC version is now auto-negotiated by ngtcp2.
-- `MSPT_QUICHE` enum value — replaced by `MSPT_NGTCP2`.
-
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.8] - 2026-07-05
+
+Technical beta with temporary revert `exclusions_scannable_ports` because it was merged too early.
+
+## [1.1.5-beta.7] - 2026-07-04
+
+### Fixed
+
+- Restore the `quic_version` HTTP/3 upstream configuration parameter that was
+  accidentally dropped during the quiche → ngtcp2 migration, wiring it through
+  to the QUIC version offered by ngtcp2 (`0` selects the default version).
+
+## [1.1.5-beta.6] - 2026-07-03
+
+### Added
+
+- Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching. Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
+
+### Changed
+
+- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`. Removed dependency from quiche.
+
+### Removed
 
 ## [1.1.5-beta.5] - 2026-06-19
 
@@ -444,7 +458,10 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.8...HEAD
+[1.1.5-beta.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.7...v1.1.5-beta.8
+[1.1.5-beta.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.6...v1.1.5-beta.7
+[1.1.5-beta.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...v1.1.5-beta.6
 [1.1.5-beta.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...v1.1.5-beta.5
 [1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
 [1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3

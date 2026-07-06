@@ -197,6 +197,11 @@ You MUST follow the following rules for EVERY task that you perform:
 
 - You MUST update the unit tests for changed code.
 
+- When a change is user-visible, you MUST update `CHANGELOG.md` under
+  `## [Unreleased]` in the appropriate category. A required `CHANGELOG.md`
+  update MUST contain exactly ONE entry for the PR/change: summarize the whole
+  change in a single bullet, not one bullet per file or sub-change.
+
 - You MUST run tests with the `make test` script to verify that your changes do
   not break existing functionality.
 

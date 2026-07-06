@@ -168,7 +168,6 @@ public:
     bool exclusions_tcp_early_ack_enabled = false;
     bool exclusions_preresolve_enabled = false;
     uint32_t exclusions_preresolve_max_queries = 1;
-    PortRangeSet exclusions_scannable_ports;
     std::shared_ptr<ServerUpstream> endpoint_upstream;  // upstream for connections routed through vpn
     std::shared_ptr<ServerUpstream> bypass_upstream;    // upstream for bypassed connections
     std::shared_ptr<ClientListener> client_listener;    // client listener

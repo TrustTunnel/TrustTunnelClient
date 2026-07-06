@@ -32,8 +32,8 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.8.58@adguard/oss", transitive_headers=True)
-        self.requires("native_libs_common/8.1.38@adguard/oss", transitive_headers=True)
+        self.requires("dns-libs/2.8.58-2-g2c375f1c@adguard/oss", transitive_headers=True)
+        self.requires("native_libs_common/8.1.39@adguard/oss", transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
@@ -73,11 +73,18 @@ class VpnLibsConan(ConanFile):
                 shutil.copy2(i, dst)
 
     def source(self):
+        # Local export: the working tree was already staged by export_sources().
         if os.listdir(self.source_folder):
             return
 
+        version = str(self.version)
+        # A "git describe" version looks like "<tag>-<n>-g<rev>"; check out the
+        # commit after "-g". Any other version is a release tag "v<version>".
+        described = re.search(r"-g([0-9a-f]+)$", version)
+        ref = described.group(1) if described else "v%s" % version
         git = Git(self)
-        git.fetch_commit(self.vcs_url, f"v{self.version}")
+        git.clone(url=self.vcs_url, target=".")
+        git.checkout(ref)
 
     def generate(self):
         deps = CMakeDeps(self)
