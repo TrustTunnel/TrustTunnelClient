@@ -231,12 +231,12 @@ ag::VpnError ag::VpnWinTunnel::init(
         return {-1, "Unable to create wintun session"};
     }
     if (!setup_interface()) {
-        errlog(logger, "{}", ag::sys::strerror(ag::sys::last_error()));
-        return {-1, "Unable to set mtu for wintun session"};
+        errlog(logger, "setup_interface: {}", ag::sys::strerror(ag::sys::last_error()));
+        return {-1, "Failed to configure the WinTun interface"};
     }
     m_system_dns_setup_success = setup_dns();
     if (!m_system_dns_setup_success) {
-        errlog(logger, "{}", ag::sys::strerror(ag::sys::last_error()));
+        errlog(logger, "setup_dns: {}", ag::sys::strerror(ag::sys::last_error()));
         return {-1, "Unable to set dns for wintun session"};
     }
     if (m_win_settings->block_ipv6) {
@@ -330,6 +330,7 @@ static bool add_adapter_route(const ag::CidrRange &route, uint32_t if_index) {
     row.DestinationPrefix = ip_address_prefix_from_cidr_range(route);
     row.InterfaceIndex = if_index;
     row.Metric = 0;
+    row.Protocol = MIB_IPPROTO_NETMGMT;
 
     DWORD error = CreateIpForwardEntry2(&row);
     if (error != ERROR_SUCCESS) {
