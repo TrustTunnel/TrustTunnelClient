@@ -269,8 +269,8 @@ VpnError VpnClient::init(const VpnSettings *settings) {
     this->exclusions_preresolve_max_queries = settings->exclusions_preresolve_max_queries == 0
             ? default_settings->exclusions_preresolve_max_queries
             : settings->exclusions_preresolve_max_queries;
-    std::string_view scannable_ports_str = settings->exclusions_scannable_ports.size > 0
-            ? std::string_view(settings->exclusions_scannable_ports.data, settings->exclusions_scannable_ports.size)
+    const char *scannable_ports_str = settings->exclusions_scannable_ports != nullptr
+            ? settings->exclusions_scannable_ports
             : default_settings->exclusions_scannable_ports;
     std::optional<PortRangeSet> parsed_scannable_ports = ag::parse_scannable_ports(scannable_ports_str);
     if (!parsed_scannable_ports.has_value()) {
