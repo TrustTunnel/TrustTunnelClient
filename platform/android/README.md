@@ -10,7 +10,7 @@
 - [Go](https://go.dev/dl/) 1.18.3 or higher
 - [Ninja](https://formulae.brew.sh/formula/ninja) 1.13 or higher
 - [Android SDK](https://developer.android.com/tools/releases/platform-tools#downloads) 35.0.0 or higher
-- [Android NDK](https://developer.android.com/ndk/downloads) 28.1.13356709 or higher
+- [Android NDK](https://developer.android.com/ndk/downloads) 29.0.14206865 or higher
 
 You can also download SDK and NDK using Android Studio SDK Manager.
 
