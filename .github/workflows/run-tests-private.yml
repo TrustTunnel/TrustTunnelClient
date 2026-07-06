@@ -31,7 +31,7 @@ jobs:
         include:
           - name: Linux
             runs-on: '["ephemeral","ephemeral-linux","${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
-            container-image: 'adguard/core-libs:2.10'
+            container-image: 'adguard/core-libs:2.11'
             artifact-name: test-results-linux-private
             test-command: |
               set -e

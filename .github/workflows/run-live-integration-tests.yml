@@ -16,7 +16,7 @@ jobs:
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
     container:
-      image: adguard/core-libs:2.10
+      image: adguard/core-libs:2.11
     steps:
       - name: Checkout client
         uses: actions/checkout@v6

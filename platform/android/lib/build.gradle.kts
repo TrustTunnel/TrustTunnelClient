@@ -10,7 +10,7 @@ version = "1.1.4"
 android {
     namespace = "com.adguard.trusttunnel"
     compileSdk = 35
-    ndkVersion = "28.1.13356709"
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = 26
