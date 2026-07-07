@@ -7,6 +7,7 @@
 
 #include "test_mock_c.h"
 #include "vpn/internal/server_upstream.h"
+#include "vpn_fsm.h"
 #include "vpn_manager.h"
 
 using namespace ag;
@@ -59,6 +60,7 @@ static constexpr Secs TIMEOUT{10};
 struct ConnectingVpnManagerTest : MockedTest {
     Vpn *vpn = nullptr;
     std::optional<VpnSessionState> session_state;
+    VpnError vpn_error{};
     bool timed_out = false;
 
     void SetUp() override {
@@ -112,6 +114,20 @@ struct ConnectingVpnManagerTest : MockedTest {
         case VPN_EVENT_STATE_CHANGED: {
             auto *event = (VpnStateChangedEvent *) data;
             self->session_state = event->state;
+            switch (event->state) {
+            case VPN_SS_WAITING_RECOVERY:
+                self->vpn_error = event->waiting_recovery_info.error;
+                break;
+            case VPN_SS_CONNECTED:
+                self->vpn_error = {};
+                break;
+            case VPN_SS_DISCONNECTED:
+            case VPN_SS_CONNECTING:
+            case VPN_SS_RECOVERING:
+            case VPN_SS_WAITING_FOR_NETWORK:
+                self->vpn_error = event->error;
+                break;
+            }
             vpn_event_loop_exit(self->vpn->ev_loop.get(), Millis{0});
             break;
         }
@@ -137,6 +153,36 @@ struct ConnectingVpnManagerTest : MockedTest {
         return !std::exchange(timed_out, false) && std::exchange(session_state, std::nullopt) == expected;
     }
 
+    // Wait until the VPN reaches `expected` state, tolerating any intermediate states.
+    // Unlike `await_state_change` it observes the current state instead of a single state-change edge.
+    bool wait_state(VpnSessionState expected,
+            std::optional<Millis> timeout = std::nullopt) { // NOLINT(readability-make-member-function-const)
+        const auto deadline = SteadyClock::now() + duration_cast<Millis>(timeout.value_or(Millis{TIMEOUT}));
+        while (session_state != expected) {
+            const auto now = SteadyClock::now();
+            if (now >= deadline) {
+                return false;
+            }
+            TaskId timeout_task_id = vpn_event_loop_schedule(vpn->ev_loop.get(),
+                    {
+                            .arg = this,
+                            .action =
+                                    [](void *arg, TaskId) {
+                                        auto *self = (ConnectingVpnManagerTest *) arg;
+                                        self->timed_out = true;
+                                        vpn_event_loop_exit(self->vpn->ev_loop.get(), Millis{0});
+                                    },
+                    },
+                    duration_cast<Millis>(deadline - now));
+            vpn_event_loop_run(vpn->ev_loop.get());
+            vpn_event_loop_cancel(vpn->ev_loop.get(), timeout_task_id);
+            if (std::exchange(timed_out, false)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void loop_once() { // NOLINT(readability-make-member-function-const)
         vpn_event_loop_exit(vpn->ev_loop.get(), Millis{0});
         vpn_event_loop_run(vpn->ev_loop.get());
@@ -145,6 +191,17 @@ struct ConnectingVpnManagerTest : MockedTest {
     void raise_client_event(                             // NOLINT(readability-make-member-function-const)
             vpn_client::Event e, void *data = nullptr) { // NOLINT(readability-make-member-function-const)
         vpn->client.parameters.handler.func(vpn->client.parameters.handler.arg, e, data);
+    }
+
+    // Drive a `CE_NETWORK_CHANGE` through the event loop.
+    // `vpn_notify_network_change` can't be used here because it requires the loop to be
+    // active, while this fixture drives a hijacked loop manually. This mirrors what
+    // `vpn_notify_network_change` submits internally.
+    void notify_network_change(VpnNetworkState state) { // NOLINT(readability-make-member-function-const)
+        vpn->submit([vpn = this->vpn, state]() {
+            vpn->network_changed_before_recovery = true;
+            vpn->fsm.perform_transition(vpn_fsm::CE_NETWORK_CHANGE, (void *) &state);
+        });
     }
 };
 
@@ -156,6 +213,13 @@ struct ConnectedVpnManagerTest : public ConnectingVpnManagerTest {
         vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
         raise_client_event(vpn_client::EVENT_CONNECTED);
         ASSERT_TRUE(await_state_change(VPN_SS_CONNECTED));
+    }
+
+    // Drive a single failing recovery attempt: the library goes WAITING_RECOVERY -> RECOVERING,
+    // and a client disconnect makes it fall back to recovery for the next attempt.
+    void fail_recovery_attempt() {
+        ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+        raise_client_event(vpn_client::EVENT_DISCONNECTED);
     }
 };
 
@@ -351,4 +415,165 @@ TEST_F(ConnectedVpnManagerTest, Disconnected) {
     loop_once();
     ASSERT_EQ(2, c.completed_connect_requests.back().id);
     ASSERT_EQ(info.action, c.completed_connect_requests.back().action);
+}
+
+// Check that with the default settings the library makes at least 3 recovery attempts before
+// giving up.
+TEST_F(ConnectedVpnManagerTest, DefaultRecoveryAttempts) {
+    ASSERT_EQ(VPN_DEFAULT_RECOVERY_ATTEMPTS, vpn->upstream_config->recovery.attempts);
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "attempt " << i;
+    }
+}
+
+// Check that the library honors a non-default `recovery.attempts` value: after the configured
+// number of failed recovery attempts the user receives `VPN_EC_LOCATION_UNAVAILABLE`.
+TEST_F(ConnectedVpnManagerTest, HonorsRecoveryAttemptsSetting) {
+    constexpr uint32_t ATTEMPTS = 4;
+    vpn->upstream_config->recovery.attempts = ATTEMPTS;
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    for (uint32_t i = 0; i < ATTEMPTS; ++i) {
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "attempt " << i;
+    }
+
+    ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+    ASSERT_EQ(VPN_EC_LOCATION_UNAVAILABLE, vpn_error.code);
+}
+
+// Check that with the default settings the library makes at least 3 recovery attempts before
+// giving up.
+TEST_F(ConnectedVpnManagerTest, DefaultRecoveryAttemptsReping) {
+    ASSERT_EQ(VPN_DEFAULT_RECOVERY_ATTEMPTS, vpn->upstream_config->recovery.attempts);
+
+    // Test that location update does not interfere with the recovery attempts logic.
+    vpn->upstream_config->recovery.location_update_period_ms = 1;
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "attempt " << i;
+    }
+}
+
+// Check that the library honors a non-default `recovery.attempts` value: after the configured
+// number of failed recovery attempts the user receives `VPN_EC_LOCATION_UNAVAILABLE`.
+TEST_F(ConnectedVpnManagerTest, HonorsRecoveryAttemptsSettingReping) {
+    constexpr uint32_t ATTEMPTS = 4;
+    vpn->upstream_config->recovery.attempts = ATTEMPTS;
+
+    // Test that location update does not interfere with the recovery attempts logic.
+    vpn->upstream_config->recovery.location_update_period_ms = 1;
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    for (uint32_t i = 0; i < ATTEMPTS; ++i) {
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "attempt " << i;
+    }
+
+    ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+    ASSERT_EQ(VPN_EC_LOCATION_UNAVAILABLE, vpn_error.code);
+}
+
+// Check that when recovery is aborted by a fatal disconnect the recovery state is reset,
+// so a subsequent connection does not start with a dirty attempt counter or a leftover
+// scheduled recovery task.
+TEST_F(ConnectedVpnManagerTest, RecoveryStateResetAfterFatalDisconnect) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+
+    // Make a failing recovery attempt so the attempt counter and a scheduled task exist.
+    ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt());
+    ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
+    ASSERT_GT(vpn->recovery.attempts, 0u);
+    ASSERT_TRUE(vpn->recovery.task.has_value());
+
+    // A fatal error aborts recovery and disconnects the client.
+    VpnError error = {.code = VPN_EC_AUTH_REQUIRED, .text = "fatal"};
+    raise_client_event(vpn_client::EVENT_ERROR, &error);
+    ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+
+    // The recovery state must be clean: zero attempts and no pending recovery task.
+    ASSERT_EQ(0u, vpn->recovery.attempts);
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+}
+
+// Check that a network change while waiting for recovery triggers an immediate recovery
+// attempt and cancels the previously scheduled recovery task, so the stale task can't fire
+// later and clobber the recovery state.
+TEST_F(ConnectedVpnManagerTest, NetworkChangeDuringRecoveryCancelsPendingTask) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_WAITING_RECOVERY));
+
+    // A recovery attempt is scheduled and pending.
+    ASSERT_TRUE(vpn->recovery.task.has_value());
+    const uint32_t attempts_before = vpn->recovery.attempts;
+
+    // A network change triggers recovery immediately (the 0ms task wins over the 1s timer).
+    notify_network_change(VPN_NS_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+
+    // The previously scheduled recovery task must have been cancelled.
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+    // The network-change-triggered recovery must not be double-counted as an extra attempt.
+    ASSERT_EQ(attempts_before, vpn->recovery.attempts);
+}
+
+// Check that a flapping network keeps the client recovering indefinitely: losing the
+// network resets the recovery attempt budget.
+TEST_F(ConnectedVpnManagerTest, FlappingNetworkKeepsRecovering) {
+    constexpr uint32_t ATTEMPTS = 2;
+    vpn->upstream_config->recovery.attempts = ATTEMPTS;
+
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        // Exhaust the recovery budget down to its last allowed attempt without giving up.
+        ASSERT_NO_FATAL_FAILURE(fail_recovery_attempt()) << "cycle " << cycle;
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY)) << "cycle " << cycle;
+        ASSERT_EQ(ATTEMPTS, vpn->recovery.attempts) << "cycle " << cycle;
+
+        // Losing the network resets the recovery state...
+        notify_network_change(VPN_NS_NOT_CONNECTED);
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_FOR_NETWORK)) << "cycle " << cycle;
+        ASSERT_EQ(0u, vpn->recovery.attempts) << "cycle " << cycle;
+        ASSERT_FALSE(vpn->recovery.task.has_value()) << "cycle " << cycle;
+
+        // ...so when the network returns the client keeps recovering instead of giving up.
+        notify_network_change(VPN_NS_CONNECTED);
+        ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY)) << "cycle " << cycle;
+    }
+
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+    vpn->selected_endpoint.emplace(vpn_endpoint_clone(ENDPOINTS.data()), std::nullopt);
+    vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
+    raise_client_event(vpn_client::EVENT_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+}
+
+// Check that a network change short-cutting WAITING_RECOVERY -> RECOVERING through run_ping
+// records the recovery attempt start time. The lambda scheduled by `initiate_recovery` never
+// fires in this case, so without recording the timestamp in run_ping the next
+// `initiate_recovery` would measure `elapsed` from a stale (epoch) timestamp and collapse the
+// inter-attempt backoff delay to zero.
+TEST_F(ConnectedVpnManagerTest, NetworkChangeRecordsRecoveryAttemptStart) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_WAITING_RECOVERY));
+
+    // The scheduled recovery task hasn't fired yet, so no attempt has started.
+    ASSERT_EQ(SteadyClock::time_point{}, vpn->recovery.time.attempt_start_ts);
+
+    // A network change short-cuts straight into RECOVERING through run_ping.
+    const auto before = SteadyClock::now();
+    notify_network_change(VPN_NS_CONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
+
+    // run_ping cancelled the pending timer and recorded the attempt start time.
+    ASSERT_FALSE(vpn->recovery.task.has_value());
+    ASSERT_GE(vpn->recovery.time.attempt_start_ts, before);
+
+    // Fail this attempt; the next throttling computation must measure `elapsed` from the
+    // just-started attempt, so (almost) the full backoff interval remains until the next one.
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
+    ASSERT_GT(vpn->recovery.time.to_next, Millis{VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS} / 2);
 }

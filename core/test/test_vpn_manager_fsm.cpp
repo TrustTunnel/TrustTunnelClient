@@ -405,7 +405,7 @@ TEST_F(ConnectedVpnManagerTest, RecoveryRePingLocation) {
         AutoVpnEndpoint selected_endpoint = vpn_endpoint_clone(vpn->selected_endpoint->endpoint.get());
         ASSERT_TRUE(wait_state(VPN_SS_WAITING_RECOVERY));
 
-        recovery_reset = vpn->recovery.start_ts == time_point<steady_clock>{};
+        recovery_reset = vpn->recovery.time.start_ts == time_point<steady_clock>{};
 
         ASSERT_TRUE(wait_state(VPN_SS_RECOVERING));
 

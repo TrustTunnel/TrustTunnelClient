@@ -80,6 +80,9 @@ void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_
     if (this->upstream_config->recovery.location_update_period_ms == 0) {
         this->upstream_config->recovery.location_update_period_ms = VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS;
     }
+    if (this->upstream_config->recovery.attempts == 0) {
+        this->upstream_config->recovery.attempts = VPN_DEFAULT_RECOVERY_ATTEMPTS;
+    }
 }
 
 vpn_client::Parameters Vpn::make_client_parameters() const {
