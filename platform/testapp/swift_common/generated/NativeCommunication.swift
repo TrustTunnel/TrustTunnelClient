@@ -99,8 +99,6 @@ protocol NativeVpnInterface {
   /// directory. The caller is responsible for cleaning up these files.
   func exportLogs() throws -> [String]
   /// Clear all log files from the VPN process(es).
-  ///
-  /// On Apple, the VPN must be stopped before calling this.
   func clearLogs() throws
 }
 
@@ -156,8 +154,6 @@ class NativeVpnInterfaceSetup {
       exportLogsChannel.setMessageHandler(nil)
     }
     /// Clear all log files from the VPN process(es).
-    ///
-    /// On Apple, the VPN must be stopped before calling this.
     let clearLogsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.clearLogs\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       clearLogsChannel.setMessageHandler { _, reply in

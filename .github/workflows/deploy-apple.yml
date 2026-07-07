@@ -9,14 +9,19 @@ on:
         type: string
 
 jobs:
+  resolve-images:
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
+
   deploy-apple:
     name: Deploy library / Apple
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     environment: apple-gh-packages
     runs-on:
       - ephemeral
       - ephemeral-mac
-      - ${{ vars.BUILD_IMAGE_VERSION_MACOS }}
+      - ${{ needs.resolve-images.outputs.macos }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

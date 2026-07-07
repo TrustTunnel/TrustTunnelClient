@@ -8,17 +8,22 @@ jobs:
 # Stage 1: Build artifacts (parallel)
 # =============================================================================
 
+  resolve-images:
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
+
   build-linux:
     name: Linux build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
+      - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
     container:
-      image: adguard/core-libs:2.10
+      image: adguard/core-libs:2.11
     permissions:
       contents: read
       id-token: write
@@ -124,10 +129,11 @@ jobs:
   build-macos:
     name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-mac
-      - ${{ vars.BUILD_IMAGE_VERSION_MACOS }}
+      - ${{ needs.resolve-images.outputs.macos }}
     permissions:
       contents: read
       id-token: write
@@ -271,10 +277,11 @@ jobs:
   build-windows:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-vmwin
-      - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
+      - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
     permissions:

@@ -88,8 +88,6 @@ class NativeVpnInterface {
   // directory. The caller is responsible for cleaning up these files.
   virtual ErrorOr<flutter::EncodableList> ExportLogs() = 0;
   // Clear all log files from the VPN process(es).
-  //
-  // On Apple, the VPN must be stopped before calling this.
   virtual std::optional<FlutterError> ClearLogs() = 0;
 
   // The codec used by NativeVpnInterface.
