@@ -3,6 +3,7 @@
 #include <span>
 
 #include "net/network_manager.h"
+#include "net/quic_connector.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
 

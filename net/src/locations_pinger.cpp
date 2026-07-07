@@ -130,7 +130,7 @@ static const PingedEndpoint *select_endpoint(const LocationsCtx *location, Pinge
 
 static void destroy_conn_state(PingedEndpoint &endpoint) {
     if (endpoint.is_quic) {
-        quic_connector_destroy((QuicConnector *) endpoint.conn_state);
+        std::unique_ptr<QuicConnectorResult>{(QuicConnectorResult *) endpoint.conn_state};
     } else {
         tcp_socket_destroy((TcpSocket *) endpoint.conn_state);
     }

@@ -3,6 +3,7 @@ package com.adguard.trusttunnel.log
 import com.adguard.trusttunnel.Logger
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -210,5 +211,61 @@ class FileLoggerTest {
         val archiveNames = paths.map { File(it).name }
         assertTrue("Should include current log", archiveNames.contains("snaparchive.log"))
         assertTrue("Should include archive log", archiveNames.contains("snaparchive.1.log"))
+    }
+
+    // ---- clearLogs ----
+
+    @Test
+    fun clearLogs_removesCurrentAndArchiveFiles() {
+        val logger = FileLogger(logDir, "clear", maxFileSize = 200)
+        logger.install()
+        logger.snapshotTo(File(tempDir, "drain"))
+
+        // Trigger a rotation so both current and archive files exist.
+        repeat(5) {
+            Logger.dispatchNative(Logger.LogLevel.INFO, "line $it")
+        }
+        logger.snapshotTo(File(tempDir, "drain2"))
+
+        val current = File(logDir, "clear.log")
+        val archive = File(logDir, "clear.1.log")
+        assertTrue("Current file should exist before clear", current.exists())
+        assertTrue("Current file is not empty", current.length().toInt() != 0)
+        assertTrue("Archive file should exist before clear", archive.exists())
+        assertTrue("Archive file is not empty", archive.length().toInt() != 0)
+
+        logger.clearLogs()
+
+        // `clearLogs` reopens the file so logging could proceed after
+        assertTrue("Current file exists", current.exists())
+        assertEquals("Current file is empty (clean), ${current.length()}", current.length(), 0)
+        assertFalse("Archive file should be removed", archive.exists())
+    }
+
+    @Test
+    fun clearLogs_resetsWriterForNewOutput() {
+        val logger = FileLogger(logDir, "reset", maxFileSize = 200)
+        logger.install()
+        logger.snapshotTo(File(tempDir, "drain"))
+
+        repeat(5) {
+            Logger.dispatchNative(Logger.LogLevel.INFO, "before clear $it")
+        }
+        logger.snapshotTo(File(tempDir, "drain2"))
+
+        val current = File(logDir, "reset.log")
+        assertTrue("Current file should have content before clear", current.length() > 0)
+
+        logger.clearLogs()
+
+        // New writes must land in a freshly created (empty) file.
+        Logger.dispatchNative(Logger.LogLevel.INFO, "after clear")
+        logger.snapshotTo(File(tempDir, "drain3"))
+
+        assertTrue("Current file should exist after clear", current.exists())
+        val content = current.readText()
+        assertFalse("Old content should be gone", content.contains("before clear"))
+        assertTrue("New content should be present", content.contains("after clear"))
+        assertFalse("Archive should remain removed", File(logDir, "reset.1.log").exists())
     }
 }

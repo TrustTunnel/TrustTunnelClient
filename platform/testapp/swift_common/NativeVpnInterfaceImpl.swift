@@ -28,4 +28,7 @@ class NativeVpnInterfaceImpl : NativeVpnInterface {
     func exportLogs() throws -> [String] {
         return vpnManager.exportLogs()
     }
+    func clearLogs() throws {
+        _ = vpnManager.clearLogs()
+    }
 }

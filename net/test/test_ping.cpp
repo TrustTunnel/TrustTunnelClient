@@ -68,6 +68,16 @@ public:
     }
 };
 
+static void standard_ping_cb(void *ctx, const PingResult *result) {
+    auto *test_ctx = (TestCtx *) ctx;
+    if (result->status == PING_FINISHED) {
+        test_ctx->finished = true;
+        event_base_loopbreak(test_ctx->base);
+        return;
+    }
+    test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
+}
+
 TEST_F(PingTest, Single) {
     static const std::pair<const char *, PingStatus> TEST_DATA[] = {
             {"1.1.1.1:443", PING_OK},
@@ -89,21 +99,7 @@ TEST_F(PingTest, Single) {
             .timeout_ms = LONG_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 
@@ -152,21 +148,7 @@ TEST_F(PingTest, Timeout) {
             .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 
@@ -265,21 +247,7 @@ TEST_F(PingTest, AllAddressesInvalid) {
             .timeout_ms = SHORT_PING_TIMEOUT_MS,
             .nrounds = 1,
     };
-    test_ctx.ping.reset(ping_start(&info,
-            {
-                    [](void *ctx, const PingResult *result) {
-                        auto *test_ctx = (TestCtx *) ctx;
-
-                        if (result->status == PING_FINISHED) {
-                            test_ctx->finished = true;
-                            event_base_loopbreak(test_ctx->base);
-                            return;
-                        }
-
-                        test_ctx->results[SocketAddress(result->endpoint->address).str()] = *result;
-                    },
-                    &test_ctx,
-            }));
+    test_ctx.ping.reset(ping_start(&info, {standard_ping_cb, &test_ctx}));
 
     run_event_loop();
 

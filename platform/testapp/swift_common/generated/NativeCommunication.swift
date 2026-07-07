@@ -98,6 +98,8 @@ protocol NativeVpnInterface {
   /// Returns a list of absolute paths to snapshot files in a temporary
   /// directory. The caller is responsible for cleaning up these files.
   func exportLogs() throws -> [String]
+  /// Clear all log files from the VPN process(es).
+  func clearLogs() throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -150,6 +152,20 @@ class NativeVpnInterfaceSetup {
       }
     } else {
       exportLogsChannel.setMessageHandler(nil)
+    }
+    /// Clear all log files from the VPN process(es).
+    let clearLogsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.clearLogs\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      clearLogsChannel.setMessageHandler { _, reply in
+        do {
+          try api.clearLogs()
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      clearLogsChannel.setMessageHandler(nil)
     }
   }
 }

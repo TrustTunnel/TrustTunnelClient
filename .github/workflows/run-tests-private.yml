@@ -19,9 +19,14 @@ jobs:
 # Private repository jobs (self-hosted runners)
 # =============================================================================
 
+  resolve-images:
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
+
   tests:
     name: ${{ matrix.name }} build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     permissions:
       contents: read
       id-token: write
@@ -30,8 +35,8 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["ephemeral","ephemeral-linux","${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
-            container-image: 'adguard/core-libs:2.10'
+            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
+            container-image: 'adguard/core-libs:2.11'
             artifact-name: test-results-linux-private
             test-command: |
               set -e
@@ -66,7 +71,7 @@ jobs:
               conan remove -c "*" || true
               conan cache clean || true
           - name: Mac
-            runs-on: '["ephemeral","ephemeral-mac","${{ vars.BUILD_IMAGE_VERSION_MACOS }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
+            runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
             container-image: ''
             artifact-name: test-results-macos-private
             test-command: |
@@ -124,10 +129,11 @@ jobs:
   win-build:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-vmwin
-      - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
+      - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
     steps:

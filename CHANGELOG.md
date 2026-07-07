@@ -20,6 +20,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.1.5-beta.10] - 2026-07-07
+
+### Added
+
+- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
+  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
+  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
+  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
+
+## [1.1.5-beta.9] - 2026-07-06
+
+### Added
+
+- Add `clearLogs` method for platform adapters.
+
+## [1.1.5-beta.8] - 2026-07-05
+
+Technical beta with temporary revert `exclusions_scannable_ports` because it was merged too early.
+
+## [1.1.5-beta.7] - 2026-07-04
+
+### Fixed
+
+- Restore the `quic_version` HTTP/3 upstream configuration parameter that was
+  accidentally dropped during the quiche → ngtcp2 migration, wiring it through
+  to the QUIC version offered by ngtcp2 (`0` selects the default version).
+
+## [1.1.5-beta.6] - 2026-07-03
+
+### Added
+
+- Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching. Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
+
+### Changed
+
+- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`. Removed dependency from quiche.
+
+### Removed
+
 ## [1.1.5-beta.5] - 2026-06-19
 
 ### Changed
@@ -433,7 +472,12 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.10...HEAD
+[1.1.5-beta.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...v1.1.5-beta.10
+[1.1.5-beta.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.8...v1.1.5-beta.9
+[1.1.5-beta.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.7...v1.1.5-beta.8
+[1.1.5-beta.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.6...v1.1.5-beta.7
+[1.1.5-beta.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...v1.1.5-beta.6
 [1.1.5-beta.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...v1.1.5-beta.5
 [1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
 [1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3

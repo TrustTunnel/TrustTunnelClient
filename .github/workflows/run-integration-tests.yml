@@ -6,17 +6,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  resolve-images:
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
+
   build-binaries:
     name: Build binaries
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
+      - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
     container:
-      image: adguard/core-libs:2.10
+      image: adguard/core-libs:2.11
     steps:
       - name: Checkout client
         uses: actions/checkout@v6
@@ -56,16 +61,16 @@ jobs:
 
   run-tests:
     name: Run integration tests
-    needs: build-binaries
+    needs: [build-binaries, resolve-images]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
+      - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
     container:
-      image: adguard/core-libs-testing:2.10.0
+      image: adguard/core-libs-testing:2.11.0
       options: --privileged
     strategy:
       fail-fast: false

@@ -23,7 +23,6 @@
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "net/network_manager.h"
-#include "net/quic_connector.h"
 #include "net/tcp_socket.h"
 #include "net/utils.h"
 #include "vpn/event_loop.h"
@@ -318,7 +317,12 @@ static void do_report(void *arg) {
         if (it->best_result_ms.has_value()) {
             result.is_quic = it->use_quic;
             if (self->handoff) {
-                result.conn_state = it->use_quic ? (void *) it->quic_connector.release() : it->tcp_socket.release();
+                auto qr = it->quic_connector ? quic_connector_get_result(it->quic_connector.get()) : nullptr;
+                if (it->use_quic && qr) {
+                    result.conn_state = qr.release();
+                } else {
+                    result.conn_state = it->tcp_socket.release();
+                }
             }
             if (it->relay->address.sa_family) {
                 result.relay = it->relay.get();
@@ -592,7 +596,7 @@ Ping *ping_start(const PingInfo *info, PingHandler handler) {
     constexpr auto TIMEOUT_MULTIPLIER = 10;
     self->quic_max_idle_timeout_ms = info->quic_max_idle_timeout_ms ? info->quic_max_idle_timeout_ms
                                                                     : TIMEOUT_MULTIPLIER * DEFAULT_PING_TIMEOUT_MS;
-    self->quic_version = info->quic_version ? info->quic_version : QUICHE_PROTOCOL_VERSION;
+    self->quic_version = info->quic_version;
 #endif
 
     constexpr uint32_t DEFAULT_IF_IDX = 0;
@@ -703,7 +707,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
             ? Uint8View{conn->relay->tls_client_random_mask.data, conn->relay->tls_client_random_mask.size}
             : Uint8View{conn->endpoint->tls_client_random_mask.data, conn->endpoint->tls_client_random_mask.size};
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
-            conn->use_quic ? MSPT_QUICHE : MSPT_TLS, endpoint_data, client_random_data, client_random_mask);
+            conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask);
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));
         log_conn(ping, conn, dbg, "Failed to create an SSL object: {}", std::get<std::string>(ssl_result));
