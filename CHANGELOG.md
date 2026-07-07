@@ -8,11 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
-  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
-  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
-  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
-
 ### Changed
 
 ### Deprecated
@@ -22,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.10] - 2026-07-07
+
+### Added
+
+- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
+  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
+  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
+  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
 
 ## [1.1.5-beta.9] - 2026-07-06
 
@@ -466,7 +470,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.10...HEAD
+[1.1.5-beta.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...v1.1.5-beta.10
 [1.1.5-beta.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.8...v1.1.5-beta.9
 [1.1.5-beta.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.7...v1.1.5-beta.8
 [1.1.5-beta.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.6...v1.1.5-beta.7
