@@ -65,6 +65,19 @@ public final class FileLogger {
         }
     }
 
+    /// Clear this logger's own log files and resume writing to a fresh file.
+    ///
+    /// Runs on the serial `queue` and closes/reopens the handle around the
+    /// delete, so pending appends drain first and new ones land in a fresh
+    /// file — nothing is dropped.
+    public func clearLogs() {
+        queue.sync {
+            closeFile()
+            Self.clearLogs(directory: directory, baseName: baseName, archiveCount: archiveCount)
+            openOrCreateFile()
+        }
+    }
+
     /// Produce point-in-time copies of the `<baseName>.log` family in
     /// `directory` into `destDir`, without needing a live `FileLogger`
     /// instance for them.
@@ -112,6 +125,44 @@ public final class FileLogger {
         }
 
         return result
+    }
+
+    /// Delete the `baseName`.log / `baseName`.{1…n}.log files in `directory`.
+    ///
+    /// - Note: Does not synchronize cross-process reads/writes. A process
+    ///   holding the file open keeps writing to the deleted (unlinked) file.
+    ///   For files this process is writing, use the instance `clearLogs()`.
+    public static func clearLogs(directory: URL,
+                                 baseName: String,
+                                 archiveCount: Int = 1) {
+        let fileManager = FileManager.default
+        let fileCoordinator = NSFileCoordinator(filePresenter: nil)
+
+        let candidates = (0 ... archiveCount).map { idx -> URL in
+            idx == 0
+                ? directory.appendingPathComponent("\(baseName).log")
+                : directory.appendingPathComponent("\(baseName).\(idx).log")
+        }
+
+        for url in candidates {
+            var coordinatorError: NSError?
+            fileCoordinator.coordinate(writingItemAt: url,
+                                       options: .forDeleting,
+                                       error: &coordinatorError)
+            { (actualURL) in
+                do {
+                    try fileManager.removeItem(at: actualURL)
+                } catch let error as NSError where error.code == NSFileNoSuchFileError {
+                    // A missing file is expected (e.g. a process that never ran).
+                } catch {
+                    // Surface genuinely unexpected failures.
+                    Self.fallbackLogger.debug("FileLogger clearLogs skipped \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            if let error = coordinatorError {
+                Self.fallbackLogger.debug("FileLogger clearLogs skipped \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Resolve the `logs/` directory inside the App Group container.

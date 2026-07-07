@@ -1,9 +1,5 @@
 #include <algorithm>
 
-#ifndef DISABLE_HTTP3
-#include <quiche.h>
-#endif
-
 #include "common/socket_address.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
@@ -202,7 +198,7 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
             result->ping_ms);
 
     if (result->is_quic) {
-        vpn->client.quic_connector.reset((QuicConnector *) result->conn_state);
+        vpn->client.quic_connector.reset((QuicConnectorResult *) result->conn_state);
     } else {
         vpn->client.tcp_socket.reset((TcpSocket *) result->conn_state);
     }
@@ -290,9 +286,7 @@ static void run_ping(void *ctx, void *) {
             .anti_dpi = vpn->upstream_config->anti_dpi,
             .handoff = true,
             .quic_max_idle_timeout_ms = quic_max_idle_timeout,
-#ifndef DISABLE_HTTP3
-            .quic_version = QUICHE_PROTOCOL_VERSION,
-#endif
+            .quic_version = 0,
     };
 
     // Speed up recovery if we have already connected through a relay by pinging through the relay in parallel.

@@ -147,6 +147,23 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Future<void> _clearLogs() async {
+    try {
+      await _nativeVpnInterface.clearLogs();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Logs cleared')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to clear logs: $e')),
+        );
+      }
+    }
+  }
+
   void _viewLogFile(BuildContext parentContext, String path) {
     String raw;
     try {
@@ -318,6 +335,13 @@ class _MyHomePageState extends State<MyHomePage> {
               child: ElevatedButton(
                 onPressed: _exportAndShowLogs,
                 child: const Text('Export Logs'),
+              ),
+            ),
+            const SizedBox(height: 10.0),
+            Center(
+              child: ElevatedButton(
+                onPressed: _clearLogs,
+                child: const Text('Clear Logs'),
               ),
             ),
             const SizedBox(height: 10.0),

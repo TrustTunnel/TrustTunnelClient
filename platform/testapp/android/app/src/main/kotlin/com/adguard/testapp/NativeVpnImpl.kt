@@ -28,4 +28,8 @@ class NativeVpnImpl (
     override fun exportLogs(): List<String> {
         return VpnService.exportLogs(context)
     }
+
+    override fun clearLogs() {
+        VpnService.clearLogs()
+    }
 }

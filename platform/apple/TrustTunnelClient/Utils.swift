@@ -6,6 +6,10 @@ internal struct ConnectionInfoParams {
     static let notificationName = "connection_info"
 }
 
+internal struct ClearLogsParams {
+    static let notificationName = "clear_logs"
+}
+
 func configureIPv4AndIPv6Settings(from config: TunConfig) -> (NEIPv4Settings, NEIPv6Settings) {
     let ipv4Settings = NEIPv4Settings(addresses: ["10.0.0.2"], subnetMasks: ["255.255.255.0"])
     let ipv6Settings = NEIPv6Settings(addresses: ["fd00::1"], networkPrefixLengths: [64])

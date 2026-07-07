@@ -9,13 +9,12 @@
 #include <unordered_map>
 #include <vector>
 
-#include "vpn/platform.h" // Because quiche.h doesn't include the required headers
-#include <quiche.h>
+#include <openssl/ssl.h>
 
+#include "common/http/http3.h"
 #include "common/logger.h"
 #include "http_icmp_multiplexer.h"
 #include "http_udp_multiplexer.h"
-#include "net/quic_connector.h"
 #include "net/udp_socket.h"
 #include "vpn/internal/data_buffer.h"
 #include "vpn/internal/server_upstream.h"
@@ -75,12 +74,13 @@ private:
     State m_state = (State) 0;
     std::chrono::milliseconds m_max_idle_timeout{};
     UdpSocketPtr m_socket;
-    DeclPtr<quiche_conn, &quiche_conn_free> m_quic_conn;
-    DeclPtr<quiche_h3_conn, &quiche_h3_conn_free> m_h3_conn;
+    std::unique_ptr<http::Http3Client> m_h3_client;
+    http::Http3Settings m_h3_settings;
     std::unordered_map<uint64_t, TcpConnection> m_tcp_connections;
     std::unordered_map<uint64_t, uint64_t> m_tcp_conn_by_stream_id;
     std::unordered_map<uint64_t, RetriableTcpConnectRequest> m_retriable_tcp_requests;
     std::unordered_map<uint64_t, bool> m_closing_connections; // value is graceful flag
+    event_loop::AutoTaskId m_open_session_task_id;
     event_loop::AutoTaskId m_complete_read_task_id;
     event_loop::AutoTaskId m_notify_sent_task_id;
     event_loop::AutoTaskId m_close_connections_task_id;
@@ -96,7 +96,6 @@ private:
     bool m_cert_verify_failed = false;
     std::optional<VpnError> m_pending_session_error;
     ag::Logger m_log{"H3_UPSTREAM"};
-    DeclPtr<QuicConnector, &quic_connector_destroy> m_quic_connector;
     void *m_ssl_object = nullptr; // A non-owning pointer to SSL used by QuicConnector and Quiche.
     int m_kex_group_nid = NID_undef;
 
@@ -133,17 +132,21 @@ private:
 
     static void quic_timer_callback(evutil_socket_t, short, void *arg);
     static void socket_handler(void *arg, UdpSocketEvent what, void *data);
-    static void quic_connector_handler(void *arg, QuicConnectorEvent what, void *data);
     static int verify_callback(X509_STORE_CTX *store_ctx, void *arg);
 
-    bool flush_pending_quic_data();
-    void on_udp_packet();
-    bool initiate_h3_session();
+    static http::Http3Client::Callbacks make_upstream_callbacks(Http3Upstream *self);
+    static void on_handshake_completed(void *arg);
+    static void on_response(void *arg, uint64_t stream_id, http::Response response);
+    static void on_body(void *arg, uint64_t stream_id, Uint8View chunk);
+    static void on_stream_closed(void *arg, uint64_t stream_id, int error_code);
+    static void on_close(void *arg, uint64_t error_code);
+    static void on_output(void *arg, const http::QuicNetworkPath &path, Uint8View chunk);
+    static void on_data_sent(void *arg, uint64_t stream_id, size_t n);
+    static void on_expiry_update(void *arg, Nanos period);
+
     std::pair<uint64_t, TcpConnection *> get_tcp_conn_by_stream_id(uint64_t id);
-    void handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_id);
     void handle_response(uint64_t stream_id, const HttpHeaders *headers);
     void close_stream(uint64_t stream_id, Http3ErrorCode error);
-    ssize_t read_out_h3_data(uint64_t stream_id, const uint8_t *buffer, size_t cap);
     void process_pending_data(uint64_t stream_id);
     void close_session_inner(std::optional<VpnError> error = std::nullopt);
     SendConnectRequestResult send_connect_request(const TunnelAddress *dst_addr, std::string_view app_name);
@@ -155,9 +158,9 @@ private:
     int read_out_pending_data(uint64_t conn_id, TcpConnection *conn);
     int raise_read_event(uint64_t conn_id, U8View data);
     void poll_tcp_connections();
+    void poll_mux_connections();
     void poll_connections();
     void retry_connect_requests();
-    bool continue_connecting();
     static void complete_read(void *arg, TaskId task_id);
     static std::optional<uint64_t> mux_send_connect_request_callback(
             ServerUpstream *upstream, const TunnelAddress *dst_addr, std::string_view app_name);

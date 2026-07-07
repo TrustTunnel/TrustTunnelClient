@@ -19,71 +19,121 @@ jobs:
 # Private repository jobs (self-hosted runners)
 # =============================================================================
 
-  linux-build:
-    name: Linux build
+  resolve-images:
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on:
-      - ephemeral
-      - ephemeral-linux
-      - ${{ vars.BUILD_IMAGE_VERSION_CORELIBS_BUILDER }}
-      - ephemeral-limit-memory-12288
-      - ephemeral-limit-cpu-6
-    container:
-      image: adguard/core-libs:2.10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
 
-      - name: Lint
-        run: |
-          set -e
-          set -x
+  tests:
+    name: ${{ matrix.name }} build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
+            container-image: 'adguard/core-libs:2.11'
+            artifact-name: test-results-linux-private
+            test-command: |
+              set -e
+              set -x
 
-          python3 -m pip install conan --upgrade
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-          npm install -g markdownlint-cli
+              python3 -m pip install conan --upgrade
+              conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+              npm install -g markdownlint-cli
 
-          make lint
+              make lint
 
-      - name: Build and run tests
-        run: |
-          make test-rust
+              make test-rust
 
-          mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_C_FLAGS='-fsanitize=address' \
-            -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
-            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
-            -GNinja \
-            ..
-          ninja tests
-          ctest -D ExperimentalTest --no-compress-output --output-on-failure
+              mkdir -p build && cd build
+              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_FLAGS='-fsanitize=address' \
+                -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
+                -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
+                -GNinja \
+                ..
+              ninja tests
+              ctest --output-junit junit.xml -D ExperimentalTest --no-compress-output --output-on-failure
+            finally-script: |
+              set -e
+              set -x
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: test-results-linux-private
-          path: '**/Testing/*/*.xml'
+              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
+              echo "conan upload finished"
+              conan remove -c "*" || true
+              conan cache clean || true
+          - name: Mac
+            runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
+            container-image: ''
+            artifact-name: test-results-macos-private
+            test-command: |
+              set -e
+              set -x
 
-      - name: Upload to Conan and cleanup
-        if: always()
-        run: |
-          conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}" || true
-          conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
-          echo "conan upload finished"
-          conan remove -c "*" || true
-          conan cache clean || true
+              rm -rf venv
+              python3 -m venv venv
+              source ./venv/bin/activate
+
+              python3 -m pip install conan
+              conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+              # Ensure Rust is available (rust-toolchain.toml picks the version)
+              export PATH="$HOME/.cargo/bin:$PATH"
+              if ! command -v cargo &>/dev/null; then
+                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+                export PATH="$HOME/.cargo/bin:$PATH"
+              fi
+
+              make test-rust
+
+              mkdir -p build && cd build
+              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
+                -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_FLAGS='-fsanitize=address' \
+                -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
+                -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
+                ..
+              ninja tests
+              ctest --output-junit junit.xml -D ExperimentalTest --no-compress-output --output-on-failure
+            finally-script: |
+              set -e
+              set -x
+
+              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
+              echo "conan upload finished"
+              conan remove -c "*" || true
+              conan cache clean || true
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/junit-tests.yml@master
+    secrets:
+      test-env: |
+        ARTIFACTORY_USER=${{ secrets.ARTIFACTORY_USER }}
+        ARTIFACTORY_API_KEY=${{ secrets.ARTIFACTORY_API_KEY }}
+    with:
+      runs-on: ${{ matrix.runs-on }}
+      container-image: ${{ matrix.container-image }}
+      test-command: ${{ matrix.test-command }}
+      finally-script: ${{ matrix.finally-script }}
+      results-path: 'build/junit.xml'
+      artifact-name: ${{ matrix.artifact-name }}
 
   win-build:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-vmwin
-      - ${{ vars.BUILD_IMAGE_VERSION_WINDOWS }}
+      - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
     steps:
@@ -142,59 +192,3 @@ jobs:
           & conan cache clean
         shell: powershell
 
-  mac-build:
-    name: Mac build
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on:
-      - ephemeral
-      - ephemeral-mac
-      - ${{ vars.BUILD_IMAGE_VERSION_MACOS }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Build and run tests
-        run: |
-          rm -rf venv
-          python3 -m venv venv
-          source ./venv/bin/activate
-
-          python3 -m pip install conan
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
-          # Ensure Rust is available (rust-toolchain.toml picks the version)
-          export PATH="$HOME/.cargo/bin:$PATH"
-          if ! command -v cargo &>/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            export PATH="$HOME/.cargo/bin:$PATH"
-          fi
-
-          make test-rust
-
-          mkdir -p build && cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_C_FLAGS='-fsanitize=address' \
-            -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
-            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
-            ..
-          ninja tests
-          ctest -D ExperimentalTest --no-compress-output --output-on-failure
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: test-results-macos-private
-          path: '**/Testing/*/*.xml'
-
-      - name: Upload to Conan and cleanup
-        if: always()
-        run: |
-          source ./venv/bin/activate
-          conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}" || true
-          conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
-          echo "conan upload finished"
-          conan remove -c "*" || true
-          conan cache clean || true

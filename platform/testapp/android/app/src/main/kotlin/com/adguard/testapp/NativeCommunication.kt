@@ -69,6 +69,10 @@ interface NativeVpnInterface {
    * directory. The caller is responsible for cleaning up these files.
    */
   fun exportLogs(): List<String>
+  /**
+   * Clear all log files from the VPN process(es).
+   */
+  fun clearLogs()
 
   companion object {
     /** The codec used by NativeVpnInterface. */
@@ -119,6 +123,22 @@ interface NativeVpnInterface {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.exportLogs())
+            } catch (exception: Throwable) {
+              NativeCommunicationPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.clearLogs$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.clearLogs()
+              listOf(null)
             } catch (exception: Throwable) {
               NativeCommunicationPigeonUtils.wrapError(exception)
             }

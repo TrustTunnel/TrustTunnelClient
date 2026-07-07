@@ -7,8 +7,8 @@
 #include <magic_enum/magic_enum.hpp>
 #include <openssl/rand.h>
 
+#include "common/http/http3.h"
 #include "net/http_session.h"
-#include "net/quic_connector.h"
 #include "net/tls.h"
 #include "net/udp_socket.h"
 #include "net/utils.h"
@@ -25,16 +25,9 @@
 using namespace std::chrono;
 using namespace ag;
 
-template <>
-struct magic_enum::customize::enum_range<quiche_h3_error> {
-    static constexpr int min = -1100;
-    static constexpr int max = 0;
-};
-
-// FIXME: these should be available from the HTTP/3 implementation
 enum Http3Upstream::Http3ErrorCode : uint64_t {
-    H3_NO_ERROR = 0x100,
-    H3_REQUEST_CANCELLED = 0x10c,
+    H3_NO_ERROR = NGHTTP3_H3_NO_ERROR,
+    H3_REQUEST_CANCELLED = NGHTTP3_H3_REQUEST_CANCELLED,
 };
 
 enum Http3Upstream::State : int {
@@ -99,17 +92,53 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
 
     // Let the connection live long enough to perform a health check.
     m_max_idle_timeout = 2 * (upstream_config.timeout + upstream_config.health_check_timeout);
+    m_h3_settings.max_idle_timeout = Micros{m_max_idle_timeout};
+    m_h3_settings.quic_version = h3_config.quic_version;
+    m_h3_settings.initial_max_data = QUIC_CONNECTION_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_bidi_local = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_bidi_remote = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_stream_data_uni = QUIC_STREAM_WINDOW_SIZE;
+    m_h3_settings.initial_max_streams_bidi = QUIC_MAX_STREAMS_NUM;
+    m_h3_settings.max_window = QUIC_CONNECTION_WINDOW_SIZE;
+    m_h3_settings.max_stream_window = QUIC_STREAM_WINDOW_SIZE;
 
-    if (this->vpn->quic_connector) {
-        m_quic_connector = std::move(this->vpn->quic_connector);
-        if (continue_connecting()) {
-            m_state = H3US_ESTABLISHING;
-            flush_pending_quic_data();
-            return true;
+    // Handoff — reuse connection pre-established by ping
+    if (this->vpn->quic_connector->client) {
+        m_h3_client = std::move(this->vpn->quic_connector->client);
+        m_ssl_object = m_h3_client->get_ssl(); // non-owning; Http3Client owns SSL
+
+        UdpSocketParameters params{
+                .ev_loop = this->vpn->parameters.ev_loop,
+                .handler = {socket_handler, this},
+                .timeout = upstream_config.timeout,
+                .peer = SocketAddress(upstream_config.endpoint->address),
+                .socket_manager = this->vpn->parameters.network_manager->socket,
+                .log_prefix = AG_FMT("h3-upstream-{}", this->id),
+        };
+        m_socket.reset(udp_socket_acquire_fd(&params, this->vpn->quic_connector->fd));
+        this->vpn->quic_connector->fd = EVUTIL_INVALID_SOCKET;
+        if (!m_socket) {
+            log_upstream(this, err, "Failed to acquire UDP socket fd");
+            m_h3_client.reset();
+            return false;
         }
-        log_upstream(this, dbg, "Failed to continue handed-off connection");
+
+        // Replace ping-phase callbacks with upstream-phase callbacks
+        m_h3_client->update_callbacks(make_upstream_callbacks(this));
+
+        m_kex_group_nid = SSL_get_negotiated_group((SSL *) m_ssl_object);
+        udp_socket_set_timeout(m_socket.get(), upstream_config.timeout);
+        m_state = H3US_ESTABLISHED;
+        m_open_session_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
+                {this, [](void *arg, TaskId) {
+                     auto *self = (Http3Upstream *) arg;
+                     self->m_open_session_task_id.release();
+                     self->handler.func(self->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
+                 }});
+        return true;
     }
 
+    // New connection
     U8View endpoint_data{
             upstream_config.endpoint->additional_data.data, upstream_config.endpoint->additional_data.size};
     U8View client_random_data{
@@ -118,7 +147,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
             upstream_config.endpoint->tls_client_random_mask.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)},
-                upstream_config.endpoint->name, /*quic*/ MSPT_QUICHE, endpoint_data, client_random_data,
+                upstream_config.endpoint->name, /*quic*/ MSPT_NGTCP2, endpoint_data, client_random_data,
                 client_random_mask);
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
@@ -127,30 +156,43 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         return false;
     }
 
-    QuicConnectorParameters quic_connector_prm{
+    UdpSocketParameters sock_params{
             .ev_loop = this->vpn->parameters.ev_loop,
-            .handler = {.handler = quic_connector_handler, .arg = this},
+            .handler = {socket_handler, this},
+            .timeout = upstream_config.timeout,
+            .peer = SocketAddress(upstream_config.endpoint->address),
             .socket_manager = this->vpn->parameters.network_manager->socket,
             .log_prefix = AG_FMT("h3-upstream-{}", this->id),
     };
-    m_quic_connector.reset(quic_connector_create(&quic_connector_prm));
-    if (!m_quic_connector) {
-        log_upstream(this, err, "Failed to create a QUIC connector");
+    m_socket.reset(udp_socket_create(&sock_params));
+    if (!m_socket) {
+        log_upstream(this, err, "Failed to create UDP socket");
         return false;
     }
 
-    SocketAddress sa_peer(upstream_config.endpoint->address);
-    QuicConnectorConnectParameters connect_prm{
-            .peer = &sa_peer,
-            .ssl = ssl.release(),
-            .timeout = upstream_config.timeout,
-            .max_idle_timeout = m_max_idle_timeout,
-            .quic_version = (h3_config.quic_version == 0) ? QUICHE_PROTOCOL_VERSION : h3_config.quic_version,
+    SSL *ssl_raw = ssl.get(); // save non-owning pointer before move into Http3Client
+    SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+    SocketAddress peer(upstream_config.endpoint->address);
+    http::QuicNetworkPath path{
+            .local = local.c_sockaddr(),
+            .local_len = local.c_socklen(),
+            .remote = peer.c_sockaddr(),
+            .remote_len = peer.c_socklen(),
     };
 
-    VpnError error = quic_connector_connect(m_quic_connector.get(), &connect_prm);
-    if (error.code != 0) {
-        log_upstream(this, err, "Failed to start QUIC connection: ({}) {}", error.code, error.text);
+    auto result = http::Http3Client::connect(m_h3_settings, make_upstream_callbacks(this), path, std::move(ssl));
+    if (!result.has_value()) {
+        log_upstream(this, err, "Failed to create Http3Client: {}", result.error()->str());
+        m_socket.reset();
+        return false;
+    }
+    m_h3_client = std::move(result.value());
+    m_ssl_object = ssl_raw; // non-owning, for kex_group_nid() and SSL_session_reused
+
+    if (auto err = m_h3_client->flush(); err != nullptr) {
+        log_upstream(this, err, "Failed to flush initial QUIC packets: {}", err->str());
+        m_h3_client.reset();
+        m_socket.reset();
         return false;
     }
 
@@ -186,22 +228,12 @@ void Http3Upstream::close_session() {
         close_stream(id.value(), H3_REQUEST_CANCELLED);
     }
 
-    if (m_quic_conn != nullptr) {
-        if (int r = quiche_conn_close(m_quic_conn.get(), true, 0, RUST_EMPTY, 0); r < 0 && r != QUICHE_ERR_DONE) {
-            log_upstream(this, err, "Failed to close QUIC connection: {}", magic_enum::enum_name((quiche_error) r));
-        } else {
-            this->flush_pending_quic_data();
-        }
-    }
-
     m_ssl_object = nullptr;
     m_udp_mux.close({});
     m_icmp_mux.close();
-    m_h3_conn.reset();
-    m_quic_conn.reset();
+    m_h3_client.reset();
     m_quic_timer.reset();
     m_socket.reset();
-    m_quic_connector.reset();
     m_tcp_connections.clear();
     m_tcp_conn_by_stream_id.clear();
     m_retriable_tcp_requests.clear();
@@ -283,43 +315,23 @@ ssize_t Http3Upstream::send(uint64_t id, const uint8_t *data, size_t length) {
 
     if (auto i = m_tcp_connections.find(id); i != m_tcp_connections.end()) {
         TcpConnection *conn = &i->second;
-        r = quiche_h3_send_body(m_h3_conn.get(), m_quic_conn.get(), conn->stream_id, (uint8_t *) data, length, false);
-        if (r == QUICHE_H3_ERR_DONE) {
-            log_conn(this, id, dbg, "Can't send data via stream at the moment");
-            r = 0;
-        }
-
-        // set the flag even if nothing was sent to poll the client side on receiving the next
-        // QUIC packet from the endpoint
-        conn->flags.set(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES, r >= 0);
-        if (r > 0) {
-            // quiche's api does not provide a possibility to get the number of acked bytes
-            // on a stream, so we report it immediately - this does not seem bad as the next
-            // call to `quiche_h3_send_body` will do the flow control checks
-            conn->sent_bytes_to_notify += r;
-            if (!m_notify_sent_task_id.has_value()) {
-                m_notify_sent_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
-                        {
-                                this,
-                                [](void *arg, TaskId) {
-                                    auto *self = (Http3Upstream *) arg;
-                                    self->m_notify_sent_task_id.release();
-                                    self->poll_connections();
-                                },
-                        });
-            }
+        if (auto err = m_h3_client->submit_body(conn->stream_id, {data, length}, false); err != nullptr) {
+            log_conn(this, id, dbg, "Failed to send data: {}", err->str());
+            r = -1;
+        } else {
+            r = (ssize_t) length;
+            conn->sent_bytes_to_notify += length;
+            conn->flags.set(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
+            m_h3_client->flush();
         }
     } else if (m_udp_mux.check_connection(id)) {
         r = m_udp_mux.send(id, {data, length});
+        if (r > 0 && m_h3_client) {
+            m_h3_client->flush();
+        }
     } else {
         log_conn(this, id, err, "Trying to send data on already closed or nonexistent connection");
         r = -1;
-    }
-
-    if (r < 0) {
-        log_conn(this, id, dbg, "Failed to send data from client: {}", magic_enum::enum_name((quiche_h3_error) r));
-    } else {
-        this->flush_pending_quic_data();
     }
 
     return (int) r;
@@ -329,26 +341,24 @@ void Http3Upstream::consume(uint64_t, size_t) {
 }
 
 size_t Http3Upstream::available_to_send(uint64_t id) {
-    std::optional<uint64_t> stream_id = get_stream_id(id);
-    if (!stream_id.has_value()) {
-        log_conn(this, id, dbg, "Trying to get window size on closed or nonexistent connection");
-        return 0;
+    // UDP/ICMP mux: a single stream, always return a large value
+    if (m_udp_mux.check_connection(id)) {
+        return http::Http3Settings::DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL;
     }
 
-    ssize_t r = quiche_conn_stream_capacity(m_quic_conn.get(), stream_id.value());
-    if (r < 0) {
-        log_conn(this, id, dbg, "Failed to get stream capacity: {}", magic_enum::enum_name((quiche_error) r));
-        r = 0;
-    }
-
-    if (r == 0) {
-        if (auto it = m_tcp_connections.find(id); it != m_tcp_connections.end()) {
-            // set the flag to poll the client side on receiving the next QUIC packet from the endpoint
+    if (auto it = m_tcp_connections.find(id); it != m_tcp_connections.end()) {
+        // Report the stream's real remaining send window so the inner stack applies proper
+        // backpressure. The window grows back as the peer sends MAX_STREAM_DATA frames
+        size_t capacity = m_h3_client ? m_h3_client->get_stream_send_capacity(it->second.stream_id) : 0;
+        if (capacity == 0) {
+            // Ask to be notified once the window reopens.
             it->second.flags.set(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
         }
+        return capacity;
     }
 
-    return r;
+    log_conn(this, id, dbg, "Trying to get window size on closed or nonexistent connection");
+    return 0;
 }
 
 void Http3Upstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
@@ -372,7 +382,7 @@ void Http3Upstream::update_flow_control(uint64_t id, TcpFlowCtrlInfo info) {
     conn->flags.set(TcpConnection::TCF_READ_ENABLED, info.send_buffer_size > 0);
 
     if (conn->flags.test(TcpConnection::TCF_READ_ENABLED) && !m_complete_read_task_id.has_value()
-            && (conn->has_unread_data() || quiche_conn_stream_readable(m_quic_conn.get(), conn->stream_id))) {
+            && conn->has_unread_data()) {
         // we have some unread data on the connection - complete it
         m_complete_read_task_id = event_loop::submit(vpn->parameters.ev_loop, {this, complete_read});
     }
@@ -382,7 +392,7 @@ void Http3Upstream::do_health_check() {
     m_health_check_info.reset(); // Forget about the current health check.
 
     // FIXME: AG-8909
-    if (m_h3_conn == nullptr) {
+    if (!m_h3_client || m_state != H3US_ESTABLISHED) {
         log_upstream(this, warn, "No HTTP3 session");
         m_health_check_info = {
                 .stream_id = std::nullopt,
@@ -459,50 +469,21 @@ void Http3Upstream::cancel_health_check() {
 }
 
 VpnConnectionStats Http3Upstream::get_connection_stats() const {
-    quiche_stats stats = {};
-    quiche_conn_stats(m_quic_conn.get(), &stats);
-
-    uint64_t rtt_ns = 0;
-    for (size_t i = 0; i < stats.paths_count; ++i) {
-        quiche_path_stats path_stats = {};
-        quiche_conn_path_stats(m_quic_conn.get(), i, &path_stats);
-        rtt_ns = std::max(rtt_ns, path_stats.rtt);
+    if (!m_h3_client) {
+        return {};
     }
-
+    auto info = m_h3_client->get_stats();
     return {
-            .rtt_us = uint32_t(rtt_ns / 1000),
+            .rtt_us = uint32_t(info.smoothed_rtt / 1000), // nanoseconds → microseconds
             .packet_loss_ratio =
-                    (stats.sent > 0) ? static_cast<double>(stats.lost) / static_cast<double>(stats.sent) : 0,
+                    (info.pkt_sent > 0) ? static_cast<double>(info.pkt_lost) / static_cast<double>(info.pkt_sent) : 0.0,
     };
 }
 
 void Http3Upstream::on_icmp_request(IcmpEchoRequestEvent &event) {
     event.result = m_icmp_mux.send_request(event.request) ? 0 : -1;
-    this->flush_pending_quic_data();
-}
-
-void Http3Upstream::quic_connector_handler(void *arg, QuicConnectorEvent what, void *data) {
-    auto *upstream = (Http3Upstream *) arg;
-    switch (what) {
-    case QUIC_CONNECTOR_EVENT_READY: {
-        log_upstream(upstream, dbg, "QUIC connector ready");
-        if (!upstream->continue_connecting()) {
-            upstream->close_session_inner();
-            break;
-        }
-        upstream->flush_pending_quic_data();
-        break;
-    }
-    case QUIC_CONNECTOR_EVENT_ERROR: {
-        auto *error = (VpnError *) data;
-        log_upstream(upstream, dbg, "Closing session on QUIC connector error: ({}) {}", error->code, error->text);
-        upstream->close_session_inner();
-        break;
-    }
-    case QUIC_CONNECTOR_EVENT_PROTECT:
-        vpn_client::Handler *vpn_handler = &upstream->vpn->parameters.handler;
-        vpn_handler->func(vpn_handler->arg, vpn_client::EVENT_PROTECT_SOCKET, data);
-        break;
+    if (m_h3_client) {
+        m_h3_client->flush();
     }
 }
 
@@ -516,18 +497,71 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
         break;
     }
 
-    case UDP_SOCKET_EVENT_READABLE:
-        upstream->on_udp_packet();
+    case UDP_SOCKET_EVENT_READABLE: {
+        if (!upstream->m_h3_client) {
+            break;
+        }
+
+        constexpr size_t READ_BUDGET = 64;
+        uint8_t buf[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE];
+        SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(upstream->m_socket.get()));
+        SocketAddress peer(upstream->vpn->upstream_config.endpoint->address);
+        http::QuicNetworkPath path{
+                .local = local.c_sockaddr(),
+                .local_len = local.c_socklen(),
+                .remote = peer.c_sockaddr(),
+                .remote_len = peer.c_socklen(),
+        };
+
+        upstream->m_in_handler = true;
+        for (size_t i = 0; i < READ_BUDGET; ++i) {
+            ssize_t r = udp_socket_recv(upstream->m_socket.get(), buf, sizeof(buf));
+            if (r <= 0) {
+                if (int err = evutil_socket_geterror(udp_socket_get_fd(upstream->m_socket.get()));
+                        err != 0 && !AG_ERR_IS_EAGAIN(err)) {
+                    log_upstream(upstream, dbg, "Read error: {} ({})", evutil_socket_error_to_string(err), err);
+                }
+                break;
+            }
+            log_upstream(upstream, trace, "Read {} bytes from endpoint", r);
+            upstream->cancel_health_check();
+            if (auto err = upstream->m_h3_client->input(path, {buf, (size_t) r}); err != nullptr) {
+                log_upstream(upstream, dbg, "input() error: {}", err->str());
+                break;
+            }
+        }
+        upstream->m_in_handler = false;
+
+        if (upstream->m_closed) {
+            upstream->close_session_inner(std::exchange(upstream->m_pending_session_error, std::nullopt));
+        } else if (upstream->m_h3_client) {
+            upstream->m_h3_client->flush();
+            // Schedule post-receive work (retry_connect_requests, poll_connections)
+            if (!upstream->m_post_receive_task_id.has_value()) {
+                upstream->m_post_receive_task_id = event_loop::submit(upstream->vpn->parameters.ev_loop,
+                        {
+                                .arg = upstream,
+                                .action =
+                                        [](void *a, TaskId) {
+                                            auto *self = (Http3Upstream *) a;
+                                            self->m_post_receive_task_id.release();
+                                            self->retry_connect_requests();
+                                            self->poll_connections();
+                                        },
+                        });
+            }
+        }
         break;
+    }
 
     case UDP_SOCKET_EVENT_TIMEOUT:
-        if (!upstream->m_quic_conn || !quiche_conn_is_established(upstream->m_quic_conn.get())
-                || !upstream->m_h3_conn) {
+        if (!upstream->m_h3_client || upstream->m_state != H3US_ESTABLISHED) {
             log_upstream(upstream, dbg, "UDP socket timed out, closing session");
             upstream->close_session_inner();
         } else {
-            quiche_conn_send_ack_eliciting(upstream->m_quic_conn.get());
-            upstream->flush_pending_quic_data();
+            // ACK-eliciting on idle: let ngtcp2 handle it
+            upstream->m_h3_client->handle_expiry();
+            upstream->m_h3_client->flush();
         }
         break;
     }
@@ -548,264 +582,229 @@ void Http3Upstream::quic_timer_callback(evutil_socket_t, short, void *arg) {
     auto *upstream = (Http3Upstream *) arg;
     log_upstream(upstream, dbg, "...");
 
-    quiche_conn_on_timeout(upstream->m_quic_conn.get());
-    upstream->flush_pending_quic_data();
-
-    if (quiche_conn_is_closed(upstream->m_quic_conn.get())) {
-        log_upstream(upstream, dbg, "QUIC connection closed");
-        upstream->close_session_inner();
+    if (!upstream->m_h3_client) {
+        return;
     }
+
+    // Notify ngtcp2 that the timer fired, then flush
+    // This may trigger on_close / on_output / on_expiry_update callbacks
+    upstream->m_h3_client->handle_expiry();
+    upstream->m_h3_client->flush();
 
     log_upstream(upstream, dbg, "Done");
 }
 
-bool Http3Upstream::flush_pending_quic_data() {
-    if (m_close_on_idle_task_id.has_value()) {
-        log_upstream(this, dbg, "Not sending packets when the connection is being closed on idle timeout");
-        return false;
-    }
-
-    int64_t now_ns = get_time_monotonic_nanos();
-
-    if (m_idle_timeout_at_ns && now_ns >= m_idle_timeout_at_ns) {
-        log_upstream(this, dbg, "Idle timeout occurred, connection will be closed");
-
-        // Switch context since `close_session` should not be called in listener context,
-        // and to avoid recursion since `close_session_inner` will call this function again
-        m_close_on_idle_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
-                {
-                        .arg = this,
-                        .action =
-                                [](void *arg, TaskId) {
-                                    auto *upstream = (Http3Upstream *) arg;
-                                    upstream->close_session_inner();
-                                },
-                });
-
-        return false;
-    }
-
-    // This function is also called when a UDP packet is received,
-    // so it is sufficient to update the idle timeout only here.
-    m_idle_timeout_at_ns = now_ns + duration_cast<nanoseconds>(m_max_idle_timeout).count();
-
-    uint8_t out[QUIC_MAX_UDP_PAYLOAD_SIZE];
-    while (true) {
-        quiche_send_info info{};
-        ssize_t r = quiche_conn_send(m_quic_conn.get(), out, sizeof(out), &info);
-        if (r == QUICHE_ERR_DONE) {
-            log_upstream(this, trace, "Done writing");
-            break;
-        }
-
-        if (r < 0) {
-            log_upstream(this, dbg, "Failed to create QUIC packet: {}", magic_enum::enum_name((quiche_error) r));
-            return false;
-        }
-
-        if (VpnError err = udp_socket_write(m_socket.get(), out, r); err.code != 0) {
-            log_upstream(this, dbg, "Failed to send QUIC packet: {} ({})", safe_to_string_view(err.text), err.code);
-            switch (m_state) {
-            case H3US_ESTABLISHING:
-            case H3US_ESTABLISHED:
-                if (!AG_ERR_IS_EAGAIN(err.code) && err.code != AG_ENOBUFS && !m_flush_error_task_id.has_value()) {
-                    // in the other states it is enough to indicate an error by returning
-                    // the corresponding value from the function
-                    m_flush_error_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
-                            {
-                                    this,
-                                    [](void *arg, TaskId) {
-                                        auto *self = (Http3Upstream *) arg;
-                                        self->m_flush_error_task_id.release();
-                                        ServerError event = {NON_ID, {VPN_EC_ERROR, "UDP socket failure"}};
-                                        self->handler.func(self->handler.arg, SERVER_EVENT_ERROR, &event);
-                                    },
-                            });
-                }
-                [[fallthrough]];
-            case H3US_IDLE:
-            case H3US_CLOSING:
-                return false;
-            }
-        }
-
-        log_upstream(this, trace, "Sent {} bytes", r);
-    }
-
-    if (m_quic_timer == nullptr) {
-        m_quic_timer.reset(event_new(
-                vpn_event_loop_get_base(this->vpn->parameters.ev_loop), -1, EV_PERSIST, quic_timer_callback, this));
-    }
-
-    uint64_t timeout_ms = std::min((uint64_t) duration_cast<milliseconds>(m_max_idle_timeout).count(),
-            quiche_conn_timeout_as_millis(m_quic_conn.get()));
-    log_upstream(this, trace, "Timeout: {}ms", timeout_ms);
-    const timeval tv = ms_to_timeval(uint32_t(timeout_ms));
-    event_del(m_quic_timer.get());
-    event_add(m_quic_timer.get(), &tv);
-
-    return true;
+http::Http3Client::Callbacks Http3Upstream::make_upstream_callbacks(Http3Upstream *self) {
+    return {
+            .arg = self,
+            .on_handshake_completed = on_handshake_completed,
+            .on_response = on_response,
+            .on_trailer_headers = nullptr,
+            .on_body = on_body,
+            .on_stream_read_finished = nullptr,
+            .on_stream_closed = on_stream_closed,
+            .on_close = on_close,
+            .on_output = on_output,
+            .on_data_sent = on_data_sent,
+            .on_expiry_update = on_expiry_update,
+            .on_available_streams = nullptr,
+    };
 }
 
-void Http3Upstream::on_udp_packet() {
-    constexpr size_t READ_BUDGET = 64;
+// Called once after TLS handshake completes
+void Http3Upstream::on_handshake_completed(void *arg) {
+    auto *self = (Http3Upstream *) arg;
+    log_upstream(self, dbg, "Handshake completed");
 
-    quiche_conn *quic_conn = m_quic_conn.get();
-    SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
-
-    quiche_recv_info info{
-            .from = (sockaddr *) &this->vpn->upstream_config.endpoint->address,
-            .from_len = SocketAddress(this->vpn->upstream_config.endpoint->address).c_socklen(),
-            .to = (sockaddr *) local_address.c_sockaddr(),
-            .to_len = local_address.c_socklen(),
-    };
-    uint8_t buffer[QUIC_MAX_UDP_PAYLOAD_SIZE];
-    for (size_t i = 0; i < READ_BUDGET; ++i) {
-        ssize_t r = udp_socket_recv(m_socket.get(), buffer, std::size(buffer));
-        if (r <= 0) {
-            int err = evutil_socket_geterror(udp_socket_get_fd(m_socket.get()));
-            if (err != 0 && !AG_ERR_IS_EAGAIN(err)) {
-                log_upstream(
-                        this, dbg, "Failed to read data from socket: {} ({})", evutil_socket_error_to_string(err), err);
-            }
-            break;
+    if (self->m_ssl_object) {
+        self->m_kex_group_nid = SSL_get_negotiated_group((SSL *) self->m_ssl_object);
+        if (self->m_log.is_enabled(LOG_LEVEL_DEBUG)) {
+            log_upstream(self, dbg, "Session reused: {}", SSL_session_reused((SSL *) self->m_ssl_object));
         }
+    }
 
-        log_upstream(this, trace, "Read {} bytes from endpoint", r);
-        r = quiche_conn_recv(quic_conn, buffer, r, &info);
+    // Prevent idle close — send ACK-eliciting packets on idle
+    udp_socket_set_timeout(self->m_socket.get(), self->vpn->upstream_config.timeout);
+
+    self->m_state = H3US_ESTABLISHED;
+    self->handler.func(self->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
+}
+
+// Called when a response is received on a stream
+void Http3Upstream::on_response(void *arg, uint64_t stream_id, http::Response response) {
+    auto *self = (Http3Upstream *) arg;
+    HttpHeaders headers{.version = HTTP_VER_3_0, .status_code = response.status_code()};
+    for (const auto &h : response.headers()) {
+        headers.fields.emplace_back(std::string(h.name), std::string(h.value));
+    }
+    self->handle_response(stream_id, &headers);
+}
+
+// Called when body data arrives on a stream. Data is pushed by Http3Client
+void Http3Upstream::on_body(void *arg, uint64_t stream_id, Uint8View chunk) {
+    auto *self = (Http3Upstream *) arg;
+    if (self->m_udp_mux.get_stream_id() == stream_id) {
+        self->m_udp_mux.process_read_event(chunk);
+        self->m_h3_client->consume_stream(stream_id, chunk.size());
+        return;
+    }
+
+    if (self->m_icmp_mux.get_stream_id() == stream_id) {
+        self->m_icmp_mux.process_read_event(chunk);
+        self->m_h3_client->consume_stream(stream_id, chunk.size());
+        return;
+    }
+
+    if (self->is_health_check_stream(stream_id)) {
+        log_stream(self, stream_id, dbg, "Got data on health check stream, dropping");
+        self->m_h3_client->consume_stream(stream_id, chunk.size());
+        return;
+    }
+
+    auto [conn_id, conn] = self->get_tcp_conn_by_stream_id(stream_id);
+    if (conn == nullptr) {
+        log_stream(self, stream_id, dbg, "Got body on closed connection");
+        self->m_h3_client->consume_stream(stream_id, chunk.size());
+        return;
+    }
+
+    if (conn->flags.test(TcpConnection::TCF_READ_ENABLED) && !conn->has_unread_data()) {
+        // Try to forward directly without buffering
+        int r = self->raise_read_event(conn_id, chunk);
         if (r < 0) {
-            log_upstream(this, warn, "Failed to process packet: {} (cert_verify_failed={})",
-                    magic_enum::enum_name((quiche_error) r), m_cert_verify_failed);
-            break;
-        }
-
-        // Data receival indicates that the connection is alive.
-        // Cancelling the health check now should reduce the probability
-        // of bogus health check failures due to a slow remote.
-        cancel_health_check();
-
-        if (quiche_conn_is_closed(quic_conn)) {
-            log_upstream(this, dbg, "QUIC connection closed");
-            close_session_inner();
+            self->close_tcp_connection(conn_id, false);
+            self->m_h3_client->consume_stream(stream_id, chunk.size());
             return;
         }
+        chunk.remove_prefix(r);
+        if (r > 0) {
+            self->m_h3_client->consume_stream(stream_id, r);
+        }
     }
 
-    m_in_handler = true;
-
-    switch (m_state) {
-    case H3US_IDLE:
-    case H3US_CLOSING:
-        log_upstream(this, err, "Invalid state on read: {}", magic_enum::enum_name(m_state));
-        assert(0);
-        break;
-
-    case H3US_ESTABLISHING: {
-        if (!quiche_conn_is_established(quic_conn)) {
-            break;
-        }
-
-        if (m_log.is_enabled(ag::LOG_LEVEL_DEBUG)) {
-            const uint8_t *proto = nullptr;
-            size_t proto_len = 0;
-            quiche_conn_application_proto(quic_conn, &proto, &proto_len);
-            log_upstream(this, dbg, "QUIC connection established with ALPN: {}, session reused: {}",
-                    std::string_view{(char *) proto, proto_len},
-                    m_ssl_object ? SSL_session_reused((SSL *) m_ssl_object) : 0);
-        }
-
-        if (!initiate_h3_session()) {
-            close_session_inner();
-            break;
-        }
-
-        m_state = H3US_ESTABLISHED;
-        assert(this->vpn->upstream_config.timeout >= this->vpn->upstream_config.health_check_timeout);
-
-        // Prevent idle connection close by sending an ACK-eliciting packet on idle.
-        udp_socket_set_timeout(m_socket.get(), this->vpn->upstream_config.timeout);
-
-        if (m_ssl_object) {
-            m_kex_group_nid = SSL_get_negotiated_group((SSL *) m_ssl_object);
-        }
-        this->handler.func(this->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
-        break;
-    }
-
-    case H3US_ESTABLISHED: {
-        log_upstream(this, trace, "Polling h3 connections...");
-
-        while (true) {
-            quiche_h3_event *h3_event; // NOLINT(cppcoreguidelines-init-variables)
-            int64_t poll_res = quiche_h3_conn_poll(m_h3_conn.get(), quic_conn, &h3_event);
-            if (poll_res < 0) {
-                if (poll_res != QUICHE_H3_ERR_DONE) {
-                    log_upstream(this, dbg, "Failed to process data received from endpoint: {}",
-                            magic_enum::enum_name((quiche_h3_error) poll_res));
-                }
-                break;
-            }
-
-            handle_h3_event(h3_event, poll_res);
-            quiche_h3_event_free(h3_event);
-        }
-
-        log_upstream(this, trace, "Poll done");
-
-        // do some things here as they may now be available
-        // (for example, connection or stream windows could have been slid)
-        if (!m_post_receive_task_id.has_value()) {
-            m_post_receive_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
-                    {
-                            .arg = this,
-                            .action =
-                                    [](void *arg, TaskId) {
-                                        auto *self = (Http3Upstream *) arg;
-                                        self->m_post_receive_task_id.release();
-                                        self->retry_connect_requests();
-                                        self->poll_connections();
-                                        if (std::optional stream_id = self->m_udp_mux.get_stream_id();
-                                                stream_id.has_value()
-                                                && 0 < quiche_conn_stream_capacity(
-                                                           self->m_quic_conn.get(), stream_id.value())) {
-                                            self->m_udp_mux.report_sent_bytes();
-                                        }
-                                    },
-                    });
-        }
-
-        break;
-    }
-    }
-
-    this->flush_pending_quic_data();
-
-    if (quiche_conn_is_closed(quic_conn)) {
-        log_upstream(this, dbg, "QUIC connection closed");
-        close_session_inner();
-    }
-
-    m_in_handler = false;
-    if (m_closed) {
-        close_session_inner(std::exchange(m_pending_session_error, std::nullopt));
+    if (!chunk.empty()) {
+        // Buffer the remainder; consume_stream will be called as data is drained
+        self->push_unread_data(conn_id, conn, chunk);
+        return;
     }
 }
 
-bool Http3Upstream::initiate_h3_session() {
-    quiche_h3_config *config = quiche_h3_config_new();
-    if (config == nullptr) {
-        log_upstream(this, err, "Failed to create HTTP/3 config");
-        return false;
+// Called when a stream is closed (FIN or RST)
+void Http3Upstream::on_stream_closed(void *arg, uint64_t stream_id, int error_code) {
+    auto *self = (Http3Upstream *) arg;
+    log_stream(self, stream_id, dbg, "Stream closed, error_code={}", error_code);
+
+    Http3ErrorCode stream_close_code = H3_REQUEST_CANCELLED;
+    if (self->m_udp_mux.get_stream_id() == stream_id) {
+        self->m_udp_mux.close({});
+    } else if (self->m_icmp_mux.get_stream_id() == stream_id) {
+        self->m_icmp_mux.close();
+    } else if (self->is_health_check_stream(stream_id)) {
+        assert(self->vpn->upstream_config.timeout >= self->vpn->upstream_config.health_check_timeout);
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        if (self->m_health_check_info->error.code == VPN_EC_NOERROR) {
+            stream_close_code = H3_NO_ERROR;
+        } else {
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+            self->handler.func(self->handler.arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &self->m_health_check_info->error);
+        }
+        self->m_health_check_info.reset();
+    } else if (auto [conn_id, conn] = self->get_tcp_conn_by_stream_id(stream_id); conn == nullptr) {
+        log_stream(self, stream_id, dbg, "Got stream close on already-closed connection");
+    } else if (conn->pending_error.has_value()) {
+        self->handler.func(self->handler.arg, SERVER_EVENT_ERROR, &conn->pending_error.value());
+        self->clean_tcp_connection_data(conn_id);
+    } else if (!conn->has_unread_data()) {
+        self->handler.func(self->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &conn_id);
+        self->clean_tcp_connection_data(conn_id);
+    } else {
+        // Postpone close until all buffered data is forwarded to client
+        conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
+        return;
     }
 
-    m_h3_conn.reset(quiche_h3_conn_new_with_transport(m_quic_conn.get(), config));
-    quiche_h3_config_free(config);
-    if (m_h3_conn == nullptr) {
-        log_upstream(this, err, "Failed to create HTTP/3 session");
-        return false;
+    if (auto [_, conn] = self->get_tcp_conn_by_stream_id(stream_id); conn != nullptr) {
+        conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
+    }
+    self->close_stream(stream_id, stream_close_code);
+}
+
+// Called when the QUIC connection is closed
+void Http3Upstream::on_close(void *arg, uint64_t error_code) {
+    auto *self = (Http3Upstream *) arg;
+    log_upstream(self, dbg, "Connection closed, error_code={}", error_code);
+
+    std::optional<VpnError> error;
+    std::string err_str;
+    if (error_code != 0) {
+        if (error_code == HTTP_ERROR_AUTH_REQUIRED) {
+            error = VpnError{VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
+        } else {
+            err_str = AG_FMT("QUIC connection closed with error {}", error_code);
+            error = VpnError{VPN_EC_ERROR, err_str.c_str()};
+        }
+    }
+    self->close_session_inner(error);
+}
+
+// Called when Http3Client wants to send a UDP packet
+void Http3Upstream::on_output(void *arg, const http::QuicNetworkPath &, Uint8View chunk) {
+    auto *self = (Http3Upstream *) arg;
+    if (!self->m_socket) {
+        return;
     }
 
-    return this->flush_pending_quic_data();
+    if (VpnError err = udp_socket_write(self->m_socket.get(), chunk.data(), chunk.size()); err.code != 0) {
+        log_upstream(self, dbg, "Failed to send QUIC packet: {} ({})", safe_to_string_view(err.text), err.code);
+        if (!AG_ERR_IS_EAGAIN(err.code) && err.code != AG_ENOBUFS && !self->m_flush_error_task_id.has_value()) {
+            self->m_flush_error_task_id = event_loop::submit(self->vpn->parameters.ev_loop,
+                    {
+                            self,
+                            [](void *a, TaskId) {
+                                auto *s = (Http3Upstream *) a;
+                                s->m_flush_error_task_id.release();
+                                ServerError event = {NON_ID, {VPN_EC_ERROR, "UDP socket failure"}};
+                                s->handler.func(s->handler.arg, SERVER_EVENT_ERROR, &event);
+                            },
+                    });
+        }
+    }
+}
+
+// Called when data has been put into QUIC packets. Used to schedule SERVER_EVENT_DATA_SENT
+void Http3Upstream::on_data_sent(void *arg, uint64_t /*stream_id*/, size_t /*n*/) {
+    auto *self = (Http3Upstream *) arg;
+    if (!self->m_notify_sent_task_id.has_value()) {
+        self->m_notify_sent_task_id = event_loop::submit(self->vpn->parameters.ev_loop,
+                {
+                        self,
+                        [](void *a, TaskId) {
+                            auto *s = (Http3Upstream *) a;
+                            s->m_notify_sent_task_id.release();
+                            s->poll_tcp_connections();
+                            s->poll_mux_connections();
+                        },
+                });
+    }
+}
+
+// Called when the ngtcp2 timer deadline changes
+void Http3Upstream::on_expiry_update(void *arg, Nanos period) {
+    auto *self = (Http3Upstream *) arg;
+    if (!self->m_quic_timer) {
+        self->m_quic_timer.reset(
+                event_new(vpn_event_loop_get_base(self->vpn->parameters.ev_loop), -1, 0, quic_timer_callback, self));
+    }
+    // Cap by our own idle timeout so we don't let the connection silently die
+    Nanos capped = std::min(period, duration_cast<Nanos>(self->m_max_idle_timeout));
+    if (capped < Nanos::zero()) {
+        capped = Nanos::zero();
+    }
+    timeval tv{};
+    tv.tv_sec = decltype(tv.tv_sec)(duration_cast<seconds>(capped).count());
+    tv.tv_usec = decltype(tv.tv_usec)(duration_cast<microseconds>(capped).count() % 1000000);
+    event_del(self->m_quic_timer.get());
+    event_add(self->m_quic_timer.get(), &tv);
 }
 
 std::pair<uint64_t, Http3Upstream::TcpConnection *> Http3Upstream::get_tcp_conn_by_stream_id(uint64_t id) {
@@ -821,76 +820,6 @@ std::pair<uint64_t, Http3Upstream::TcpConnection *> Http3Upstream::get_tcp_conn_
     }
 
     return r;
-}
-
-static int collect_header(uint8_t *name, size_t name_len, uint8_t *value, size_t value_len, void *arg) {
-    auto *h = (HttpHeaders *) arg;
-    h->put_field(std::string{(char *) name, name_len}, std::string((char *) value, value_len));
-    return 0;
-}
-
-void Http3Upstream::handle_h3_event(quiche_h3_event *h3_event, uint64_t stream_id) {
-    switch (enum quiche_h3_event_type event_type = quiche_h3_event_type(h3_event); event_type) {
-    case QUICHE_H3_EVENT_HEADERS: {
-        HttpHeaders headers{.version = HTTP_VER_3_0};
-        quiche_h3_event_for_each_header(h3_event, collect_header, &headers);
-        log_upstream(this, dbg, "[SID:{}] Response: {}", stream_id, headers_to_log_str(headers));
-        handle_response(stream_id, &headers);
-        break;
-    }
-
-    case QUICHE_H3_EVENT_DATA: {
-        this->process_pending_data(stream_id);
-        break;
-    }
-
-    case QUICHE_H3_EVENT_RESET:
-    case QUICHE_H3_EVENT_FINISHED: {
-        log_stream(this, stream_id, dbg, "Stream is closed");
-        Http3ErrorCode stream_close_code = H3_REQUEST_CANCELLED;
-        if (stream_id == m_udp_mux.get_stream_id()) {
-            m_udp_mux.close({});
-        } else if (stream_id == m_icmp_mux.get_stream_id()) {
-            m_icmp_mux.close();
-        } else if (is_health_check_stream(stream_id)) {
-            assert(this->vpn->upstream_config.timeout >= this->vpn->upstream_config.health_check_timeout);
-            // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-            if (m_health_check_info->error.code == VPN_EC_NOERROR) {
-                stream_close_code = H3_NO_ERROR;
-            } else {
-                stream_close_code = H3_REQUEST_CANCELLED;
-                // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-                this->handler.func(this->handler.arg, SERVER_EVENT_HEALTH_CHECK_ERROR, &m_health_check_info->error);
-            }
-            m_health_check_info.reset();
-        } else if (auto [conn_id, conn] = this->get_tcp_conn_by_stream_id(stream_id); conn == nullptr) {
-            log_stream(this, stream_id, dbg, "Got stream processed event on closed connection");
-        } else if (conn->pending_error.has_value()) {
-            this->handler.func(this->handler.arg, SERVER_EVENT_ERROR, &conn->pending_error.value());
-            this->clean_tcp_connection_data(conn_id);
-        } else if (!conn->has_unread_data()) {
-            this->handler.func(this->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &conn_id);
-            this->clean_tcp_connection_data(conn_id);
-        } else {
-            // postpone until all data is sent to client
-        }
-
-        this->close_stream(stream_id, stream_close_code);
-
-        break;
-    }
-
-    case QUICHE_H3_EVENT_GOAWAY:
-        log_upstream(this, dbg, "Got GOAWAY");
-        // session will be closed after `is_closed` returns true
-        break;
-
-    case QUICHE_H3_EVENT_DATAGRAM:
-    case QUICHE_H3_EVENT_PRIORITY_UPDATE:
-        log_stream(this, stream_id, warn, "Unexpected event: {}", magic_enum::enum_name(event_type));
-        assert(0);
-        break;
-    }
 }
 
 void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *headers) {
@@ -940,110 +869,36 @@ void Http3Upstream::handle_response(uint64_t stream_id, const HttpHeaders *heade
 
 // err is application-level error code (in our case, HTTP/3 error codes, defined in H3_* constants)
 void Http3Upstream::close_stream(uint64_t stream_id, Http3ErrorCode err) {
-    if (m_quic_conn == nullptr) {
-        // Connection might be deleted due to idle timeout
-        log_stream(this, stream_id, trace, "Nothing to do: no QUIC connection");
+    if (!m_h3_client) {
+        log_stream(this, stream_id, trace, "Nothing to do: no H3 client");
         return;
     }
-    if (auto ret = quiche_conn_stream_shutdown(m_quic_conn.get(), stream_id, QUICHE_SHUTDOWN_READ, err); ret < 0) {
-        log_stream(
-                this, stream_id, dbg, "Failed to shut down read side: {}", magic_enum::enum_name((quiche_error) ret));
+    if (auto error = m_h3_client->reset_stream(stream_id, (int) err); error != nullptr) {
+        log_stream(this, stream_id, dbg, "Failed to reset stream: {}", error->str());
     }
-    if (auto ret = quiche_conn_stream_shutdown(m_quic_conn.get(), stream_id, QUICHE_SHUTDOWN_WRITE, err); ret < 0) {
-        log_stream(
-                this, stream_id, dbg, "Failed to shut down write side: {}", magic_enum::enum_name((quiche_error) ret));
+    // Skip re-entrant flush inside a read callback; socket_handler flushes after the input() loop.
+    if (!m_in_handler) {
+        m_h3_client->flush();
     }
     if (auto [_, conn] = this->get_tcp_conn_by_stream_id(stream_id); conn != nullptr) {
         conn->flags.set(TcpConnection::TCF_STREAM_CLOSED);
     }
-    this->flush_pending_quic_data();
-}
-
-ssize_t Http3Upstream::read_out_h3_data(uint64_t stream_id, const uint8_t *buf, size_t cap) {
-    U8View buffer = {buf, cap};
-    while (!buffer.empty()) {
-        ssize_t r = quiche_h3_recv_body(
-                m_h3_conn.get(), m_quic_conn.get(), stream_id, (uint8_t *) buffer.data(), buffer.size());
-        if (r >= 0) {
-            buffer.remove_prefix(r);
-        } else if (r == QUICHE_H3_ERR_DONE) {
-            break;
-        } else {
-            log_stream(this, stream_id, dbg, "Failed to read stream data: err={}",
-                    magic_enum::enum_name((quiche_h3_error) r));
-            return r;
-        }
-    }
-    return static_cast<ssize_t>(cap - buffer.size());
 }
 
 void Http3Upstream::process_pending_data(uint64_t stream_id) {
-    size_t available_to_read = UDP_MAX_DATAGRAM_SIZE;
-    bool drop = false;
-    if (m_udp_mux.get_stream_id() == stream_id || m_icmp_mux.get_stream_id() == stream_id) {
-        // do nothing
-    } else if (this->is_health_check_stream(stream_id)) {
-        log_stream(this, stream_id, dbg, "Got data on health check stream");
-        drop = true;
-    } else if (auto [conn_id, conn] = this->get_tcp_conn_by_stream_id(stream_id); conn == nullptr) {
-        log_stream(this, stream_id, dbg, "Got data on closed connection");
-        drop = true;
-    } else if (0 != this->read_out_pending_data(conn_id, conn)) {
-        this->close_tcp_connection(conn_id, false);
-        drop = true;
-    } else if (conn->flags.test(TcpConnection::TCF_STREAM_CLOSED) && !conn->has_unread_data()) {
-        this->close_tcp_connection(conn_id, true);
-        drop = true;
-    } else if (!conn->flags.test(TcpConnection::TCF_READ_ENABLED)
-            || !quiche_conn_stream_readable(m_quic_conn.get(), stream_id)) {
-        available_to_read = 0;
-    } else {
-        ServerAvailableToSendEvent event = {conn_id};
-        this->handler.func(this->handler.arg, SERVER_EVENT_GET_AVAILABLE_TO_SEND, &event);
-        available_to_read = std::min(event.length, UDP_MAX_DATAGRAM_SIZE);
-    }
-
-    if (available_to_read == 0) {
-        return;
-    }
-
-    std::vector<uint8_t> buffer(available_to_read);
-    ssize_t n = this->read_out_h3_data(stream_id, buffer.data(), buffer.size());
-    if (n <= 0) {
-        return;
-    }
-    if (drop) {
-        log_stream(this, stream_id, dbg, "Dropping data ({} bytes)", n);
-        return;
-    }
-
-    U8View data = {buffer.data(), (size_t) n};
-    if (m_udp_mux.get_stream_id() == stream_id) {
-        m_udp_mux.process_read_event(data);
-        return;
-    }
-
-    if (m_icmp_mux.get_stream_id() == stream_id) {
-        m_icmp_mux.process_read_event(data);
-        return;
-    }
-
     auto [conn_id, conn] = this->get_tcp_conn_by_stream_id(stream_id);
     if (conn == nullptr) {
-        assert(0);
         return;
     }
 
-    assert(conn->flags.test(TcpConnection::TCF_READ_ENABLED));
-    int r = this->raise_read_event(conn_id, data);
-    if (r < 0) {
+    if (0 != this->read_out_pending_data(conn_id, conn)) {
         this->close_tcp_connection(conn_id, false);
         return;
     }
 
-    data.remove_prefix(r);
-    if (!data.empty()) {
-        this->push_unread_data(conn_id, conn, data);
+    if (conn->flags.test(TcpConnection::TCF_STREAM_CLOSED) && !conn->has_unread_data()) {
+        this->handler.func(this->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &conn_id);
+        this->clean_tcp_connection_data(conn_id);
     }
 }
 
@@ -1058,25 +913,6 @@ void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
         log_upstream(this, warn, "TLS certificate verification failed");
         error = {VPN_EC_CERTIFICATE_VERIFICATION_FAILED, "TLS certificate verification failed"};
     }
-    if (!error.has_value() && m_quic_conn != nullptr) {
-        uint64_t code;
-        bool is_app;
-        const uint8_t *reason_bytes;
-        size_t reason_len;
-        if (quiche_conn_peer_error(m_quic_conn.get(), &is_app, &code, &reason_bytes, &reason_len)) {
-            std::string reason = escape_non_print({reason_bytes, reason_len});
-            if (is_app) {
-                log_upstream(
-                        this, dbg, "QUIC connection closed due to application error: {}, reason: {}", code, reason);
-                error = (code == HTTP_ERROR_AUTH_REQUIRED)
-                        ? VpnError{VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG}
-                        : VpnError{VPN_EC_ERROR, "QUIC connection closed due to application error"};
-            } else {
-                log_upstream(this, dbg, "QUIC connection closed due to transport error: {}, reason: {}", code, reason);
-                error = {VPN_EC_ERROR, "QUIC connection closed due to transport error"};
-            }
-        }
-    }
 
     close_session();
 
@@ -1090,36 +926,30 @@ void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
 
 Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
         const TunnelAddress *dst_addr, std::string_view app_name) {
-    if (m_h3_conn == nullptr) {
+    if (!m_h3_client || m_state != H3US_ESTABLISHED) {
         log_upstream(this, dbg, "Failed to send connect request: upstream is not connected");
         return {std::nullopt, false};
     }
 
     HttpHeaders headers = make_http_connect_request(HTTP_VER_3_0, dst_addr, app_name, m_credentials);
-
-    std::vector<NameValue> nva = http_headers_to_nv_list(&headers);
-    std::vector<quiche_h3_header> h3_headers(nva.size());
-    std::transform(nva.begin(), nva.end(), h3_headers.begin(), [](const NameValue &i) -> quiche_h3_header {
-        return {i.name.data(), i.name.size(), i.value.data(), i.value.size()};
-    });
-
-    int64_t stream_id =
-            quiche_h3_send_request(m_h3_conn.get(), m_quic_conn.get(), h3_headers.data(), h3_headers.size(), false);
-    if (stream_id >= 0) {
-        log_upstream(this, dbg, "[SID:{}] {}", stream_id, headers_to_log_str(headers));
-        if (!this->flush_pending_quic_data()) {
-            log_upstream(this, dbg, "Failed to send connect request");
-            stream_id = -1;
-        }
-    } else {
-        log_upstream(
-                this, dbg, "Failed to send connect request: {}", magic_enum::enum_name((quiche_h3_error) stream_id));
+    http::Request request(http::HTTP_3_0);
+    request.method(std::string(headers.method));       // "CONNECT"
+    request.authority(std::string(headers.authority)); // "host:port"
+    for (const auto &field : headers.fields) {
+        request.headers().put(field.name, field.value); // proxy-authorization, user-agent
     }
 
-    return {
-            (stream_id >= 0) ? std::make_optional(stream_id) : std::nullopt,
-            stream_id == QUICHE_H3_ERR_STREAM_BLOCKED,
-    };
+    log_upstream(this, dbg, "{}", request.str());
+
+    auto stream_id_result = m_h3_client->submit_request(request, /*eof=*/false);
+    if (!stream_id_result.has_value()) {
+        log_upstream(this, dbg, "Failed to send connect request: {}", stream_id_result.error()->str());
+        // Treat as retriable — the stream limit may not be exhausted yet
+        return {std::nullopt, true};
+    }
+
+    m_h3_client->flush();
+    return {std::make_optional(stream_id_result.value()), false};
 }
 
 void Http3Upstream::close_tcp_connection(uint64_t id, bool graceful) {
@@ -1127,7 +957,7 @@ void Http3Upstream::close_tcp_connection(uint64_t id, bool graceful) {
 
     if (auto i = m_tcp_connections.find(id); i != m_tcp_connections.end()) {
         const TcpConnection *conn = &i->second;
-        if (m_h3_conn != nullptr && !conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
+        if (m_h3_client && !conn->flags.test(TcpConnection::TCF_STREAM_CLOSED)) {
             this->close_stream(i->second.stream_id, graceful ? H3_NO_ERROR : H3_REQUEST_CANCELLED);
         }
     }
@@ -1207,6 +1037,10 @@ int Http3Upstream::read_out_pending_data(uint64_t conn_id, TcpConnection *conn) 
         int r = this->raise_read_event(conn_id, res.data);
         if (r > 0) {
             pending->drain(r);
+            // Tell server it can now send r more bytes on this stream
+            if (m_h3_client) {
+                m_h3_client->consume_stream(conn->stream_id, r);
+            }
         } else if (r < 0) {
             return r;
         }
@@ -1227,14 +1061,13 @@ void Http3Upstream::poll_tcp_connections() {
 
         auto &[conn_id, conn] = *i;
         if (conn.flags.test(TcpConnection::TCF_ESTABLISHED) && conn.flags.test(TcpConnection::TCF_READ_ENABLED)
-                && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED)
-                && (conn.has_unread_data() || quiche_conn_stream_readable(m_quic_conn.get(), conn.stream_id))) {
+                && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED) && conn.has_unread_data()) {
             this->process_pending_data(conn.stream_id);
         }
 
         if (conn.flags.test(TcpConnection::TCF_ESTABLISHED) && !conn.flags.test(TcpConnection::TCF_STREAM_CLOSED)
-                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES)
-                && 0 < quiche_conn_stream_capacity(m_quic_conn.get(), conn.stream_id)) {
+                && conn.flags.test(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES) && m_h3_client
+                && m_h3_client->get_stream_send_capacity(conn.stream_id) > 0) {
             conn.flags.reset(TcpConnection::TCF_NEED_NOTIFY_SENT_BYTES);
             ServerDataSentEvent event = {conn_id, std::exchange(conn.sent_bytes_to_notify, 0)};
             this->handler.func(this->handler.arg, SERVER_EVENT_DATA_SENT, &event);
@@ -1244,17 +1077,22 @@ void Http3Upstream::poll_tcp_connections() {
     }
 }
 
+void Http3Upstream::poll_mux_connections() {
+    if (!m_h3_client) {
+        return;
+    }
+    if (std::optional<uint64_t> sid = m_udp_mux.get_stream_id();
+            sid.has_value() && m_h3_client->get_stream_send_capacity(*sid) > 0) {
+        m_udp_mux.report_sent_bytes();
+    }
+}
+
 void Http3Upstream::poll_connections() {
     poll_tcp_connections();
-    if (auto stream_id = m_udp_mux.get_stream_id();
-            stream_id && quiche_conn_stream_readable(m_quic_conn.get(), *stream_id)) {
-        this->process_pending_data(*stream_id);
+    poll_mux_connections();
+    if (m_h3_client) {
+        m_h3_client->flush();
     }
-    if (auto stream_id = m_icmp_mux.get_stream_id();
-            stream_id && quiche_conn_stream_readable(m_quic_conn.get(), *stream_id)) {
-        this->process_pending_data(*stream_id);
-    }
-    this->flush_pending_quic_data();
 }
 
 void Http3Upstream::retry_connect_requests() {
@@ -1283,7 +1121,9 @@ void Http3Upstream::retry_connect_requests() {
     }
 
     m_retriable_tcp_requests = std::move(requests);
-    this->flush_pending_quic_data();
+    if (m_h3_client) {
+        m_h3_client->flush();
+    }
 }
 
 void Http3Upstream::complete_read(void *arg, TaskId) {
@@ -1294,14 +1134,15 @@ void Http3Upstream::complete_read(void *arg, TaskId) {
         auto next = std::next(i);
 
         const TcpConnection &conn = i->second;
-        if (conn.has_unread_data() || quiche_conn_stream_readable(self->m_quic_conn.get(), conn.stream_id)) {
+        if (conn.has_unread_data()) {
             self->process_pending_data(conn.stream_id);
         }
-
         i = next;
     }
 
-    self->flush_pending_quic_data();
+    if (self->m_h3_client) {
+        self->m_h3_client->flush();
+    }
 }
 
 std::optional<uint64_t> Http3Upstream::mux_send_connect_request_callback(
@@ -1317,33 +1158,21 @@ int Http3Upstream::mux_send_data_callback(ServerUpstream *upstream, uint64_t str
     log_upstream(self, trace, "Trying to send packet of {} bytes on {} stream", data.size(),
             stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP");
 
-    ssize_t stream_cap = quiche_conn_stream_capacity(self->m_quic_conn.get(), stream_id);
-    if (stream_cap < 0) {
-        log_upstream(self, dbg, "Failed to send packet on {} stream: quiche_conn_stream_capacity: {}",
-                stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP",
-                magic_enum::enum_name((quiche_h3_error) stream_cap));
-        return (int) stream_cap;
+    if (!self->m_h3_client) {
+        return -1;
     }
 
-    // HTTP/3 DATA frame overhead
-    size_t overhead = varint_len((uint64_t) data.size()) + varint_len(0);
-    if ((overhead + data.size()) > (size_t) stream_cap) {
+    size_t stream_cap = self->m_h3_client->get_stream_send_capacity(stream_id);
+    size_t overhead = varint_len((uint64_t) data.size()) + varint_len(0); // HTTP/3 DATA frame overhead
+    if ((overhead + data.size()) > stream_cap) {
         log_upstream(self, dbg, "Failed to send packet on {} stream: not enough stream capacity ({})",
                 stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP", stream_cap);
         return 0; // Silently drop packet
     }
 
-    ssize_t r = quiche_h3_send_body(
-            self->m_h3_conn.get(), self->m_quic_conn.get(), stream_id, (uint8_t *) data.data(), data.size(), false);
-    if (r < 0) {
-        log_upstream(self, dbg, "Failed to send packet on {} stream: quiche_h3_send_body: {}",
-                stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP",
-                magic_enum::enum_name((quiche_h3_error) r));
-        return (r == QUICHE_ERR_DONE) ? 0 : (int) r;
-    }
-
-    if ((size_t) r != data.size()) {
-        log_upstream(self, warn, "Incomplete packet sent: {} of {} bytes", (size_t) r, data.size());
+    if (auto err = self->m_h3_client->submit_body(stream_id, data, false); err != nullptr) {
+        log_upstream(self, dbg, "Failed to send packet on {} stream: {}",
+                stream_id == self->m_udp_mux.get_stream_id() ? "UDP" : "ICMP", err->str());
         return -1;
     }
 
@@ -1357,8 +1186,8 @@ void Http3Upstream::mux_consume_callback(ServerUpstream *, uint64_t, size_t) {
 void Http3Upstream::handle_sleep() {
     log_upstream(this, dbg, "...");
 
-    if (m_state != H3US_IDLE) {
-        this->flush_pending_quic_data();
+    if (m_state != H3US_IDLE && m_h3_client) {
+        m_h3_client->flush();
     }
 
     log_upstream(this, dbg, "Done");
@@ -1367,62 +1196,12 @@ void Http3Upstream::handle_sleep() {
 void Http3Upstream::handle_wake() {
     log_upstream(this, dbg, "...");
 
-    if (m_state != H3US_IDLE) {
-        this->flush_pending_quic_data(); // Force timeout check
+    if (m_state != H3US_IDLE && m_h3_client) {
+        m_h3_client->flush();
     }
 
     log_upstream(this, dbg, "Done");
 }
-
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-bool ag::Http3Upstream::continue_connecting() {
-    assert(m_quic_connector);
-
-    auto result = quic_connector_get_result(m_quic_connector.get());
-    assert(result);
-
-    m_quic_conn = std::move(result->conn);
-
-    SSL_CTX_set_verify(SSL_get_SSL_CTX(result->ssl), SSL_VERIFY_PEER, nullptr);
-    SSL_CTX_set_cert_verify_callback(SSL_get_SSL_CTX(result->ssl), verify_callback, this);
-    m_ssl_object = result->ssl;
-
-    UdpSocketParameters params = {
-            .ev_loop = this->vpn->parameters.ev_loop,
-            .handler = {socket_handler, this},
-            .timeout = this->vpn->upstream_config.timeout,
-            .peer = SocketAddress(this->vpn->upstream_config.endpoint->address),
-            .socket_manager = this->vpn->parameters.network_manager->socket,
-            .log_prefix = quic_connector_get_log_prefix(m_quic_connector.get()),
-    };
-    m_socket.reset(udp_socket_acquire_fd(&params, result->fd));
-    if (!m_socket) {
-        log_upstream(this, err, "Failed to acquire UDP socket fd");
-        return false;
-    }
-
-    SocketAddress local_address = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
-    quiche_recv_info info{
-            .from = (sockaddr *) &this->vpn->upstream_config.endpoint->address,
-            .from_len = SocketAddress(this->vpn->upstream_config.endpoint->address).c_socklen(),
-            .to = (sockaddr *) local_address.c_sockaddr(),
-            .to_len = local_address.c_socklen(),
-    };
-
-    ssize_t ret = quiche_conn_recv(m_quic_conn.get(), result->data.data(), result->data.size(), &info);
-    if (ret < 0) {
-        log_upstream(this, dbg, "quiche_conn_recv: ({}) {}", ret, magic_enum::enum_name((quiche_error) ret));
-    }
-    if (quiche_conn_is_closed(m_quic_conn.get())) {
-        log_upstream(this, dbg, "QUIC connection closed");
-        return false;
-    }
-
-    m_quic_connector.reset();
-
-    return true;
-}
-// NOLINTEND(bugprone-unchecked-optional-access)
 
 int Http3Upstream::kex_group_nid() const {
     return m_kex_group_nid;

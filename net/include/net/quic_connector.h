@@ -4,20 +4,16 @@
 #include <optional>
 #include <span>
 
-#include <event2/util.h>
+#include "vpn/platform.h"
 
-#ifndef DISABLE_HTTP3
-#include <quiche.h>
-#endif
+#include <event2/util.h>
+#include <openssl/ssl.h>
 
 #include "common/defs.h"
+#include "common/http/http3.h"
 #include "net/socket_manager.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
-
-#include "vpn/platform.h"
-
-#include <openssl/ssl.h>
 
 namespace ag {
 
@@ -57,16 +53,21 @@ struct QuicConnectorConnectParameters {
     uint32_t quic_version;
 };
 
-#ifndef DISABLE_HTTP3
 struct QuicConnectorResult {
-    evutil_socket_t fd;                               // UDP socket's file descriptor.
-    ag::DeclPtr<quiche_conn, &quiche_conn_free> conn; // Owning pointer to a QUIC connection object.
-    SSL *ssl;       // Non-owning pointer to the SSL object owned by the QUIC connection object.
-    Uint8Span data; // The first UDP payload received from the server. Valid until the connector is destroyed.
-};
-#else
-struct QuicConnectorResult {};
+#ifndef DISABLE_HTTP3
+    evutil_socket_t fd;                            // UDP socket's file descriptor.
+    std::unique_ptr<ag::http::Http3Client> client; // Established HTTP/3 client, ready to be handed off to the upstream.
 #endif
+    void reset() {
+#ifndef DISABLE_HTTP3
+        client.reset();
+        if (fd != EVUTIL_INVALID_SOCKET) {
+            evutil_closesocket(fd);
+            fd = EVUTIL_INVALID_SOCKET;
+        }
+#endif
+    }
+};
 
 QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters);
 
@@ -80,7 +81,7 @@ VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorCon
  * Return the result object.
  * Return `nullopt` if not ready or if the result object has already been returned once.
  */
-std::optional<QuicConnectorResult> quic_connector_get_result(QuicConnector *connector);
+std::unique_ptr<QuicConnectorResult> quic_connector_get_result(QuicConnector *connector);
 
 /**
  * Return the log prefix.

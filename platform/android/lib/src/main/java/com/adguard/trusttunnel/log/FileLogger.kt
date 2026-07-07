@@ -86,6 +86,24 @@ class FileLogger(
         return future.get()
     }
 
+    /**
+     * Delete all log files managed by this logger and reopen a fresh current file.
+     *
+     * Safe to call without additional synchronization.
+     */
+    fun clearLogs() {
+        val future = writeExecutor.submit(Callable<Unit> {
+            closeFile()
+            for (idx in 0..archiveCount) {
+                val file = if (idx == 0) File(directory, "$baseName.log")
+                           else File(directory, "$baseName.$idx.log")
+                file.delete()
+            }
+            openOrCreateFile()
+        })
+        future.get()
+    }
+
     // ---- private ----
 
     /** Lock-free append (runs on single-thread executor). */
