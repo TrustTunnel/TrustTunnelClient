@@ -10,5 +10,3 @@
 #define VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_ENABLED true
 /** Default max number of exclusion domains to pre-resolve per cycle (default 50) */
 #define VPN_DEFAULT_EXCLUSIONS_PRERESOLVE_MAX_QUERIES 50
-/** Default list of ports considered "scannable" for domain extraction / exclusion matching */
-#define VPN_DEFAULT_EXCLUSIONS_SCANNABLE_PORTS "443,80,8080,8008,853"

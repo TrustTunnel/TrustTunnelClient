@@ -501,6 +501,39 @@ public final class VpnManager {
         return results.map { $0.path }
     }
 
+    /// Remove all log files from both the app and Network Extension processes.
+    /// Safe to call while the tunnel is running: the app clears `app.log`
+    /// through its live writer, and posts a Darwin notification so a running
+    /// NE clears its own open `extension.log` through its live writer. When the
+    /// NE is not running, its file is deleted directly.
+    public func clearLogs() -> Bool {
+        guard let logsDir = FileLogger.logsDirectory(appGroup: appGroup) else {
+            return false
+        }
+
+        // Own log — cleared through the live writer.
+        fileLogger?.clearLogs()
+
+        let manager = self.queue.sync { self.vpnManager }
+        let neRunning = manager != nil
+            && manager!.connection.status != .disconnected
+            && manager!.connection.status != .invalid
+
+        if neRunning {
+            // NE holds the file open — ask it to clear its own log.
+            let name = "\(bundleIdentifier).\(ClearLogsParams.notificationName)" as CFString
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName(name),
+                nil, nil, true
+            )
+        } else {
+            // NE not running — delete the files directly.
+            FileLogger.clearLogs(directory: logsDir, baseName: FileLogger.extensionBaseName)
+        }
+        return true
+    }
+
     // MARK: - exportLogs helpers
 
     private static let platformName: String = {

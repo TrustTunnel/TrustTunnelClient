@@ -53,9 +53,6 @@ post_quantum_group_enabled = {}
 # exclusions_preresolve_max_queries = {}
 
 {}
-# exclusions_scannable_ports = "{}"
-
-{}
 exclusions = []
 "#,
         Settings::doc_loglevel().to_toml_comment(),
@@ -73,8 +70,6 @@ exclusions = []
         Settings::default_exclusions_preresolve_enabled(),
         Settings::doc_exclusions_preresolve_max_queries().to_toml_comment(),
         Settings::default_exclusions_preresolve_max_queries(),
-        Settings::doc_exclusions_scannable_ports().to_toml_comment(),
-        Settings::default_exclusions_scannable_ports(),
         Settings::doc_exclusions().to_toml_comment(),
     )
 });

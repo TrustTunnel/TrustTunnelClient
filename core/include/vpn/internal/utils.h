@@ -5,7 +5,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <variant>
 #include <vector>
 
@@ -151,35 +150,6 @@ inline bool operator==(const SockAddrTag &lh, const SockAddrTag &rh) {
 static inline constexpr bool starts_with(std::string_view str, std::string_view prefix) {
     return str.substr(0, prefix.length()) == prefix;
 }
-
-/**
- * Sorted, disjoint set of inclusive port ranges.
- */
-class PortRangeSet {
-public:
-    PortRangeSet() = default;
-
-    /**
-     * Construct from a list of inclusive [start, finish] ranges.
-     * Overlapping and adjacent ranges are merged.
-     */
-    explicit PortRangeSet(std::vector<std::pair<uint16_t, uint16_t>> ranges);
-
-    /**
-     * Check if the set contains the given port.
-     */
-    [[nodiscard]] bool contains(uint16_t port) const;
-
-private:
-    std::vector<std::pair<uint16_t, uint16_t>> m_ranges; /**< sorted, disjoint ranges */
-};
-
-/**
- * Parse a comma/whitespace-separated list of ports. Supports individual ports and ranges (e.g. "a:b").
- * Invalid tokens are ignored.
- * @return parsed port ranges, or std::nullopt if no valid ports were found
- */
-std::optional<PortRangeSet> parse_scannable_ports(std::string_view str);
 
 /**
  * Contruct full path for connection buffer file

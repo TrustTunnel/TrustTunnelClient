@@ -87,6 +87,8 @@ class NativeVpnInterface {
   // Returns a list of absolute paths to snapshot files in a temporary
   // directory. The caller is responsible for cleaning up these files.
   virtual ErrorOr<flutter::EncodableList> ExportLogs() = 0;
+  // Clear all log files from the VPN process(es).
+  virtual std::optional<FlutterError> ClearLogs() = 0;
 
   // The codec used by NativeVpnInterface.
   static const flutter::StandardMessageCodec& GetCodec();

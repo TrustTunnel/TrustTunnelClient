@@ -47,6 +47,10 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             self.fileLogger = nil
         }
+        // Register the app's clear-logs request handler.
+        if !self.bundleIdentifier.isEmpty {
+            self.setupClearLogsListener()
+        }
         if (config == nil) {
             completionHandler(TunnelError.parse_config_failed)
             return
@@ -152,6 +156,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
     
     open override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         self.clientQueue.async {
+            self.stopClearLogsListener()
             self.stopVpnClient()
             completionHandler()
         }
@@ -228,5 +233,49 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
             nil, nil, true
         )
         logger.debug("notifyAppOnConnectionInfo done")
+    }
+
+    // MARK: - Clear logs (App → Network Extension)
+
+    /// Registers a Darwin notification observer so the app can ask a running NE
+    /// to clear its own log file. Idempotent: removes any prior registration.
+    private func setupClearLogsListener() {
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        let name = "\(bundleIdentifier).\(ClearLogsParams.notificationName)" as CFString
+
+        CFNotificationCenterRemoveObserver(center, observer, CFNotificationName(name), nil)
+
+        CFNotificationCenterAddObserver(
+            center,
+            observer,
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let provider = Unmanaged<AGPacketTunnelProvider>.fromOpaque(observer).takeUnretainedValue()
+                provider.handleClearLogsNotification()
+            },
+            name,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    /// No-op if not registered.
+    private func stopClearLogsListener() {
+        let name = "\(bundleIdentifier).\(ClearLogsParams.notificationName)" as CFString
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName(name),
+            nil
+        )
+    }
+
+    private func handleClearLogsNotification() {
+        fileLogger?.clearLogs()
+    }
+
+    deinit {
+        stopClearLogsListener()
     }
 }
