@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <utility>
 
+#include <magic_enum/magic_enum.hpp>
 #include <openssl/sha.h>
 
 #include <WS2tcpip.h>
@@ -59,19 +60,7 @@ struct WintunThreadParams {
 };
 
 static void CALLBACK log_wintun(WINTUN_LOGGER_LEVEL level, DWORD64 /*timestamp*/, LPCWSTR log_line) {
-    switch (level) {
-    case WINTUN_LOG_INFO:
-        infolog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
-        break;
-    case WINTUN_LOG_WARN:
-        warnlog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
-        break;
-    case WINTUN_LOG_ERR:
-        errlog(wintun_logger, "{}", ag::utils::from_wstring(log_line));
-        break;
-    default:
-        return;
-    }
+    dbglog(wintun_logger, "{} {}", magic_enum::enum_name(level), ag::utils::from_wstring(log_line));
 }
 
 static bool initialize_wintun(HMODULE wintun) {
