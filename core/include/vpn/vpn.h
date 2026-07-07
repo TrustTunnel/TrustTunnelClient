@@ -42,6 +42,9 @@ static constexpr int VPN_DEFAULT_POSTPONEMENT_WINDOW_MS = 3 * 1000; // how long 
 // clang-format on
 
 static const float VPN_DEFAULT_RECOVERY_BACKOFF_RATE = 1.3f;
+// Chosen so that together with default backoff rate and default initial delay,
+// the client will spend <= 60 seconds trying to recover.
+static const uint32_t VPN_DEFAULT_RECOVERY_ATTEMPTS = 30;
 static const int VPN_SKIP_VERIFICATION_FLAG = 100;
 
 typedef enum {
@@ -171,6 +174,13 @@ typedef struct {
      * If 0, `VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS` will be assigned.
      */
     uint32_t location_update_period_ms;
+    /**
+     * The maximum number of recovery attempts that the library will make before transitioning into the
+     * `VPN_SS_DISCONNECTED` state with the `VPN_EC_LOCATION_UNAVAILABLE` error code. The counter resets
+     * on successful recovery, network change or client disconnect.
+     * If set to `0`, `VPN_DEFAULT_RECOVERY_ATTEMPTS` will be assigned.
+     */
+    uint32_t attempts;
 } VpnUpstreamSessionRecoverySettings;
 
 typedef struct {
