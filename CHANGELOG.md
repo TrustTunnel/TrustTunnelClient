@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- C API `vpn_linux_tunnel_get_fd()` to get the file descriptor of the Linux TUN device.
+
 ### Changed
 
 ### Deprecated
