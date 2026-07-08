@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.1.5-beta.12] - 2026-07-08
 
+### Added
+
+- Re-introduce the `exclusions_scannable_ports` setting (temporarily reverted in 1.1.5-beta.8)
+
 ## [1.1.5-beta.11] - 2026-07-07
 
 ### Added
@@ -478,8 +482,7 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...HEAD
-[1.1.5-beta.12]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.11...v1.1.5-beta.12
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.11...HEAD
 [1.1.5-beta.11]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.10...v1.1.5-beta.11
 [1.1.5-beta.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...v1.1.5-beta.10
 [1.1.5-beta.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.8...v1.1.5-beta.9
