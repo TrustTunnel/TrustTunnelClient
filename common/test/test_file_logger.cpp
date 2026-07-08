@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 
 static std::string read_file(const fs::path &p) {
     std::ifstream in(p, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
 class FileLoggerTest : public ::testing::Test {
@@ -19,8 +19,7 @@ protected:
     void SetUp() override {
         // Guarantee INFO messages reach the sink regardless of the global default level.
         ag::Logger::set_log_level(ag::LOG_LEVEL_TRACE);
-        m_dir = fs::temp_directory_path() / fs::path("tt_filelogger_test")
-                / std::to_string(reinterpret_cast<uintptr_t>(this));
+        m_dir = fs::temp_directory_path() / fs::path("tt_filelogger_test");
         fs::remove_all(m_dir);
     }
     void TearDown() override {
