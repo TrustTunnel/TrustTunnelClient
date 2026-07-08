@@ -18,12 +18,17 @@ static void s_notify_connection_info(void *arg, const char *json) {
 }
 
 NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
-        std::filesystem::path ring_buffer_path, std::wstring service_name, std::wstring pipe_name)
+        std::filesystem::path ring_buffer_path, std::filesystem::path logs_dir, std::wstring service_name,
+        std::wstring pipe_name)
         : m_callbacks(std::move(callbacks))
         , m_dispatcher(dispatcher)
         , m_ring_buffer_path(std::move(ring_buffer_path))
+        , m_logs_dir(std::move(logs_dir))
         , m_service_name(std::move(service_name))
         , m_pipe_name(std::move(pipe_name)) {
+    // Install the client-process file log sink before anything logs.
+    vpn_easy_log_init(m_logs_dir.wstring().c_str());
+
     // Read all persisted connection info records on construction (before VPN is started)
     vpn_easy_service_read_all_connection_info(m_ring_buffer_path.wstring().c_str(), s_notify_connection_info, this);
 
@@ -66,16 +71,16 @@ int32_t NativeVpnImpl::install_service() {
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
     std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
     std::wstring service_exe = exe_dir / L"vpn_easy_service.exe";
-    std::wstring log_path = exe_dir / L"vpn_easy_service.log";
+    std::wstring logs_dir = m_logs_dir.wstring();
     std::wstring ring_buffer_path_w = m_ring_buffer_path.wstring();
 
     std::wstring helper_exe = (exe_dir / L"service_installer.exe").wstring();
 
     // Build the command-line arguments for service_installer.exe:
-    //   install <image_path> <logfile_path> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
+    //   install <image_path> <logs_dir> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
     std::wstring params = L"install";
     params += L" \"" + service_exe + L"\"";
-    params += L" \"" + log_path + L"\"";
+    params += L" \"" + logs_dir + L"\"";
     params += L" \"" + m_pipe_name + L"\"";
     params += L" \"" + m_service_name + L"\"";
     params += L" \"TrustTunnel VPN Service\"";
@@ -182,11 +187,21 @@ std::optional<FlutterError> NativeVpnImpl::Stop() {
 }
 
 ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
-    // Log export is not yet implemented for the Windows adapter
-    return flutter::EncodableList{};
+    // Unique temp export dir per call; the caller owns cleanup.
+    std::filesystem::path export_dir = std::filesystem::temp_directory_path() /
+            ("trusttunnel_windows_logs_" + std::to_string(static_cast<unsigned long long>(GetTickCount64())));
+
+    flutter::EncodableList result;
+    vpn_easy_log_export(
+            export_dir.wstring().c_str(),
+            [](void *arg, const char *path) {
+                static_cast<flutter::EncodableList *>(arg)->push_back(flutter::EncodableValue(std::string(path)));
+            },
+            &result);
+    return result;
 }
 
 std::optional<FlutterError> NativeVpnImpl::ClearLogs() {
-    // Log clearing is not yet implemented for the Windows adapter
+    vpn_easy_log_clear();
     return std::nullopt;
 }

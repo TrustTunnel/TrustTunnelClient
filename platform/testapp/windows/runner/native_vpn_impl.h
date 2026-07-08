@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "pigeon/native_communication.h"
@@ -11,7 +12,7 @@
 class NativeVpnImpl : public NativeVpnInterface {
 public:
     NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks, std::filesystem::path ring_buffer_path,
-            std::wstring service_name, std::wstring pipe_name);
+            std::filesystem::path logs_dir, std::wstring service_name, std::wstring pipe_name);
     ~NativeVpnImpl() override;
 
     std::optional<FlutterError> Start(const std::string &config) override;
@@ -26,6 +27,7 @@ private:
     FlutterCallbacks m_callbacks;
     IUIThreadDispatcher *m_dispatcher;
     std::filesystem::path m_ring_buffer_path;
+    std::filesystem::path m_logs_dir;
     std::wstring m_service_name;
     std::wstring m_pipe_name;
 
