@@ -60,6 +60,10 @@ typedef enum {
      * containing the current VPN state value.
      */
     VPN_EASY_SVC_MSG_QUERY_STATE,
+
+    /** Ask the service to clear its own log files. `length` must be zero, the data field empty.
+     *  Fire-and-forget: the service clears its `service` log family and sends no response. */
+    VPN_EASY_SVC_MSG_CLEAR_LOGS,
 } VpnEasyServiceMessageType;
 
 typedef enum {

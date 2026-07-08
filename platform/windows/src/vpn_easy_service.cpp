@@ -105,6 +105,13 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
         send_state_message(server, g_current_vpn_state);
         break;
     }
+    case VPN_EASY_SVC_MSG_CLEAR_LOGS: {
+        infolog(g_logger, "Clearing service logs on client request");
+        if (g_file_logger.has_value()) {
+            g_file_logger->clear_logs();
+        }
+        break;
+    }
     case VPN_EASY_SVC_MSG_STATE_CHANGED:
     case VPN_EASY_SVC_MSG_CONNECTION_INFO:
         warnlog(g_logger, "Ignoring server-to-client message type: {}", static_cast<int>(what));
