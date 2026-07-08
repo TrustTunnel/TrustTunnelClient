@@ -35,7 +35,7 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
+            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6","ephemeral-run-id-${{ github.run_id }}"]'
             container-image: 'adguard/core-libs:2.11'
             artifact-name: test-results-linux-private
             test-command: |
@@ -71,7 +71,7 @@ jobs:
               conan remove -c "*" || true
               conan cache clean || true
           - name: Mac
-            runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
+            runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6","ephemeral-run-id-${{ github.run_id }}"]'
             container-image: ''
             artifact-name: test-results-macos-private
             test-command: |
@@ -136,6 +136,7 @@ jobs:
       - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
+      - ephemeral-run-id-${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

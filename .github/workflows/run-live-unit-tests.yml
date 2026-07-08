@@ -20,6 +20,7 @@ jobs:
       - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
+      - ephemeral-run-id-${{ github.run_id }}
     container:
       image: adguard/core-libs:2.11
     steps:

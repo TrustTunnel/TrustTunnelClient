@@ -22,6 +22,7 @@ jobs:
       - ephemeral
       - ephemeral-mac
       - ${{ needs.resolve-images.outputs.macos }}
+      - ephemeral-run-id-${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
