@@ -17,7 +17,7 @@ static ag::Logger g_logger{"SERVICE_INSTALLER"};
 static void print_usage() {
     fmt::print(stderr,
             "Usage:\n"
-            "  service_installer.exe install <image_path> <logfile_path> <pipe_name>\n"
+            "  service_installer.exe install <image_path> <logs_dir> <pipe_name>\n"
             "                             <name> <display_name> <description> <ring_buffer_path>\n"
             "  service_installer.exe uninstall <name>\n");
 }
@@ -38,7 +38,7 @@ int wmain(int argc, wchar_t *argv[]) {
         }
 
         const wchar_t *image_path = argv[2];
-        const wchar_t *logfile_path = argv[3];
+        const wchar_t *logs_dir = argv[3];
         const wchar_t *pipe_name = argv[4];
         const wchar_t *name = argv[5];
         const wchar_t *display_name = argv[6];
@@ -46,7 +46,7 @@ int wmain(int argc, wchar_t *argv[]) {
         const wchar_t *ring_buffer_path = argv[8];
 
         int32_t result = vpn_easy_service_install(
-                image_path, logfile_path, pipe_name, name, display_name, description, ring_buffer_path);
+                image_path, logs_dir, pipe_name, name, display_name, description, ring_buffer_path);
 
         if (result != 0) {
             errlog(g_logger, "vpn_easy_service_install failed with error code: {}", result);

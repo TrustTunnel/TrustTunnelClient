@@ -90,7 +90,8 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  * and can be controlled by connecting and sending messages on that pipe. The protocol details are given by the
  * description of `VpnEasyServiceMessageType` enumeration. Anyone can read/write from/to the pipe.
  * @param image_path The absolute path to the `vpn_easy_service` executable.
- * @param logfile_path The absolute path to the service's log file. Will be created if doesn't exist.
+ * @param logs_dir The absolute path to the directory where the service writes its rotating `service.log`
+ *                 family. Created if absent.
  * @param pipe_name The name for the named pipe used to communicate with the service.
  *                  A string of at most 256 characters of the form: "\\.\pipe\<pipename>", where "<pipename>"
  *                  can include any character except the backslash.
@@ -101,7 +102,7 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  * @param ring_buffer_path The absolute path to the persistent ring buffer file for connection info storage.
  * @return Zero on success, one of `VpnEasyServiceError` constants on failure.
  */
-WIN_EXPORT int32_t vpn_easy_service_install(const wchar_t *image_path, const wchar_t *logfile_path,
+WIN_EXPORT int32_t vpn_easy_service_install(const wchar_t *image_path, const wchar_t *logs_dir,
         const wchar_t *pipe_name, const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
         const wchar_t *ring_buffer_path);
 

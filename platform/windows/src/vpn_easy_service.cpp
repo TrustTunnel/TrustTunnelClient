@@ -18,6 +18,8 @@
 #include "vpn/trusttunnel/connection_info.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
+#include "vpn/file_logger.h"
+#include "vpn_easy_log.h"
 #include "vpn_easy_pipe.h"
 #include "scoped_file_lock.h"
 
@@ -32,6 +34,7 @@ static vpn_easy_t *g_vpn;
 static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
 static std::filesystem::path g_ring_buffer_path;
 static std::mutex g_state_mutex;
+static std::optional<ag::FileLogger> g_file_logger;
 /// Current VPN session state. Updated by `send_state()` and reset on VPN stop.
 static int32_t g_current_vpn_state = ag::VPN_SS_DISCONNECTED;
 
@@ -165,11 +168,12 @@ int wmain(int argc, wchar_t **argv) {
         return 1;
     }
 
-    ag::UniquePtr<FILE, &fclose> logfile{_wfsopen(argv[1], L"w", _SH_DENYWR)};
-    if (logfile) {
-        setvbuf(logfile.get(), nullptr, _IONBF, 0);
-        ag::Logger::set_callback(ag::Logger::LogToFile{logfile.get()});
-    }
+    // argv[1] is the logs directory; the service writes its rotating "service" log family there.
+    std::filesystem::path logs_dir = argv[1];
+    auto log_sync = std::make_shared<ag::vpn_easy::WindowsFileLoggerSync>();
+    g_file_logger.emplace(logs_dir, ag::vpn_easy::SERVICE_LOG_BASE, ag::FileLogger::DEFAULT_MAX_FILE_SIZE,
+            ag::FileLogger::DEFAULT_ARCHIVE_COUNT, log_sync);
+    g_file_logger->install();
     ag::Logger::set_log_level(ag::LOG_LEVEL_INFO);
 
     g_pipe_name = argv[2];
