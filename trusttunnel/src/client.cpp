@@ -112,6 +112,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(Lis
             .exclusions_tcp_early_ack_enabled = m_config.exclusions_tcp_early_ack_enabled,
             .exclusions_preresolve_enabled = m_config.exclusions_preresolve_enabled,
             .exclusions_preresolve_max_queries = m_config.exclusions_preresolve_max_queries,
+            .exclusions_scannable_ports = m_config.exclusions_scannable_ports.c_str(),
     };
 
     if (m_config.ssl_session_storage_path.has_value()) {
