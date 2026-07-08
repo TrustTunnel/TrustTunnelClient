@@ -9,23 +9,17 @@
 namespace ag {
 namespace vpn_easy {
 
-/**
- * Acquire an exclusive byte-range lock on a lock file for cross-process ring
- * buffer synchronization. Uses a separate ".lock" file and LockFileEx instead
- * of a named mutex, avoiding cross-session namespace and privilege issues:
- * any process with directory access can take the lock.
- *
- * Both the service (writer, session 0) and the app (reader, session N) must
- * acquire this lock before touching the ring buffer to avoid reading
- * partially-written slots.
- */
-class RingBufferLock {
+/// RAII exclusive byte-range lock on a "<path>.lock" sidecar via `LockFileEx`.
+/// Cross-session safe (any process with directory access can take it, avoiding
+/// named-mutex namespace/privilege issues). Use `operator bool()` to check
+/// whether the lock was acquired.
+class ScopedFileLock {
 public:
-    explicit RingBufferLock(const std::filesystem::path &file_path)
+    explicit ScopedFileLock(const std::filesystem::path &file_path)
             : m_handle(open_and_lock(file_path)) {
     }
 
-    ~RingBufferLock() {
+    ~ScopedFileLock() {
         if (m_handle != INVALID_HANDLE_VALUE) {
             OVERLAPPED ov{};
             UnlockFileEx(m_handle, 0, 1, 0, &ov);
@@ -33,8 +27,8 @@ public:
         }
     }
 
-    RingBufferLock(const RingBufferLock &) = delete;
-    RingBufferLock &operator=(const RingBufferLock &) = delete;
+    ScopedFileLock(const ScopedFileLock &) = delete;
+    ScopedFileLock &operator=(const ScopedFileLock &) = delete;
 
     explicit operator bool() const {
         return m_handle != INVALID_HANDLE_VALUE;
@@ -42,14 +36,14 @@ public:
 
 private:
     static HANDLE open_and_lock(const std::filesystem::path &file_path) {
-        // Build the lock file path: "<ring_buffer_path>.lock"
+        // Build the lock file path: "<file_path>.lock"
         std::filesystem::path lock_path = file_path;
         lock_path += ".lock";
         std::wstring wpath = lock_path.wstring();
 
         // Create the lock file if it doesn't exist. It's just an empty
         // synchronization marker — harmless to create, independent of the
-        // ring buffer data file lifecycle.
+        // data file lifecycle.
         HANDLE h = CreateFileW(wpath.c_str(), GENERIC_READ | GENERIC_WRITE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                 nullptr);

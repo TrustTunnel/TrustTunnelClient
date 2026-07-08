@@ -31,7 +31,7 @@
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
 #include "vpn_easy_pipe.h"
-#include "vpn_easy_ring_buffer_mutex.h"
+#include "scoped_file_lock.h"
 
 static ag::Logger g_logger{"VPN_SIMPLE"};
 
@@ -185,7 +185,7 @@ void vpn_easy_service_read_all_connection_info(
 
     std::filesystem::path fs_path(ring_buffer_path);
 
-    ag::vpn_easy::RingBufferLock lock(fs_path);
+    ag::vpn_easy::ScopedFileLock lock(fs_path);
     if (!lock) {
         warnlog(g_logger, "Failed to acquire ring buffer lock for '{}'", fs_path.string());
         return;

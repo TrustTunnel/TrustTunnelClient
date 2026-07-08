@@ -19,7 +19,7 @@
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
 #include "vpn_easy_pipe.h"
-#include "vpn_easy_ring_buffer_mutex.h"
+#include "scoped_file_lock.h"
 
 using ag::vpn_easy::PipeServer;
 
@@ -71,7 +71,7 @@ static void pipe_handler(PipeServer &server, VpnEasyServiceMessageType what, ag:
                             ag::ConnectionInfo::to_json(static_cast<ag::VpnConnectionInfoEvent *>(connection_info));
                     // Persist to ring buffer if configured, with cross-process mutex
                     if (g_ring_buffer.has_value()) {
-                        ag::vpn_easy::RingBufferLock lock(g_ring_buffer_path);
+                        ag::vpn_easy::ScopedFileLock lock(g_ring_buffer_path);
                         if (lock) {
                             g_ring_buffer->append(json);
                         }

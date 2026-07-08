@@ -14,7 +14,7 @@
 
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn_easy_service.h"
-#include "vpn_easy_ring_buffer_mutex.h"
+#include "scoped_file_lock.h"
 
 namespace {
 
@@ -108,10 +108,10 @@ TEST_F(RingBufferTest, ReadAllCorruptedFileClears) {
 }
 
 // ---------------------------------------------------------------------------
-// RingBufferLock tests
+// ScopedFileLock tests
 // ---------------------------------------------------------------------------
 
-class RingBufferLockTest : public ::testing::Test {
+class ScopedFileLockTest : public ::testing::Test {
 protected:
     void SetUp() override {
         m_path = temp_file_path();
@@ -129,46 +129,46 @@ protected:
     std::error_code m_error;
 };
 
-TEST_F(RingBufferLockTest, AcquireLockOnNewFile) {
+TEST_F(ScopedFileLockTest, AcquireLockOnNewFile) {
     // Acquiring the lock should succeed even if neither the ring buffer nor the
     // lock file exists yet (the lock file is created automatically).
-    ag::vpn_easy::RingBufferLock lock(m_path);
+    ag::vpn_easy::ScopedFileLock lock(m_path);
     EXPECT_TRUE(static_cast<bool>(lock));
 
     // The lock file should now exist on disk.
     EXPECT_TRUE(std::filesystem::exists(std::wstring(m_path) + L".lock"));
 }
 
-TEST_F(RingBufferLockTest, AcquireLockOnExistingFile) {
+TEST_F(ScopedFileLockTest, AcquireLockOnExistingFile) {
     // Create a ring buffer file first, then acquire the lock.
     ag::PersistentRingBuffer buffer(m_path);
     ASSERT_TRUE(buffer.append("{\"test\":1}"));
 
-    ag::vpn_easy::RingBufferLock lock(m_path);
+    ag::vpn_easy::ScopedFileLock lock(m_path);
     EXPECT_TRUE(static_cast<bool>(lock));
 }
 
-TEST_F(RingBufferLockTest, LockReleasedOnDestruction) {
+TEST_F(ScopedFileLockTest, LockReleasedOnDestruction) {
     // Acquire and release a lock, then acquire again — must not deadlock.
     {
-        ag::vpn_easy::RingBufferLock lock(m_path);
+        ag::vpn_easy::ScopedFileLock lock(m_path);
         EXPECT_TRUE(static_cast<bool>(lock));
     }
     // After the lock is destroyed, a new lock should be acquired immediately.
-    ag::vpn_easy::RingBufferLock lock2(m_path);
+    ag::vpn_easy::ScopedFileLock lock2(m_path);
     EXPECT_TRUE(static_cast<bool>(lock2));
 }
 
-TEST_F(RingBufferLockTest, ExclusiveLockBlocksSecondLocker) {
+TEST_F(ScopedFileLockTest, ExclusiveLockBlocksSecondLocker) {
     // Acquire the lock in this thread, then spawn a second thread that tries
     // to acquire the same lock. The second thread should block until the first
     // lock is released.
-    auto lock1 = std::make_unique<ag::vpn_easy::RingBufferLock>(m_path);
+    auto lock1 = std::make_unique<ag::vpn_easy::ScopedFileLock>(m_path);
     ASSERT_TRUE(static_cast<bool>(*lock1));
 
     std::atomic<bool> second_acquired{false};
     std::thread blocker([&] {
-        ag::vpn_easy::RingBufferLock lock2(m_path);
+        ag::vpn_easy::ScopedFileLock lock2(m_path);
         second_acquired.store(static_cast<bool>(lock2), std::memory_order_release);
     });
 
@@ -183,20 +183,20 @@ TEST_F(RingBufferLockTest, ExclusiveLockBlocksSecondLocker) {
     EXPECT_TRUE(second_acquired.load(std::memory_order_acquire));
 }
 
-TEST_F(RingBufferLockTest, LockOnInvalidPath) {
+TEST_F(ScopedFileLockTest, LockOnInvalidPath) {
     // '?' is a reserved character in Windows paths, so CreateFileW always
     // rejects it with ERROR_INVALID_NAME. This makes the negative test
     // deterministic, independent of which drive letters are mounted.
-    ag::vpn_easy::RingBufferLock lock(L"?:\\nonexistent\\deep\\path\\buffer.dat");
+    ag::vpn_easy::ScopedFileLock lock(L"?:\\nonexistent\\deep\\path\\buffer.dat");
     EXPECT_FALSE(static_cast<bool>(lock));
 }
 
-TEST_F(RingBufferLockTest, LockAllowsReadAndWrite) {
+TEST_F(ScopedFileLockTest, LockAllowsReadAndWrite) {
     // Acquire the lock, then read/write the ring buffer while holding it.
     ag::PersistentRingBuffer buffer(m_path);
     ASSERT_TRUE(buffer.append("{\"locked_write\":true}"));
 
-    ag::vpn_easy::RingBufferLock lock(m_path);
+    ag::vpn_easy::ScopedFileLock lock(m_path);
     ASSERT_TRUE(static_cast<bool>(lock));
 
     auto result = buffer.read_all();
