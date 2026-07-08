@@ -49,9 +49,10 @@ TEST_F(WindowsFileLoggingTest, VpnEasyApiInitExportClear) {
     infolog(t, "client message routed through the adapter file logger");
 
     std::vector<std::wstring> exported;
-    vpn_easy_log_export(
-            (m_dir / "export").wstring().c_str(),
-            [](void *arg, const wchar_t *path) { static_cast<std::vector<std::wstring> *>(arg)->emplace_back(path); },
+    vpn_easy_log_export((m_dir / "export").wstring().c_str(),
+            [](void *arg, const wchar_t *path) {
+                static_cast<std::vector<std::wstring> *>(arg)->emplace_back(path);
+            },
             &exported);
     EXPECT_FALSE(exported.empty());
 
