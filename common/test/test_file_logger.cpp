@@ -67,7 +67,7 @@ TEST_F(FileLoggerTest, SnapshotCopiesFamilyAndSkipsMissing) {
         infolog(t, "service line");
     }
     fs::path dest = m_dir / "export";
-    std::vector<std::string> copied = ag::FileLogger::snapshot(m_dir, "service", dest);
+    std::vector<fs::path> copied = ag::FileLogger::snapshot(m_dir, "service", dest);
     ASSERT_EQ(copied.size(), 1u); // only service.log exists (no archive yet)
     EXPECT_TRUE(fs::exists(dest / "service.log"));
     EXPECT_NE(read_file(dest / "service.log").find("service line"), std::string::npos);

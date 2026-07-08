@@ -815,8 +815,9 @@ void vpn_easy_log_export(const wchar_t *dest_dir, on_log_path_t path_cb, void *p
 
     std::filesystem::path dest(dest_dir);
     for (const char *base : {ag::vpn_easy::CLIENT_LOG_BASE, ag::vpn_easy::SERVICE_LOG_BASE}) {
-        for (const std::string &path : ag::FileLogger::snapshot(
+        for (const std::filesystem::path &path : ag::FileLogger::snapshot(
                      g_logging.logs_dir, base, dest, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync.get())) {
+            // `path::c_str()` is the native wide string on Windows, delivered without lossy narrowing.
             path_cb(path_cb_arg, path.c_str());
         }
     }

@@ -50,8 +50,8 @@ vpn_easy_t *vpn_easy_start_ex(const char *toml_config, on_state_changed_t state_
 /** Stop (disconnect) a VPN client and free all associated resources. */
 void vpn_easy_stop_ex(vpn_easy_t *vpn);
 
-/** Callback invoked once per exported log file with its UTF-8 encoded absolute path. */
-typedef void (*on_log_path_t)(void *arg, const char *path);
+/** Callback invoked once per exported log file with its absolute path (native wide encoding). */
+typedef void (*on_log_path_t)(void *arg, const wchar_t *path);
 
 /**
  * Initialize file logging for the client process.
@@ -70,7 +70,7 @@ WIN_EXPORT void vpn_easy_log_init(const wchar_t *logs_dir);
  * Copy the client and service log families into `dest_dir` (created if absent) and invoke `path_cb`
  * once per copied file. Missing files are skipped. No-op if logging was not initialized.
  * @param dest_dir The absolute path to the directory to copy the log files into. The caller owns it.
- * @param path_cb A function called once per copied file with its UTF-8 absolute path.
+ * @param path_cb A function called once per copied file with its absolute path (native wide encoding).
  * @param path_cb_arg An argument passed to each invocation of `path_cb`.
  */
 WIN_EXPORT void vpn_easy_log_export(const wchar_t *dest_dir, on_log_path_t path_cb, void *path_cb_arg);

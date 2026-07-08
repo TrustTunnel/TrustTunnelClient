@@ -44,9 +44,9 @@ public:
     void clear_logs();
 
     /// Copy the `base_name` family into `dest_dir`; missing files are skipped.
-    static std::vector<std::string> snapshot(const std::filesystem::path &directory, std::string_view base_name,
-            const std::filesystem::path &dest_dir, int archive_count = DEFAULT_ARCHIVE_COUNT,
-            FileLoggerSync *sync = nullptr);
+    static std::vector<std::filesystem::path> snapshot(const std::filesystem::path &directory,
+            std::string_view base_name, const std::filesystem::path &dest_dir,
+            int archive_count = DEFAULT_ARCHIVE_COUNT, FileLoggerSync *sync = nullptr);
 
 private:
     void append_line(LogLevel level, std::string_view message);

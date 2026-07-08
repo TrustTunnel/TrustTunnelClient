@@ -55,9 +55,9 @@ void FileLogger::clear_logs() {
     });
 }
 
-std::vector<std::string> FileLogger::snapshot(const std::filesystem::path &directory, std::string_view base_name,
-        const std::filesystem::path &dest_dir, int archive_count, FileLoggerSync *sync) {
-    std::vector<std::string> result;
+std::vector<std::filesystem::path> FileLogger::snapshot(const std::filesystem::path &directory,
+        std::string_view base_name, const std::filesystem::path &dest_dir, int archive_count, FileLoggerSync *sync) {
+    std::vector<std::filesystem::path> result;
     run_exclusive(sync, directory, base_name, [&] {
         std::error_code ec;
         std::filesystem::create_directories(dest_dir, ec);
@@ -68,7 +68,7 @@ std::vector<std::string> FileLogger::snapshot(const std::filesystem::path &direc
             std::filesystem::path dst = dest_dir / src.filename();
             std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing, ec);
             if (!ec) {
-                result.push_back(dst.string());
+                result.push_back(std::move(dst));
             }
         }
     });
