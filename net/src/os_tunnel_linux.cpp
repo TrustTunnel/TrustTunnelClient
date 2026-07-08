@@ -388,3 +388,11 @@ void ag::vpn_linux_tunnel_destroy(void *linux_tunnel) {
     tunnel->deinit();
     delete tunnel;
 }
+
+int ag::vpn_linux_tunnel_get_fd(void *linux_tunnel) {
+    if (linux_tunnel == nullptr) {
+        return -1;
+    }
+    auto *tunnel = (ag::VpnLinuxTunnel *) linux_tunnel;
+    return tunnel->get_fd();
+}
