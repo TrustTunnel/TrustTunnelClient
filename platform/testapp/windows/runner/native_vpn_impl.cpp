@@ -194,8 +194,11 @@ ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
     flutter::EncodableList result;
     vpn_easy_log_export(
             export_dir.wstring().c_str(),
-            [](void *arg, const char *path) {
-                static_cast<flutter::EncodableList *>(arg)->push_back(flutter::EncodableValue(std::string(path)));
+            [](void *arg, const wchar_t *path) {
+                // Dart strings are marshaled as UTF-8; transcode the native wide path.
+                std::u8string u8 = std::filesystem::path(path).u8string();
+                static_cast<flutter::EncodableList *>(arg)->push_back(
+                        flutter::EncodableValue(std::string(u8.begin(), u8.end())));
             },
             &result);
     return result;
