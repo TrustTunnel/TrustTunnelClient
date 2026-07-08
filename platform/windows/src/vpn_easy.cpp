@@ -32,6 +32,7 @@
 #include "vpn/vpn.h"
 #include "vpn_easy_pipe.h"
 #include "scoped_file_lock.h"
+#include "vpn_easy_log.h"
 
 static ag::Logger g_logger{"VPN_SIMPLE"};
 
@@ -505,6 +506,14 @@ static struct ServiceControllerState {
     }
 } g_svc_state;
 
+/// Client-process file logging state, guarded by `mutex`. Set up by `vpn_easy_log_init()`.
+static struct LoggingState {
+    std::mutex mutex;
+    std::filesystem::path logs_dir;
+    std::shared_ptr<ag::FileLoggerSync> sync;
+    std::optional<ag::FileLogger> file_logger;
+} g_logging;
+
 /// Pipe message handler.
 /// Dispatches STATE_CHANGED and CONNECTION_INFO through g_svc_state callbacks.
 static ag::vpn_easy::PipeEndpoint::Handler make_pipe_handler() {
@@ -776,4 +785,63 @@ int32_t vpn_easy_service_stop(const wchar_t *service_name, const wchar_t *pipe_n
     }
 
     return 0;
+}
+
+void vpn_easy_log_init(const wchar_t *logs_dir) {
+    if (!logs_dir) {
+        return;
+    }
+    std::scoped_lock lock{g_logging.mutex};
+    if (g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is already initialized");
+        return;
+    }
+    g_logging.logs_dir = std::filesystem::path(logs_dir);
+    g_logging.sync = std::make_shared<ag::vpn_easy::WindowsFileLoggerSync>();
+    g_logging.file_logger.emplace(g_logging.logs_dir, ag::vpn_easy::CLIENT_LOG_BASE,
+            ag::FileLogger::DEFAULT_MAX_FILE_SIZE, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync);
+    g_logging.file_logger->install();
+}
+
+void vpn_easy_log_export(const wchar_t *dest_dir, on_log_path_t path_cb, void *path_cb_arg) {
+    if (!dest_dir || !path_cb) {
+        return;
+    }
+    std::scoped_lock lock{g_logging.mutex};
+    if (!g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is not initialized; nothing to export");
+        return;
+    }
+
+    std::filesystem::path dest(dest_dir);
+    for (const char *base : {ag::vpn_easy::CLIENT_LOG_BASE, ag::vpn_easy::SERVICE_LOG_BASE}) {
+        for (const std::string &path : ag::FileLogger::snapshot(
+                     g_logging.logs_dir, base, dest, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync.get())) {
+            path_cb(path_cb_arg, path.c_str());
+        }
+    }
+}
+
+void vpn_easy_log_clear() {
+    std::scoped_lock lock{g_logging.mutex};
+    if (!g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is not initialized; nothing to clear");
+        return;
+    }
+    // The client owns its own family, so clear it directly.
+    g_logging.file_logger->clear_logs();
+
+    // The service holds its own family open, so ask it to clear over the pipe when connected.
+    {
+        std::scoped_lock svc_lock{g_svc_state.mutex};
+        if (g_svc_state.pipe_client) {
+            g_svc_state.pipe_client->send(VPN_EASY_SVC_MSG_CLEAR_LOGS, {});
+            return;
+        }
+    }
+
+    // The service is not running; nobody holds its family open, so clear it directly.
+    ag::FileLogger service_logger(g_logging.logs_dir, ag::vpn_easy::SERVICE_LOG_BASE,
+            ag::FileLogger::DEFAULT_MAX_FILE_SIZE, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync);
+    service_logger.clear_logs();
 }
