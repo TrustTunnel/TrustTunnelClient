@@ -23,6 +23,7 @@
 #include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/tls.h"
+#include "scoped_file_lock.h"
 #include "vpn/event_loop.h"
 #include "vpn/platform.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
@@ -30,9 +31,8 @@
 #include "vpn/trusttunnel/config.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
-#include "vpn_easy_pipe.h"
-#include "scoped_file_lock.h"
 #include "vpn_easy_log.h"
+#include "vpn_easy_pipe.h"
 
 static ag::Logger g_logger{"VPN_SIMPLE"};
 

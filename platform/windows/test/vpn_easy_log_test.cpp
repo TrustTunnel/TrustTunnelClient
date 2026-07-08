@@ -37,7 +37,9 @@ TEST_F(WindowsFileLoggingTest, SyncRunsActionExclusively) {
     fs::create_directories(m_dir);
     ag::vpn_easy::WindowsFileLoggerSync sync;
     bool ran = false;
-    sync.with_exclusive(m_dir, "service", [&] { ran = true; });
+    sync.with_exclusive(m_dir, "service", [&] {
+        ran = true;
+    });
     EXPECT_TRUE(ran);
 }
 
@@ -47,9 +49,10 @@ TEST_F(WindowsFileLoggingTest, VpnEasyApiInitExportClear) {
     infolog(t, "client message routed through the adapter file logger");
 
     std::vector<std::string> exported;
-    vpn_easy_log_export(
-            (m_dir / "export").wstring().c_str(),
-            [](void *arg, const char *path) { static_cast<std::vector<std::string> *>(arg)->emplace_back(path); },
+    vpn_easy_log_export((m_dir / "export").wstring().c_str(),
+            [](void *arg, const char *path) {
+                static_cast<std::vector<std::string> *>(arg)->emplace_back(path);
+            },
             &exported);
     EXPECT_FALSE(exported.empty());
 

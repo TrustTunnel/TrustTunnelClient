@@ -5,8 +5,8 @@
 #include <string>
 #include <string_view>
 
-#include "vpn/file_logger.h"
 #include "scoped_file_lock.h"
+#include "vpn/file_logger.h"
 
 namespace ag {
 namespace vpn_easy {

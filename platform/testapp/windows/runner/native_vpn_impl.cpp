@@ -188,8 +188,8 @@ std::optional<FlutterError> NativeVpnImpl::Stop() {
 
 ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
     // Unique temp export dir per call; the caller owns cleanup.
-    std::filesystem::path export_dir = std::filesystem::temp_directory_path() /
-            ("trusttunnel_windows_logs_" + std::to_string(static_cast<unsigned long long>(GetTickCount64())));
+    std::filesystem::path export_dir = std::filesystem::temp_directory_path()
+            / ("trusttunnel_windows_logs_" + std::to_string(static_cast<unsigned long long>(GetTickCount64())));
 
     flutter::EncodableList result;
     vpn_easy_log_export(

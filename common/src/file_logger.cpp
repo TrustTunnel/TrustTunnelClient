@@ -41,7 +41,9 @@ FileLogger::~FileLogger() {
 
 void FileLogger::install() {
     m_installed = true;
-    ag::Logger::set_callback([this](LogLevel level, std::string_view message) { append_line(level, message); });
+    ag::Logger::set_callback([this](LogLevel level, std::string_view message) {
+        append_line(level, message);
+    });
 }
 
 void FileLogger::clear_logs() {
@@ -134,8 +136,7 @@ std::vector<std::filesystem::path> FileLogger::candidate_paths(
     return paths;
 }
 
-void FileLogger::delete_files(
-        const std::filesystem::path &directory, std::string_view base_name, int archive_count) {
+void FileLogger::delete_files(const std::filesystem::path &directory, std::string_view base_name, int archive_count) {
     std::error_code ec;
     for (const auto &p : candidate_paths(directory, base_name, archive_count)) {
         std::filesystem::remove(p, ec);

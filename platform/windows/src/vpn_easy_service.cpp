@@ -15,13 +15,13 @@
 #include <windows.h>
 
 #include "common/system_error.h"
+#include "scoped_file_lock.h"
+#include "vpn/file_logger.h"
 #include "vpn/trusttunnel/connection_info.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn.h"
-#include "vpn/file_logger.h"
 #include "vpn_easy_log.h"
 #include "vpn_easy_pipe.h"
-#include "scoped_file_lock.h"
 
 using ag::vpn_easy::PipeServer;
 

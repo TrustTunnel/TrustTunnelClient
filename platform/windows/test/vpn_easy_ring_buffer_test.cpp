@@ -12,9 +12,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "scoped_file_lock.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
 #include "vpn/vpn_easy_service.h"
-#include "scoped_file_lock.h"
 
 namespace {
 
