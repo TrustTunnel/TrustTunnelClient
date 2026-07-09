@@ -47,6 +47,10 @@ class Logger(private val name: String) {
     }
 
     private fun log(logLevel: LogLevel, message: String, throwable: Throwable?) {
+        if (!isEnabled(logLevel)) {
+            return
+        }
+
         if (dispatch(logLevel, formatMessage(name, message, throwable))) {
             return
         }
@@ -57,6 +61,18 @@ class Logger(private val name: String) {
     companion object {
         private val nativeBackend = LoggerFactory.getLogger("TrustTunnel_Native")
         private val callback = AtomicReference<Callback?>(null)
+
+        // Provides the current log level so that platform-side logs respect it.
+        @Volatile
+        private var logLevelProvider: () -> LogLevel = { LogLevel.INFO }
+
+        internal fun setLogLevelProvider(provider: () -> LogLevel) {
+            logLevelProvider = provider
+        }
+
+        private fun isEnabled(logLevel: LogLevel): Boolean {
+            return logLevel.code <= logLevelProvider().code
+        }
 
         @JvmStatic
         fun getLogger(name: String): Logger {

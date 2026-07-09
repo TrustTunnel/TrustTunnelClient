@@ -11,6 +11,9 @@ class NativeLogger {
 
         init {
             setupSlf4j()
+            // Read the level live from native so config-driven changes (ag::Logger::set_log_level)
+            // are respected by platform-side logs without an explicit Kotlin-side update.
+            Logger.setLogLevelProvider { Logger.LogLevel.fromCode(getDefaultLogLevel0()) }
             logger.info("Logging initialized")
         }
 
