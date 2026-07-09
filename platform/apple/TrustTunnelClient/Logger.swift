@@ -25,35 +25,40 @@ public class Logger {
     }
 
     public func info(_ message: String) {
-        if Self.dispatch(.info, message: Self.formatMessage(category: category, message: message)) {
-            return
-        }
-
-        logger.notice("\(message, privacy: .public)")
+        log(.info, message: message)
     }
 
     public func warn(_ message: String) {
-        if Self.dispatch(.warn, message: Self.formatMessage(category: category, message: message)) {
-            return
-        }
-
-        logger.warning("\(message, privacy: .public)")
+        log(.warn, message: message)
     }
 
     public func error(_ message: String) {
-        if Self.dispatch(.error, message: Self.formatMessage(category: category, message: message)) {
-            return
-        }
-
-        logger.error("\(message, privacy: .public)")
+        log(.error, message: message)
     }
 
     public func debug(_ message: String) {
-        if Self.dispatch(.debug, message: Self.formatMessage(category: category, message: message)) {
+        log(.debug, message: message)
+    }
+
+    private func log(_ logLevel: LogLevel, message: String) {
+        guard Self.isEnabled(logLevel) else {
             return
         }
 
-        logger.debug("\(message, privacy: .public)")
+        if Self.dispatch(logLevel, message: Self.formatMessage(category: category, message: message)) {
+            return
+        }
+
+        switch logLevel {
+        case .error:
+            logger.error("\(message, privacy: .public)")
+        case .warn:
+            logger.warning("\(message, privacy: .public)")
+        case .info:
+            logger.notice("\(message, privacy: .public)")
+        case .debug, .trace:
+            logger.debug("\(message, privacy: .public)")
+        }
     }
 
     /// Set the logging callback for both TrustTunnelClient and VpnClientFramework logs.
@@ -86,6 +91,15 @@ public class Logger {
 
         callback(logLevel, message)
         return true
+    }
+
+    /// The current native log level, mirrored from the underlying ag::Logger.
+    static var currentLogLevel: LogLevel {
+        LogLevel(vpnClientLogLevel: VpnClientFramework.NativeLogger.currentLogLevel())
+    }
+
+    static func isEnabled(_ logLevel: LogLevel) -> Bool {
+        return logLevel.rawValue <= currentLogLevel.rawValue
     }
 
     private static func formatMessage(category: String, message: String) -> String {

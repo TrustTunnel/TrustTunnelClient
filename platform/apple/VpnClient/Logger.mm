@@ -86,4 +86,8 @@ void install_native_callback() {
     g_callback = [callback copy];
 }
 
++ (LogLevel)currentLogLevel {
+    return to_log_level(ag::Logger::get_log_level());
+}
+
 @end
