@@ -26,6 +26,23 @@ LogLevel to_log_level(ag::LogLevel level) {
     return LogLevelInfo;
 }
 
+ag::LogLevel from_log_level(LogLevel level) {
+    switch (level) {
+    case LogLevelError:
+        return ag::LOG_LEVEL_ERROR;
+    case LogLevelWarn:
+        return ag::LOG_LEVEL_WARN;
+    case LogLevelInfo:
+        return ag::LOG_LEVEL_INFO;
+    case LogLevelDebug:
+        return ag::LOG_LEVEL_DEBUG;
+    case LogLevelTrace:
+        return ag::LOG_LEVEL_TRACE;
+    }
+
+    return ag::LOG_LEVEL_INFO;
+}
+
 NSString *to_ns_string(std::string_view message) {
     NSString *string = [[NSString alloc] initWithBytes:message.data()
                                                 length:message.size()
@@ -84,6 +101,14 @@ void install_native_callback() {
 
     std::scoped_lock lock(g_callback_guard);
     g_callback = [callback copy];
+}
+
++ (LogLevel)currentLogLevel {
+    return to_log_level(ag::Logger::get_log_level());
+}
+
++ (void)setLogLevel:(LogLevel)logLevel {
+    ag::Logger::set_log_level(from_log_level(logLevel));
 }
 
 @end

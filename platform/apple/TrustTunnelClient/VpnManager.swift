@@ -307,6 +307,13 @@ public final class VpnManager {
                 return
             }
 
+            // The VPN client, which normally applies the log level from config, is only created
+            // in the network extension. Apply it here so that logs emitted in the application
+            // process (including VpnManager) respect the configured level too.
+            if let loglevel = vpnConfig.loglevel, let logLevel = Logger.LogLevel(configName: loglevel) {
+                Logger.setLogLevel(logLevel)
+            }
+
             let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ??
             NETunnelProviderProtocol()
             configuration.providerBundleIdentifier = self.bundleIdentifier
