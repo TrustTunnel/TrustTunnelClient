@@ -16,9 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Respect log level from config for apple and android adapters.
-
 ### Security
+
+## [1.1.5-beta.13] - 2026-07-09
+
+### Fixed
+
+- Respect log level from config for apple and android adapters.
 
 ## [1.1.5-beta.12] - 2026-07-08
 
@@ -484,7 +488,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.13...HEAD
+[1.1.5-beta.13]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...v1.1.5-beta.13
 [1.1.5-beta.12]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.11...v1.1.5-beta.12
 [1.1.5-beta.11]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.10...v1.1.5-beta.11
 [1.1.5-beta.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...v1.1.5-beta.10
