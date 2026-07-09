@@ -18,6 +18,8 @@ typedef void (^NativeLoggerCallback)(LogLevel log_level, NSString *message);
 
 + (LogLevel)currentLogLevel;
 
++ (void)setLogLevel:(LogLevel)logLevel;
+
 @end
 
 NS_ASSUME_NONNULL_END

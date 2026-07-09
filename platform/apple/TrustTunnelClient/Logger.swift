@@ -9,6 +9,19 @@ public class Logger {
         case info = 2
         case debug = 3
         case trace = 4
+
+        /// Create a log level from its config string representation
+        /// (`error`, `warn`, `info`, `debug`, `trace`).
+        public init?(configName: String) {
+            switch configName.lowercased() {
+            case "error": self = .error
+            case "warn": self = .warn
+            case "info": self = .info
+            case "debug": self = .debug
+            case "trace": self = .trace
+            default: return nil
+            }
+        }
     }
 
     public typealias Callback = (LogLevel, String) -> Void
@@ -78,6 +91,15 @@ public class Logger {
         }
 
         VpnClientFramework.NativeLogger.setCallback(bridgedCallback)
+    }
+
+    /// Set the native log level respected by both TrustTunnelClient and VpnClientFramework logs.
+    ///
+    /// The network extension applies the log level from config automatically when it creates the
+    /// VPN client. Other processes (the host application and VpnManager) do not create the VPN
+    /// client, so they must set the level explicitly to mirror the one from config.
+    public static func setLogLevel(_ logLevel: LogLevel) {
+        VpnClientFramework.NativeLogger.setLogLevel(VpnClientFramework.LogLevel(rawValue: logLevel.rawValue) ?? .info)
     }
 
     static func dispatch(_ logLevel: LogLevel, message: String) -> Bool {
