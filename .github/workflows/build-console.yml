@@ -68,7 +68,7 @@ jobs:
       - name: Detect version
         id: version
         run: |
-          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG key
@@ -185,7 +185,7 @@ jobs:
       - name: Detect version
         id: version
         run: |
-          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG key
@@ -421,7 +421,7 @@ jobs:
         run: |
           set -e -x
 
-          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
+          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
 
           mkdir -p artifacts
 
