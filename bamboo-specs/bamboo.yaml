@@ -1,6 +1,4 @@
 ---
-  !include 'increment-version.yaml'
----
   !include 'lint.yaml'
 ---
   !include 'run-tests.yaml'

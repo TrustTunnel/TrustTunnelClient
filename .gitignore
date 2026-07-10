@@ -17,3 +17,9 @@ conaninfo.txt
 graph_info.json
 conan/
 cmake/conan_provider.cmake
+
+# Version files generated at build time from templates by cmake/version.cmake
+# and setup_wizard/build.rs (see cmake/version.cmake). Never committed.
+trusttunnel/include/vpn/trusttunnel/version.h
+trusttunnel/trusttunnel_client.rc
+trusttunnel/setup_wizard/resources/setup_wizard.rc

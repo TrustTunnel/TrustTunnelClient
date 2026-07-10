@@ -4,7 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to deploy (e.g. 1.2.3). If omitted, the version is detected from CHANGELOG.md."
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
         required: false
         type: string
 
@@ -25,6 +39,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so the build can resolve the version via
+          # git describe.
+          fetch-depth: 0
 
       - name: Configure environment
         run: |
@@ -35,19 +54,19 @@ jobs:
           bundle config --local path '.bundle/vendor'
           bundle install
 
-      - name: Detect version
+      # The build (build_framework.sh / podspec) resolves the version via git
+      # describe. Resolve it here too for the published artifact path; a manual
+      # `version` input forces an override that also drives the build.
+      - name: Resolve version
         id: version
         run: |
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
           else
-            VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+[^]]*\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([^]]+)\].*/\1/')
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Set version
-        run: |
-          ./scripts/set_version.sh ${{ steps.version.outputs.version }}
 
       - name: Build xcframeworks
         run: |

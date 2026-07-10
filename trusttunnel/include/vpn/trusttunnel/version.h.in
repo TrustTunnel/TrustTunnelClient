@@ -1,0 +1,4 @@
+#pragma once
+
+// Generated from version.h.in by cmake/version.cmake. Do not edit by hand.
+#define TRUSTTUNNEL_VERSION "@TT_CLIENT_VERSION_FULL@"

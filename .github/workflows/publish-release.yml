@@ -1,0 +1,76 @@
+name: Publish release
+
+# Runs once a release-bump PR (from prepare-release.yml) is merged, or on manual
+# dispatch. It:
+#   1. Reads the released version from CHANGELOG.md and creates the v{version}
+#      tag (tag-from-changelog.yml). That workflow only proceeds for a merged
+#      release-bump PR, so it gates the whole run — no extra `if` is needed here.
+#   2. Builds the console apps (trusttunnel_client + setup_wizard) and deploys
+#      the Android and Apple adapter libraries, all from the tagged commit.
+#   3. Publishes the GitHub Release on the public mirror with the changelog notes
+#      and the console archives attached (create-gh-release.yml).
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ref to publish manually
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+  pull-requests: read
+
+jobs:
+  # 1. Read the released version from CHANGELOG.md and create the v{version} tag.
+  # tag-from-changelog only proceeds for a merged release-bump/* PR (or manual
+  # dispatch), so every downstream job is gated by `needs: tag`.
+  tag:
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/tag-from-changelog.yml@master
+    with:
+      team: corelibs
+      ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
+
+  # 2a. Build the console apps for Linux, macOS and Windows.
+  build-console:
+    needs: tag
+    uses: ./.github/workflows/build-console.yml
+    with:
+      ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
+    secrets: inherit
+
+  # 2b. Build and deploy the Android adapter library to GitHub Packages.
+  deploy-android:
+    needs: tag
+    uses: ./.github/workflows/deploy-android.yml
+    with:
+      ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
+    secrets: inherit
+
+  # 2c. Build and deploy the Apple adapter library to GitHub Packages.
+  deploy-apple:
+    needs: tag
+    uses: ./.github/workflows/deploy-apple.yml
+    with:
+      ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
+    secrets: inherit
+
+  # 3. Publish the GitHub Release on the public mirror, attaching the console
+  # archives collected by build-console. Pre-release tags (v...-beta.N, -rc.N)
+  # are marked as pre-releases.
+  create-release:
+    needs: [tag, build-console, deploy-android, deploy-apple]
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/create-gh-release.yml@master
+    with:
+      team: corelibs
+      target_repo: TrustTunnel/TrustTunnelClient
+      tag_name: ${{ needs.tag.outputs.tag }}
+      body: ${{ needs.tag.outputs.changelog }}
+      artifact_name: release-artifacts
+      prerelease: ${{ contains(needs.tag.outputs.tag, '-') }}
+    secrets: inherit

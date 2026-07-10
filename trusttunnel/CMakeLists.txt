@@ -9,6 +9,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(VPN_CORE_DIR ${VPN_LIB_DIR}/core)
 
+# Resolve the version (TT_CLIENT_VERSION override -> git describe -> 0.0.0-git)
+# and render the version header into the build dir (git-ignored).
+include(${VPN_LIB_DIR}/cmake/version.cmake)
+configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/vpn/trusttunnel/version.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gen/vpn/trusttunnel/version.h
+        @ONLY)
+
 if (MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Zi /EHs-c- /W0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /EHs-c- /std:c++latest /W0")
@@ -25,6 +33,8 @@ set(SOURCE_FILES
 
 add_library(vpnlibs_trusttunnel EXCLUDE_FROM_ALL ${SOURCE_FILES})
 target_include_directories(vpnlibs_trusttunnel PUBLIC include)
+# Generated version.h wins over anything in the source tree.
+target_include_directories(vpnlibs_trusttunnel BEFORE PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/gen)
 
 find_package(cxxopts REQUIRED)
 find_package(magic_enum REQUIRED)
@@ -63,8 +73,12 @@ if (APPLE)
 endif ()
 
  if (WIN32)
+     configure_file(
+             ${CMAKE_CURRENT_SOURCE_DIR}/trusttunnel_client.rc.in
+             ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_client.rc
+             @ONLY)
      list(APPEND EXE_SOURCE_FILES
-             trusttunnel_client.rc
+             ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_client.rc
      )
  endif ()
 
@@ -210,7 +224,7 @@ if (ANDROID)
             UPDATE_COMMAND ""
             PATCH_COMMAND ""
             CONFIGURE_COMMAND ""
-            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${ANDROID_HOME_VAR}
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${ANDROID_HOME_VAR}
             cargo ${CARGO_TARGET}
             ${CARGO_BUILD_TYPE}
             --package trusttunnel-deeplink-ffi
@@ -226,7 +240,7 @@ else ()
             UPDATE_COMMAND ""
             PATCH_COMMAND ""
             CONFIGURE_COMMAND ""
-            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
             cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
             --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
             --workspace

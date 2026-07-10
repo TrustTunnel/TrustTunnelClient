@@ -4,7 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to deploy (e.g. 1.2.3). If omitted, the version is detected from CHANGELOG.md."
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
         required: false
         type: string
 
@@ -29,25 +43,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so the Gradle build can resolve the version
+          # via git describe.
+          fetch-depth: 0
 
       - name: Configure Conan
         run: |
           python3 -m pip install conan --upgrade
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
-      - name: Detect version
-        id: version
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+[^]]*\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([^]]+)\].*/\1/')
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Set version
-        run: |
-          ./scripts/set_version.sh ${{ steps.version.outputs.version }}
+      # The version is resolved by the Gradle build via git describe (see
+      # build.gradle.kts). A manual `version` input forces an override.
+      - name: Set version override
+        if: inputs.version != ''
+        run: echo "TT_CLIENT_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
 
       - name: Build Android library
         run: |

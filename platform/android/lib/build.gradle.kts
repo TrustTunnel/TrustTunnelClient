@@ -5,7 +5,33 @@ plugins {
     id("maven-publish")
 }
 
-version = "1.1.4"
+// Resolve the library version: -PttClientVersion / TT_CLIENT_VERSION env var ->
+// git describe --tags --match v* -> 0.0.0-git fallback. This is an AAR, so there
+// is no Android versionCode.
+fun resolveTtClientVersion(project: Project): String {
+    val override = (project.findProperty("ttClientVersion") as String?)
+        ?: System.getenv("TT_CLIENT_VERSION")
+    if (!override.isNullOrBlank()) {
+        return override.trim()
+    }
+    return try {
+        val proc = ProcessBuilder("git", "describe", "--tags", "--match", "v*")
+            .directory(project.rootDir)
+            .start()
+        proc.waitFor()
+        val described = proc.inputStream.bufferedReader().readText().trim()
+        if (proc.exitValue() == 0 && described.isNotEmpty()) {
+            described.removePrefix("v")
+        } else {
+            "0.0.0-git"
+        }
+    } catch (ignored: Exception) {
+        "0.0.0-git"
+    }
+}
+
+val ttClientVersion = resolveTtClientVersion(project)
+version = ttClientVersion
 
 android {
     namespace = "com.adguard.trusttunnel"
@@ -22,6 +48,7 @@ android {
                 targets += "trusttunnel_android"
                 arguments += "-DANDROID_STL=c++_static"
                 arguments += "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                arguments += "-DTT_CLIENT_VERSION=$ttClientVersion"
             }
         }
     }

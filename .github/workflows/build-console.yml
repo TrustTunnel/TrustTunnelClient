@@ -1,7 +1,23 @@
-name: Build and deploy release
+name: Build console apps
+
+# Reusable workflow that builds the trusttunnel_client and setup_wizard console
+# apps for Linux, macOS and Windows, signs/notarizes them, and collects every
+# platform archive into a single `release-artifacts` artifact for the caller to
+# attach to a GitHub Release.
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
+        required: false
+        type: string
 
 jobs:
 # =============================================================================
@@ -30,6 +46,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
 
       - name: Retrieve GPG signing secrets
         uses: hashicorp/vault-action@v4
@@ -140,6 +160,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
 
       - name: Retrieve GPG signing secrets
         uses: hashicorp/vault-action@v4
@@ -290,6 +314,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
 
       - name: Build
         env:
@@ -376,6 +404,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
 
       - name: Download signed executables
         uses: actions/download-artifact@v8
@@ -423,63 +455,28 @@ jobs:
           path: artifacts/trusttunnel_client-*.zip
 
 # =============================================================================
-# Stage 2: Deploy (depends on all builds)
+# Stage 2: Collect all platform archives into a single artifact
 # =============================================================================
 
-  deploy:
-    name: Deploy artifacts
+  collect:
+    name: Collect release artifacts
     needs: [build-linux, build-macos, package-windows]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    environment: release-github
     runs-on: [team-corelibs]
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Detect version
-        id: version
-        run: |
-          VERSION=$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Download all artifacts
+      - name: Download all platform archives
         uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: release-*
           merge-multiple: true
 
-      - name: Trigger mirror to sync tag to public repo
-        uses: actions/github-script@v8
+      - name: Upload combined release artifact
+        uses: actions/upload-artifact@v7
         with:
-          script: |
-            await github.rest.repos.createDispatchEvent({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              event_type: 'After auto-tag',
-            })
-
-      - name: Create GitHub Release on public repo
-        env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -e -x
-
-          TAG=v${VERSION}
-          CHANGELOG_URL="https://github.com/TrustTunnel/TrustTunnelClient/blob/${TAG}/CHANGELOG.md"
-
-          gh release delete -y ${TAG} -R TrustTunnel/TrustTunnelClient || true
-          gh release create ${TAG} \
-            -R TrustTunnel/TrustTunnelClient \
-            -t "${TAG}" \
-            -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
-
-          # Upload all artifacts
-          for f in artifacts/trusttunnel_client-*; do
-            gh release upload ${TAG} "$f" -R TrustTunnel/TrustTunnelClient
-          done
+          name: release-artifacts
+          path: artifacts/trusttunnel_client-*
+          if-no-files-found: error
+          retention-days: 7

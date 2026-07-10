@@ -7,26 +7,19 @@ on:
         description: 'Proposed version (without leading v)'
         required: true
         type: string
-  workflow_call:
-    inputs:
-      version:
-        description: 'Proposed version (without leading v)'
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 jobs:
-  # Changelog patch, branch, commit, and PR (via Octopass) are handled by the
-  # shared reusable workflow.
-  create-pr:
+  # Changelog patch, branch, commit, and PR (via Octopass) are all handled by
+  # the shared native-libs-common reusable workflow.
+  prepare-release:
     if: github.repository_owner == 'AdGuardSoftwareLimited'
-    uses: AdGuardSoftwareLimited/actions/.github/workflows/create-release-pr.yml@master
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/prepare-release.yml@master
     permissions:
       contents: write
       pull-requests: write
       id-token: write
     with:
-      tag: v${{ inputs.version }}
-      team: corelibs
+      version: ${{ inputs.version }}
