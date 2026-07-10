@@ -16,9 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fixed console client versioning.
-
 ### Security
+
+## [1.1.5-beta.15] - 2026-07-10
+
+### Fixed
+
+- Fixed console client versioning.
 
 ## [1.1.5-beta.14] - 2026-07-10
 
@@ -496,7 +500,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...HEAD
+[1.1.5-beta.15]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...v1.1.5-beta.15
 [1.1.5-beta.14]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.13...v1.1.5-beta.14
 [1.1.5-beta.13]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...v1.1.5-beta.13
 [1.1.5-beta.12]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.11...v1.1.5-beta.12
