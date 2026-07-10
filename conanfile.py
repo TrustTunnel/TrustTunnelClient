@@ -1,6 +1,6 @@
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import patch, copy
+from conan.tools.files import patch, copy, update_conandata
 from conan.tools.apple import is_apple_os
 from conan.tools.scm import Git
 from os.path import join
@@ -48,7 +48,6 @@ class VpnLibsConan(ConanFile):
         self.requires("zlib/1.3.1", transitive_headers=True)
 
         if "mips" not in str(self.settings.arch):
-            self.requires("quiche/0.17.1@adguard/oss", transitive_headers=True)
             self.requires("openssl/boring-2024-09-13@adguard/oss", transitive_headers=True, force=True)
         else:
             self.requires("openssl/3.1.5-quic1@adguard/oss", transitive_headers=True, force=True)
@@ -63,6 +62,16 @@ class VpnLibsConan(ConanFile):
         self.options["pcre2"].build_pcre2grep = False
         self.options["dns-libs"].tcpip = False
 
+    def export(self):
+        # The exported sources carry no .git, so the build's git describe would
+        # fall back to 0.0.0-git for "local" exports. Capture the describe version
+        # now (the recipe folder still has .git) into conandata.yml for generate()
+        # to feed back into cmake/version.cmake via -DTT_CLIENT_VERSION.
+        if self.version == "local":
+            described = self._git_described_version(Git(self))
+            if described:
+                update_conandata(self, {"local_version": described})
+
     def export_sources(self):
         if self.version == "local":
             git = Git(self)
@@ -71,6 +80,16 @@ class VpnLibsConan(ConanFile):
                 dst = os.path.join(self.export_sources_folder, i)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(i, dst)
+
+    @staticmethod
+    def _git_described_version(git):
+        # Quote the glob: Git.run executes through a shell, so an unquoted "v*"
+        # would expand against files in the recipe dir and match no tags.
+        try:
+            described = git.run('describe --tags --match "v*"').strip()
+        except Exception:
+            return ""
+        return described[1:] if described.startswith("v") else described
 
     def source(self):
         # Local export: the working tree was already staged by export_sources().
@@ -90,6 +109,15 @@ class VpnLibsConan(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        # Drive cmake/version.cmake from the package version so the conan source
+        # (no .git for git describe) bakes the right version into the build. For
+        # "local" exports the describe version was stapled into conandata.yml at
+        # export time; a release version is the package version itself.
+        version = str(self.version)
+        if version == "local":
+            version = (self.conan_data or {}).get("local_version") or version
+        if version and version != "local":
+            tc.cache_variables["TT_CLIENT_VERSION"] = version
         if self.settings.os == "Linux" and self.options.capi_linux_exports:
             tc.cache_variables["VPNLIBS_CAPI_LINUX_EXPORTS"] = True
         if self.options.sanitize:

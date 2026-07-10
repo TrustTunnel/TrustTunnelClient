@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed console client versioning.
+
 ### Security
 
 ## [1.1.5-beta.14] - 2026-07-10
