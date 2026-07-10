@@ -75,3 +75,15 @@ jobs:
         run: |
           cd platform/android
           ./gradlew :lib:publishReleasePublicationToGitHubPackagesRepository
+
+      # Upload the Conan packages built above (including dependencies) so that
+      # subsequent builds download them instead of rebuilding from source.
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
