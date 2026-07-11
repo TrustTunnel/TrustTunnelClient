@@ -6,7 +6,10 @@ name: Publish release
 #      tag (tag-from-changelog.yml). That workflow only proceeds for a merged
 #      release-bump PR, so it gates the whole run — no extra `if` is needed here.
 #   2. Builds the console apps (trusttunnel_client + setup_wizard) and deploys
-#      the Android and Apple adapter libraries, all from the tagged commit.
+#      the Android and Apple adapter libraries, all from the tagged commit. It
+#      also mirrors the tagged commit to the public repo and exports/uploads the
+#      Conan recipe to Artifactory at the released version, so the release is
+#      installable from Conan (like publish-snapshot, but production, not -dev).
 #   3. Publishes the GitHub Release on the public mirror with the changelog notes
 #      and the console archives attached (create-gh-release.yml).
 
@@ -59,6 +62,45 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
     secrets: inherit
+
+  # 2d. Mirror the tagged commit to the public repo so the release tag is
+  #     fetchable when the recipe's source() clones and checks it out. Reuses the
+  #     repo's mirror.yml, which already pins team and target_repo.
+  mirror:
+    needs: tag
+    uses: ./.github/workflows/mirror.yml
+    permissions:
+      actions: write
+      contents: read
+      id-token: write
+    secrets: inherit
+
+  # 2e. Export and upload the Conan recipe to Artifactory at the released
+  #     version. Mirrors publish-snapshot's upload-conan-recipes, but targets the
+  #     production conan-artifactory environment instead of -dev. Runs after
+  #     mirror so the tag exists on the public repo when the recipe's source()
+  #     clones and checks it out.
+  upload-conan-recipes:
+    needs: [tag, mirror]
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: conan-artifactory
+    runs-on: [team-corelibs]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Check out the tag so `git describe` reports the released version, and
+          # fetch full history + tags for it to resolve.
+          ref: ${{ needs.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Upload conan recipes
+        uses: AdGuardSoftwareLimited/native-libs-common/.github/actions/upload-conan-recipes@master
+        with:
+          export_script_path: scripts/export_conan.sh
+          conan_repo_url: ${{ vars.CONAN_REPO_URL }}
+          artifactory_user: ${{ secrets.ARTIFACTORY_USER }}
+          artifactory_api_key: ${{ secrets.ARTIFACTORY_API_KEY }}
 
   # 3. Publish the GitHub Release on the public mirror, attaching the console
   # archives collected by build-console. Pre-release tags (v...-beta.N, -rc.N)
