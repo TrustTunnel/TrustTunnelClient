@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Updated NLC to 8.1.42, which fix outbound interface selection on dual-stack Windows hosts (AG-56159).
+
 ### Deprecated
 
 ### Removed
