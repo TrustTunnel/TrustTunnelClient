@@ -10,8 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Updated NLC to 8.1.42, which fix outbound interface selection on dual-stack Windows hosts (AG-56159).
-
 ### Deprecated
 
 ### Removed
@@ -19,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.5-beta.16] - 2026-07-11
+
+### Changed
+
+- Fixed outbound interface selection on dual-stack Windows hosts (AG-56159).
 
 ## [1.1.5-beta.15] - 2026-07-10
 
@@ -502,7 +506,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.16...HEAD
+[1.1.5-beta.16]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...v1.1.5-beta.16
 [1.1.5-beta.15]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...v1.1.5-beta.15
 [1.1.5-beta.14]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.13...v1.1.5-beta.14
 [1.1.5-beta.13]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...v1.1.5-beta.13
