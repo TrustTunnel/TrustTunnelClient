@@ -230,6 +230,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
                     .name = hostnames.back().c_str(),
                     .remote_id = remote_ids.back().c_str(),
                     .has_ipv6 = m_config.location.has_ipv6,
+                    .tls_profile = m_config.location.tls_profile,
             });
             if (!m_config.location.client_random.empty()) {
                 copy_to_c_buffer(last_el.tls_client_random, m_config.location.client_random);

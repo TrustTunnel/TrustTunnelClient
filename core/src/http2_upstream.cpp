@@ -514,7 +514,8 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
             config->endpoint->tls_client_random_mask.data, config->endpoint->tls_client_random_mask.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)},
-                config->endpoint->name, /*quic*/ MSPT_TLS, endpoint_data, client_random_data, client_random_mask);
+                config->endpoint->name, /*quic*/ MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
+                to_tls_client_profile(config->endpoint->tls_profile));
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

@@ -36,7 +36,7 @@ TEST(NetUtils, RetrieveSystemDnsServers) {
 
 #endif // _WIN32
 
-static std::vector<uint8_t> prepare_client_hello(const char *sni);
+static std::vector<uint8_t> prepare_client_hello(const char *sni, ag::tls::TlsClientProfile profile, bool with_alpn);
 static std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni);
 
 struct TestDatum {
@@ -57,9 +57,37 @@ static const TestDatum TEST_DATA_QUIC[] = {
 TEST(NetUtils, JA4Tcp) {
     ag::vpn_post_quantum_group_set_enabled(true);
     for (const auto &[sni, fingerprints] : TEST_DATA_TCP) {
-        auto client_hello = prepare_client_hello(sni.c_str());
+        auto client_hello = prepare_client_hello(sni.c_str(), ag::tls::TlsClientProfile::CHROME, /*with_alpn*/ true);
         auto fingerprint = ag::ja4::compute({client_hello.data(), client_hello.size()}, /*quic*/ false);
         ASSERT_NE(fingerprints.end(), std::find(fingerprints.begin(), fingerprints.end(), fingerprint)) << fingerprint;
+    }
+}
+
+// Drives make_ssl() for each configurable TLS fingerprint profile and pins the resulting JA4.
+// Verifies both the NLC make_ssl migration and that the linked BoringSSL carries the
+// browser-imitation patches. References captured from wreq / openssl s_client (see
+// native-libs-common tls/test/make_ssl_test.cpp).
+TEST(NetUtils, JA4TlsProfiles) {
+    ag::vpn_post_quantum_group_set_enabled(true);
+    struct Case {
+        ag::tls::TlsClientProfile profile;
+        const char *name;
+        const char *expected;
+        bool with_alpn;
+    };
+    const Case cases[] = {
+            {ag::tls::TlsClientProfile::CHROME, "Chrome", "t13d1516h2_8daaf6152771_d8a2da3f94cd", true},
+            {ag::tls::TlsClientProfile::SAFARI, "Safari", "t13d2013h2_a09f3c656075_7f0f34a4126d", true},
+            {ag::tls::TlsClientProfile::FIREFOX, "Firefox", "t13d1717h2_5b57614c22b0_3cbfd9057e0d", true},
+            {ag::tls::TlsClientProfile::OKHTTP, "OkHttp", "t13d1613h2_46e7e9700bed_eca864cca44a", true},
+            // The default openssl s_client sends no ALPN, so its JA4 is measured without one.
+            {ag::tls::TlsClientProfile::OPENSSL_DEFAULT, "OpenSSL", "t13d301100_1d37bd780c83_8e6e362c5eac", false},
+    };
+    for (const auto &c : cases) {
+        auto client_hello = prepare_client_hello("example.org", c.profile, c.with_alpn);
+        auto fingerprint = ag::ja4::compute({client_hello.data(), client_hello.size()}, /*quic*/ false);
+        fprintf(stderr, "[JA4 %-8s] %s\n", c.name, fingerprint.c_str());
+        EXPECT_EQ(c.expected, fingerprint) << c.name;
     }
 }
 
@@ -124,7 +152,8 @@ TEST(NetUtils, JA4Ngtcp2Quic) {
 TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     ag::vpn_post_quantum_group_set_enabled(true);
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, "example.org", ag::MSPT_NGTCP2);
+    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, "example.org", ag::MSPT_NGTCP2, {}, {}, {},
+            ag::tls::TlsClientProfile::CHROME);
     ASSERT_TRUE(std::holds_alternative<ag::SslPtr>(r)) << "make_ssl(MSPT_NGTCP2) failed";
     auto &ssl = std::get<ag::SslPtr>(r);
 
@@ -145,12 +174,12 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     EXPECT_EQ("q13d0311h3_55b375c5d22e_653d80c3fe9d", fingerprint) << "Ngtcp2 fingerprint mismatch";
 }
 
-std::vector<uint8_t> prepare_client_hello(const char *sni) {
+std::vector<uint8_t> prepare_client_hello(const char *sni, ag::tls::TlsClientProfile profile, bool with_alpn) {
     static constexpr uint8_t HTTP2_ALPN[] = {2, 'h', '2'};
-    ag::SslPtr ssl;
-    auto r = ag::make_ssl(nullptr, nullptr, {HTTP2_ALPN, std::size(HTTP2_ALPN)}, sni, ag::MSPT_TLS);
+    ag::U8View alpn = with_alpn ? ag::U8View{HTTP2_ALPN, std::size(HTTP2_ALPN)} : ag::U8View{};
+    auto r = ag::make_ssl(nullptr, nullptr, alpn, sni, ag::MSPT_TLS, {}, {}, {}, profile);
     assert(std::holds_alternative<ag::SslPtr>(r));
-    ssl = std::move(std::get<ag::SslPtr>(r));
+    ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
     SSL_set0_wbio(ssl.get(), BIO_new(BIO_s_mem()));
     SSL_connect(ssl.get());
     std::vector<uint8_t> initial;
@@ -169,7 +198,8 @@ struct Ngtcp2TestCtx {
 
 std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2);
+    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {},
+            ag::tls::TlsClientProfile::CHROME);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
 

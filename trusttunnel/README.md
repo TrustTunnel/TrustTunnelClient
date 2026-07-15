@@ -124,6 +124,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
+| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `safari`, `firefox`, `okhttp`, `openssl`, or `default` (no mimicry) |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN. If empty, AdGuard DNS unfiltered is used |
 
@@ -201,6 +202,7 @@ skip_verification = false
 certificate = ""
 dns_upstreams = ["tls://1.1.1.1"]
 upstream_protocol = "http2"
+tls_profile = "chrome"
 anti_dpi = false
 
 [listener.tun]

@@ -497,6 +497,11 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .and_then(|x| x.upstream_protocol.clone().into())
             .or(opt_field!(template, upstream_protocol).cloned())
             .unwrap_or_else(Endpoint::default_upstream_protocol),
+        tls_profile: endpoint_config
+            .as_ref()
+            .and_then(|x| empty_to_none(x.tls_profile.clone()))
+            .or(opt_field!(template, tls_profile).cloned())
+            .unwrap_or_else(Endpoint::default_tls_profile),
         anti_dpi: endpoint_config
             .as_ref()
             .and_then(|x| x.anti_dpi.into())
@@ -730,6 +735,8 @@ pub struct EndpointConfig {
     #[serde(default)]
     upstream_protocol: String,
     #[serde(default)]
+    tls_profile: String,
+    #[serde(default)]
     anti_dpi: bool,
     #[serde(default)]
     custom_sni: String,
@@ -847,6 +854,7 @@ impl fmt::Display for EndpointSummary<'_> {
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
+  TLS profile:       {}
   Anti-DPI:          {}
   DNS upstreams:       {}",
             ep.hostname,
@@ -858,6 +866,7 @@ impl fmt::Display for EndpointSummary<'_> {
             if ep.skip_verification { "yes" } else { "no" },
             cert_display,
             ep.upstream_protocol,
+            ep.tls_profile,
             if ep.anti_dpi { "yes" } else { "no" },
             dns_upstreams,
         )

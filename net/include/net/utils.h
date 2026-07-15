@@ -16,6 +16,7 @@
 
 #include "common/error.h"
 #include "common/socket_address.h"
+#include "common/tls/make_ssl.h"
 #include "common/utils.h"
 #include "net/http_header.h"
 #include "vpn/utils.h"
@@ -57,6 +58,7 @@ struct VpnEndpoint {
     bool has_ipv6;                               // Whether IPv6 traffic can be routed through the endpoint
     VpnUpstreamProtocol preferred_protocol;      // Protocol to use for the endpoint connection.
                                                  // @see `VpnUpstreamConfig.main_protocol` for full description.
+    VpnTlsProfile tls_profile;                   // TLS ClientHello fingerprint profile for this endpoint.
 };
 
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
@@ -256,9 +258,15 @@ void dump_session_cache(const std::string &path);
  */
 void load_session_cache(const std::string &path);
 
+/**
+ * Map the C-API `VpnTlsProfile` enum onto the shared `ag::tls::TlsClientProfile`.
+ */
+ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},
-        ag::Uint8View tls_client_random = ag::U8View{}, ag::Uint8View tls_client_random_mask = ag::U8View{});
+        ag::Uint8View tls_client_random = ag::U8View{}, ag::Uint8View tls_client_random_mask = ag::U8View{},
+        ag::tls::TlsClientProfile profile = ag::tls::TlsClientProfile::CHROME);
 
 /**
  * Return name of the group function used in key exchange from OpenSSL NID
