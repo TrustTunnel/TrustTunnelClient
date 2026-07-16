@@ -707,7 +707,8 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
             ? Uint8View{conn->relay->tls_client_random_mask.data, conn->relay->tls_client_random_mask.size}
             : Uint8View{conn->endpoint->tls_client_random_mask.data, conn->endpoint->tls_client_random_mask.size};
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
-            conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask);
+            conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
+            to_tls_client_profile(conn->endpoint->tls_profile));
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));
         log_conn(ping, conn, dbg, "Failed to create an SSL object: {}", std::get<std::string>(ssl_result));

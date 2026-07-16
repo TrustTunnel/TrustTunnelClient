@@ -30,24 +30,18 @@
 #include "common/guid_utils.h"
 #endif
 
-#include <brotli/decode.h>
 #include <magic_enum/magic_enum.hpp>
 #include <openssl/ssl.h>
 
 #include "common/cache.h"
 #include "common/logger.h"
 #include "common/net_utils.h"
+#include "common/tls/make_ssl.h"
 #include "common/utils.h"
 #include "net/http_header.h"
 #include "net/http_session.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
-
-#ifdef OPENSSL_IS_BORINGSSL
-#include <ngtcp2/ngtcp2_crypto_boringssl.h>
-#else
-#include <ngtcp2/ngtcp2_crypto_quictls.h>
-#endif
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 namespace ag {
@@ -872,27 +866,6 @@ void load_session_cache(const std::string &path) {
     SessionStorage(path).load_ssl_cache();
 }
 
-#ifdef OPENSSL_IS_BORINGSSL
-static int DecompressBrotliCert(
-        SSL *ssl, CRYPTO_BUFFER **out, size_t uncompressed_len, const uint8_t *in, size_t in_len) {
-    uint8_t *data;
-    CRYPTO_BUFFER *decompressed = CRYPTO_BUFFER_alloc(&data, uncompressed_len);
-    if (!decompressed) {
-        return 0;
-    }
-
-    size_t output_size = uncompressed_len;
-    if (BROTLI_DECODER_RESULT_SUCCESS != BrotliDecoderDecompress(in_len, in, &output_size, data)
-            || output_size != uncompressed_len) {
-        CRYPTO_BUFFER_free(decompressed);
-        return 0;
-    }
-
-    *out = decompressed;
-    return 1;
-}
-#endif
-
 /* Converts group NID in library-independent way */
 std::string kex_group_name_by_nid(int kex_group_nid) {
     switch (kex_group_nid) {
@@ -915,156 +888,59 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
     }
 }
 
+ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
+    switch (profile) {
+    case VPN_TLS_PROFILE_SAFARI:
+        return ag::tls::TlsClientProfile::SAFARI;
+    case VPN_TLS_PROFILE_FIREFOX:
+        return ag::tls::TlsClientProfile::FIREFOX;
+    case VPN_TLS_PROFILE_OKHTTP:
+        return ag::tls::TlsClientProfile::OKHTTP;
+    case VPN_TLS_PROFILE_OPENSSL_DEFAULT:
+        return ag::tls::TlsClientProfile::OPENSSL_DEFAULT;
+    case VPN_TLS_PROFILE_DEFAULT:
+        return ag::tls::TlsClientProfile::DEFAULT;
+    case VPN_TLS_PROFILE_CHROME:
+        break;
+    }
+    return ag::tls::TlsClientProfile::CHROME;
+}
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
-        U8View tls_client_random_mask) {
+        U8View tls_client_random_mask, ag::tls::TlsClientProfile profile) {
     bool quic = type == MSPT_NGTCP2;
-    DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
-    if (verification_callback && arg) {
-        SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
-        SSL_CTX_set_cert_verify_callback(ctx.get(), verification_callback, arg);
+
+    // Session resumption persistence stays in the client;
+    // the shared factory only needs the new-session callback and, if any, a session to resume.
+    // The popped session must outlive the make_ssl() call: SSL_set_session() up-refs it.
+    auto resume_session = pop_session_from_cache(sni, quic);
+
+    ag::tls::SslInitParameters params{
+            .profile = profile,
+            .protocol = quic ? ag::tls::SslProtocol::NGTCP2 : ag::tls::SslProtocol::TLS,
+            .alpn_protos = alpn_protos,
+            .sni = sni,
+            .verify_callback = verification_callback,
+            .verify_arg = arg,
+            .post_quantum = vpn_post_quantum_group_enabled(),
+            .tls_client_random = tls_client_random,
+            .tls_client_random_mask = tls_client_random_mask,
+            .endpoint_data = endpoint_data,
+            .new_session_cb = quic ? cache_session_quic_cb : cache_session_tcp_cb,
+            .resume_session = resume_session.get(),
+    };
+
+    auto result = ag::tls::make_ssl(params);
+    if (std::holds_alternative<std::string>(result)) {
+        return std::move(std::get<std::string>(result));
     }
-    if (0 != SSL_CTX_set_alpn_protos(ctx.get(), alpn_protos.data(), alpn_protos.size())) {
-        return "Failed to set ALPN protocols";
-    }
-
-    SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_CLIENT);
-    SSL_CTX_sess_set_new_cb(ctx.get(), quic ? cache_session_quic_cb : cache_session_tcp_cb);
-
-// Mimic Chrome's ClientHello if we are using BoringSSL.
-#ifdef OPENSSL_IS_BORINGSSL
-    if (SSL_CTX_add_cert_compression_alg(ctx.get(), TLSEXT_cert_compression_brotli, nullptr, DecompressBrotliCert)
-            != 1) {
-        return "Failed to add certificate compression algorithm";
-    }
-
-    SSL_CTX_set_permute_extensions(ctx.get(), true);
-
-    if (!quic) {
-        SSL_CTX_set_grease_enabled(ctx.get(), 1);
-    }
-#endif // OPENSSL_IS_BORINGSSL
-
-    if (type == MSPT_NGTCP2) {
-#ifdef OPENSSL_IS_BORINGSSL
-        if (0 != ngtcp2_crypto_boringssl_configure_client_context(ctx.get()))
-#else
-        if (0 != ngtcp2_crypto_quictls_configure_client_context(ctx.get()))
-#endif
-        {
-            return "Couldn't configure SSL object for QUIC";
-        }
-    }
-
-    SslPtr ssl{SSL_new(ctx.get())};
-    if (!SocketAddress{sni}.valid()) {
-        if (0 == SSL_set_tlsext_host_name(ssl.get(), sni)) {
-            return "Failed to set SNI";
-        }
-    }
-
-#ifdef SSL_set_user_data
-    if (!endpoint_data.empty()) {
-        SSL_set_user_data(ssl.get(), endpoint_data.data(), endpoint_data.size());
-    }
-#endif
-
-#ifdef SSL_set_custom_client_random
-    if (!tls_client_random.empty()) {
-        std::vector<uint8_t> client_random_data(tls_client_random.size());
-        std::vector<uint8_t> mask_data(client_random_data.size(), 0xff);
-
-        std::copy(tls_client_random.data(), tls_client_random.data() + tls_client_random.size(),
-                client_random_data.begin());
-
-        const size_t mask_size = std::min<size_t>(tls_client_random_mask.size(), mask_data.size());
-        if (mask_size > 0) {
-            std::copy_n(tls_client_random_mask.data(), mask_size, mask_data.begin());
-        }
-
-        // Generate random bytes for the parts not covered by the mask
-        std::vector<uint8_t> rand_bytes(mask_size);
-        if (1 != RAND_bytes(rand_bytes.data(), mask_size)) {
-            return "Failed to generate random bytes for SSL";
-        }
-
-        for (size_t i = 0; i < mask_size; ++i) {
-            client_random_data[i] = (client_random_data[i] & mask_data[i]) | (rand_bytes[i] & ~mask_data[i]);
-        }
-
-        SSL_set_custom_client_random(ssl.get(), client_random_data.data(), client_random_data.size());
-    }
-#endif
-
-// Mimic Chrome's ClientHello if we are using BoringSSL.
-#ifdef OPENSSL_IS_BORINGSSL
-    SSL_set_enable_ech_grease(ssl.get(), 1);
-
-    const char *alps = quic ? "h3" : "h2";
-    if (SSL_add_application_settings(ssl.get(), (uint8_t *) alps, 2, nullptr, 0) != 1) {
-        return "Failed to add ALPS extension";
-    }
-    SSL_set_alps_use_new_codepoint(ssl.get(), 1);
-
-    // Use the BoringSSL defaults, but disable 3DES and SHA1 HMAC
-    if (!SSL_set_strict_cipher_list(ssl.get(), "ALL:!aPSK:!ECDSA+SHA1:!3DES")) {
-        return "Failed to set strict cipher list";
-    }
-
-    if (!SSL_set_min_proto_version(ssl.get(), TLS1_2_VERSION)
-            || !SSL_set_max_proto_version(ssl.get(), TLS1_3_VERSION)) {
-        return "Failed to set SSL versions";
-    }
-
-    static constexpr uint16_t GROUPS[] = {
-            SSL_GROUP_X25519_MLKEM768, SSL_GROUP_X25519, SSL_GROUP_SECP256R1, SSL_GROUP_SECP384R1};
-    bool pq_enabled = vpn_post_quantum_group_enabled();
-    if (pq_enabled && !SSL_set1_group_ids(ssl.get(), GROUPS, std::size(GROUPS))) {
-        return "Failed to set groups";
-    }
-
-    if (!quic) {
-        SSL_enable_signed_cert_timestamps(ssl.get());
-
-        // Request OCSP stapling.
-        if (SSL_set_tlsext_status_type(ssl.get(), TLSEXT_STATUSTYPE_ocsp) != 1) {
-            return "Failed to set OCSP state extension";
-        }
-
-        // Disable the SHA1 signature algorithm.
-        // clang-format off
-        static constexpr uint16_t SIGALGS[] = { SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
-                                        SSL_SIGN_RSA_PKCS1_SHA256, SSL_SIGN_ECDSA_SECP384R1_SHA384,
-                                        SSL_SIGN_RSA_PSS_RSAE_SHA384, SSL_SIGN_RSA_PKCS1_SHA384,
-                                        SSL_SIGN_RSA_PSS_RSAE_SHA512, SSL_SIGN_RSA_PKCS1_SHA512, };
-        // clang-format on
-        if (!SSL_set_verify_algorithm_prefs(ssl.get(), SIGALGS, std::size(SIGALGS))) {
-            return "Failed to set signature algorithms";
-        }
-    }
-#endif
-
-    SSL_set_connect_state(ssl.get());
-
-    if (auto session = pop_session_from_cache(sni, quic)) {
-        SSL_set_session(ssl.get(), session.get()); // Callee uprefs session.
-    }
+    SslPtr ssl{std::get<ag::tls::SslPtr>(result).release()};
 
 #ifdef __mips__
     if (!SSL_set_cipher_list(ssl.get(), "CHACHA20")
             || !SSL_set_ciphersuites(ssl.get(), "TLS_CHACHA20_POLY1305_SHA256")) {
         return "Failed to set CHACHA20 cipher";
-    }
-#endif
-
-#if 0
-    if (char *ssl_keylog_file = getenv("SSLKEYLOGFILE"); ssl_keylog_file != nullptr) {
-        static DeclPtr<std::FILE, &std::fclose> handle{ std::fopen(ssl_keylog_file, "a") };
-        SSL_CTX_set_keylog_callback(ctx.get(),
-                [] (const SSL *, const char *line) {
-                    fprintf(handle.get(), "%s\n", line);
-                    fflush(handle.get());
-                });
     }
 #endif
 
