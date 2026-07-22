@@ -44,9 +44,9 @@ struct TestDatum {
     std::vector<std::string> allowed_fingerprints;
 };
 
-// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome 150.0.7871.129 (Official Build) (arm64), source: Wireshark.
 static const TestDatum TEST_DATA_TCP[] = {
-        {"example.org", {"t13d1516h2_8daaf6152771_d8a2da3f94cd"}},
+        {"example.org", {"t13d1516h2_8daaf6152771_806a8c22fdea"}},
 };
 
 // Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.

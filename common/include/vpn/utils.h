@@ -242,6 +242,9 @@ uint64_t socket_address_pair_hash(const SocketAddress &src, const SocketAddress 
  */
 SocketAddressStorage sockaddr_from_str(const char *str);
 
+/** Default timeout, in seconds, for the endpoint resolution helpers below. */
+inline constexpr size_t DEFAULT_GAI_TIMEOUT_SECS = 15;
+
 /**
  * Resolve a host:port string to socket addresses
  *
@@ -254,9 +257,25 @@ SocketAddressStorage sockaddr_from_str(const char *str);
  *   - hostname:port
  *
  * @param str string to resolve
+ * @param timeout maximum time to wait for the resolution, in seconds
  * @return resolved socket addresses (may contain both IPv4 and IPv6), empty on failure
  */
-std::vector<SocketAddressStorage> resolve_endpoint_address(const char *str);
+std::vector<SocketAddressStorage> resolve_endpoint_address(const char *str, size_t timeout = DEFAULT_GAI_TIMEOUT_SECS);
+
+/**
+ * Resolve several host:port strings to socket addresses concurrently.
+ *
+ * Each string is handled like `resolve_endpoint_address`, but all hostname resolutions run in
+ * parallel and share a single overall deadline, so the whole batch never blocks longer than one
+ * resolution would. Strings that fail to parse, fail to resolve, or exceed the deadline yield an
+ * empty result in the corresponding slot.
+ *
+ * @param strs strings to resolve
+ * @param timeout maximum time to wait for the whole batch, in seconds
+ * @return one result vector per input string, in the same order
+ */
+std::vector<std::vector<SocketAddressStorage>> resolve_endpoint_addresses(
+        const std::vector<std::string> &strs, size_t timeout = DEFAULT_GAI_TIMEOUT_SECS);
 
 /**
  * Get bound socket address storage from file descriptor

@@ -46,6 +46,11 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect(Listener
 int TrustTunnelClient::disconnect() {
     if (Vpn *vpn = m_vpn.exchange(nullptr)) {
         vpn_stop(vpn);
+        // `_dispatch_sync` on a stopped loop blocks forever.
+        // Call `_dispatch_sync` before `vpn_close` so handlers can observe a valid vpn pointer.
+        if (vpn_event_loop_is_active(m_extra_loop.get())) {
+            vpn_event_loop_dispatch_sync(m_extra_loop.get(), nullptr, nullptr);
+        }
         vpn_close(vpn);
     }
 
@@ -187,6 +192,15 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
         std::memcpy(dst.data, decoded.data(), data_len);
     };
 
+    // A single endpoint to resolve, paired with the parsed hostname/remote_id it belongs to.
+    struct ResolveTarget {
+        size_t host_index; // index into `hostnames` / `remote_ids`
+        bool is_relay;
+        std::string address;
+    };
+    std::vector<ResolveTarget> targets;
+    targets.reserve(m_config.location.endpoints.size());
+
     for (const auto &endpoint : m_config.location.endpoints) {
         auto pipe_pos = endpoint.hostname.find('|');
         if (!endpoint.custom_sni.empty() && pipe_pos != std::string::npos) {
@@ -203,12 +217,33 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
             hostnames.emplace_back(endpoint.hostname);
             remote_ids.emplace_back("");
         }
-        if (endpoint.address.starts_with("|")) {
-            auto resolved = resolve_endpoint_address(endpoint.address.substr(1).c_str());
-            if (resolved.empty()) {
-                warnlog(m_logger, "Failed to resolve relay address: {}", endpoint.address);
-                continue;
-            }
+        bool is_relay = endpoint.address.starts_with("|");
+        targets.push_back(ResolveTarget{
+                .host_index = hostnames.size() - 1,
+                .is_relay = is_relay,
+                .address = is_relay ? endpoint.address.substr(1) : endpoint.address,
+        });
+    }
+
+    // Resolve every endpoint address in parallel under a single overall deadline.
+    std::vector<std::string> to_resolve;
+    to_resolve.reserve(targets.size());
+    for (const auto &target : targets) {
+        to_resolve.push_back(target.address);
+    }
+    static constexpr size_t kResolveTimeoutSeconds = 15;
+    auto resolved_all = resolve_endpoint_addresses(to_resolve, kResolveTimeoutSeconds);
+
+    // Build the endpoints and relays from the resolved addresses.
+    for (size_t i = 0; i < targets.size(); ++i) {
+        const auto &target = targets[i];
+        const auto &resolved = resolved_all[i];
+        if (resolved.empty()) {
+            warnlog(m_logger, "Failed to resolve {} address: {}", target.is_relay ? "relay" : "endpoint",
+                    target.address);
+            continue;
+        }
+        if (target.is_relay) {
             // Use only the first resolved address for relay
             auto &relay = relays.emplace_back(resolved.front());
             if (!m_config.location.client_random.empty()) {
@@ -219,16 +254,11 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
             }
             continue;
         }
-        auto resolved = resolve_endpoint_address(endpoint.address.c_str());
-        if (resolved.empty()) {
-            warnlog(m_logger, "Failed to resolve endpoint address: {}", endpoint.address);
-            continue;
-        }
         for (const auto &addr : resolved) {
             auto &last_el = endpoints.emplace_back(VpnEndpoint{
                     .address = addr,
-                    .name = hostnames.back().c_str(),
-                    .remote_id = remote_ids.back().c_str(),
+                    .name = hostnames[target.host_index].c_str(),
+                    .remote_id = remote_ids[target.host_index].c_str(),
                     .has_ipv6 = m_config.location.has_ipv6,
             });
             if (!m_config.location.client_random.empty()) {
@@ -468,6 +498,9 @@ void TrustTunnelClient::vpn_handler(void *, VpnEvent what, void *data) {
         break;
     }
     case VPN_EVENT_CONNECT_REQUEST: {
+        // The task below carries a raw `Vpn *` captured now and dereferenced later, on another
+        // thread. `disconnect()` drains this loop before `vpn_close`, which is what keeps that
+        // pointer from outliving the VPN.
         struct TaskContext {
             VpnConnectionInfo *info;
             Vpn *vpn;
