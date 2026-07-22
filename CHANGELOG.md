@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Apple adapter: install connect-on-demand (killswitch) rules only after the VPN tunnel successfult connection.
+- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
 
 ### Security
 
