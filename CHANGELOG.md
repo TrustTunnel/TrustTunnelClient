@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
+
 ### Security
 
 ## [1.1.5-beta.16] - 2026-07-11
