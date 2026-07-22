@@ -16,9 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
-
 ### Security
+
+## [1.1.5-rc.1] - 2026-07-22
+
+### Fixed
+
+- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
 
 ## [1.1.5-beta.16] - 2026-07-11
 
@@ -508,7 +512,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.16...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.1...HEAD
+[1.1.5-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.16...v1.1.5-rc.1
 [1.1.5-beta.16]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...v1.1.5-beta.16
 [1.1.5-beta.15]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...v1.1.5-beta.15
 [1.1.5-beta.14]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.13...v1.1.5-beta.14
