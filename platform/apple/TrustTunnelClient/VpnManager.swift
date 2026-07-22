@@ -51,6 +51,11 @@ public final class VpnManager {
     private var bundleIdentifier: String
     private var appGroup: String
     private var readIndex: UInt64? = nil
+    /// Whether connect-on-demand (killswitch) rules may be installed once the tunnel
+    /// connects. Set from the applied config; cleared by `stop()` and by configuration
+    /// deletion so a late `.connected` notification cannot reinstall rules afterwards.
+    /// Access only on `queue`.
+    private var killswitchEnabled = false
     private let logger = Logger(category: "VpnManager")
     private let fileLogger: FileLogger?
 
@@ -144,6 +149,9 @@ public final class VpnManager {
                     && (manager.connection.status == .disconnected || manager.connection.status == .invalid) {
                     self.cancelStopTimer()
                 }
+            }
+            if manager.connection.status == .connected {
+                self.enableOnDemandIfNeeded(manager: manager)
             }
             self.logCurrentStatus(prefix: "status change", manager: manager)
         }
@@ -278,9 +286,33 @@ public final class VpnManager {
         }
     }
 
+    private func enableOnDemandIfNeeded(manager: NETunnelProviderManager) {
+        self.apiQueue.async {
+            let shouldEnable = self.queue.sync {
+                return self.killswitchEnabled
+            }
+            guard shouldEnable, !manager.isOnDemandEnabled else {
+                return
+            }
+            manager.isOnDemandEnabled = true
+            manager.onDemandRules = [NEOnDemandRuleConnect()]
+            self.reloadManager(manager: manager) { error in
+                if let error = error {
+                    self.logger.error("Failed to enable connect-on-demand rules: \(error)")
+                    manager.isOnDemandEnabled = false
+                    manager.onDemandRules = nil
+                    return
+                }
+                self.logger.debug("Connect-on-demand rules have been enabled")
+                // Recreate observer to update newly loaded connection object
+                self.stopObservingStatus()
+                self.startObservingStatus(manager: manager)
+            }
+        }
+    }
+
     private func updateConfiguration(manager: NETunnelProviderManager,
                                       config: String!,
-                                 setOnDemand: Bool,
                            completionHandler: @escaping ((any Error)?) -> Void) {
         let isAllowedStatus = self.queue.sync {
             return manager.connection.status == .disconnected
@@ -314,6 +346,12 @@ public final class VpnManager {
                 Logger.setLogLevel(logLevel)
             }
 
+            // Remember whether the killswitch is enabled: connect-on-demand rules are
+            // installed later, only after the tunnel has successfully connected.
+            self.queue.sync {
+                self.killswitchEnabled = vpnConfig.killswitch_enabled
+            }
+
             let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ??
             NETunnelProviderProtocol()
             configuration.providerBundleIdentifier = self.bundleIdentifier
@@ -326,13 +364,6 @@ public final class VpnManager {
             manager.protocolConfiguration = configuration
             manager.localizedDescription = "TrustTunnel"
             manager.isEnabled = true
-
-            if setOnDemand {
-                if (vpnConfig.killswitch_enabled) {
-                    manager.isOnDemandEnabled = true
-                    manager.onDemandRules = [NEOnDemandRuleConnect()]
-                }
-            }
 
             self.reloadManager(manager: manager) { error in
                 if let error = error {
@@ -385,13 +416,15 @@ public final class VpnManager {
             timerSource.schedule(deadline: timeout)
             timerSource.resume()
             if config == nil {
+                self.queue.sync {
+                    self.killswitchEnabled = false
+                }
                 self.deleteConfiguration(manager: manager) { error in
                     timerSource.cancel()
                 }
             } else {
                 self.updateConfiguration(manager: manager,
-                                          config: config!,
-                                     setOnDemand: false) { error in
+                                          config: config!) { error in
                     timerSource.cancel()
                 }
             }
@@ -406,8 +439,7 @@ public final class VpnManager {
             group.enter()
 
             self.updateConfiguration(manager: manager,
-                                      config: config,
-                                 setOnDemand: true) { error in
+                                      config: config) { error in
                 if let error = error {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
                 } else {
@@ -442,6 +474,7 @@ public final class VpnManager {
             timerSource.resume()
             let manager = self.getManager()
             self.queue.sync {
+                self.killswitchEnabled = false
                 self.stopTimer = timerSource
             }
             manager.isOnDemandEnabled = false
