@@ -1,7 +1,10 @@
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <future>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -12,6 +15,7 @@
 
 #include <event2/util.h>
 
+#include "common/logger.h"
 #include "common/net_utils.h"
 #include "common/socket_address.h"
 #include "dns/dnsstamp/dns_stamp.h"
@@ -21,6 +25,8 @@
 #include "default_settings.h"
 
 namespace ag {
+
+static const Logger g_logger{"COMMON_UTILS"};
 
 static std::atomic_bool g_handler_profiling_enabled = VPN_DEFAULT_HANDLER_PROFILING_ENABLED;
 static std::atomic_bool g_post_quantum_group_enabled = VPN_DEFAULT_POST_QUANTUM_GROUP_ENABLED;
@@ -77,38 +83,15 @@ void sockaddr_from_str_out(const char *str, struct SocketAddressStorage *result)
     std::memcpy(result, &local_result, sizeof(SocketAddressStorage));
 }
 
-std::vector<SocketAddressStorage> resolve_endpoint_address(const char *str) {
-    if (str == nullptr || *str == '\0') {
-        return {};
-    }
-
-    // Fast path: try parsing as a numeric IP address
-    SocketAddress parsed(str);
-    if (parsed.valid()) {
-        if (parsed.port() == 0) {
-            return {};
-        }
-        return {*parsed.c_storage()};
-    }
-
-    auto split = utils::split_host_port(str);
-    if (split.has_error()) {
-        return {};
-    }
-    auto [host, port] = split.value();
-    if (host.empty() || port.empty()) {
-        return {};
-    }
-
+// Blocking DNS resolution. Runs on a throwaway thread so the caller can bound the wait.
+static std::vector<SocketAddressStorage> blocking_resolve(const std::string &host, const std::string &port) {
     struct addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_ADDRCONFIG;
 
     struct addrinfo *res = nullptr;
-    std::string host_str(host);
-    std::string port_str(port);
-    int rc = getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
+    int rc = getaddrinfo(host.c_str(), port.c_str(), &hints, &res);
     if (rc != 0 || res == nullptr) {
         return {};
     }
@@ -125,6 +108,74 @@ std::vector<SocketAddressStorage> resolve_endpoint_address(const char *str) {
 
     freeaddrinfo(res);
     return result;
+}
+
+std::vector<std::vector<SocketAddressStorage>> resolve_endpoint_addresses(
+        const std::vector<std::string> &strs, size_t timeout) {
+    std::vector<std::vector<SocketAddressStorage>> results(strs.size());
+
+    // A host whose resolution has been dispatched to a background thread and is awaiting its result.
+    struct Pending {
+        size_t index;
+        std::future<std::vector<SocketAddressStorage>> future;
+        const std::string *str;
+    };
+    std::vector<Pending> pending;
+    pending.reserve(strs.size());
+
+    for (size_t i = 0; i < strs.size(); ++i) {
+        const std::string &str = strs[i];
+        if (str.empty()) {
+            continue;
+        }
+
+        // Fast path: try parsing as a numeric IP address
+        SocketAddress parsed(str.c_str());
+        if (parsed.valid()) {
+            if (parsed.port() != 0) {
+                results[i] = {*parsed.c_storage()};
+            }
+            continue;
+        }
+
+        auto split = utils::split_host_port(str.c_str());
+        if (split.has_error()) {
+            continue;
+        }
+        auto [host, port] = split.value();
+        if (host.empty() || port.empty()) {
+            continue;
+        }
+
+        std::promise<std::vector<SocketAddressStorage>> promise;
+        pending.push_back({.index = i, .future = promise.get_future(), .str = &str});
+        std::thread([promise = std::move(promise), host = std::string(host), port = std::string(port)]() mutable {
+            promise.set_value(blocking_resolve(host, port));
+        }).detach();
+    }
+
+    // Wait for all the dispatched resolutions against a single shared deadline. On timeout, we give
+    // up on the stragglers and leave their results empty, letting the orphan threads finish on their
+    // own (getaddrinfo cannot be canceled).
+    auto timeout_duration = std::chrono::seconds(timeout);
+    const auto deadline = std::chrono::steady_clock::now() + timeout_duration;
+    for (auto &p : pending) {
+        if (p.future.wait_until(deadline) != std::future_status::ready) {
+            warnlog(g_logger, "Timed out resolving '{}' within the {}s batch deadline", *p.str,
+                    timeout_duration.count());
+            continue;
+        }
+        results[p.index] = p.future.get();
+    }
+
+    return results;
+}
+
+std::vector<SocketAddressStorage> resolve_endpoint_address(const char *str, size_t timeout) {
+    if (str == nullptr || *str == '\0') {
+        return {};
+    }
+    return std::move(resolve_endpoint_addresses({std::string(str)}, timeout).front());
 }
 
 SocketAddress local_socket_address_from_fd(evutil_socket_t fd) {

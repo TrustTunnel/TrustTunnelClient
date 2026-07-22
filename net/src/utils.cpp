@@ -1006,8 +1006,13 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     }
     SSL_set_alps_use_new_codepoint(ssl.get(), 1);
 
-    // Use the BoringSSL defaults, but disable 3DES and SHA1 HMAC
-    if (!SSL_set_strict_cipher_list(ssl.get(), "ALL:!aPSK:!ECDSA+SHA1:!3DES")) {
+    // Specify it manually here until dev-1.2 isn't merged into master.
+    static constexpr char CHROME_CIPHERS[] = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:"
+                                             "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:"
+                                             "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:"
+                                             "ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:"
+                                             "AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA";
+    if (!SSL_set_strict_cipher_list(ssl.get(), CHROME_CIPHERS)) {
         return "Failed to set strict cipher list";
     }
 
@@ -1031,16 +1036,17 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
             return "Failed to set OCSP state extension";
         }
 
-        // Disable the SHA1 signature algorithm.
+        // Chrome 150 signature_algorithms: ML-DSA codepoints prepended, SHA1 omitted.
         // clang-format off
-        static constexpr uint16_t SIGALGS[] = { SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
+        static constexpr uint16_t SIGALGS[] = { 0x0904, 0x0905, 0x0906, // ML-DSA (mldsa44, mldsa65, mldsa87)
+                                        SSL_SIGN_ECDSA_SECP256R1_SHA256, SSL_SIGN_RSA_PSS_RSAE_SHA256,
                                         SSL_SIGN_RSA_PKCS1_SHA256, SSL_SIGN_ECDSA_SECP384R1_SHA384,
                                         SSL_SIGN_RSA_PSS_RSAE_SHA384, SSL_SIGN_RSA_PKCS1_SHA384,
                                         SSL_SIGN_RSA_PSS_RSAE_SHA512, SSL_SIGN_RSA_PKCS1_SHA512, };
         // clang-format on
-        if (!SSL_set_verify_algorithm_prefs(ssl.get(), SIGALGS, std::size(SIGALGS))) {
-            return "Failed to set signature algorithms";
-        }
+        // The ML-DSA codepoints are unknown to BoringSSL; the raw setter skips the
+        // supported-algorithm check so they can be advertised (never actually selected).
+        SSL_set_raw_verify_algorithm_prefs(ssl.get(), SIGALGS, std::size(SIGALGS));
     }
 #endif
 

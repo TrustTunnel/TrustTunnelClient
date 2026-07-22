@@ -1,3 +1,5 @@
+#include <chrono>
+
 #include <gtest/gtest.h>
 
 #include "vpn/utils.h"
@@ -65,4 +67,33 @@ TEST(ResolveEndpointAddress, NullPtr) {
 TEST(ResolveEndpointAddress, HostnameWithoutPort) {
     auto result = resolve_endpoint_address("localhost");
     ASSERT_TRUE(result.empty());
+}
+
+TEST(ResolveEndpointAddresses, PreservesOrderAndPerSlotResults) {
+    auto results = resolve_endpoint_addresses({
+            "1.2.3.4:443",                              // numeric, resolves to one address
+            "1.2.3.4",                                  // missing port, empty slot
+            "[::1]:8443",                               // numeric IPv6
+            "",                                         // empty string, empty slot
+            "this.hostname.does.not.exist.invalid:443", // unresolvable, empty slot
+    });
+    ASSERT_EQ(results.size(), 5);
+
+    ASSERT_EQ(results[0].size(), 1);
+    ASSERT_EQ(results[0][0].sa_family, AF_INET);
+    ASSERT_EQ(SocketAddress(results[0][0]).port(), 443);
+
+    ASSERT_TRUE(results[1].empty());
+
+    ASSERT_EQ(results[2].size(), 1);
+    ASSERT_EQ(results[2][0].sa_family, AF_INET6);
+    ASSERT_EQ(SocketAddress(results[2][0]).port(), 8443);
+
+    ASSERT_TRUE(results[3].empty());
+    ASSERT_TRUE(results[4].empty());
+}
+
+TEST(ResolveEndpointAddresses, Empty) {
+    auto results = resolve_endpoint_addresses({});
+    ASSERT_TRUE(results.empty());
 }
