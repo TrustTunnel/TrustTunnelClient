@@ -29,23 +29,18 @@ jobs:
       - name: Build and run live unit tests
         env:
           CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+          # Builds go through the CMake presets; see CMakePresets.json.
+          PRESET: clang-relwithdebinfo
+          CMAKE_ARGS: -DVPNLIBS_ENABLE_LIVE_TESTS=ON
+          # The image already provides the Conan dependencies.
+          SKIP_BOOTSTRAP: 1
         run: |
           set -x -e
 
           python3 -m pip install conan --upgrade
           conan remote add --index 0 art ${CONAN_REPO_URL} || true
 
-          export LDFLAGS=-fuse-ld=lld
-          mkdir -p /build_no_asan && cd /build_no_asan
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DVPNLIBS_ENABLE_LIVE_TESTS=ON \
-            -DCMAKE_CXX_FLAGS='-stdlib=libc++' \
-            ${GITHUB_WORKSPACE}
-
-          make -j 4 live_tests
-          ctest --output-on-failure -L live -E test_vpn_client_live
+          make test-live
 
       - name: Upload to Conan and cleanup
         if: always()

@@ -57,8 +57,23 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "mips.*")
     target_link_libraries(vpnlibs_trusttunnel atomic)
 endif ()
 
-if (CMAKE_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
-    add_link_options(-static -Wl,--allow-multiple-definition)
+# The Conan provider turns a `zig cc -target <triple>` compiler into a plain
+# `<triple>-cc` wrapper script (Conan, and cargo below, need a single
+# executable); for a `<arch>-linux-musl*-gcc` toolchain it hands back
+# CMAKE_C_COMPILER unchanged.
+if (COMMAND conan_compiler_executable)
+    conan_compiler_executable(C TT_C_COMPILER)
+else ()
+    set(TT_C_COMPILER "${CMAKE_C_COMPILER}")
+endif ()
+
+if (TT_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
+    add_link_options(-static)
+    if (TT_C_COMPILER STREQUAL CMAKE_C_COMPILER)
+        # The gcc musl toolchains need this to link the Rust static libraries,
+        # which duplicate symbols. zig's linker rejects the option outright.
+        add_link_options(-Wl,--allow-multiple-definition)
+    endif ()
     target_link_libraries(vpnlibs_trusttunnel atomic)
 endif ()
 
@@ -179,34 +194,43 @@ if (WIN32 AND MSVC)
 endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        if (CMAKE_C_COMPILER MATCHES "armv7.*-linux-musleabi")
-            set(MUSL_ARCH "armv7")
-        elseif (CMAKE_C_COMPILER MATCHES "aarch64.*-linux-musl")
-            set(MUSL_ARCH "aarch64")
-        elseif (CMAKE_C_COMPILER MATCHES "x86_64.*-linux-musl")
-            set(MUSL_ARCH "x86_64")
-        elseif (CMAKE_C_COMPILER MATCHES "mipsel.*-linux-musl")
-            set(MUSL_ARCH "mipsel")
-            set(CARGO_CHANNEL "+nightly")
-            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
-        elseif (CMAKE_C_COMPILER MATCHES "mips.*-linux-musl")
-            set(MUSL_ARCH "mips")
-            set(CARGO_CHANNEL "+nightly")
-            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
-        endif ()
+    # zig names the 32-bit arm target `arm-linux-musleabi`, the gcc toolchains
+    # `armv7-linux-musleabi`.
+    if (TT_C_COMPILER MATCHES "arm(v7)?.*-linux-musleabi")
+        set(MUSL_ARCH "armv7")
+    elseif (TT_C_COMPILER MATCHES "aarch64.*-linux-musl")
+        set(MUSL_ARCH "aarch64")
+    elseif (TT_C_COMPILER MATCHES "x86_64.*-linux-musl")
+        set(MUSL_ARCH "x86_64")
+    elseif (TT_C_COMPILER MATCHES "mipsel.*-linux-musl")
+        set(MUSL_ARCH "mipsel")
+        set(CARGO_CHANNEL "+nightly")
+        set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+    elseif (TT_C_COMPILER MATCHES "mips.*-linux-musl")
+        set(MUSL_ARCH "mips")
+        set(CARGO_CHANNEL "+nightly")
+        set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+    endif ()
 
-        if (MUSL_ARCH)
-            if (MUSL_ARCH MATCHES "armv7")
-                set(RUST_TARGET_TRIPLE "armv7-unknown-linux-musleabi")
-            else ()
-                set(RUST_TARGET_TRIPLE "${MUSL_ARCH}-unknown-linux-musl")
-            endif ()
-            set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
-            set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
-            set(CARGO_ENV_CC CC=${CMAKE_C_COMPILER})
-            set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${CMAKE_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
-        endif()
+    if (MUSL_ARCH)
+        if (MUSL_ARCH MATCHES "armv7")
+            set(RUST_TARGET_TRIPLE "armv7-unknown-linux-musleabi")
+        else ()
+            set(RUST_TARGET_TRIPLE "${MUSL_ARCH}-unknown-linux-musl")
+        endif ()
+        set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
+        set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
+        set(CARGO_ENV_CC CC=${TT_C_COMPILER})
+        set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${TT_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
+
+        if (NOT TT_C_COMPILER STREQUAL CMAKE_C_COMPILER)
+            # TT_C_COMPILER is the zig wrapper (`<zig triple>-cc`), which already
+            # carries `-target <zig triple>`. Left to itself, cc-rs would append
+            # the Rust triple (`--target=armv7-unknown-linux-musleabi`), which
+            # zig cannot parse. CRATE_CC_NO_DEFAULTS drops the flags cc-rs adds
+            # on its own and leaves the wrapper's target in place.
+            set(CARGO_ENV_CC_NO_DEFAULTS "CRATE_CC_NO_DEFAULTS=1")
+        endif ()
     elseif (CMAKE_CROSSCOMPILING)
         message(WARNING "Unexpected compiler, setup_wizard won't be cross-compiled")
     endif ()
@@ -240,7 +264,7 @@ else ()
             UPDATE_COMMAND ""
             PATCH_COMMAND ""
             CONFIGURE_COMMAND ""
-            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}" ${CARGO_ENV_CC_NO_DEFAULTS}
             cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
             --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
             --workspace

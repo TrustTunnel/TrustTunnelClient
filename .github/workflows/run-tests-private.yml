@@ -42,25 +42,18 @@ jobs:
               set -e
               set -x
 
+              # Builds go through the CMake presets; see CMakePresets.json.
+              export PRESET=clang-relwithdebinfo-sanitizer
+              # The image already provides the Conan dependencies.
+              export SKIP_BOOTSTRAP=1
+
               python3 -m pip install conan --upgrade
               conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
               npm install -g markdownlint-cli
 
               make lint
 
-              make test-rust
-
-              mkdir -p build && cd build
-              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-                -DCMAKE_C_COMPILER=clang \
-                -DCMAKE_CXX_COMPILER=clang++ \
-                -DCMAKE_C_FLAGS='-fsanitize=address' \
-                -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
-                -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
-                -GNinja \
-                ..
-              ninja tests
-              ctest --output-junit junit.xml -D ExperimentalTest --no-compress-output --output-on-failure
+              make test
             finally-script: |
               set -e
               set -x
@@ -78,6 +71,11 @@ jobs:
               set -e
               set -x
 
+              # Builds go through the CMake presets; see CMakePresets.json.
+              export PRESET=clang-relwithdebinfo-sanitizer
+              # The image already provides the Conan dependencies.
+              export SKIP_BOOTSTRAP=1
+
               rm -rf venv
               python3 -m venv venv
               source ./venv/bin/activate
@@ -92,18 +90,7 @@ jobs:
                 export PATH="$HOME/.cargo/bin:$PATH"
               fi
 
-              make test-rust
-
-              mkdir -p build && cd build
-              cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja \
-                -DCMAKE_C_COMPILER=clang \
-                -DCMAKE_CXX_COMPILER=clang++ \
-                -DCMAKE_C_FLAGS='-fsanitize=address' \
-                -DCMAKE_CXX_FLAGS='-fsanitize=address -stdlib=libc++' \
-                -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
-                ..
-              ninja tests
-              ctest --output-junit junit.xml -D ExperimentalTest --no-compress-output --output-on-failure
+              make test
             finally-script: |
               set -e
               set -x
@@ -123,7 +110,7 @@ jobs:
       container-image: ${{ matrix.container-image }}
       test-command: ${{ matrix.test-command }}
       finally-script: ${{ matrix.finally-script }}
-      results-path: 'build/junit.xml'
+      results-path: 'cmake-build-clang-relwithdebinfo-sanitizer/junit.xml'
       artifact-name: ${{ matrix.artifact-name }}
 
   win-build:
@@ -141,6 +128,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build and run tests
+        env:
+          PRESET: msvc-relwithdebinfo
+          BUILD_DIR: cmake-build-msvc-relwithdebinfo
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -159,18 +149,15 @@ jobs:
 
           & {
             $vcvars64 | foreach { setvar $_ }
-            mkdir build
-            pushd build
-            & cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-              -DCMAKE_C_COMPILER="cl.exe" `
-              -DCMAKE_CXX_COMPILER="cl.exe" `
-              -G Ninja ..
+            # GNU make is not part of the Windows image, so the Windows job
+            # drives the same preset through cmake directly.
+            & cmake --preset $Env:PRESET
             if (!$?) { exit 1 }
-            & ninja tests
+            & cmake --build $Env:BUILD_DIR --target tests
             if (!$?) { exit 1 }
-            & ctest -D ExperimentalTest --no-compress-output --output-on-failure
+            & ctest --test-dir $Env:BUILD_DIR --output-junit junit.xml `
+              --no-compress-output --output-on-failure
             if (!$?) { exit 1 }
-            popd
           }
         shell: powershell
 
@@ -179,7 +166,7 @@ jobs:
         if: always()
         with:
           name: test-results-windows-private
-          path: '**/Testing/*/*.xml'
+          path: cmake-build-msvc-relwithdebinfo/junit.xml
 
       - name: Upload to Conan and cleanup
         if: always()

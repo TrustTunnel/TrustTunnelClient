@@ -42,7 +42,6 @@ See [README.md](README.md) for full product details and
 | `third-party/` | Vendored dependencies: lwip, pcap_savefile, wintun |
 | `scripts/` | Build helpers, Conan export, version increment, git hooks |
 | `cmake/` | CMake modules: unit test helper, Conan bootstrapping/provider |
-| `bamboo-specs/` | CI/CD pipeline definitions (Bamboo) |
 | `integration-tests/` | Docker-based integration test harness |
 | `conan/` | Conan user settings and build profiles |
 | `fastlane/` | iOS/Android release automation (Fastfile, Matchfile) |
@@ -62,22 +61,30 @@ common ← tcpip ← core
 ## Build Commands
 
 Run `make init` once after cloning to set up git hooks.
-Running `make` with no arguments runs the `init` target — use `make all` (or
-`make build_libs`) to actually build.
+Running `make` with no arguments builds all binaries (the `all` target);
+`make help` lists every target with its description.
+
+Every build goes through a CMake preset from `CMakePresets.json` — never invoke
+`cmake` by hand, and never add a build flag to a CI script that is not also
+reachable from `make`. The same presets are used locally and by CI, so a green
+CI run means the same configuration built locally.
 
 | Command | What It Does |
 | --- | --- |
+| `make help` | List all targets with descriptions |
 | `make init` | Configure git hooks path to `./scripts/hooks` |
 | `make bootstrap_deps` | Export AdGuard Conan recipes to local cache (prerequisite of most build targets) |
-| `make setup_cmake` | CMake configure only (accepts `SKIP_BOOTSTRAP=1`) |
+| `make setup_cmake` | CMake configure, skipped if the build dir is already configured (accepts `SKIP_BOOTSTRAP=1`) |
+| `make reconfigure` | Force a fresh CMake configure, e.g. after changing `CMAKE_ARGS` |
 | `make build_libs` | Bootstrap Conan deps → CMake configure → build `vpnlibs_core` |
 | `make build_trusttunnel_client` | Build the CLI client binary (depends on `build_libs`) |
 | `make build_wizard` | Build the setup wizard binary |
 | `make build_and_export_bin` | Build binaries and copy to `$(EXPORT_DIR)` (default `bin/`) |
-| `make all` | Build all binaries (client + wizard) |
+| `make all` | Build all binaries (client + wizard); the default target |
 | `make test` | Run all tests (`test-cpp` + `test-rust`) |
 | `make test-cpp` | Build libs → build test targets → run `ctest` |
 | `make test-rust` | `cargo test` on the setup_wizard workspace |
+| `make test-live` | Build and run the live (network-dependent) tests |
 | `make lint` | Run all linters (`lint-md` + `lint-rust` + `lint-cpp`) |
 | `make lint-cpp` | `clang-format` check + `clangd-tidy` |
 | `make clang-format` | Explicit `clang-format` check only |
@@ -90,8 +97,40 @@ Running `make` with no arguments runs the `init` target — use `make all` (or
 | `make compile_commands` | Generate `compile_commands.json` for IDE integration |
 | `make clean` | Clean build artifacts |
 
-Set `BUILD_TYPE=debug` for debug builds (default is `release` →
-`RelWithDebInfo`).
+### Selecting a build configuration
+
+The active preset comes from `COMPILER` (`clang`/`msvc`, defaulting to the
+host) and `BUILD_TYPE` (`release` → `RelWithDebInfo`, `debug` → `Debug`), or is
+named directly with `PRESET`:
+
+```sh
+make BUILD_TYPE=debug all
+make PRESET=clang-debug-sanitizer test
+make PRESET=musl-cross-mips-relwithdebinfo build_and_export_bin
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `PRESET` | Preset to configure with; overrides `COMPILER`/`BUILD_TYPE` |
+| `BUILD_DIR` | Build directory; defaults to `cmake-build-$(PRESET)` |
+| `CMAKE_ARGS` | Extra `cmake` flags, e.g. `-DIPV6_UNAVAILABLE=ON` |
+| `CTEST_ARGS` | Extra `ctest` flags, e.g. `-R <regex>` |
+| `ARCH` | macOS architecture(s), e.g. `arm64` or `'arm64;x86_64'` |
+| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `10.15` |
+| `SKIP_BOOTSTRAP` | `1` skips the Conan bootstrap (CI does its own) |
+| `SKIP_VENV` | `1` uses the tools on `PATH` instead of a local venv |
+
+Presets available in `CMakePresets.json` (kept in sync with `native-libs-common`
+and `vpn-cli`):
+
+- `clang-relwithdebinfo`, `clang-debug` — macOS/Linux builds with libc++
+- `clang-relwithdebinfo-sanitizer`, `clang-debug-sanitizer` — the above plus
+  AddressSanitizer; the RelWithDebInfo one is what CI runs unit tests with
+- `msvc-relwithdebinfo`, `msvc-debug` — Windows builds
+- `musl-cross-<arch>-relwithdebinfo`, `musl-cross-<arch>-debug` for `arch` in
+  `x86_64`, `aarch64`, `armv7`, `mips`, `mipsel` — statically linked Linux
+  release builds, cross-compiled with `zig cc`. These are the configurations the
+  released Linux binaries are built from.
 
 ## Code Style
 

@@ -3,7 +3,8 @@ name: Run tests (public)
 env:
   CONAN_VER: 2.12
   CLANG_FORMAT_VER: 21.1.8
-  BUILD_DIR: build
+  # The workflow bootstraps Conan itself, so `make` must not do it again.
+  SKIP_BOOTSTRAP: 1
 
 on:
   push:
@@ -19,6 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LLVM_MAJOR_VER: 21
+      PRESET: clang-relwithdebinfo-sanitizer
+      # GitHub-hosted runners have no IPv6 connectivity.
+      CMAKE_ARGS: >-
+        -DIPV6_UNAVAILABLE=ON
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
@@ -82,18 +89,7 @@ jobs:
 
       - name: Run cmake
         run: |
-          mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER="clang" \
-            -DCMAKE_CXX_COMPILER="clang++" \
-            -DCMAKE_C_FLAGS="-fsanitize=address" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DIPV6_UNAVAILABLE=ON \
-            -GNinja \
-            ..
+          make setup_cmake
 
       - name: Cache built conan packages
         uses: actions/cache/save@v4
@@ -102,20 +98,21 @@ jobs:
           path: ~/.conan2/
           key: ${{ runner.os }}-conan2-v4-${{ hashFiles('conanfile.py') }}
 
-      - name: Build tests
-        run: |
-          cmake --build $BUILD_DIR --target tests
-
       - name: Run tests
         run: |
-          make test-rust
-          cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          make test
 
 # -------------------------------------------------------------
 
   MacOS:
     runs-on: macos-latest
+    env:
+      PRESET: clang-relwithdebinfo-sanitizer
+      # GitHub-hosted runners have no IPv6 connectivity.
+      CMAKE_ARGS: >-
+        -DIPV6_UNAVAILABLE=ON
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
@@ -169,18 +166,7 @@ jobs:
 
       - name: Run cmake
         run: |
-          mkdir -p $BUILD_DIR && cd $BUILD_DIR && \
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER="clang" \
-            -DCMAKE_CXX_COMPILER="clang++" \
-            -DCMAKE_C_FLAGS="-fsanitize=address" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address -stdlib=libc++" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DIPV6_UNAVAILABLE=ON \
-            -GNinja \
-            ..
+          make setup_cmake
 
       - name: Cache built conan packages
         uses: actions/cache/save@v4
@@ -189,19 +175,13 @@ jobs:
           path: ~/.conan2/
           key: ${{ runner.os }}-conan2-v4-1-${{ hashFiles('conanfile.py') }}
 
-      - name: Build tests
-        run: |
-          cmake --build $BUILD_DIR --target tests
-
       - name: Run tests
         run: |
           # Needed to avoid a sanitizer error (likely to be false positive)
           # inside gtest
           export ASAN_OPTIONS=detect_container_overflow=0
 
-          make test-rust
-          cd $BUILD_DIR && \
-          ctest --no-compress-output --output-on-failure
+          make test
 
 # -------------------------------------------------------------
 
@@ -210,6 +190,8 @@ jobs:
     env:
       MSVC_VER: 17
       MSVC_YEAR: 2022
+      PRESET: msvc-relwithdebinfo
+      BUILD_DIR: cmake-build-msvc-relwithdebinfo
     if: github.repository == 'TrustTunnel/TrustTunnelClient'
     steps:
       - name: Checkout source code
@@ -259,17 +241,14 @@ jobs:
         run: |
           python ./scripts/bootstrap_conan_deps.py
 
+      # GNU make is not part of the Windows runner image, so the Windows jobs
+      # drive the same presets through cmake directly.
       - name: Run cmake
         run: |
-          mkdir ${{ env.BUILD_DIR }} && cd ${{ env.BUILD_DIR }} && `
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+          & cmake --preset ${{ env.PRESET }} `
             -DCMAKE_C_COMPILER_LAUNCHER=ccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
-            -DCMAKE_C_COMPILER="cl.exe" `
-            -DCMAKE_CXX_COMPILER="cl.exe" `
-            -DIPV6_UNAVAILABLE=ON `
-            -G "Ninja" `
-            ..
+            -DIPV6_UNAVAILABLE=ON
 
       - name: Cache built conan packages
         uses: actions/cache/save@v4
@@ -280,12 +259,10 @@ jobs:
 
       - name: Build tests
         run: |
-          cmake --build ${{ env.BUILD_DIR }} `
-            --target tests `
-            --config RelWithDebInfo
+          & cmake --build ${{ env.BUILD_DIR }} --target tests
 
       - name: Run tests
         run: |
-          cargo test --workspace --manifest-path trusttunnel/setup_wizard/Cargo.toml
-          cd ${{ env.BUILD_DIR }} && `
-          ctest --no-compress-output --output-on-failure
+          & cargo test --workspace --manifest-path trusttunnel/setup_wizard/Cargo.toml
+          & ctest --test-dir ${{ env.BUILD_DIR }} --output-junit junit.xml `
+            --no-compress-output --output-on-failure
