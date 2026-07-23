@@ -109,6 +109,12 @@ class VpnLibsConan(ConanFile):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        # Don't write CMakeUserPresets.json into the source folder: builds are
+        # driven by the presets in CMakePresets.json, and Conan would add one
+        # include per build directory, so two build directories sharing a build
+        # type yield duplicate `conan-<build type>` presets that make CMake
+        # refuse to read the file.
+        tc.user_presets_path = None
         # Drive cmake/version.cmake from the package version so the conan source
         # (no .git for git describe) bakes the right version into the build. For
         # "local" exports the describe version was stapled into conandata.yml at

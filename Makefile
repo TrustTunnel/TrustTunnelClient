@@ -33,17 +33,6 @@ NPROC ?= $(shell (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8) 
 UNAME_S := $(shell uname -s)
 endif
 
-# Conan regenerates CMakeUserPresets.json on every configure, adding one
-# include per build directory. Two build directories with the same build type
-# yield two presets named `conan-<build type>`, and CMake refuses to read a
-# preset file with duplicates. The file is generated, so drop it beforehand.
-CONAN_USER_PRESETS = CMakeUserPresets.json
-ifeq ($(OS), Windows_NT)
-REMOVE_CONAN_USER_PRESETS = -del /q $(CONAN_USER_PRESETS) 2>nul
-else
-REMOVE_CONAN_USER_PRESETS = rm -f $(CONAN_USER_PRESETS)
-endif
-
 # On macOS CMake would otherwise build for whatever architecture the toolchain
 # defaults to, so pin it to the host. Override with ARCH, which also takes a
 # semicolon-separated list for a universal binary, e.g.
@@ -123,7 +112,6 @@ $(BUILD_DIR)/CMakeCache.txt:
 else
 $(BUILD_DIR)/CMakeCache.txt: | bootstrap_deps
 endif
-	$(REMOVE_CONAN_USER_PRESETS)
 	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS)
 
 .PHONY: reconfigure
@@ -135,7 +123,6 @@ reconfigure:
 .PHONY: compile_commands
 ## Generate compile_commands.json for IDE / clang-tidy integration.
 compile_commands:
-	$(REMOVE_CONAN_USER_PRESETS)
 	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS) \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
