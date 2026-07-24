@@ -69,11 +69,6 @@ endif ()
 
 if (TT_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
     add_link_options(-static)
-    if (TT_C_COMPILER STREQUAL CMAKE_C_COMPILER)
-        # The gcc musl toolchains need this to link the Rust static libraries,
-        # which duplicate symbols. zig's linker rejects the option outright.
-        add_link_options(-Wl,--allow-multiple-definition)
-    endif ()
     target_link_libraries(vpnlibs_trusttunnel atomic)
 endif ()
 
