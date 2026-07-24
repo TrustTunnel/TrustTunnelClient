@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 #include "vpn/platform.h"
 
@@ -55,18 +56,19 @@ struct QuicConnectorConnectParameters {
 
 struct QuicConnectorResult {
 #ifndef DISABLE_HTTP3
-    evutil_socket_t fd;                            // UDP socket's file descriptor.
-    std::unique_ptr<ag::http::Http3Client> client; // Established HTTP/3 client, ready to be handed off to the upstream.
-#endif
-    void reset() {
-#ifndef DISABLE_HTTP3
-        client.reset();
+    evutil_socket_t fd = EVUTIL_INVALID_SOCKET;    // UDP socket's file descriptor.
+    std::unique_ptr<ag::http::Http3Client> client; // Half-open HTTP/3 client, ready to be handed off to the upstream.
+    // The first UDP payload received from the server, saved but not yet fed into the client.
+    // The recipient of the handoff must arm certificate verification on the client's SSL context
+    // before processing it.
+    std::vector<uint8_t> first_packet;
+
+    ~QuicConnectorResult() {
         if (fd != EVUTIL_INVALID_SOCKET) {
             evutil_closesocket(fd);
-            fd = EVUTIL_INVALID_SOCKET;
         }
-#endif
     }
+#endif
 };
 
 QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters);

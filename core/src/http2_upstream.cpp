@@ -472,6 +472,9 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
 bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     log_upstream(this, trace, "...");
 
+    // Reset state
+    m_cert_verify_failed = false;
+
     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
 
     TcpSocketParameters sock_params = {

@@ -164,7 +164,7 @@ struct QuicConnector {
     std::shared_ptr<bool> alive = std::make_shared<bool>(true);
 };
 
-inline QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters) {
+QuicConnector *quic_connector_create(const QuicConnectorParameters *parameters) {
     auto *connector = new QuicConnector{};
     connector->parameters = *parameters;
     return connector;
@@ -175,7 +175,7 @@ struct MockQuicReadyTask {
     QuicConnectorHandler handler;
 };
 
-inline VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorConnectParameters *parameters) {
+VpnError quic_connector_connect(QuicConnector *connector, const QuicConnectorConnectParameters *parameters) {
     if (parameters->ssl != nullptr) {
         SSL_free(parameters->ssl);
     }
@@ -203,9 +203,14 @@ inline VpnError quic_connector_connect(QuicConnector *connector, const QuicConne
     return {.code = 0, .text = "mock quic connect started"};
 }
 
-inline void quic_connector_destroy(QuicConnector *connector) {
+void quic_connector_destroy(QuicConnector *connector) {
     *connector->alive = false;
     delete connector;
+}
+
+std::unique_ptr<QuicConnectorResult> quic_connector_get_result(QuicConnector *) {
+    // The mock never produces a handoff result.
+    return nullptr;
 }
 
 } // namespace ag

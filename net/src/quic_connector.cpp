@@ -45,7 +45,6 @@ std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConne
 
 static void socket_handler(void *arg, ag::UdpSocketEvent what, void *data);
 static void on_timer(evutil_socket_t, short, void *);
-static void on_client_handshake_completed(void *arg);
 static void on_client_output(void *arg, const ag::http::QuicNetworkPath &, ag::Uint8View chunk);
 static void on_client_expiry_update(void *arg, ag::Nanos period);
 static void on_client_close(void *arg, uint64_t error_code);
@@ -56,7 +55,6 @@ struct ag::QuicConnector {
     ag::DeclPtr<UdpSocket, &udp_socket_destroy> socket;
     std::unique_ptr<ag::http::Http3Client> client;
     ag::DeclPtr<event, &event_free> timer;
-    SSL *ssl = nullptr; // Non-owning, valid until do_report
     QuicConnectorParameters parameters = {};
     SocketAddress peer; // server address, saved from connect() for path construction
     int64_t deadline_ns = 0;
@@ -116,7 +114,8 @@ ag::VpnError ag::quic_connector_connect(
     // Set up callbacks for the ping phase
     ag::http::Http3Client::Callbacks callbacks{
             .arg = connector,
-            .on_handshake_completed = on_client_handshake_completed,
+            // The handshake is completed by the recipient of the handoff, not here
+            .on_handshake_completed = nullptr,
             .on_response = nullptr, // no requests during ping
             .on_body = nullptr,
             .on_stream_closed = nullptr,
@@ -136,14 +135,11 @@ ag::VpnError ag::quic_connector_connect(
     };
 
     // Create Http3Client
-    SSL *ssl_raw = ssl.get(); // save raw pointer before move
     auto result = ag::http::Http3Client::connect(settings, callbacks, path, std::move(ssl));
     if (!result.has_value()) {
-        connector->ssl = nullptr;
         return {.code = -1, .text = "Failed to create Http3Client"};
     }
     connector->client = std::move(result.value());
-    connector->ssl = ssl_raw; // SSL now owned by Http3Client; keep non-owning pointer
 
     // Set deadline and create timer BEFORE flush, because flush() may trigger
     // on_client_expiry_update which uses both deadline_ns and timer
@@ -184,18 +180,9 @@ void on_timer(evutil_socket_t, short, void *arg) {
 
     // Forward to ngtcp2
     self->client->handle_expiry();
-    // handle_expiry() may have completed handshake → do_report → socket.release()
     if (self->socket) {
         self->client->flush();
     }
-}
-
-/**
- * Called when handshake completes — connection is ready for handoff.
- */
-static void on_client_handshake_completed(void *arg) {
-    auto *self = (ag::QuicConnector *) arg;
-    report_ready(self);
 }
 
 /**
@@ -250,22 +237,11 @@ void socket_handler(void *arg, ag::UdpSocketEvent what, void *data) {
             report_error(self, {.code = error, .text = evutil_socket_error_to_string(error)});
             break;
         }
+        // Do not feed the datagram into the TLS stack here: the connection is handed off
+        // half-open, and the recipient will process this saved datagram after arming
+        // certificate verification on the SSL context.
         self->server_payload_size = ret;
-
-        // Feed response to ngtcp2 to continue handshake
-        ag::SocketAddress local = ag::local_socket_address_from_fd(udp_socket_get_fd(self->socket.get()));
-        ag::http::QuicNetworkPath path{
-                .local = local.c_sockaddr(),
-                .local_len = local.c_socklen(),
-                .remote = self->peer.c_sockaddr(),
-                .remote_len = self->peer.c_socklen(),
-        };
-        self->client->input(path, {self->server_payload, (size_t) ret});
-        // input() may have completed handshake → do_report → socket.release()
-        if (self->socket) {
-            self->client->flush();
-        }
-        // Do not call report_ready here — wait for on_handshake_completed
+        report_ready(self);
         break;
     }
     case ag::UDP_SOCKET_EVENT_TIMEOUT:
@@ -282,10 +258,10 @@ static void do_report(ag::QuicConnector *self) {
         self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_ERROR, &*self->error);
         return;
     }
-    self->result = std::make_unique<ag::QuicConnectorResult>(ag::QuicConnectorResult{
-            .fd = ag::udp_socket_release_fd(self->socket.release()),
-            .client = std::move(self->client),
-    });
+    self->result = std::make_unique<ag::QuicConnectorResult>();
+    self->result->fd = ag::udp_socket_release_fd(self->socket.release());
+    self->result->client = std::move(self->client);
+    self->result->first_packet = {self->server_payload, self->server_payload + self->server_payload_size};
     self->parameters.handler.handler(self->parameters.handler.arg, ag::QUIC_CONNECTOR_EVENT_READY, nullptr);
 }
 

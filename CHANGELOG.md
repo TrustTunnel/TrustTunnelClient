@@ -22,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- Fixed the endpoint TLS certificate never being verified on HTTP/3 (QUIC) connections.
+
 ## [1.1.5-rc.1] - 2026-07-22
 
 ### Fixed

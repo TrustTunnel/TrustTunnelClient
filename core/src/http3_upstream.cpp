@@ -44,6 +44,19 @@ enum Http3Upstream::TcpConnection::Flag : int {
     TCF_NEED_NOTIFY_SENT_BYTES, // need to raise `SERVER_EVENT_DATA_SENT`
 };
 
+/**
+ * Build a QUIC network path from the given local and peer addresses.
+ * The returned path references the given addresses, which must outlive it.
+ */
+static http::QuicNetworkPath make_network_path(const SocketAddress &local, const SocketAddress &peer) {
+    return {
+            .local = local.c_sockaddr(),
+            .local_len = local.c_socklen(),
+            .remote = peer.c_sockaddr(),
+            .remote_len = peer.c_socklen(),
+    };
+}
+
 bool Http3Upstream::TcpConnection::has_unread_data() const {
     return this->unread_data != nullptr && this->unread_data->size() > 0;
 }
@@ -86,6 +99,9 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         return false;
     }
 
+    // Reset state
+    m_cert_verify_failed = false;
+
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const VpnHttp3UpstreamConfig &h3_config = this->PROTOCOL_CONFIG->http3;
@@ -105,7 +121,16 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     // Handoff — reuse connection pre-established by ping
     if (this->vpn->quic_connector->client) {
         m_h3_client = std::move(this->vpn->quic_connector->client);
+        std::vector<uint8_t> first_packet = std::move(this->vpn->quic_connector->first_packet);
         m_ssl_object = m_h3_client->get_ssl(); // non-owning; Http3Client owns SSL
+
+        // The ping measures RTT without verifying the endpoint certificate, and hands off
+        // the connection half-open: the first server datagram has been received, but not yet
+        // fed into the TLS stack. Arm certificate verification now so that the handshake,
+        // which completes on this connection below, verifies the certificate.
+        SSL_CTX *ssl_ctx = SSL_get_SSL_CTX((SSL *) m_ssl_object);
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, nullptr);
+        SSL_CTX_set_cert_verify_callback(ssl_ctx, verify_callback, this);
 
         UdpSocketParameters params{
                 .ev_loop = this->vpn->parameters.ev_loop,
@@ -126,15 +151,26 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         // Replace ping-phase callbacks with upstream-phase callbacks
         m_h3_client->update_callbacks(make_upstream_callbacks(this));
 
-        m_kex_group_nid = SSL_get_negotiated_group((SSL *) m_ssl_object);
         udp_socket_set_timeout(m_socket.get(), upstream_config.timeout);
-        m_state = H3US_ESTABLISHED;
+        m_state = H3US_ESTABLISHING;
+
+        // Feed the saved first server datagram on the next event loop iteration so that
+        // SERVER_EVENT_SESSION_OPENED is not raised synchronously from this function.
         m_open_session_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
-                {this, [](void *arg, TaskId) {
-                     auto *self = (Http3Upstream *) arg;
-                     self->m_open_session_task_id.release();
-                     self->handler.func(self->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
-                 }});
+                {
+                        new HandoffCtx{this, std::move(first_packet)},
+                        [](void *arg, TaskId) {
+                            auto *ctx = (HandoffCtx *) arg;
+                            auto *self = ctx->upstream;
+                            self->m_open_session_task_id.release();
+                            if (self->m_h3_client) {
+                                self->process_handoff_packet({ctx->first_packet.data(), ctx->first_packet.size()});
+                            }
+                        },
+                        [](void *arg) {
+                            delete (HandoffCtx *) arg;
+                        },
+                });
         return true;
     }
 
@@ -173,12 +209,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     SSL *ssl_raw = ssl.get(); // save non-owning pointer before move into Http3Client
     SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
     SocketAddress peer(upstream_config.endpoint->address);
-    http::QuicNetworkPath path{
-            .local = local.c_sockaddr(),
-            .local_len = local.c_socklen(),
-            .remote = peer.c_sockaddr(),
-            .remote_len = peer.c_socklen(),
-    };
+    http::QuicNetworkPath path = make_network_path(local, peer);
 
     auto result = http::Http3Client::connect(m_h3_settings, make_upstream_callbacks(this), path, std::move(ssl));
     if (!result.has_value()) {
@@ -198,6 +229,31 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
 
     m_state = H3US_ESTABLISHING;
     return true;
+}
+
+void Http3Upstream::process_handoff_packet(U8View packet) {
+    SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+    SocketAddress peer(this->vpn->upstream_config.endpoint->address);
+    http::QuicNetworkPath path = make_network_path(local, peer);
+
+    // Setting m_in_handler prevents from destroying the H3 client from withing its own callbacks
+    m_in_handler = true;
+    auto input_err = m_h3_client->input(path, packet);
+    m_in_handler = false;
+
+    if (m_closed) {
+        close_session_inner(std::exchange(m_pending_session_error, std::nullopt));
+        return;
+    }
+    if (input_err != nullptr) {
+        log_upstream(this, dbg, "Failed to process the first QUIC packet from the endpoint: {}", input_err->str());
+        close_session_inner(VpnError{VPN_EC_ERROR, "Failed to establish QUIC connection"});
+        return;
+    }
+    if (auto err = m_h3_client->flush(); err != nullptr) {
+        log_upstream(this, dbg, "Failed to flush QUIC packets: {}", err->str());
+        close_session_inner(VpnError{VPN_EC_ERROR, "Failed to establish QUIC connection"});
+    }
 }
 
 void Http3Upstream::close_session() {
@@ -238,6 +294,7 @@ void Http3Upstream::close_session() {
     m_tcp_conn_by_stream_id.clear();
     m_retriable_tcp_requests.clear();
     m_closing_connections.clear();
+    m_open_session_task_id.reset();
     m_complete_read_task_id.reset();
     m_notify_sent_task_id.reset();
     m_close_connections_task_id.reset();
@@ -506,12 +563,7 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
         uint8_t buf[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE];
         SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(upstream->m_socket.get()));
         SocketAddress peer(upstream->vpn->upstream_config.endpoint->address);
-        http::QuicNetworkPath path{
-                .local = local.c_sockaddr(),
-                .local_len = local.c_socklen(),
-                .remote = peer.c_sockaddr(),
-                .remote_len = peer.c_socklen(),
-        };
+        http::QuicNetworkPath path = make_network_path(local, peer);
 
         upstream->m_in_handler = true;
         for (size_t i = 0; i < READ_BUDGET; ++i) {
@@ -909,7 +961,7 @@ void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
         return;
     }
 
-    if (!error.has_value() && m_cert_verify_failed) {
+    if (m_cert_verify_failed) {
         log_upstream(this, warn, "TLS certificate verification failed");
         error = {VPN_EC_CERTIFICATE_VERIFICATION_FAILED, "TLS certificate verification failed"};
     }

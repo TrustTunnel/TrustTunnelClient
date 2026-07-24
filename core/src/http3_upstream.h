@@ -71,6 +71,12 @@ private:
         VpnError error = {};
     };
 
+    // Context for the deferred processing of the first server datagram saved by the ping during a handoff.
+    struct HandoffCtx {
+        Http3Upstream *upstream;
+        std::vector<uint8_t> first_packet;
+    };
+
     State m_state = (State) 0;
     std::chrono::milliseconds m_max_idle_timeout{};
     UdpSocketPtr m_socket;
@@ -96,7 +102,7 @@ private:
     bool m_cert_verify_failed = false;
     std::optional<VpnError> m_pending_session_error;
     ag::Logger m_log{"H3_UPSTREAM"};
-    void *m_ssl_object = nullptr; // A non-owning pointer to SSL used by QuicConnector and Quiche.
+    void *m_ssl_object = nullptr; // A non-owning pointer to the SSL object owned by m_h3_client.
     int m_kex_group_nid = NID_undef;
 
     /**
@@ -148,6 +154,11 @@ private:
     void handle_response(uint64_t stream_id, const HttpHeaders *headers);
     void close_stream(uint64_t stream_id, Http3ErrorCode error);
     void process_pending_data(uint64_t stream_id);
+    /**
+     * Feed the first server datagram saved by the ping into the adopted QUIC connection,
+     * completing the handshake (with certificate verification armed).
+     */
+    void process_handoff_packet(U8View packet);
     void close_session_inner(std::optional<VpnError> error = std::nullopt);
     SendConnectRequestResult send_connect_request(const TunnelAddress *dst_addr, std::string_view app_name);
     void close_tcp_connection(uint64_t id, bool graceful);
