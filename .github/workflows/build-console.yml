@@ -71,6 +71,7 @@ jobs:
             secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
 
       - name: Configure Conan
+        shell: bash
         run: |
           # The image's bundled Conan is too old to know about newer compiler
           # versions (e.g. the zig wrapper now reports as Clang 22), so install
@@ -149,6 +150,7 @@ jobs:
         env:
           ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
           ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        shell: bash
         run: |
           set -x
           source ./venv/bin/activate
