@@ -64,6 +64,12 @@ jobs:
 
       - name: Configure Conan
         run: |
+          # The image's bundled Conan is too old to know about newer compiler
+          # versions (e.g. the zig wrapper now reports as Clang 22), so install
+          # an upgraded Conan into a venv. It reuses the image's Conan cache.
+          python3 -m venv venv
+          source ./venv/bin/activate
+          pip install conan
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
       - name: Detect version
@@ -85,6 +91,7 @@ jobs:
         shell: bash
         run: |
           set -x -e
+          source ./venv/bin/activate
 
           mkdir -p artifacts
           ARTIFACTS_DIR=${PWD}/artifacts
@@ -128,6 +135,7 @@ jobs:
           ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
         run: |
           set -x
+          source ./venv/bin/activate
           conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
           conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
 
