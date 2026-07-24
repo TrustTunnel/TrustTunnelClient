@@ -67,6 +67,15 @@ else ()
     set(TT_C_COMPILER "${CMAKE_C_COMPILER}")
 endif ()
 
+# Whether the C compiler is `zig cc`. The provider rewrites CMAKE_C_COMPILER to
+# the wrapper in place, so it can no longer be told apart from TT_C_COMPILER by
+# comparison; is_zig_compiler reports it regardless of that substitution.
+if (COMMAND is_zig_compiler)
+    is_zig_compiler(C TT_C_COMPILER_IS_ZIG)
+else ()
+    set(TT_C_COMPILER_IS_ZIG FALSE)
+endif ()
+
 if (TT_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
     add_link_options(-static)
     target_link_libraries(vpnlibs_trusttunnel atomic)
@@ -218,7 +227,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         set(CARGO_ENV_CC CC=${TT_C_COMPILER})
         set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${TT_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
 
-        if (NOT TT_C_COMPILER STREQUAL CMAKE_C_COMPILER)
+        if (TT_C_COMPILER_IS_ZIG)
             # TT_C_COMPILER is the zig wrapper (`<zig triple>-cc`), which already
             # carries `-target <zig triple>`. Left to itself, cc-rs would append
             # the Rust triple (`--target=armv7-unknown-linux-musleabi`), which
