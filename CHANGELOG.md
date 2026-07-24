@@ -10,11 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- All builds, including the CI and release ones, now go through the CMake
-  presets in `CMakePresets.json` via `make`; the Linux release binaries are
-  cross-compiled with the zig-based musl toolchain.
-- Update dns-libs to 2.10.0
-
 ### Deprecated
 
 ### Removed
@@ -23,7 +18,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
-- Fixed the endpoint TLS certificate never being verified on HTTP/3 (QUIC) connections.
+## [1.1.5-rc.2] - 2026-07-24
+
+### Changed
+
+- All builds, including the CI and release ones, now go through the CMake
+  presets in `CMakePresets.json` via `make`; the Linux release binaries are
+  cross-compiled with the zig-based musl toolchain.
+- Update dns-libs to 2.10.0
+
+### Security
+
+- Fixed the endpoint TLS certificate never being verified on HTTP/3 (QUIC) connections. The issue was present after 1.1.5-beta.7 and before 1.1.5-rc.2.
 
 ## [1.1.5-rc.1] - 2026-07-22
 
@@ -519,7 +525,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.1...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.2...HEAD
+[1.1.5-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.1...v1.1.5-rc.2
 [1.1.5-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.16...v1.1.5-rc.1
 [1.1.5-beta.16]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...v1.1.5-beta.16
 [1.1.5-beta.15]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...v1.1.5-beta.15
