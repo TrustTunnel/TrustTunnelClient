@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - All builds, including the CI and release ones, now go through the CMake
   presets in `CMakePresets.json` via `make`; the Linux release binaries are
   cross-compiled with the zig-based musl toolchain.
+- Update dns-libs to 2.10.0
 
 ### Deprecated
 
