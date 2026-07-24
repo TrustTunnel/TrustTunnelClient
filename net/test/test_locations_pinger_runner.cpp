@@ -596,7 +596,7 @@ TEST_F(LocationsPingerRunnerTest, DISABLED_Live) {
                                 if (!result->conn_state) {
                                     ctx->conn_state_failed = true;
                                 } else if (result->is_quic) {
-                                    quic_connector_destroy((QuicConnector *) result->conn_state);
+                                    std::unique_ptr<QuicConnectorResult>{(QuicConnectorResult *) result->conn_state};
                                 } else {
                                     tcp_socket_destroy((TcpSocket *) result->conn_state);
                                 }
