@@ -12,10 +12,18 @@ on:
         description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
         required: false
         type: string
+      version:
+        description: 'Version override. If omitted, the build resolves it via git describe.'
+        required: false
+        type: string
   workflow_call:
     inputs:
       ref:
         description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
+        required: false
+        type: string
+      version:
+        description: 'Version override. If omitted, the build resolves it via git describe.'
         required: false
         type: string
 
@@ -72,10 +80,18 @@ jobs:
           pip install conan
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
+      # The build resolves the version via git describe. A manual `version`
+      # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
+      # var), which also drives the artifact name below.
       - name: Detect version
         id: version
         run: |
-          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG key
@@ -175,10 +191,18 @@ jobs:
           pip install conan
           conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
+      # The build resolves the version via git describe. A manual `version`
+      # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
+      # var), which also drives the artifact name below.
       - name: Detect version
         id: version
         run: |
-          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG key
@@ -317,6 +341,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
+          # The build resolves the version via git describe. A manual `version`
+          # input forces an override (version.cmake reads the TT_CLIENT_VERSION
+          # env var).
+          if ('${{ inputs.version }}' -ne '') {
+            $Env:TT_CLIENT_VERSION = '${{ inputs.version }}'
+          }
+
           & conan remote add --index 0 art $Env:CONAN_REPO_URL
 
           # Save vcvars to switch between them
@@ -411,7 +442,13 @@ jobs:
         run: |
           set -e -x
 
-          VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          # Match the version the build stamped: the manual `version` input
+          # overrides git describe (same as the build-windows job).
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
 
           mkdir -p artifacts
 
