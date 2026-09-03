@@ -269,5 +269,4 @@ jobs:
           set -e
           set -x
           SKIP_BOOTSTRAP=1 make clangd-tidy
-        shell: powershell
 
