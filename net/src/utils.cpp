@@ -41,6 +41,7 @@
 #include "common/utils.h"
 #include "net/http_header.h"
 #include "net/http_session.h"
+#include "net/tls_client_random_psk.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
@@ -965,6 +966,37 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     // The popped session must outlive the make_ssl() call: SSL_set_session() up-refs it.
     auto resume_session = pop_session_from_cache(sni, quic);
 
+    // PSK mode takes priority over the raw tls_client_random/mask: derive the full
+    // 32-byte ClientRandom from the key and the SNI and feed it to the shared
+    // factory as a plain custom ClientRandom. With no mask, ag::tls::make_ssl()
+    // passes it through to SSL_set_custom_client_random() byte-for-byte.
+    // The derived buffer must outlive the ag::tls::make_ssl() call below: the
+    // factory only copies it when building the SSL object.
+    U8View client_random = tls_client_random;
+    U8View client_random_mask = tls_client_random_mask;
+#ifdef SSL_set_custom_client_random
+    std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derived_random;
+    if (!tls_client_random_psk_key.empty()) {
+        if (!tls_client_random.empty()) {
+            warnlog(g_logger,
+                    "Both tls_client_random and tls_client_random_psk_key are set; "
+                    "PSK key takes priority, tls_client_random will be ignored");
+        }
+        derived_random = derive_client_random_from_psk(tls_client_random_psk_key, sni);
+        if (!derived_random.has_value()) {
+            return "Failed to derive client_random from PSK key";
+        }
+        client_random = Uint8View{derived_random->data(), derived_random->size()};
+        client_random_mask = {};
+    }
+#else
+    if (!tls_client_random_psk_key.empty()) {
+        warnlog(g_logger,
+                "tls_client_random_psk_key is set but SSL_set_custom_client_random is unavailable "
+                "in this build; PSK-derived client_random authentication will not work");
+    }
+#endif
+
     ag::tls::SslInitParameters params{
         .profile = profile,
         .protocol = quic ? ag::tls::SslProtocol::NGTCP2 : ag::tls::SslProtocol::TLS,
@@ -973,9 +1005,8 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
         .verify_callback = verification_callback,
         .verify_arg = arg,
         .post_quantum = vpn_post_quantum_group_enabled(),
-        .tls_client_random = tls_client_random,
-        .tls_client_random_mask = tls_client_random_mask,
-        .tls_client_random_psk_key = tls_client_random_psk_key,
+        .tls_client_random = client_random,
+        .tls_client_random_mask = client_random_mask,
         .endpoint_data = endpoint_data,
         .new_session_cb = quic ? cache_session_quic_cb : cache_session_tcp_cb,
         .resume_session = resume_session.get(),

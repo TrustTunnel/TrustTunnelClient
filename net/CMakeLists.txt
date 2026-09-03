@@ -30,6 +30,7 @@ set(SOURCE_FILES
         ${NET_SOURCE_DIR}/quic_utils.cpp
         ${NET_SOURCE_DIR}/os_tunnel.cpp
         ${NET_SOURCE_DIR}/tls13_utils.cpp
+        ${NET_SOURCE_DIR}/tls_client_random_psk.cpp
         ${NET_SOURCE_DIR}/quic_connector.cpp
     )
 
@@ -121,4 +122,5 @@ add_live_test(test_locations_pinger_runner "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}
 add_unit_test(test_dns_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_tls_serialize "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_net_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+add_unit_test(test_tls_client_random_psk "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_network_manager "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
