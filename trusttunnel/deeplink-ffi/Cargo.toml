@@ -8,6 +8,6 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 trusttunnel-settings = { path = "../settings" }
-trusttunnel-deeplink = { git = "https://github.com/TrustTunnel/TrustTunnel", tag = "v1.0.34" }
+trusttunnel-deeplink = { git = "https://github.com/TrustTunnel/TrustTunnel", tag = "v1.1.1" }
 toml = "0.7.4"
 serde = { version = "1.0.163", features = ["derive"] }
