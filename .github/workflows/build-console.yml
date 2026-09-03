@@ -155,7 +155,14 @@ jobs:
           set -x
           source ./venv/bin/activate
           conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
+          # The upload output is captured so its exit code is not masked by the grep filter.
+          conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
+          grep --line-buffered "Uploading" /tmp/conan-upload.log || true
+          if [ "${upload_status:-0}" -ne 0 ]; then
+              cat /tmp/conan-upload.log || true
+              exit "${upload_status}"
+          fi
 
   build-macos:
     name: Mac build
@@ -314,7 +321,14 @@ jobs:
           set -x
           source ./venv/bin/activate
           conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
+          # The upload output is captured so its exit code is not masked by the grep filter.
+          conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
+          grep --line-buffered "Uploading" /tmp/conan-upload.log || true
+          if [ "${upload_status:-0}" -ne 0 ]; then
+              cat /tmp/conan-upload.log || true
+              exit "${upload_status}"
+          fi
 
   build-windows:
     name: Windows build

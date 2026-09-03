@@ -25,6 +25,19 @@ COMPILE_COMMANDS = $(BUILD_DIR)/compile_commands.json
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
+# Set on the make command line like `make test CMAKE_LAUNCHER=sccache` — the
+# CI docker build does this to reuse compiled objects across runs. When
+# non-empty, the matching -DCMAKE_*_COMPILER_LAUNCHER=... flags are appended to
+# every cmake configure so the launcher is (re)used. Explicitly empty
+# otherwise, so an environment-provided value cannot leak in when CMAKE_LAUNCHER
+# is not set. Empty by default, so local builds are unaffected.
+CMAKE_LAUNCHER ?=
+ifneq ($(CMAKE_LAUNCHER),)
+CMAKE_LAUNCHER_FLAGS = -DCMAKE_C_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER) -DCMAKE_CXX_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER)
+else
+CMAKE_LAUNCHER_FLAGS =
+endif
+
 ifeq ($(OS), Windows_NT)
 EXE_SUFFIX = .exe
 NPROC ?= $(or $(NUMBER_OF_PROCESSORS),8)
@@ -112,7 +125,7 @@ $(BUILD_DIR)/CMakeCache.txt:
 else
 $(BUILD_DIR)/CMakeCache.txt: | bootstrap_deps
 endif
-	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS)
+	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_LAUNCHER_FLAGS) $(CMAKE_ARGS)
 
 .PHONY: reconfigure
 ## Re-run the CMake configure step from scratch, e.g. after changing CMAKE_ARGS.
@@ -123,7 +136,7 @@ reconfigure:
 .PHONY: compile_commands
 ## Generate compile_commands.json for IDE / clang-tidy integration.
 compile_commands:
-	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS) \
+	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_LAUNCHER_FLAGS) $(CMAKE_ARGS) \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 .PHONY: build_libs

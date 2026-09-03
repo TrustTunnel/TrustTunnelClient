@@ -35,38 +35,99 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
-            container-image: 'adguard/core-libs:2.12'
+            runs-on: '["team-corelibs"]'
+            container-image: ''
             artifact-name: test-results-linux-private
+            results-path: build/junit.xml
+            sccache-key: sccache-linux
             test-command: |
-              set -e
-              set -x
+              set -euxo pipefail
 
-              # Builds go through the CMake presets; see CMakePresets.json.
+              rm -rf build
+              export CONAN_REPO_URL='${{ vars.CONAN_REPO_URL }}'
+              cat > Dockerfile <<'EOF'
+              # syntax=docker/dockerfile:1
+              FROM adguard/core-libs:2.12 AS build
+
+              # sccache caches the C/C++ compilations. The pinned binary is
+              # installed once: this layer depends only on the base image, so it
+              # stays cached across runs (the native-tests stage is rebuilt by
+              # --no-cache-filter, this one is not).
+              RUN curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz \
+                  | tar -xz -C /usr/local/bin --strip-components=1
+
+              WORKDIR /src
+              COPY . .
+
+              # The image bundles a Conan, but the private workflow installs an
+              # upgraded one via pip just like the previous container job did.
+              RUN python3 -m pip install conan --upgrade
+
+              FROM build AS native-tests
+
+              RUN --mount=type=secret,id=conan_repo_url,required=true \
+                  --mount=type=secret,id=artifactory_user \
+                  --mount=type=secret,id=artifactory_api_key <<END
+              set -eux
+
+              conan remote add --index 0 art "$(cat /run/secrets/conan_repo_url)" || true
+              mkdir -p /src/results
+              # The store was restored into .sccache and copied here by COPY . .;
+              # CMAKE_LAUNCHER makes cmake use sccache for C/C++ compilations.
+              export SCCACHE_DIR=/src/.sccache
               export PRESET=clang-relwithdebinfo-sanitizer
-              # The image already provides the Conan dependencies.
               export SKIP_BOOTSTRAP=1
 
-              python3 -m pip install conan --upgrade
-              conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
               npm install -g markdownlint-cli
 
-              make lint
+              (make lint && make test CMAKE_LAUNCHER=sccache) || test_status=$?
 
-              make test
-            finally-script: |
-              set -e
-              set -x
+              echo "${test_status:-0}" > /src/results/test-status
+              cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true
 
-              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
-              echo "conan upload finished"
+              # Upload whatever was built, then report the test result. The upload
+              # output is captured so its exit code is not masked by the grep filter.
+              conan remote login art "$(cat /run/secrets/artifactory_user)" \
+                  --password "$(cat /run/secrets/artifactory_api_key)" || true
+              conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
+              grep --line-buffered "Uploading" /tmp/conan-upload.log || true
+              if [ "${upload_status:-0}" -ne 0 ]; then
+                  cat /tmp/conan-upload.log || true
+                  if [ "${test_status:-0}" -eq 0 ]; then
+                      echo "${upload_status}" > /src/results/test-status
+                  fi
+              fi
               conan remove -c "*" || true
               conan cache clean || true
+
+              exit 0
+              END
+
+              FROM scratch AS native-tests-output
+
+              COPY --from=native-tests /src/results/junit.xml /junit.xml
+              COPY --from=native-tests /src/results/test-status /test-status
+              COPY --from=native-tests /src/.sccache /sccache
+              EOF
+              DOCKER_BUILDKIT=1 docker build --progress=plain \
+                --no-cache-filter native-tests \
+                --secret id=conan_repo_url,env=CONAN_REPO_URL \
+                --secret id=artifactory_user,env=ARTIFACTORY_USER \
+                --secret id=artifactory_api_key,env=ARTIFACTORY_API_KEY \
+                --target native-tests-output \
+                --output type=local,dest=build \
+                -f Dockerfile .
+
+              test "$(cat build/test-status)" -eq 0
+            finally-script: |
+              # Conan upload is performed inside the inline Dockerfile so it
+              # also runs when the test command itself fails.
+              true
           - name: Mac
             runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
             container-image: ''
             artifact-name: test-results-macos-private
+            results-path: cmake-build-clang-relwithdebinfo-sanitizer/junit.xml
             test-command: |
               set -e
               set -x
@@ -96,22 +157,32 @@ jobs:
               set -x
 
               conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
+
+              # The upload output is captured so its exit code is not masked by grep filter.
+              conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
+              grep "Uploading" /tmp/conan-upload.log || true
+              if [ "${upload_status:-0}" -ne 0 ]; then
+                  cat /tmp/conan-upload.log || true
+                  exit "${upload_status}"
+              fi
               echo "conan upload finished"
               conan remove -c "*" || true
               conan cache clean || true
-    uses: AdGuardSoftwareLimited/actions/.github/workflows/junit-tests.yml@master
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/junit-tests.yml@feat/AG-57806-use-sccache-for-tests
     secrets:
       test-env: |
         ARTIFACTORY_USER=${{ secrets.ARTIFACTORY_USER }}
         ARTIFACTORY_API_KEY=${{ secrets.ARTIFACTORY_API_KEY }}
+      sccache-config: ${{ secrets.REGISTRY_CACHE_AUTH }}
     with:
       runs-on: ${{ matrix.runs-on }}
       container-image: ${{ matrix.container-image }}
       test-command: ${{ matrix.test-command }}
       finally-script: ${{ matrix.finally-script }}
-      results-path: 'cmake-build-clang-relwithdebinfo-sanitizer/junit.xml'
+      results-path: ${{ matrix.results-path }}
       artifact-name: ${{ matrix.artifact-name }}
+      sccache-key: ${{ matrix.sccache-key }}
+      sccache-path: build/sccache
 
   win-build:
     name: Windows build
