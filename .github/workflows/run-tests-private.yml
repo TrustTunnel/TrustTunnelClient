@@ -80,7 +80,13 @@ jobs:
 
               npm install -g markdownlint-cli
 
-              (make lint && make test CMAKE_LAUNCHER=sccache) || test_status=$?
+              # clangd-tidy is the memory hog of `make lint`: each clangd
+              # worker can take 100s of MB to 1 GB RSS, and this docker build
+              # runs on the remote buildkit with --resource memory=6g, which
+              # OOM-kills clangd mid-analysis ("Invalid header end") with the
+              # default CLANGD_TIDY_JOBS (= NPROC/2). A single worker is
+              # slower but fits the 6 GB limit.
+              (make lint CLANGD_TIDY_JOBS=1 && make test CMAKE_LAUNCHER=sccache) || test_status=$?
 
               echo "${test_status:-0}" > /src/results/test-status
               cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true

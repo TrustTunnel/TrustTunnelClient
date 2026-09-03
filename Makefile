@@ -46,6 +46,14 @@ NPROC ?= $(shell (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8) 
 UNAME_S := $(shell uname -s)
 endif
 
+# Parallelism level for clangd-tidy. Capped at half the CPU count (NPROC / 2,
+# not the full NPROC) because each clangd worker can consume hundreds of MB to
+# over 1 GB of RSS; running one per CPU can exhaust memory on memory-limited
+# CI builders (the docker build on the remote buildkit has --resource
+# memory=6g), OOM-killing clangd mid-analysis. Override per-invocation, e.g.
+# `make clangd-tidy CLANGD_TIDY_JOBS=1`.
+CLANGD_TIDY_JOBS ?= $(shell echo $$(( $(NPROC) / 2 > 0 ? $(NPROC) / 2 : 1 )))
+
 # On macOS CMake would otherwise build for whatever architecture the toolchain
 # defaults to, so pin it to the host. Override with ARCH, which also takes a
 # semicolon-separated list for a universal binary, e.g.
@@ -207,7 +215,7 @@ ifeq ($(SKIP_VENV),1)
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(NPROC)
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(CLANGD_TIDY_JOBS)
 else
 	python3 -m venv env && \
 	. env/bin/activate && \
@@ -215,7 +223,7 @@ else
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(NPROC)
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(CLANGD_TIDY_JOBS)
 endif
 
 ## Lint markdown files.
