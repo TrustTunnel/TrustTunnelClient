@@ -941,19 +941,19 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 #endif
 
     ag::tls::SslInitParameters params{
-        .profile = profile,
-        .protocol = quic ? ag::tls::SslProtocol::NGTCP2 : ag::tls::SslProtocol::TLS,
-        .alpn_protos = alpn_protos,
-        .sni = sni,
-        .verify_callback = verification_callback,
-        .verify_arg = arg,
-        .post_quantum = vpn_post_quantum_group_enabled(),
-        .tls_client_random = client_random,
-        .tls_client_random_mask = client_random_mask,
-        .endpoint_data = endpoint_data,
-        .new_session_cb = quic ? cache_session_quic_cb : cache_session_tcp_cb,
-        .resume_session = resume_session.get(),
-};
+            .profile = profile,
+            .protocol = quic ? ag::tls::SslProtocol::NGTCP2 : ag::tls::SslProtocol::TLS,
+            .alpn_protos = alpn_protos,
+            .sni = sni,
+            .verify_callback = verification_callback,
+            .verify_arg = arg,
+            .post_quantum = vpn_post_quantum_group_enabled(),
+            .tls_client_random = client_random,
+            .tls_client_random_mask = client_random_mask,
+            .endpoint_data = endpoint_data,
+            .new_session_cb = quic ? cache_session_quic_cb : cache_session_tcp_cb,
+            .resume_session = resume_session.get(),
+    };
 
     auto result = ag::tls::make_ssl(params);
     if (std::holds_alternative<std::string>(result)) {

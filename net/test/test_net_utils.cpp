@@ -198,8 +198,8 @@ struct Ngtcp2TestCtx {
 
 std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {},
-            {}, ag::tls::TlsClientProfile::CHROME);
+    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {}, {},
+            ag::tls::TlsClientProfile::CHROME);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
 

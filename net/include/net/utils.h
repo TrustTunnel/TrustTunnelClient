@@ -59,7 +59,7 @@ struct VpnEndpoint {
     bool has_ipv6;                                  // Whether IPv6 traffic can be routed through the endpoint
     VpnUpstreamProtocol preferred_protocol;         // Protocol to use for the endpoint connection.
                                                     // @see `VpnUpstreamConfig.main_protocol` for full description.
-    VpnTlsProfile tls_profile;                   // TLS ClientHello fingerprint profile for this endpoint.
+    VpnTlsProfile tls_profile;                      // TLS ClientHello fingerprint profile for this endpoint.
 };
 
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
