@@ -160,51 +160,32 @@ int http_version_get_minor(HttpVersion v) {
 }
 
 // NOLINTBEGIN(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+// Duplicate an AG_ARRAY_OF byte array; a null/empty source produces a null/empty
+// destination. AG_ARRAY_OF(T) expands to a fresh anonymous struct at every use,
+// so the field types across different structs are unrelated — a template over the
+// {data, size} shape is the only way to accept them without (ptr, size) argument pairs.
+template <typename BytesArray>
+static void array_of_copy(BytesArray &dst, const BytesArray &src) {
+    if (src.size == 0 || src.data == nullptr) {
+        dst.data = nullptr;
+        dst.size = 0;
+        return;
+    }
+    dst.data = static_cast<uint8_t *>(std::malloc(src.size));
+    std::memcpy(dst.data, src.data, src.size);
+    dst.size = src.size;
+}
+
 AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
     AutoVpnEndpoint dst;
     std::memcpy(dst.get(), src, sizeof(*src));
     dst->name = safe_strdup(src->name);
     dst->remote_id = safe_strdup(src->remote_id);
 
-    auto data_len = src->additional_data.size;
-    if (data_len > 0 && src->additional_data.data != nullptr) {
-        dst->additional_data.data = static_cast<uint8_t *>(std::malloc(data_len));
-        std::memcpy(dst->additional_data.data, src->additional_data.data, data_len);
-        dst->additional_data.size = data_len;
-    } else {
-        dst->additional_data.data = nullptr;
-        dst->additional_data.size = 0;
-    }
-
-    data_len = src->tls_client_random.size;
-    if (data_len > 0 && src->tls_client_random.data != nullptr) {
-        dst->tls_client_random.data = static_cast<uint8_t *>(std::malloc(data_len));
-        std::memcpy(dst->tls_client_random.data, src->tls_client_random.data, data_len);
-        dst->tls_client_random.size = data_len;
-    } else {
-        dst->tls_client_random.data = nullptr;
-        dst->tls_client_random.size = 0;
-    }
-
-    data_len = src->tls_client_random_mask.size;
-    if (data_len > 0 && src->tls_client_random_mask.data != nullptr) {
-        dst->tls_client_random_mask.data = static_cast<uint8_t *>(std::malloc(data_len));
-        std::memcpy(dst->tls_client_random_mask.data, src->tls_client_random_mask.data, data_len);
-        dst->tls_client_random_mask.size = data_len;
-    } else {
-        dst->tls_client_random_mask.data = nullptr;
-        dst->tls_client_random_mask.size = 0;
-    }
-
-    data_len = src->tls_client_random_psk_key.size;
-    if (data_len > 0 && src->tls_client_random_psk_key.data != nullptr) {
-        dst->tls_client_random_psk_key.data = static_cast<uint8_t *>(std::malloc(data_len));
-        std::memcpy(dst->tls_client_random_psk_key.data, src->tls_client_random_psk_key.data, data_len);
-        dst->tls_client_random_psk_key.size = data_len;
-    } else {
-        dst->tls_client_random_psk_key.data = nullptr;
-        dst->tls_client_random_psk_key.size = 0;
-    }
+    array_of_copy(dst->additional_data, src->additional_data);
+    array_of_copy(dst->tls_client_random, src->tls_client_random);
+    array_of_copy(dst->tls_client_random_mask, src->tls_client_random_mask);
+    array_of_copy(dst->tls_client_random_psk_key, src->tls_client_random_psk_key);
 
     return dst;
 }
@@ -227,26 +208,23 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
     std::memset(endpoint, 0, sizeof(*endpoint));
 }
 
-static bool array_of_equals(const uint8_t *lh_data, uint32_t lh_size, const uint8_t *rh_data, uint32_t rh_size) {
-    if (lh_size != rh_size) {
-        return false;
+template <typename BytesArray>
+static bool array_of_equals(const BytesArray &lh, const BytesArray &rh) {
+    if (lh.size == 0 || rh.size == 0) {
+        return lh.size == rh.size;
     }
-    if (lh_size == 0) {
-        return true;
-    }
-    return 0 == memcmp(lh_data, rh_data, lh_size);
+    // Uint8View::operator== is size + memcmp. The empty/null guard above keeps
+    // a potential memcmp(nullptr, ...) of length zero unreachable.
+    return Uint8View{lh.data, lh.size} == Uint8View{rh.data, rh.size};
 }
 
 bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
     return SocketAddress(lh->address) == SocketAddress(rh->address)
             && ((lh->name == nullptr && rh->name == lh->name) || 0 == strcmp(lh->name, rh->name))
             && ((lh->remote_id == nullptr && rh->remote_id == nullptr) || 0 == strcmp(lh->remote_id, rh->remote_id))
-            && array_of_equals(lh->tls_client_random.data, lh->tls_client_random.size, rh->tls_client_random.data,
-                    rh->tls_client_random.size)
-            && array_of_equals(lh->tls_client_random_mask.data, lh->tls_client_random_mask.size,
-                    rh->tls_client_random_mask.data, rh->tls_client_random_mask.size)
-            && array_of_equals(lh->tls_client_random_psk_key.data, lh->tls_client_random_psk_key.size,
-                    rh->tls_client_random_psk_key.data, rh->tls_client_random_psk_key.size);
+            && array_of_equals(lh->tls_client_random, rh->tls_client_random)
+            && array_of_equals(lh->tls_client_random_mask, rh->tls_client_random_mask)
+            && array_of_equals(lh->tls_client_random_psk_key, rh->tls_client_random_psk_key);
 }
 
 void vpn_relay_destroy(VpnRelay *relay) {
@@ -277,45 +255,10 @@ using AutoVpnRelay = AutoPod<VpnRelay, vpn_relay_destroy>;
 AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
     AutoVpnRelay dst;
     std::memcpy(&dst.get()->address, &src->address, sizeof(SocketAddressStorage));
-    size_t data_len = src->additional_data.size;
-    if (data_len > 0 && src->additional_data.data != nullptr) {
-        dst->additional_data.data = (uint8_t *) std::malloc(data_len);
-        std::memcpy(dst->additional_data.data, src->additional_data.data, data_len);
-        dst->additional_data.size = data_len;
-    } else {
-        dst->additional_data.data = nullptr;
-        dst->additional_data.size = 0;
-    }
-
-    data_len = src->tls_client_random.size;
-    if (data_len > 0 && src->tls_client_random.data != nullptr) {
-        dst->tls_client_random.data = (uint8_t *) std::malloc(data_len);
-        std::memcpy(dst->tls_client_random.data, src->tls_client_random.data, data_len);
-        dst->tls_client_random.size = data_len;
-    } else {
-        dst->tls_client_random.data = nullptr;
-        dst->tls_client_random.size = 0;
-    }
-
-    data_len = src->tls_client_random_mask.size;
-    if (data_len > 0 && src->tls_client_random_mask.data != nullptr) {
-        dst->tls_client_random_mask.data = (uint8_t *) std::malloc(data_len);
-        std::memcpy(dst->tls_client_random_mask.data, src->tls_client_random_mask.data, data_len);
-        dst->tls_client_random_mask.size = data_len;
-    } else {
-        dst->tls_client_random_mask.data = nullptr;
-        dst->tls_client_random_mask.size = 0;
-    }
-
-    data_len = src->tls_client_random_psk_key.size;
-    if (data_len > 0 && src->tls_client_random_psk_key.data != nullptr) {
-        dst->tls_client_random_psk_key.data = (uint8_t *) std::malloc(data_len);
-        std::memcpy(dst->tls_client_random_psk_key.data, src->tls_client_random_psk_key.data, data_len);
-        dst->tls_client_random_psk_key.size = data_len;
-    } else {
-        dst->tls_client_random_psk_key.data = nullptr;
-        dst->tls_client_random_psk_key.size = 0;
-    }
+    array_of_copy(dst->additional_data, src->additional_data);
+    array_of_copy(dst->tls_client_random, src->tls_client_random);
+    array_of_copy(dst->tls_client_random_mask, src->tls_client_random_mask);
+    array_of_copy(dst->tls_client_random_psk_key, src->tls_client_random_psk_key);
 
     return dst;
 }

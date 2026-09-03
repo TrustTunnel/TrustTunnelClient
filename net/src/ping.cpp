@@ -662,6 +662,13 @@ const char *ping_get_id(const Ping *ping) {
     return ping->id.c_str();
 }
 
+// Uint8View over an AG_ARRAY_OF byte array. AG_ARRAY_OF(T) expands to a fresh
+// anonymous struct at every use, so the helper is templated over the {data, size} shape.
+template <typename BytesArray>
+static U8View array_of_view(const BytesArray &arr) {
+    return {arr.data, arr.size};
+}
+
 bool conn_prepare(Ping *ping, PingConn *conn) {
     conn->socket_error = 0;
     if (!conn->use_quic) {
@@ -697,18 +704,25 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     }
     Uint8View alpn_protos = conn->use_quic ? Uint8View{QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)}
                                            : Uint8View{TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)};
-    U8View endpoint_data = conn->relay->address.sa_family
-            ? Uint8View{conn->relay->additional_data.data, conn->relay->additional_data.size}
-            : Uint8View{conn->endpoint->additional_data.data, conn->endpoint->additional_data.size};
-    auto client_random_data = conn->relay->address.sa_family
-            ? Uint8View{conn->relay->tls_client_random.data, conn->relay->tls_client_random.size}
-            : Uint8View{conn->endpoint->tls_client_random.data, conn->endpoint->tls_client_random.size};
-    auto client_random_mask = conn->relay->address.sa_family
-            ? Uint8View{conn->relay->tls_client_random_mask.data, conn->relay->tls_client_random_mask.size}
-            : Uint8View{conn->endpoint->tls_client_random_mask.data, conn->endpoint->tls_client_random_mask.size};
-    auto client_random_psk_key = conn->relay->address.sa_family
-            ? Uint8View{conn->relay->tls_client_random_psk_key.data, conn->relay->tls_client_random_psk_key.size}
-            : Uint8View{conn->endpoint->tls_client_random_psk_key.data, conn->endpoint->tls_client_random_psk_key.size};
+    // When the target has a relay address, the relay-specific TLS settings take
+    // over from the endpoint ones as a whole set.
+    U8View endpoint_data;
+    U8View client_random_data;
+    U8View client_random_mask;
+    U8View client_random_psk_key;
+    if (conn->relay->address.sa_family != 0) {
+        const VpnRelay &relay = *conn->relay;
+        endpoint_data = array_of_view(relay.additional_data);
+        client_random_data = array_of_view(relay.tls_client_random);
+        client_random_mask = array_of_view(relay.tls_client_random_mask);
+        client_random_psk_key = array_of_view(relay.tls_client_random_psk_key);
+    } else {
+        const VpnEndpoint &endpoint = *conn->endpoint;
+        endpoint_data = array_of_view(endpoint.additional_data);
+        client_random_data = array_of_view(endpoint.tls_client_random);
+        client_random_mask = array_of_view(endpoint.tls_client_random_mask);
+        client_random_psk_key = array_of_view(endpoint.tls_client_random_psk_key);
+    }
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
             conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
             client_random_psk_key, to_tls_client_profile(conn->endpoint->tls_profile));
