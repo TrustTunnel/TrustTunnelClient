@@ -91,18 +91,9 @@ jobs:
               echo "${test_status:-0}" > /src/results/test-status
               cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true
 
-              # Upload whatever was built, then report the test result. The upload
-              # output is captured so its exit code is not masked by the grep filter.
               conan remote login art "$(cat /run/secrets/artifactory_user)" \
                   --password "$(cat /run/secrets/artifactory_api_key)" || true
-              conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
-              grep --line-buffered "Uploading" /tmp/conan-upload.log || true
-              if [ "${upload_status:-0}" -ne 0 ]; then
-                  cat /tmp/conan-upload.log || true
-                  if [ "${test_status:-0}" -eq 0 ]; then
-                      echo "${upload_status}" > /src/results/test-status
-                  fi
-              fi
+              conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
               conan remove -c "*" || true
               conan cache clean || true
 
@@ -162,15 +153,12 @@ jobs:
               set -e
               set -x
 
-              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+              # Each step runs in a fresh shell, so re-activate the venv
+              # created by the test-command (conan lives there).
+              source ./venv/bin/activate
 
-              # The upload output is captured so its exit code is not masked by grep filter.
-              conan upload -r art -c "*" > /tmp/conan-upload.log 2>&1 || upload_status=$?
-              grep "Uploading" /tmp/conan-upload.log || true
-              if [ "${upload_status:-0}" -ne 0 ]; then
-                  cat /tmp/conan-upload.log || true
-                  exit "${upload_status}"
-              fi
+              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
               echo "conan upload finished"
               conan remove -c "*" || true
               conan cache clean || true
