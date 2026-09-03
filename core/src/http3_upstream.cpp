@@ -186,7 +186,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)},
                 upstream_config.endpoint->name, /*quic*/ MSPT_NGTCP2, endpoint_data, client_random_data,
-                client_random_mask, client_random_psk_key);
+                client_random_mask, client_random_psk_key,
+                to_tls_client_profile(upstream_config.endpoint->tls_profile));
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

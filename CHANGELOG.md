@@ -8,9 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Configurable TLS ClientHello fingerprint per endpoint via the `[endpoint].tls_profile`
+  setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
+  `chrome`, preserving the previous behavior.
 - Added `client_random_psk_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
 
 ### Changed
+
+- Migrated TLS ClientHello construction (`make_ssl`) to the shared NativeLibsCommon
+  `ag::tls::make_ssl` implementation.
 
 ### Deprecated
 
@@ -20,157 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
-## [1.1.5-rc.6] - 2026-08-21
-
-### Fixed
-
-- Fixed a use-after-free crash when the QUIC connection from the location ping is discarded after the pinger is destroyed (e.g. when multiple endpoint addresses are available and only one connection is selected).
-
-## [1.1.5-rc.5] - 2026-08-12
-
-### Changed
-
-- Updated nlc to 8.1.49 with new win_detect_active_if algorithm
-
-## [1.1.5-rc.4] - 2026-08-11
-
-### Added
-
-- Ownership-tracked process-wide tunnel state to fail closed when an outgoing socket cannot be protected from VPN routing while any tunnel is active.
-
-## [1.1.5-rc.3] - 2026-08-04
-
-### Fixed
-
-- HTTP/3 upstream: close the session when `input()` fails instead of only logging the error.
-- HTTP/3 upstream: cancel the pending health check after the read loop, so that the health check response, which is delivered from inside `input()`, is not mistaken for an unknown stream.
-
-## [1.1.5-rc.2] - 2026-07-24
-
-### Changed
-
-- All builds, including the CI and release ones, now go through the CMake
-  presets in `CMakePresets.json` via `make`; the Linux release binaries are
-  cross-compiled with the zig-based musl toolchain.
-- Update dns-libs to 2.10.0
-
-### Security
-
-- Fixed the endpoint TLS certificate never being verified on HTTP/3 (QUIC) connections. The issue was present after 1.1.5-beta.7 and before 1.1.5-rc.2.
-
-## [1.1.5-rc.1] - 2026-07-22
-
-### Fixed
-
-- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
-
-## [1.1.5-beta.16] - 2026-07-11
-
-### Changed
-
-- Fixed outbound interface selection on dual-stack Windows hosts (AG-56159).
-
-## [1.1.5-beta.15] - 2026-07-10
-
-### Fixed
-
-- Fixed console client versioning.
-
-## [1.1.5-beta.14] - 2026-07-10
-
-### Changed
-
-- Resumed GH releases.
-
-## [1.1.5-beta.13] - 2026-07-09
-
-### Fixed
-
-- Respect log level from config for apple and android adapters.
-
-## [1.1.5-beta.12] - 2026-07-08
-
-### Added
-
-- Re-introduce the `exclusions_scannable_ports` setting (temporarily reverted in 1.1.5-beta.8)
-
-## [1.1.5-beta.11] - 2026-07-07
-
-### Added
-
-- C API `vpn_linux_tunnel_get_fd()` to get the file descriptor of the Linux TUN device.
-
-## [1.1.5-beta.10] - 2026-07-07
-
-### Added
-
-- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
-  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
-  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
-  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
-
-## [1.1.5-beta.9] - 2026-07-06
-
-### Added
-
-- Add `clearLogs` method for platform adapters.
-
-## [1.1.5-beta.8] - 2026-07-05
-
-Technical beta with temporary revert `exclusions_scannable_ports` because it was merged too early.
-
-## [1.1.5-beta.7] - 2026-07-04
-
-### Fixed
-
-- Restore the `quic_version` HTTP/3 upstream configuration parameter that was
-  accidentally dropped during the quiche → ngtcp2 migration, wiring it through
-  to the QUIC version offered by ngtcp2 (`0` selects the default version).
-
-## [1.1.5-beta.6] - 2026-07-03
-
-### Added
-
-- Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching. Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
-
-### Changed
-
-- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`. Removed dependency from quiche.
-
-### Removed
-
-## [1.1.5-beta.5] - 2026-06-19
-
-### Changed
-
-- Default MTU value increased from 1280 to 1350 to avoid possible QUIC fragmentation.
-
-## [1.1.5-beta.4] - 2026-06-11
-
-### Added
-
-- File logging and logs exporting for apple and android platform adapters. See `VpnManager.exportLogs()` and `VpnService.exportLogs`.
-
-## [1.1.5-beta.3] - 2026-06-09
-
-### Added
-
-- An alternative route for DNS queries for excluded domains, selected with `VpnListenerConfig::dns_alt_exclusions_route`.
-
-## [1.1.5-beta.2] - 2026-06-09
-
-### Added
-
-- Add logging callback APIs for Android and Apple adapters to let applications override native log output handling.
-- Add Apple `NativeLogger` API in `VpnClientFramework` and expose callback forwarding in `TrustTunnelClient.Logger`.
-
-### Changed
-
-- Route `TrustTunnelClient` internal logger messages through the same optional callback path before defaulting to system logs.
-- Include logger names in adapter callback messages and route Android/Apple adapter-side logs through the same callback-aware logger path.
-- Updated dns-libs to 2.8.54
-
-## [1.1.5-beta.1] - 2026-06-04
+## [1.1.5] - 2026-09-02
 
 ### Added
 
@@ -184,12 +40,40 @@ Technical beta with temporary revert `exclusions_scannable_ports` because it was
     - `exclusions_preresolve_max_queries` (default: `50`): limits the number of domains pre-resolved.
       Setting this to `0` uses the default value.
     Default values for all three settings are available via `vpn_get_default_settings()`.
+- An alternative route for DNS queries for excluded domains, selected with `VpnListenerConfig::dns_alt_exclusions_route`.
+- File logging and logs exporting for apple and android platform adapters. See `VpnManager.exportLogs()` and `VpnService.exportLogs`.
+- Add `exclusions_scannable_ports` setting to `VpnSettings` and the TrustTunnel CLI/Rust wizard to configure the list of ports considered scannable for domain extraction and exclusion matching.
+  Supports comma-separated ports and ranges, e.g. `443,80,8080:8090,853`. The default list remains `443,80,8080,8008,853`.
+- Added log export functionality to Android and Apple adapters.
+- ***Breaking change***: New config parameter `ag::VpnUpstreamSessionRecoverySettings::attempts`.
+  Previously, the client would try to recover indefinitely. Now it will give up and raise `VPN_SS_DISCONNECTED`
+  with `VPN_EC_LOCATION_UNAVAILABLE` after the specified number of unsuccessful attempts. The default is chosen so
+  that, assuming other recovery settings are at their default values, the total time spent in recovery is ~1 minute.
+- C API `vpn_linux_tunnel_get_fd()` to get the file descriptor of the Linux TUN device.
+- Ownership-tracked process-wide tunnel state to fail closed when an outgoing socket cannot be protected from VPN routing while any tunnel is active.
 
 ### Changed
 
 - `trusttunnel_client` config now supports `exclusions_tcp_early_ack_enabled`,
   `exclusions_preresolve_enabled`, and `exclusions_preresolve_max_queries` as top-level keys in
   `trusttunnel_client.toml`; absent values fall back to the defaults from `vpn_get_default_settings()`.
+- Default MTU value increased from 1280 to 1350 to avoid possible QUIC fragmentation.
+- QUIC/HTTP3 implementation replaced: quiche → ngtcp2/nghttp3 via `native-libs-common/http/http3`. Removed dependency from quiche.
+- Fixed outbound interface selection on dual-stack Windows hosts (AG-56159).
+- Update dns-libs to 2.10.1
+
+### Fixed
+
+- Respect log level from config for apple and android adapters.
+- Fixed console client versioning.
+- Apple adapter: install connect-on-demand (killswitch) rules only after successful connection.
+- HTTP/3 upstream: close the session when `input()` fails instead of only logging the error.
+- HTTP/3 upstream: cancel the pending health check after the read loop, so that the health check response, which is delivered from inside `input()`, is not mistaken for an unknown stream.
+- Fixed a use-after-free crash when the QUIC connection from the location ping is discarded after the pinger is destroyed (e.g. when multiple endpoint addresses are available and only one connection is selected).
+
+### Security
+
+- Introduced and fixed the endpoint TLS certificate never being verified on HTTP/3 (QUIC) connections. The issue was present after 1.1.5-beta.7 and before 1.1.5-rc.2.
 
 ## [1.1.4] - 2026-05-22
 
@@ -552,29 +436,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.6...HEAD
-[1.1.5-rc.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.5...v1.1.5-rc.6
-[1.1.5-rc.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.4...v1.1.5-rc.5
-[1.1.5-rc.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.3...v1.1.5-rc.4
-[1.1.5-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.2...v1.1.5-rc.3
-[1.1.5-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-rc.1...v1.1.5-rc.2
-[1.1.5-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.16...v1.1.5-rc.1
-[1.1.5-beta.16]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.15...v1.1.5-beta.16
-[1.1.5-beta.15]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.14...v1.1.5-beta.15
-[1.1.5-beta.14]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.13...v1.1.5-beta.14
-[1.1.5-beta.13]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.12...v1.1.5-beta.13
-[1.1.5-beta.12]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.11...v1.1.5-beta.12
-[1.1.5-beta.11]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.10...v1.1.5-beta.11
-[1.1.5-beta.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.9...v1.1.5-beta.10
-[1.1.5-beta.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.8...v1.1.5-beta.9
-[1.1.5-beta.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.7...v1.1.5-beta.8
-[1.1.5-beta.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.6...v1.1.5-beta.7
-[1.1.5-beta.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.5...v1.1.5-beta.6
-[1.1.5-beta.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.4...v1.1.5-beta.5
-[1.1.5-beta.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.3...v1.1.5-beta.4
-[1.1.5-beta.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.2...v1.1.5-beta.3
-[1.1.5-beta.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5-beta.1...v1.1.5-beta.2
-[1.1.5-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.5-beta.1
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63
 [1.0.62]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.56...v1.0.62

@@ -106,6 +106,8 @@ certificate = ""
 {}
 upstream_protocol = "{}"
 {}
+tls_profile = "{}"
+{}
 anti_dpi = false
 
 {}
@@ -125,6 +127,8 @@ dns_upstreams = []
         Endpoint::doc_certificate().to_toml_comment(),
         Endpoint::doc_upstream_protocol().to_toml_comment(),
         Endpoint::default_upstream_protocol(),
+        Endpoint::doc_tls_profile().to_toml_comment(),
+        Endpoint::default_tls_profile(),
         Endpoint::doc_anti_dpi().to_toml_comment(),
         Endpoint::doc_dns_upstreams().to_toml_comment(),
     )
