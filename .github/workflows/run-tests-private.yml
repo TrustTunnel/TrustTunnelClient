@@ -80,13 +80,8 @@ jobs:
 
               npm install -g markdownlint-cli
 
-              # clangd-tidy is the memory hog of `make lint`: each clangd
-              # worker can take 100s of MB to 1 GB RSS, and this docker build
-              # runs on the remote buildkit with --resource memory=6g, which
-              # OOM-kills clangd mid-analysis ("Invalid header end") with the
-              # default CLANGD_TIDY_JOBS (= NPROC/2). A single worker is
-              # slower but fits the 6 GB limit.
-              (make lint CLANGD_TIDY_JOBS=1 && make test CMAKE_LAUNCHER=sccache) || test_status=$?
+              # clangd-tidy is deliberately NOT run here due to memory constraints
+              (make lint-md lint-rust clang-format && make test CMAKE_LAUNCHER=sccache) || test_status=$?
 
               echo "${test_status:-0}" > /src/results/test-status
               cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true
@@ -242,5 +237,37 @@ jobs:
           Write-Host "conan upload finished with status $LASTEXITCODE"
           & conan remove -c "*"
           & conan cache clean
+
+  # clangd-tidy is the only lint step that needs serious memory
+  lint:
+    name: Lint (clangd-tidy)
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
+    permissions:
+      contents: read
+      id-token: write
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - ephemeral-limit-memory-12288
+      - ephemeral-limit-cpu-8
+    container:
+      image: adguard/core-libs:2.12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Conan
+        run: |
+          set -e
+          set -x
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      - name: Run clangd-tidy
+        run: |
+          set -e
+          set -x
+          SKIP_BOOTSTRAP=1 make clangd-tidy
         shell: powershell
 
