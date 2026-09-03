@@ -153,7 +153,7 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     ag::vpn_post_quantum_group_set_enabled(true);
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
     auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, "example.org", ag::MSPT_NGTCP2, {}, {}, {},
-            ag::tls::TlsClientProfile::CHROME);
+            {}, ag::tls::TlsClientProfile::CHROME);
     ASSERT_TRUE(std::holds_alternative<ag::SslPtr>(r)) << "make_ssl(MSPT_NGTCP2) failed";
     auto &ssl = std::get<ag::SslPtr>(r);
 
@@ -177,7 +177,7 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
 std::vector<uint8_t> prepare_client_hello(const char *sni, ag::tls::TlsClientProfile profile, bool with_alpn) {
     static constexpr uint8_t HTTP2_ALPN[] = {2, 'h', '2'};
     ag::U8View alpn = with_alpn ? ag::U8View{HTTP2_ALPN, std::size(HTTP2_ALPN)} : ag::U8View{};
-    auto r = ag::make_ssl(nullptr, nullptr, alpn, sni, ag::MSPT_TLS, {}, {}, {}, profile);
+    auto r = ag::make_ssl(nullptr, nullptr, alpn, sni, ag::MSPT_TLS, {}, {}, {}, {}, profile);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
     SSL_set0_wbio(ssl.get(), BIO_new(BIO_s_mem()));
@@ -199,7 +199,7 @@ struct Ngtcp2TestCtx {
 std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
     auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {},
-            ag::tls::TlsClientProfile::CHROME);
+            {}, ag::tls::TlsClientProfile::CHROME);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
 

@@ -4,12 +4,9 @@
 #include <cassert>
 #include <cctype>
 #include <chrono>
-#include <climits>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <openssl/aes.h>
-#include <openssl/hkdf.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <set>
@@ -958,56 +955,6 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
     return ag::tls::TlsClientProfile::CHROME;
 }
 
-#ifdef SSL_set_custom_client_random
-#ifndef OPENSSL_IS_BORINGSSL
-#warning "SSL_set_custom_client_random is defined but OPENSSL_IS_BORINGSSL is not; \
-HKDF argument order may differ from BoringSSL and break PSK derivation"
-#endif
-std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_psk_with_salt(
-        U8View psk_key, const char *sni, U8View salt) {
-    constexpr size_t half = SSL3_RANDOM_SIZE / 2;
-    static constexpr std::string_view INFO = "tls13 encryption context";
-
-    if (sni == nullptr || sni[0] == '\0' || salt.size() != half) {
-        return std::nullopt;
-    }
-
-    uint8_t sni_hash[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const uint8_t *>(sni), std::strlen(sni), sni_hash);
-
-    uint8_t derived_key[half];
-    if (1
-            != HKDF(derived_key, half, EVP_sha256(), psk_key.data(), psk_key.size(), salt.data(), salt.size(),
-                    reinterpret_cast<const uint8_t *>(INFO.data()), INFO.size())) {
-        return std::nullopt;
-    }
-
-    AES_KEY aes_key;
-    if (0 != AES_set_encrypt_key(derived_key, half * CHAR_BIT, &aes_key)) {
-        return std::nullopt;
-    }
-
-    uint8_t ciphertext[half];
-    AES_encrypt(sni_hash, ciphertext, &aes_key); // encrypts the first 16 bytes of sni_hash
-
-    std::array<uint8_t, SSL3_RANDOM_SIZE> result{};
-    std::copy_n(salt.data(), half, result.begin());
-    std::copy_n(ciphertext, half, result.begin() + half);
-
-    OPENSSL_cleanse(derived_key, half);
-    OPENSSL_cleanse(&aes_key, sizeof(aes_key));
-    return result;
-}
-
-std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_psk(U8View psk_key, const char *sni) {
-    uint8_t random[SSL3_RANDOM_SIZE / 2];
-    if (1 != RAND_bytes(random, sizeof(random))) {
-        return std::nullopt;
-    }
-    return derive_client_random_psk_with_salt(psk_key, sni, U8View{random, sizeof(random)});
-}
-#endif
-
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
         U8View tls_client_random_mask, U8View tls_client_random_psk_key, ag::tls::TlsClientProfile profile) {
@@ -1028,6 +975,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
         .post_quantum = vpn_post_quantum_group_enabled(),
         .tls_client_random = tls_client_random,
         .tls_client_random_mask = tls_client_random_mask,
+        .tls_client_random_psk_key = tls_client_random_psk_key,
         .endpoint_data = endpoint_data,
         .new_session_cb = quic ? cache_session_quic_cb : cache_session_tcp_cb,
         .resume_session = resume_session.get(),
