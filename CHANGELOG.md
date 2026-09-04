@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A way for the application to communicate the reason for certificate verification failure
   and a new VPN error code for "endpoint certificate is not yet valid". The intention is to
   help the application to identify and warn the user of a possibly incorrectly set wall clock.
-  - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
+    - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
 
 - Configurable TLS ClientHello fingerprint per endpoint via the `[endpoint].tls_profile`
   setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
