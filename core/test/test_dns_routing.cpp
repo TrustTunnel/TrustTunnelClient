@@ -23,7 +23,7 @@ constexpr auto DEFAULT_EVENT_LOOP_EXIT_TIMEOUT = ag::Millis{100};
 constexpr auto DEFAULT_TIMEOUT = ag::Millis{30000};
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, CertVerifyCtx & /*ctx*/, void * /*arg*/) {
     return 1;
 }
 
@@ -737,10 +737,9 @@ struct DnsRoutingAllProxies : public ::testing::Test {
         const char *upstream = user_server_addr_str.c_str();
         VpnListenerConfig listener_config{.dns_upstreams = {.data = &upstream, .size = 1}};
         vpn.listener_config = vpn_listener_config_clone(&listener_config);
-        vpn.parameters.cert_verify_handler = {
-                .func = [](const char *, const sockaddr *, const CertVerifyCtx &, void *) {
-                    return 1;
-                }};
+        vpn.parameters.cert_verify_handler = {.func = [](const char *, const sockaddr *, CertVerifyCtx &, void *) {
+            return 1;
+        }};
 
         ASSERT_TRUE(vpn.tunnel->init(&vpn));
         vpn.tunnel->upstream_handler(redirect_upstream, SERVER_EVENT_SESSION_OPENED, nullptr);

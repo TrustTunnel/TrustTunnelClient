@@ -283,7 +283,8 @@ void UpstreamMultiplexer::close_upstream(int upstream_id) {
 }
 
 static bool is_fatal_error(const VpnError &error) {
-    return error.code == VPN_EC_AUTH_REQUIRED || error.code == VPN_EC_CERTIFICATE_VERIFICATION_FAILED;
+    return error.code == VPN_EC_AUTH_REQUIRED || error.code == VPN_EC_CERTIFICATE_VERIFICATION_FAILED
+            || error.code == VPN_EC_CERTIFICATE_NOT_YET_VALID;
 }
 
 void UpstreamMultiplexer::child_upstream_handler(void *arg, ServerEvent what, void *data) {

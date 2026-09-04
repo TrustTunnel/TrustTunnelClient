@@ -38,7 +38,7 @@ struct ProfilingVpnHandlerCtx {
     Vpn *vpn;
 };
 
-static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
+static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, CertVerifyCtx &ctx, void *arg);
 static void client_handler(void *arg, vpn_client::Event what, void *data);
 static void shutdown_cb(Vpn *vpn);
 static const char *check_address(const SocketAddress &addr);
@@ -697,15 +697,17 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
     return true;
 }
 
-static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg) {
+static int ssl_verify_callback(const char *host_name, const sockaddr *host_ip, CertVerifyCtx &ctx, void *arg) {
     const Vpn *vpn = (Vpn *) arg;
 
     int result = 0;
     VpnVerifyCertificateEvent event = {ctx.cert, ctx.chain, ctx.verification_type, 0};
     vpn->handler.func(vpn->handler.arg, VPN_EVENT_VERIFY_CERTIFICATE, &event);
+    ctx.handler_result = event.result;
     if (event.result == 0) {
         result = 1;
-    } else if (event.result == VPN_SKIP_VERIFICATION_FLAG) {
+    } else if (event.result == VPN_VCR_SKIP_HOSTNAME_VERIFICATION) {
+        ctx.handler_result = 0;
         result = 1;
         return result;
     } else {
