@@ -224,7 +224,8 @@ static void pinger_handler(void *arg, const LocationsPingerResult *result) {
 
 static bool is_fatal_error_code(int code) {
     return code == VPN_EC_AUTH_REQUIRED || code == VPN_EC_LOCATION_UNAVAILABLE
-            || code == VPN_EC_CERTIFICATE_VERIFICATION_FAILED;
+            || code == VPN_EC_CERTIFICATE_VERIFICATION_FAILED
+            || code == VPN_EC_CERTIFICATE_NOT_YET_VALID;
 }
 
 static void run_client_connect(Vpn *vpn, std::optional<Millis> timeout = std::nullopt) {

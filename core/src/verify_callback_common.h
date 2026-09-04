@@ -14,6 +14,7 @@ struct VerifyCallbackResult {
     const char *host_name;
     X509 *cert;
     STACK_OF(X509) * chain;
+    int handler_result;
 };
 
 /**
@@ -30,10 +31,11 @@ inline VerifyCallbackResult verify_endpoint_cert(X509_STORE_CTX *store_ctx, VpnC
             ? vpn->upstream_config.endpoint->remote_id
             : vpn->upstream_config.endpoint->name;
 
+    CertVerifyCtx ctx{cert, chain, ssl, VT_ENDPOINT};
     int ret = vpn->parameters.cert_verify_handler.func(host_name, (sockaddr *) &vpn->upstream_config.endpoint->address,
-            {cert, chain, ssl, VT_ENDPOINT}, vpn->parameters.cert_verify_handler.arg);
+            ctx, vpn->parameters.cert_verify_handler.arg);
 
-    return {ret, host_name, cert, chain};
+    return {ret, host_name, cert, chain, ctx.handler_result};
 }
 
 } // namespace ag

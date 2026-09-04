@@ -100,7 +100,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     }
 
     // Reset state
-    m_cert_verify_failed = false;
+    m_cert_verify_error.reset();
 
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
@@ -632,9 +632,10 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
 
 int Http3Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http3Upstream *) arg;
-    auto [ret, host_name, cert, chain] = verify_endpoint_cert(store_ctx, self->vpn);
-    self->m_cert_verify_failed = (ret != 1);
+    self->m_cert_verify_error.reset();
+    auto [ret, host_name, cert, chain, handler_result] = verify_endpoint_cert(store_ctx, self->vpn);
     if (ret != 1) {
+        self->m_cert_verify_error = handler_result;
         log_upstream(self, warn, "QUIC/H3 certificate verification failed for host '{}'", host_name);
         log_upstream(self, warn, "  {}", ag::tls::get_cert_diagnostic_info(cert, chain));
     }
@@ -972,9 +973,11 @@ void Http3Upstream::close_session_inner(std::optional<VpnError> error) {
         return;
     }
 
-    if (m_cert_verify_failed) {
+    if (m_cert_verify_error) {
         log_upstream(this, warn, "TLS certificate verification failed");
-        error = {VPN_EC_CERTIFICATE_VERIFICATION_FAILED, "TLS certificate verification failed"};
+        int errc = (m_cert_verify_error == VPN_VCR_CERT_NOT_YET_VALID) ? VPN_EC_CERTIFICATE_NOT_YET_VALID
+                                                                       : VPN_EC_CERTIFICATE_VERIFICATION_FAILED;
+        error = {errc, "TLS certificate verification failed"};
     }
 
     close_session();

@@ -424,10 +424,13 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     case TCP_SOCKET_EVENT_ERROR: {
         const VpnError *sock_event = (VpnError *) data;
 
-        if (upstream->m_cert_verify_failed) {
+        if (upstream->m_cert_verify_error) {
             log_upstream(upstream, warn, "Error on HTTP session socket (certificate verification failed): {} ({})",
                     sock_event->text, sock_event->code);
-            upstream->close_session_inner(VpnError{VPN_EC_CERTIFICATE_VERIFICATION_FAILED, sock_event->text});
+            int errc = (upstream->m_cert_verify_error == VPN_VCR_CERT_NOT_YET_VALID)
+                    ? VPN_EC_CERTIFICATE_NOT_YET_VALID
+                    : VPN_EC_CERTIFICATE_VERIFICATION_FAILED;
+            upstream->close_session_inner(VpnError{errc, sock_event->text});
         } else {
             log_upstream(upstream, dbg, "Error on HTTP session socket: {} ({})", sock_event->text, sock_event->code);
             upstream->close_session_inner(VpnError{VPN_EC_ERROR, sock_event->text});
@@ -473,7 +476,7 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     log_upstream(this, trace, "...");
 
     // Reset state
-    m_cert_verify_failed = false;
+    m_cert_verify_error.reset();
 
     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
 
@@ -823,9 +826,10 @@ void Http2Upstream::complete_read(void *arg, TaskId) {
 
 int Http2Upstream::verify_callback(X509_STORE_CTX *store_ctx, void *arg) {
     auto *self = (Http2Upstream *) arg;
-    auto [ret, host_name, cert, chain] = verify_endpoint_cert(store_ctx, self->vpn);
-    self->m_cert_verify_failed = (ret != 1);
+    auto [ret, host_name, cert, chain, handler_result] = verify_endpoint_cert(store_ctx, self->vpn);
+    self->m_cert_verify_error.reset();
     if (ret != 1) {
+        self->m_cert_verify_error = handler_result;
         log_upstream(self, warn, "HTTP/2 certificate verification failed for host '{}'", host_name);
         log_upstream(self, warn, "  {}", ag::tls::get_cert_diagnostic_info(cert, chain));
     }

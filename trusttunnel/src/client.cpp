@@ -475,7 +475,7 @@ void TrustTunnelClient::vpn_handler(void *, VpnEvent what, void *data) {
         if (event->verification_type == VT_ENDPOINT) {
             if (m_config.location.skip_verification) {
                 dbglog(m_logger, "Skipping certificate verification");
-                event->result = VPN_SKIP_VERIFICATION_FLAG;
+                event->result = VPN_VCR_SKIP_HOSTNAME_VERIFICATION;
             } else if (m_config.location.ca_store) {
                 const char *err = tls_verify_cert(event->cert, event->chain, m_config.location.ca_store.get());
                 if (err != nullptr) {

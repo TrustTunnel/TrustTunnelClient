@@ -40,11 +40,13 @@ struct CertVerifyCtx {
     STACK_OF(X509) *chain = nullptr;
     SSL *ssl = nullptr;
     VpnCertVerificationType verification_type = VT_DEFAULT;
+    // On output, the value of `ag::VpnVerifyCertificateEvent::result` set by the application.
+    int handler_result = 0;
 };
 
 struct CertVerifyHandler {
     // server certificate verify callback
-    int (*func)(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
+    int (*func)(const char *host_name, const sockaddr *host_ip, CertVerifyCtx &ctx, void *arg);
     void *arg; // will be set to SSL object as app data (like `SSL_set_app_data(ssl, cert_verify_arg)`)
 };
 
