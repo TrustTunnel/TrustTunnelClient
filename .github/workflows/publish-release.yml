@@ -115,8 +115,7 @@ jobs:
   # archives collected by build-console. Pre-release tags (v...-beta.N, -rc.N)
   # are marked as pre-releases.
   create-release:
-    # TODO: add deploy-windows after proven it works
-    needs: [tag, build-console, deploy-android, deploy-apple]
+    needs: [tag, build-console, deploy-android, deploy-apple, deploy-windows]
     uses: AdGuardSoftwareLimited/actions/.github/workflows/create-gh-release.yml@master
     with:
       team: corelibs
