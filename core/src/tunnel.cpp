@@ -264,6 +264,32 @@ static void close_client_side_connection(Tunnel *self, VpnConnection *conn, int 
     }
 }
 
+// Block a QUIC/UDP connection whose domain the scanner couldn't determine. Instead of bypassing it,
+// reject the client side as unreachable so the client application is notified with an ICMP/ICMPv6
+// destination-unreachable message for its following packets (see the unreachable handling in
+// `ip_hooks`). This lets QUIC apps like Instagram recover from NAT rebinding instead of hanging. The
+// server-side connection is torn down and the tunnel stops tracking the connection; the TCP/IP stack
+// keeps the client side briefly to answer retransmits and then times it out.
+static void block_client_side_connection_unreachable(Tunnel *self, VpnConnection *conn) {
+    std::shared_ptr<ClientListener> listener = conn->listener.lock();
+    if (listener == nullptr) {
+        log_conn(self, conn, dbg, "Listener was deleted");
+        destroy_connection(self, conn->client_id, conn->server_id);
+        return;
+    }
+
+    listener->turn_read(conn->client_id, false);
+    listener->reject_connection_unreachable(conn->client_id);
+
+    if (std::shared_ptr<ServerUpstream> upstream = conn->upstream.lock();
+            upstream != nullptr && conn->server_id != NON_ID) {
+        upstream->update_flow_control(conn->server_id, {});
+        upstream->close_connection(conn->server_id, false, true);
+    }
+
+    destroy_connection(self, conn->client_id, conn->server_id);
+}
+
 static void close_client_side(Tunnel *tunnel, ServerUpstream *upstream) {
     if (tunnel->connections.by_client_id == nullptr) {
         return;
@@ -313,7 +339,16 @@ static std::variant<TunnelDomainLookupAction, DomainExtractorResult> domain_look
                 // no data for domain lookup
                 return TDLA_DONE;
             }
-            return conn->domain_extractor.proceed(dir, conn->proto, quic_data->data(), quic_data->size());
+            DomainExtractorResult result =
+                    conn->domain_extractor.proceed(dir, conn->proto, quic_data->data(), quic_data->size());
+            if (result.status == DES_NOTFOUND) {
+                // The QUIC/domain scanner examined the connection and gave up finding a domain. Block
+                // it instead of bypassing it, so that the client gets an ICMP unreachable and QUIC apps
+                // (e.g. Instagram) can recover from NAT rebinding instead of hanging.
+                log_conn(tunnel, conn, dbg, "QUIC domain scanner returned unknown, blocking connection");
+                return TDLA_BLOCK;
+            }
+            return result;
         }
     }
 
@@ -719,9 +754,8 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
                 close_client_side_connection(this, conn, 0, false);
                 return;
             case TDLA_BLOCK:
-                log_conn(this, conn, dbg, "Dropped QUIC connection");
-                upstream->update_flow_control(event->id, {});
-                close_client_side_connection(this, conn, -1, /* async */ false);
+                log_conn(this, conn, dbg, "Blocking QUIC connection (unknown domain), rejecting as unreachable");
+                block_client_side_connection_unreachable(this, conn);
                 return;
             }
         }
@@ -1701,10 +1735,11 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 migrate_to_another_upstream = true;
                 break;
             case TDLA_BLOCK:
-                log_conn(this, conn, dbg, "Dropped QUIC connection");
-                listener->turn_read(conn->client_id, false);
-                close_client_side_connection(this, conn, -1, true);
-                event->result = -1;
+                log_conn(this, conn, dbg, "Blocking QUIC connection (unknown domain), rejecting as unreachable");
+                block_client_side_connection_unreachable(this, conn);
+                // Report the packet as consumed so the TCP/IP stack keeps the (now unreachable) client
+                // connection instead of closing it; retransmits are answered with ICMP by `ip_hooks`.
+                event->result = static_cast<int>(event->length);
                 return;
             }
 

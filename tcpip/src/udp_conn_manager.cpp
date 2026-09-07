@@ -167,6 +167,16 @@ void udp_cm_complete_connect_request(TcpipCtx *ctx, UdpConnDescriptor *connectio
     COMPLETE_CONNECTION_HANDLERS[action].handler(connection);
 }
 
+void udp_cm_reject_unreachable(TcpipCtx *ctx, UdpConnDescriptor *connection) {
+    log_conn(connection, dbg, "Rejecting connection as unreachable (was {})", udp_conn_state_str(connection->state));
+    // Keep the connection registered in the unreachable state instead of closing it, so that the
+    // following packets the client retransmits are answered with ICMP/ICMPv6 destination-unreachable
+    // messages by `process_udp` in `ip_hooks`. The timer closes the connection once the short timeout
+    // expires.
+    connection->state = UDP_CONN_STATE_UNREACHABLE;
+    tcpip_refresh_connection_timeout_with_interval(ctx, &connection->common, TCPIP_UDP_TIMEOUT_FOR_UNREACHABLE_S);
+}
+
 bool udp_cm_init(TcpipCtx *ctx) {
     err_t raw_init_result = udp_raw_init(ctx);
     if (ERR_OK != raw_init_result) {

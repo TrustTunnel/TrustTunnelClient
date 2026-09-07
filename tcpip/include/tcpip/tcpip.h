@@ -26,7 +26,8 @@ namespace ag {
 #define TCPIP_TCP_TIMEOUT_FOR_DROPPED_S (2 * 60)   // 2 minutes
 #define TCPIP_TCP_TIMEOUT_FOR_UNREACHABLE_S 5 // 5 seconds for unreachable connection and its possible SYN retransmits
 
-#define TCPIP_UDP_TIMEOUT_S (5 * 60) // 5 minutes
+#define TCPIP_UDP_TIMEOUT_S (5 * 60)          // 5 minutes
+#define TCPIP_UDP_TIMEOUT_FOR_UNREACHABLE_S 5 // 5 seconds to answer retransmits of an unreachable connection
 
 typedef struct TcpipCtx TcpipCtx;
 
@@ -191,6 +192,23 @@ void tcpip_tun_input(TcpipCtx *ctx, VpnPackets *packets);
  * @param graceful if true connection will be closed via FIN, otherwise via reset
  */
 void tcpip_close_connection(TcpipCtx *ctx, uint64_t id, bool graceful);
+
+/**
+ * Reject an already-established connection as unreachable.
+ *
+ * The connection is moved to the unreachable state and kept for a short period
+ * instead of being closed, so that every following packet the client sends for
+ * it is answered with an ICMP/ICMPv6 destination-unreachable message (see the
+ * unreachable handling in `ip_hooks`). It is then timed out and closed, which
+ * fires `TCPIP_EVENT_CONNECTION_CLOSED`.
+ *
+ * Currently supported for UDP (QUIC) connections only; for other connections it
+ * has no effect.
+ *
+ * @param ctx context of TCP/IP stack
+ * @param id connection id
+ */
+void tcpip_reject_connection_unreachable(TcpipCtx *ctx, uint64_t id);
 
 /**
  * Get flow control info for connection

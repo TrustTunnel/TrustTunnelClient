@@ -364,6 +364,28 @@ void TunListener::close_connection(uint64_t id, bool graceful, bool async) {
     }
 }
 
+void TunListener::reject_connection_unreachable(uint64_t id) {
+    auto i = m_connections.find(id);
+    if (i == m_connections.end()) {
+        return;
+    }
+
+    // Defer the transition to the unreachable state to the next event-loop iteration. This call may
+    // run while the TCP/IP stack is still processing the triggering packet (from within
+    // `udp_cm_receive`), which would refresh the connection timeout right after we set the short
+    // unreachable timeout. Running it later keeps that timeout and matches the async close path.
+    Connection *conn = &i->second;
+    conn->close_task_id = event_loop::submit(this->vpn->parameters.ev_loop,
+            {new CompleteCtx{this, id},
+                    [](void *arg, TaskId) {
+                        auto *ctx = (CompleteCtx *) arg;
+                        tcpip_reject_connection_unreachable(ctx->listener->m_tcpip, ctx->id);
+                    },
+                    [](void *arg) {
+                        delete (CompleteCtx *) arg;
+                    }});
+}
+
 ssize_t TunListener::send(uint64_t id, const uint8_t *data, size_t length) {
     auto i = m_connections.find(id);
     if (i == m_connections.end()) {
