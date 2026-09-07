@@ -1,0 +1,8 @@
+build
+cmake-build-*
+.venv
+venv
+env
+.DS_Store
+__pycache__
+*.pyc

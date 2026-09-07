@@ -25,18 +25,14 @@ COMPILE_COMMANDS = $(BUILD_DIR)/compile_commands.json
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
-# Set on the make command line like `make test CMAKE_LAUNCHER=sccache` — the
-# CI docker build does this to reuse compiled objects across runs. When
-# non-empty, the matching -DCMAKE_*_COMPILER_LAUNCHER=... flags are appended to
-# every cmake configure so the launcher is (re)used. Explicitly empty
-# otherwise, so an environment-provided value cannot leak in when CMAKE_LAUNCHER
-# is not set. Empty by default, so local builds are unaffected.
-CMAKE_LAUNCHER ?=
-ifneq ($(CMAKE_LAUNCHER),)
-CMAKE_LAUNCHER_FLAGS = -DCMAKE_C_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER) -DCMAKE_CXX_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER)
-else
-CMAKE_LAUNCHER_FLAGS =
+# Optional compiler launcher (e.g. sccache). Set on the make command line
+# like `make test CMAKE_LAUNCHER=sccache`; environment values are ignored so a
+# stray exported variable cannot enable it for local builds.
+ifeq ($(origin CMAKE_LAUNCHER),environment)
+CMAKE_LAUNCHER :=
 endif
+CMAKE_LAUNCHER ?=
+CMAKE_LAUNCHER_FLAGS = $(if $(CMAKE_LAUNCHER),-DCMAKE_C_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER) -DCMAKE_CXX_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER))
 
 ifeq ($(OS), Windows_NT)
 EXE_SUFFIX = .exe

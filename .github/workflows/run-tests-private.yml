@@ -66,8 +66,8 @@ jobs:
               FROM build AS native-tests
 
               RUN --mount=type=secret,id=conan_repo_url,required=true \
-                  --mount=type=secret,id=artifactory_user \
-                  --mount=type=secret,id=artifactory_api_key <<END
+                  --mount=type=secret,id=artifactory_user,required=true \
+                  --mount=type=secret,id=artifactory_api_key,required=true <<END
               set -eux
 
               conan remote add --index 0 art "$(cat /run/secrets/conan_repo_url)" || true
@@ -237,6 +237,7 @@ jobs:
           Write-Host "conan upload finished with status $LASTEXITCODE"
           & conan remove -c "*"
           & conan cache clean
+        shell: powershell
 
   # clangd-tidy is the only lint step that needs serious memory
   lint:
