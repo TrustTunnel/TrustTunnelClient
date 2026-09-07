@@ -1,0 +1,820 @@
+#include "trusttunnel/trusttunnel.h"
+#include "trusttunnel/trusttunnel_service.h"
+
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <variant>
+#include <vector>
+
+#include <aclapi.h>
+
+#include <magic_enum/magic_enum.hpp>
+#include <toml++/toml.h>
+
+#include <fmt/format.h>
+#include <fmt/xchar.h>
+
+#include "common/logger.h"
+#include "common/net_utils.h"
+#include "common/utils.h"
+#include "net/tls.h"
+#include "scoped_file_lock.h"
+#include "trusttunnel_log.h"
+#include "trusttunnel_pipe.h"
+#include "vpn/event_loop.h"
+#include "vpn/platform.h"
+#include "vpn/trusttunnel/auto_network_monitor.h"
+#include "vpn/trusttunnel/client.h"
+#include "vpn/trusttunnel/config.h"
+#include "vpn/trusttunnel/persistent_ring_buffer.h"
+#include "vpn/vpn.h"
+
+static ag::Logger g_logger{"TRUSTTUNNEL"};
+
+static void vpn_windows_verify_certificate(ag::VpnVerifyCertificateEvent *event) {
+    event->result = !!ag::tls_verify_cert(event->cert, event->chain, nullptr);
+}
+
+static INIT_ONCE g_init_once = INIT_ONCE_STATIC_INIT;
+static HMODULE g_wintun_handle;
+
+class EasyEventLoop {
+public:
+    bool start() {
+        if (!m_ev_loop) {
+            m_ev_loop.reset(ag::vpn_event_loop_create());
+        }
+
+        if (!m_ev_loop) {
+            errlog(g_logger, "Failed to create event loop");
+            return false;
+        }
+
+        infolog(g_logger, "Starting event loop...");
+
+        m_executor_thread = std::thread([this]() {
+            int ret = vpn_event_loop_run(m_ev_loop.get());
+            if (ret != 0) {
+                errlog(g_logger, "Event loop run returned {}", ret);
+            }
+        });
+
+        if (!vpn_event_loop_dispatch_sync(m_ev_loop.get(), nullptr, nullptr)) {
+            errlog(g_logger, "Event loop did not start");
+            vpn_event_loop_stop(m_ev_loop.get());
+            if (m_executor_thread.joinable()) {
+                m_executor_thread.join();
+            }
+            assert(0);
+            return false;
+        }
+
+        infolog(g_logger, "Event loop has been started");
+
+        return true;
+    }
+
+    void submit(std::function<void()> task) {
+        if (m_ev_loop) {
+            ag::event_loop::submit(m_ev_loop.get(), std::move(task)).release();
+        }
+    }
+
+    void stop() {
+        ag::vpn_event_loop_stop(m_ev_loop.get());
+        if (m_executor_thread.joinable()) {
+            m_executor_thread.join();
+        }
+    }
+
+private:
+    ag::UniquePtr<ag::VpnEventLoop, &ag::vpn_event_loop_destroy> m_ev_loop{ag::vpn_event_loop_create()};
+    std::thread m_executor_thread;
+};
+
+struct trusttunnel_s {
+    std::unique_ptr<ag::TrustTunnelClient> client;
+    std::unique_ptr<ag::AutoNetworkMonitor> network_monitor;
+};
+
+trusttunnel_t *trusttunnel_start_ex(const char *toml_config, on_state_changed_t state_changed_cb,
+        void *state_changed_cb_arg, on_connection_info_t connection_info_cb, void *connection_info_cb_arg) {
+    toml::parse_result parsed_config = toml::parse(toml_config);
+    if (!parsed_config) {
+        errlog(g_logger, "Failed to parse the TOML config");
+        return nullptr;
+    }
+
+    auto trusttunnel_config = ag::TrustTunnelConfig::build_config(parsed_config);
+    if (!trusttunnel_config) {
+        errlog(g_logger, "Failed to build a trusttunnel client config");
+        return nullptr;
+    }
+
+    // Apply the configured log level before anything below emits logs so that
+    // the whole process logs at the level requested by the config.
+    ag::Logger::set_log_level(trusttunnel_config->loglevel);
+
+    ag::vpn_post_quantum_group_set_enabled(trusttunnel_config->post_quantum_group_enabled);
+
+    ag::VpnCallbacks callbacks;
+    if (std::holds_alternative<ag::TrustTunnelConfig::TunListener>(trusttunnel_config->listener)) {
+        callbacks.protect_handler = [](ag::SocketProtectEvent *event) {
+            event->result = !ag::vpn_win_socket_protect(event->fd, event->peer);
+        };
+    } else {
+        callbacks.protect_handler = [](ag::SocketProtectEvent *event) {
+            event->result = 0;
+        };
+    }
+    callbacks.verify_handler = [](ag::VpnVerifyCertificateEvent *event) {
+        vpn_windows_verify_certificate(event);
+    };
+    callbacks.state_changed_handler = [state_changed_cb, state_changed_cb_arg](ag::VpnStateChangedEvent *event) {
+        infolog(g_logger, "VPN state changed: {}", magic_enum::enum_name(event->state));
+        if (state_changed_cb) {
+            state_changed_cb(state_changed_cb_arg, event->state);
+        }
+    };
+    if (connection_info_cb) {
+        callbacks.connection_info_handler = [connection_info_cb, connection_info_cb_arg](
+                                                    ag::VpnConnectionInfoEvent *event) {
+            connection_info_cb(connection_info_cb_arg, event);
+        };
+    }
+
+    auto vpn = std::make_unique<trusttunnel_t>();
+
+    std::string bound_if;
+    if (const auto *tun = std::get_if<ag::TrustTunnelConfig::TunListener>(&trusttunnel_config->listener)) {
+        bound_if = tun->bound_if;
+    }
+
+    vpn->client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
+    vpn->network_monitor = std::make_unique<ag::AutoNetworkMonitor>(vpn->client.get(), std::move(bound_if));
+    if (!vpn->network_monitor->start()) {
+        errlog(g_logger, "Failed to start network monitor");
+        return nullptr;
+    }
+    if (auto connect_error = vpn->client->connect(ag::TrustTunnelClient::AutoSetup{})) {
+        errlog(g_logger, "Failed to connect: {}", connect_error->pretty_str());
+        return nullptr;
+    }
+
+    return vpn.release();
+}
+
+void trusttunnel_stop_ex(trusttunnel_t *vpn) {
+    if (!vpn) {
+        return;
+    }
+    if (vpn->client) {
+        vpn->client->disconnect();
+    }
+    if (vpn->network_monitor) {
+        vpn->network_monitor->stop();
+    }
+    delete vpn;
+}
+
+void trusttunnel_service_read_all_connection_info(
+        const wchar_t *ring_buffer_path, on_connection_info_json_t connection_info_cb, void *connection_info_cb_arg) {
+    if (!ring_buffer_path || !connection_info_cb) {
+        return;
+    }
+
+    std::filesystem::path fs_path(ring_buffer_path);
+
+    ag::trusttunnel_windows::ScopedFileLock lock(fs_path);
+    if (!lock) {
+        warnlog(g_logger, "Failed to acquire ring buffer lock for '{}'", fs_path.string());
+        return;
+    }
+
+    ag::PersistentRingBuffer buffer(fs_path);
+    auto result = buffer.read_all();
+    if (!result.has_value()) {
+        warnlog(g_logger, "PersistentRingBuffer at '{}' is corrupted, clearing", fs_path.string());
+        buffer.clear();
+        return;
+    }
+
+    for (const std::string &json : result->records) {
+        connection_info_cb(connection_info_cb_arg, json.c_str());
+    }
+}
+
+class TrusttunnelManager {
+public:
+    static TrusttunnelManager &instance() {
+        static TrusttunnelManager inst;
+        return inst;
+    }
+
+    void start_async(const std::string &config, on_state_changed_t callback, void *arg) {
+        if (!m_loop) {
+            EasyEventLoop loop;
+            if (!loop.start()) {
+                errlog(g_logger, "Can't start VPN because of event loop error");
+                return;
+            }
+            m_loop = std::move(loop);
+        }
+        m_loop->submit([this, config = config, callback, arg]() {
+            if (m_vpn) {
+                warnlog(g_logger, "VPN has been already started");
+                return;
+            }
+            m_vpn = trusttunnel_start_ex(config.data(), callback, arg, nullptr, nullptr); // blocking
+            if (!m_vpn) {
+                errlog(g_logger, "Failed to start VPN!");
+                return;
+            }
+        });
+    }
+    void stop_async() {
+        if (!m_loop) {
+            warnlog(g_logger, "Can't stop VPN service because event loop is not running");
+            return;
+        }
+        m_loop->submit([this]() {
+            if (!m_vpn) {
+                warnlog(g_logger, "VPN is not running");
+                return;
+            }
+            auto *vpn = std::exchange(m_vpn, nullptr);
+            trusttunnel_stop_ex(vpn);
+        });
+    }
+
+    ~TrusttunnelManager() {
+        if (m_loop) {
+            m_loop->stop();
+        }
+    }
+
+private:
+    TrusttunnelManager() = default;
+    trusttunnel_t *m_vpn = nullptr;
+    std::optional<EasyEventLoop> m_loop;
+};
+
+void trusttunnel_start(const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg) {
+    TrusttunnelManager::instance().start_async(toml_config, state_changed_cb, state_changed_cb_arg);
+}
+
+void trusttunnel_stop() {
+    TrusttunnelManager::instance().stop_async();
+}
+
+static std::wstring escape(const wchar_t *str, const wchar_t *chars_to_escape, wchar_t escape_char) {
+    std::wstring ret;
+    ret.reserve(wcslen(str) * 2);
+    while (*str != L'\0') {
+        if (wcschr(chars_to_escape, *str)) {
+            ret += escape_char;
+        }
+        ret += *str;
+        ++str;
+    }
+    return ret;
+}
+
+using AutoScHandle = ag::UniquePtr<std::remove_pointer_t<SC_HANDLE>, &CloseServiceHandle>;
+
+// Grant SERVICE_START and SERVICE_STOP to authenticated users on the given service handle.
+// Return true on success, false on any error (logged at DEBUG level).
+static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
+    // Query the current security descriptor size
+    DWORD bytes_needed = 0;
+    if (!QueryServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, nullptr, 0, &bytes_needed)
+            && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        dbglog(g_logger, "QueryServiceObjectSecurity (size): {} ({})", GetLastError(),
+                ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    std::vector<uint8_t> sd_buf;
+    sd_buf.resize(bytes_needed);
+    auto *sd = reinterpret_cast<PSECURITY_DESCRIPTOR>(sd_buf.data());
+    if (!QueryServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, sd, bytes_needed, &bytes_needed)) {
+        dbglog(g_logger, "QueryServiceObjectSecurity: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Retrieve the existing DACL from the security descriptor
+    BOOL dacl_present = FALSE;
+    PACL old_dacl = nullptr;
+    BOOL dacl_defaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(sd, &dacl_present, &old_dacl, &dacl_defaulted)) {
+        dbglog(g_logger, "GetSecurityDescriptorDacl: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Build the SID for Authenticated Users (S-1-5-11)
+    SID_IDENTIFIER_AUTHORITY nt_authority = SECURITY_NT_AUTHORITY;
+    PSID authenticated_users_sid = nullptr;
+    if (!AllocateAndInitializeSid(
+                &nt_authority, 1, SECURITY_AUTHENTICATED_USER_RID, 0, 0, 0, 0, 0, 0, 0, &authenticated_users_sid)) {
+        dbglog(g_logger, "AllocateAndInitializeSid: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    PACL new_dacl = nullptr;
+
+    ag::utils::ScopeExit cleanup{[&] {
+        LocalFree(new_dacl);
+        FreeSid(authenticated_users_sid);
+    }};
+
+    // Build an EXPLICIT_ACCESS entry granting SERVICE_START | SERVICE_STOP
+    EXPLICIT_ACCESS_W ea{};
+    ea.grfAccessPermissions = SERVICE_START | SERVICE_STOP;
+    ea.grfAccessMode = SET_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    ea.Trustee.ptstrName = reinterpret_cast<LPWSTR>(authenticated_users_sid);
+
+    DWORD result = SetEntriesInAclW(1, &ea, old_dacl, &new_dacl);
+    if (result != ERROR_SUCCESS) {
+        dbglog(g_logger, "SetEntriesInAclW: {} ({})", result, ag::sys::strerror(result));
+        return false;
+    }
+
+    // Build a new security descriptor with the updated DACL
+    SECURITY_DESCRIPTOR new_sd{};
+    if (!InitializeSecurityDescriptor(&new_sd, SECURITY_DESCRIPTOR_REVISION)) {
+        dbglog(g_logger, "InitializeSecurityDescriptor: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+    if (!SetSecurityDescriptorDacl(&new_sd, TRUE, new_dacl, FALSE)) {
+        dbglog(g_logger, "SetSecurityDescriptorDacl: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    // Apply the updated security descriptor to the service
+    if (!SetServiceObjectSecurity(svc, DACL_SECURITY_INFORMATION, &new_sd)) {
+        dbglog(g_logger, "SetServiceObjectSecurity: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return false;
+    }
+
+    return true;
+}
+
+int32_t trusttunnel_service_install(const wchar_t *image_path_, const wchar_t *logs_dir_, const wchar_t *pipe_name_,
+        const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
+        const wchar_t *ring_buffer_path_) {
+    std::wstring image_path = escape(image_path_, L"\"", L'\\');
+    std::wstring logs_dir = escape(logs_dir_, L"\"", L'\\');
+    std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
+    std::wstring ring_buffer_path = escape(ring_buffer_path_, L"\"", L'\\');
+
+    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\" \"{}\"", image_path, logs_dir, pipe_name, ring_buffer_path);
+
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE)};
+    if (!scm) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "OpenSCManagerW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    AutoScHandle svc{CreateServiceW(scm.get(), name, display_name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
+            SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr)};
+    if (!svc) {
+        if (ERROR_SERVICE_EXISTS == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_SERVICE_EXISTS;
+        }
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "CreateServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    SERVICE_DESCRIPTIONW desc{.lpDescription = const_cast<wchar_t *>(description)};
+    ChangeServiceConfig2W(svc.get(), SERVICE_CONFIG_DESCRIPTION, &desc);
+
+    if (!grant_authenticated_users_start_stop(svc.get())) {
+        dbglog(g_logger, "Failed to grant start/stop permissions to authenticated users");
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    if (!StartServiceW(svc.get(), 0, nullptr)) {
+        dbglog(g_logger, "StartServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    return 0;
+}
+
+int32_t trusttunnel_service_uninstall(const wchar_t *name) {
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!scm) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        dbglog(g_logger, "OpenSCManagerW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    AutoScHandle svc{OpenServiceW(scm.get(), name, STANDARD_RIGHTS_DELETE | SERVICE_STOP)};
+    if (!svc) {
+        if (ERROR_ACCESS_DENIED == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        if (ERROR_SERVICE_DOES_NOT_EXIST == GetLastError()) {
+            return TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE;
+        }
+        dbglog(g_logger, "OpenServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    SERVICE_STATUS status{};
+    if (!ControlService(svc.get(), SERVICE_CONTROL_STOP, &status) && ERROR_SERVICE_NOT_ACTIVE != GetLastError()) {
+        dbglog(g_logger, "ControlService(STOP): {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+    }
+
+    if (!DeleteService(svc.get())) {
+        dbglog(g_logger, "DeleteService: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    return 0;
+}
+
+static constexpr auto SERVICE_OPERATION_TIMEOUT = std::chrono::seconds{30};
+static constexpr auto SERVICE_POLL_INTERVAL = std::chrono::milliseconds{250};
+
+static struct ServiceControllerState {
+    std::mutex mutex;
+    /// The service this controller is bound to. Set by `trusttunnel_service_attach()` and kept until
+    /// `trusttunnel_service_detach()`, independently of whether a pipe session could be established.
+    std::wstring service_name;
+    std::wstring pipe_name;
+    HANDLE stop_event = nullptr;
+    std::unique_ptr<ag::trusttunnel_windows::PipeClient> pipe_client;
+    std::thread io_thread;
+    /// The last state passed to the app, so that the disconnect reported when the pipe dies is
+    /// not a repeat. Touched by the IO thread only, and by `close_session()` while it is idle.
+    int32_t last_reported_state = ag::VPN_SS_DISCONNECTED;
+
+    /// Grouped callback state, protected by `callbacks_mutex`.
+    /// The IO thread only ever acquires `callbacks_mutex`, never `mutex`, so no deadlock is possible.
+    struct Callbacks {
+        on_state_changed_t state_changed_cb = nullptr;
+        void *state_changed_cb_arg = nullptr;
+        on_connection_info_json_t connection_info_cb = nullptr;
+        void *connection_info_cb_arg = nullptr;
+    };
+
+    mutable std::mutex callbacks_mutex;
+    Callbacks callbacks;
+
+    /// Snapshot the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    Callbacks get_callbacks() const {
+        std::scoped_lock lock{callbacks_mutex};
+        return callbacks;
+    }
+
+    /// Replace the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    void set_callbacks(Callbacks cbs) {
+        std::scoped_lock lock{callbacks_mutex};
+        callbacks = std::move(cbs);
+    }
+
+    /// Clear the current callbacks under `callbacks_mutex`. Safe to call from any thread.
+    void clear_callbacks() {
+        std::scoped_lock lock{callbacks_mutex};
+        callbacks = {};
+    }
+
+    /// Tear down the pipe session, keeping the binding. Caller must hold `mutex`.
+    void close_session() {
+        if (stop_event) {
+            SetEvent(stop_event);
+        }
+        if (io_thread.joinable()) {
+            io_thread.join();
+        }
+        pipe_client.reset();
+        if (stop_event) {
+            CloseHandle(stop_event);
+            stop_event = nullptr;
+        }
+        last_reported_state = ag::VPN_SS_DISCONNECTED;
+    }
+
+    /// Tear down the pipe session and unbind from the service. Caller must hold `mutex`.
+    void reset() {
+        // Cleared first so that the IO thread reports nothing for a teardown we asked for.
+        clear_callbacks();
+        close_session();
+        service_name.clear();
+        pipe_name.clear();
+    }
+} g_svc_state;
+
+/// Client-process file logging state, guarded by `mutex`. Set up by `trusttunnel_log_init()`.
+static struct LoggingState {
+    std::mutex mutex;
+    std::filesystem::path logs_dir;
+    std::shared_ptr<ag::FileLoggerSync> sync;
+    std::optional<ag::FileLogger> file_logger;
+} g_logging;
+
+/// Pipe message handler.
+/// Dispatches STATE_CHANGED and CONNECTION_INFO through g_svc_state callbacks.
+static ag::trusttunnel_windows::PipeEndpoint::Handler make_pipe_handler() {
+    return [](TrusttunnelServiceMessageType what, ag::Uint8View data) {
+        auto cbs = g_svc_state.get_callbacks();
+        switch (what) {
+        case TRUSTTUNNEL_SVC_MSG_STATE_CHANGED: {
+            if (data.size() < sizeof(uint32_t)) {
+                dbglog(g_logger, "STATE_CHANGED too short: {} bytes", data.size());
+                break;
+            }
+            uint32_t net_state = 0;
+            memcpy(&net_state, data.data(), sizeof(net_state));
+            auto state = static_cast<int32_t>(ntohl(net_state));
+            g_svc_state.last_reported_state = state;
+            if (cbs.state_changed_cb) {
+                cbs.state_changed_cb(cbs.state_changed_cb_arg, state);
+            }
+            break;
+        }
+        case TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO: {
+            std::string json(reinterpret_cast<const char *>(data.data()), data.size());
+            if (cbs.connection_info_cb) {
+                cbs.connection_info_cb(cbs.connection_info_cb_arg, json.c_str());
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    };
+}
+
+/// IO thread entry point for both start() and attach().
+/// The loop exits either on a teardown we requested, in which case the callbacks have already
+/// been cleared, or because the service died. The latter is invisible to the service, so the
+/// disconnected state is reported here.
+static void pipe_io_thread() {
+    g_svc_state.pipe_client->loop();
+    auto cbs = g_svc_state.get_callbacks();
+    if (cbs.state_changed_cb && g_svc_state.last_reported_state != ag::VPN_SS_DISCONNECTED) {
+        g_svc_state.last_reported_state = ag::VPN_SS_DISCONNECTED;
+        cbs.state_changed_cb(cbs.state_changed_cb_arg, ag::VPN_SS_DISCONNECTED);
+    }
+}
+
+/// Poll a service until it reaches the desired state, or timeout.
+/// Return true if the desired state was reached, false on timeout.
+static bool wait_for_service_state(SC_HANDLE svc, DWORD desired_state, std::chrono::milliseconds timeout) {
+    auto deadline = std::chrono::steady_clock::now() + timeout;
+    for (;;) {
+        SERVICE_STATUS status{};
+        if (!QueryServiceStatus(svc, &status)) {
+            dbglog(g_logger, "QueryServiceStatus: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+            return false;
+        }
+        if (status.dwCurrentState == desired_state) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(SERVICE_POLL_INTERVAL);
+    }
+}
+
+/// Map a Windows error code from an SCM operation to a TrusttunnelServiceError.
+static int32_t map_scm_error(const char *func_name) {
+    DWORD err = GetLastError();
+    if (err == ERROR_ACCESS_DENIED) {
+        return TRUSTTUNNEL_SVC_ERR_ACCESS;
+    }
+    if (err == ERROR_SERVICE_DOES_NOT_EXIST) {
+        return TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE;
+    }
+    dbglog(g_logger, "{}: {} ({})", func_name, err, ag::sys::strerror(err));
+    return TRUSTTUNNEL_SVC_ERR_OTHER;
+}
+
+static int32_t setup_pipe_client(const wchar_t *pipe_name) {
+    g_svc_state.stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!g_svc_state.stop_event) {
+        dbglog(g_logger, "CreateEventW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    g_svc_state.pipe_client = std::make_unique<ag::trusttunnel_windows::PipeClient>(pipe_name, g_svc_state.stop_event,
+            make_pipe_handler(), std::chrono::duration_cast<std::chrono::milliseconds>(SERVICE_OPERATION_TIMEOUT));
+
+    g_svc_state.io_thread = std::thread(pipe_io_thread);
+
+    if (!g_svc_state.pipe_client->wait_connected()) {
+        errlog(g_logger, "PipeClient failed to connect within timeout");
+        return TRUSTTUNNEL_SVC_ERR_TIMED_OUT;
+    }
+
+    return 0;
+}
+
+/// Ensure that a live pipe session to the bound service exists. If `start_service` is set, a
+/// service that is not running is started; otherwise it is an error. An existing session is
+/// reused, so this is idempotent. Caller must hold `g_svc_state.mutex`.
+static int32_t ensure_live_session(bool start_service) {
+    if (g_svc_state.pipe_client) {
+        if (g_svc_state.pipe_client->is_connected()) {
+            return 0;
+        }
+        infolog(g_logger, "Service connection is dead, establishing a fresh one");
+        g_svc_state.close_session();
+    }
+
+    bool success = false;
+    ag::utils::ScopeExit cleanup{[&] {
+        if (!success) {
+            g_svc_state.close_session();
+        }
+    }};
+
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!scm) {
+        return map_scm_error("OpenSCManagerW");
+    }
+
+    AutoScHandle svc{OpenServiceW(scm.get(), g_svc_state.service_name.c_str(),
+            start_service ? (SERVICE_START | SERVICE_QUERY_STATUS) : SERVICE_QUERY_STATUS)};
+    if (!svc) {
+        return map_scm_error("OpenServiceW");
+    }
+
+    SERVICE_STATUS status{};
+    if (!QueryServiceStatus(svc.get(), &status)) {
+        dbglog(g_logger, "QueryServiceStatus: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    if (status.dwCurrentState != SERVICE_RUNNING) {
+        if (!start_service) {
+            infolog(g_logger, "Service not running (state: {}), cannot attach", status.dwCurrentState);
+            return TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE;
+        }
+        if (!StartServiceW(svc.get(), 0, nullptr) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING) {
+            dbglog(g_logger, "StartServiceW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+            return TRUSTTUNNEL_SVC_ERR_OTHER;
+        }
+        if (!wait_for_service_state(svc.get(), SERVICE_RUNNING, SERVICE_OPERATION_TIMEOUT)) {
+            errlog(g_logger, "Service did not reach RUNNING state within timeout");
+            return TRUSTTUNNEL_SVC_ERR_TIMED_OUT;
+        }
+    }
+
+    if (int32_t err = setup_pipe_client(g_svc_state.pipe_name.c_str()); err != 0) {
+        return err;
+    }
+
+    success = true;
+    return 0;
+}
+
+int32_t trusttunnel_service_attach(const wchar_t *service_name, const wchar_t *pipe_name,
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg, on_connection_info_json_t connection_info_cb,
+        void *connection_info_cb_arg) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    if (g_svc_state.pipe_client) {
+        g_svc_state.reset();
+    }
+
+    // Bound even if the service turns out not to be running, so that a later
+    // `trusttunnel_service_start()` has everything it needs to start it.
+    g_svc_state.service_name = service_name;
+    g_svc_state.pipe_name = pipe_name;
+    g_svc_state.set_callbacks({state_changed_cb, state_changed_cb_arg, connection_info_cb, connection_info_cb_arg});
+
+    if (int32_t err = ensure_live_session(false); err != 0) {
+        return err;
+    }
+
+    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
+    return 0;
+}
+
+int32_t trusttunnel_service_start(const char *toml_config) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    if (g_svc_state.service_name.empty()) {
+        errlog(g_logger, "Not attached to a service, call trusttunnel_service_attach() first");
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    toml::parse_result parsed_config = toml::parse(toml_config);
+    if (!parsed_config) {
+        errlog(g_logger, "Failed to parse the TOML config");
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+    // Validated here so that an unusable config is a synchronous error rather than a VPN client
+    // that the service fails to start without being able to say why.
+    auto built_config = ag::TrustTunnelConfig::build_config(parsed_config);
+    if (!built_config) {
+        errlog(g_logger, "Failed to build the VPN config");
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+    infolog(g_logger, "Applying log level from config: {}", magic_enum::enum_name(built_config->loglevel));
+    ag::Logger::set_log_level(built_config->loglevel);
+
+    if (int32_t err = ensure_live_session(true); err != 0) {
+        return err;
+    }
+
+    g_svc_state.pipe_client->send(
+            TRUSTTUNNEL_SVC_MSG_START, {reinterpret_cast<const uint8_t *>(toml_config), strlen(toml_config)});
+
+    return 0;
+}
+
+void trusttunnel_service_detach() {
+    std::scoped_lock lock{g_svc_state.mutex};
+    g_svc_state.reset();
+}
+
+int32_t trusttunnel_service_stop() {
+    std::scoped_lock lock{g_svc_state.mutex};
+    if (!g_svc_state.pipe_client) {
+        return 0;
+    }
+    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_STOP, {});
+    return 0;
+}
+
+void trusttunnel_log_init(const wchar_t *logs_dir) {
+    if (!logs_dir) {
+        return;
+    }
+    std::scoped_lock lock{g_logging.mutex};
+    if (g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is already initialized");
+        return;
+    }
+    g_logging.logs_dir = std::filesystem::path(logs_dir);
+    g_logging.sync = std::make_shared<ag::trusttunnel_windows::WindowsFileLoggerSync>();
+    g_logging.file_logger.emplace(g_logging.logs_dir, ag::trusttunnel_windows::CLIENT_LOG_BASE,
+            ag::FileLogger::DEFAULT_MAX_FILE_SIZE, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync);
+    g_logging.file_logger->install();
+}
+
+void trusttunnel_log_export(const wchar_t *dest_dir, on_log_path_t path_cb, void *path_cb_arg) {
+    if (!dest_dir || !path_cb) {
+        return;
+    }
+    std::scoped_lock lock{g_logging.mutex};
+    if (!g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is not initialized; nothing to export");
+        return;
+    }
+
+    std::filesystem::path dest(dest_dir);
+    for (const char *base : {ag::trusttunnel_windows::CLIENT_LOG_BASE, ag::trusttunnel_windows::SERVICE_LOG_BASE}) {
+        for (const std::filesystem::path &path : ag::FileLogger::snapshot(
+                     g_logging.logs_dir, base, dest, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync.get())) {
+            // `path::c_str()` is the native wide string on Windows, delivered without lossy narrowing.
+            path_cb(path_cb_arg, path.c_str());
+        }
+    }
+}
+
+void trusttunnel_log_clear() {
+    std::scoped_lock lock{g_logging.mutex};
+    if (!g_logging.file_logger.has_value()) {
+        warnlog(g_logger, "File logging is not initialized; nothing to clear");
+        return;
+    }
+    // The client owns its own family, so clear it directly.
+    g_logging.file_logger->clear_logs();
+
+    // The service holds its own family open, so ask it to clear over the pipe when connected.
+    {
+        std::scoped_lock svc_lock{g_svc_state.mutex};
+        if (g_svc_state.pipe_client) {
+            g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_CLEAR_LOGS, {});
+            return;
+        }
+    }
+
+    // The service is not running; nobody holds its family open, so clear it directly.
+    ag::FileLogger service_logger(g_logging.logs_dir, ag::trusttunnel_windows::SERVICE_LOG_BASE,
+            ag::FileLogger::DEFAULT_MAX_FILE_SIZE, ag::FileLogger::DEFAULT_ARCHIVE_COUNT, g_logging.sync);
+    service_logger.clear_logs();
+}

@@ -43,11 +43,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
 function(APPLY_STANDARD_SETTINGS TARGET)
-  target_compile_features(${TARGET} PUBLIC cxx_std_17)
+  target_compile_features(${TARGET} PUBLIC cxx_std_20)
   target_compile_options(${TARGET} PRIVATE /W4 /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
-  target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
   target_compile_definitions(${TARGET} PRIVATE "WIN32_LEAN_AND_MEAN")
 endfunction()
 
@@ -79,6 +78,14 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+# Copy the VPN service executable next to the testapp so it can be found at runtime
+install(TARGETS trusttunnel_service RUNTIME DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+# Copy the service installer helper next to the testapp so it can be found at runtime
+install(TARGETS trusttunnel_service_installer RUNTIME DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"

@@ -1,0 +1,188 @@
+name: Deploy Windows library
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+
+jobs:
+  resolve-images:
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
+
+  build-windows:
+    name: Build library / Windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
+    runs-on:
+      - ephemeral
+      - ephemeral-vmwin
+      - ${{ needs.resolve-images.outputs.windows }}
+      - ephemeral-limit-memory-6144
+      - ephemeral-limit-cpu-8
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Configure Conan
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+        run: |
+          & conan remote add --index 0 art $Env:CONAN_REPO_URL
+        shell: powershell
+
+      - name: Detect version
+        id: version
+        shell: powershell
+        run: |
+          if ('${{ inputs.version }}' -ne '') {
+            $VERSION = '${{ inputs.version }}'
+          } else {
+            $VERSION = git describe --tags --match 'v*'
+            $VERSION = $VERSION -replace '^v', ''
+          }
+          if (!$VERSION) { throw 'Failed to detect VERSION via git describe' }
+          "version=$VERSION" | Out-File -FilePath $Env:GITHUB_OUTPUT -Append
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $wintunVersion = (Get-Content third-party\wintun\VERSION).Trim()
+          $wintunUrl = "$Env:ARTIFACTORY_URL/artifactory/adguard-pods/binaries/wintun-$wintunVersion.zip"
+
+          foreach ($arch in @('x86_64', 'aarch64')) {
+            Write-Host "=== Building $arch ===" -ForegroundColor Cyan
+
+            # Initialize MSVC environment (same pattern as the build-console job)
+            $vcvarsArch = if ($arch -eq 'x86_64') { 'amd64' } else { 'amd64_arm64' }
+            foreach ($line in (cmd /c "vcvarsall $vcvarsArch & set")) {
+              $name, $value = $line -split '=', 2
+              if ($null -ne $value) {
+                Set-Item -Force -Path "ENV:\$name" -Value "$value"
+              }
+            }
+
+            & platform\windows\scripts\build.ps1 `
+              -Arch $arch `
+              -Version $Env:VERSION `
+              -WintunUrl $wintunUrl
+            if (!$?) { throw "build.ps1 failed for $arch" }
+          }
+        shell: powershell
+
+      - name: Upload unsigned staging
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-adapter-unsigned
+          path: platform/windows/staging/
+          if-no-files-found: error
+
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & conan remote login art "$Env:ARTIFACTORY_USER" --password "$Env:ARTIFACTORY_API_KEY"
+          & conan upload -r art -c "*" 2>&1 | Select-String "Uploading" -SimpleMatch
+        shell: powershell
+
+  # Sign the built binaries via the shared signer workflow, like the Windows
+  # console build. Explicit file names keep wintun.dll (already signed by
+  # WireGuard) and everything else out of the signer.
+  sign-windows:
+    name: Sign Windows binaries
+    needs: [build-windows]
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    permissions:
+      contents: read
+      id-token: write
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/sign-by-signer.yml@master
+    with:
+      team: corelibs
+      artifact-name: windows-adapter-unsigned
+      files: |
+        **/trusttunnel.dll
+        **/trusttunnel_service.exe
+        **/trusttunnel_service_installer.exe
+      signed-artifact-name: windows-adapter-signed
+
+  publish-windows:
+    name: Deploy library / Windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images, build-windows, sign-windows]
+    environment: windows-gh-packages
+    runs-on:
+      - ephemeral
+      - ephemeral-vmwin
+      - ${{ needs.resolve-images.outputs.windows }}
+      - ephemeral-limit-memory-6144
+      - ephemeral-limit-cpu-8
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Download signed staging
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-adapter-signed
+          path: signed
+
+      - name: Package and publish
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+          TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $repository = 'TrustTunnel/TrustTunnelClient'
+
+          foreach ($staging in (Get-ChildItem -Directory "signed\trusttunnel-client-windows-$Env:VERSION-*")) {
+            $arch = $staging.Name -replace "^trusttunnel-client-windows-$Env:VERSION-", ""
+            Write-Host "=== Packaging and publishing $arch ===" -ForegroundColor Cyan
+
+            & platform\windows\scripts\package.ps1 `
+              -StagingDir $staging.FullName
+            if (!$?) { throw "package.ps1 failed for $arch" }
+
+            & platform\windows\scripts\publish_maven.ps1 `
+              -Arch $arch `
+              -Version $Env:VERSION `
+              -Repository $repository
+            if (!$?) { throw "publish_maven.ps1 failed for $arch" }
+          }
+        shell: powershell

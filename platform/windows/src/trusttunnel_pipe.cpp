@@ -1,4 +1,4 @@
-#include "vpn_easy_pipe.h"
+#include "trusttunnel_pipe.h"
 
 #include <sddl.h>
 
@@ -12,7 +12,7 @@
 #include "common/system_error.h"
 #include "vpn/internal/wire_utils.h"
 
-namespace ag::vpn_easy {
+namespace ag::trusttunnel_windows {
 
 static ag::Logger g_server_logger{"PIPE_SERVER"};
 static ag::Logger g_client_logger{"PIPE_CLIENT"};
@@ -76,7 +76,7 @@ void PipeEndpoint::prepare_for_connect() {
     ResetEvent(m_write_event);
 }
 
-std::vector<uint8_t> PipeEndpoint::compose_message(VpnEasyServiceMessageType what, ag::Uint8View data) {
+std::vector<uint8_t> PipeEndpoint::compose_message(TrusttunnelServiceMessageType what, ag::Uint8View data) {
     assert(data.size() < size_t(UINT32_MAX));
     std::vector<uint8_t> ret;
     ret.resize(sizeof(uint32_t) + sizeof(uint32_t) + data.size());
@@ -87,7 +87,7 @@ std::vector<uint8_t> PipeEndpoint::compose_message(VpnEasyServiceMessageType wha
     return ret;
 }
 
-void PipeEndpoint::send(VpnEasyServiceMessageType what, ag::Uint8View data) {
+void PipeEndpoint::send(TrusttunnelServiceMessageType what, ag::Uint8View data) {
     {
         std::scoped_lock l{m_pending_writes_lock};
         // disconnect_and_reset() stores `false` BEFORE taking this lock, so any push that
@@ -103,6 +103,29 @@ void PipeEndpoint::send(VpnEasyServiceMessageType what, ag::Uint8View data) {
         m_pending_writes.push_back(PendingWrite{compose_message(what, data), 0});
     }
     SetEvent(m_wake_event);
+}
+
+void PipeEndpoint::post(std::function<void()> task) {
+    {
+        std::scoped_lock l{m_tasks_lock};
+        m_tasks.push_back(std::move(task));
+    }
+    SetEvent(m_wake_event);
+}
+
+void PipeEndpoint::run_pending_tasks() {
+    for (;;) {
+        std::function<void()> task;
+        {
+            std::scoped_lock l{m_tasks_lock};
+            if (m_tasks.empty()) {
+                return;
+            }
+            task = std::move(m_tasks.front());
+            m_tasks.pop_front();
+        }
+        task();
+    }
 }
 
 bool PipeEndpoint::loop() {
@@ -159,6 +182,16 @@ bool PipeEndpoint::loop() {
             }
         }
 
+        run_pending_tasks();
+
+        // One message per iteration, preceded by whatever was queued before it
+        if (m_connected.load(std::memory_order_relaxed) && !dispatch_one_message()) {
+            if (auto r = handle_disconnect()) {
+                return *r;
+            }
+            continue;
+        }
+
         // After any wake-up, try to issue a fresh read (if connected and not already pending) and
         // pump as many writes as possible.
         if (m_connected.load(std::memory_order_relaxed) && !m_read_pending) {
@@ -204,12 +237,9 @@ bool PipeEndpoint::start_read() {
     if (ok) {
         // Synchronous completion. The kernel may also have signaled m_io_event on its own; if so,
         // the next WFMO will wake on it but find `!m_read_pending` and just fall through to
-        // re-entering start_read(). Either way we must wake the loop ourselves so
-        // that start_read() runs again to drain any further data.
+        // re-entering start_read(). Either way we must wake the loop ourselves so that the bytes
+        // just read get dispatched.
         m_input_buf_used += read_size;
-        if (!handle_input()) {
-            return false;
-        }
         SetEvent(m_wake_event);
         return true;
     }
@@ -244,31 +274,34 @@ bool PipeEndpoint::complete_read() {
         return false;
     }
     m_input_buf_used += read_size;
-    return handle_input();
+    return true;
 }
 
-bool PipeEndpoint::handle_input() {
-    for (;;) {
-        ag::wire_utils::Reader r{{m_input_buf.data(), m_input_buf_used}};
-        auto what = r.get_u32();
-        auto size = r.get_u32();
-        if (!what.has_value() || !size.has_value()) {
-            return true; // Need more bytes for the header.
-        }
-        if (*size > MAX_MESSAGE_SIZE) {
-            warnlog(m_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection", *size,
-                    MAX_MESSAGE_SIZE);
-            return false;
-        }
-        auto data = r.get_bytes(*size);
-        if (!data.has_value()) {
-            return true; // Need more bytes for the payload.
-        }
-        m_handler(static_cast<VpnEasyServiceMessageType>(*what), *data);
-        ag::Uint8View remaining = r.get_buffer();
-        std::memmove(m_input_buf.data(), remaining.data(), remaining.size());
-        m_input_buf_used = remaining.size();
+bool PipeEndpoint::dispatch_one_message() {
+    ag::wire_utils::Reader r{{m_input_buf.data(), m_input_buf_used}};
+    auto what = r.get_u32();
+    auto size = r.get_u32();
+    if (!what.has_value() || !size.has_value()) {
+        return true; // Need more bytes for the header.
     }
+    if (*size > MAX_MESSAGE_SIZE) {
+        warnlog(m_logger, "incoming message size {} exceeds MAX_MESSAGE_SIZE ({}); dropping connection", *size,
+                MAX_MESSAGE_SIZE);
+        return false;
+    }
+    auto data = r.get_bytes(*size);
+    if (!data.has_value()) {
+        return true; // Need more bytes for the payload.
+    }
+
+    m_handler(static_cast<TrusttunnelServiceMessageType>(*what), *data);
+    ag::Uint8View remaining = r.get_buffer();
+    std::memmove(m_input_buf.data(), remaining.data(), remaining.size());
+    m_input_buf_used = remaining.size();
+    if (m_input_buf_used != 0) {
+        SetEvent(m_wake_event);
+    }
+    return true;
 }
 
 bool PipeEndpoint::pump_writes() {
@@ -586,4 +619,4 @@ void PipeClient::teardown_pipe() {
     }
 }
 
-} // namespace ag::vpn_easy
+} // namespace ag::trusttunnel_windows

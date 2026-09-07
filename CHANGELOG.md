@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Configurable TLS ClientHello fingerprint per endpoint via the `[endpoint].tls_profile`
   setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
   `chrome`, preserving the previous behavior.
+- Introduce windows platform adapter
 
 ### Changed
 
