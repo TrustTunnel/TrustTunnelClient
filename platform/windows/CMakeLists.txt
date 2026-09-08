@@ -6,7 +6,7 @@ if(NOT CMAKE_INSTALL_PREFIX MATCHES "conan2")
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${ROOT_DIR}/cmake/conan_bootstrap.cmake")
 endif()
 
-project(vpn_easy)
+project(trusttunnel_windows)
 
 set(CMAKE_C_STANDARD 20)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -28,27 +28,98 @@ if (NOT TARGET vpnlibs_trusttunnel)
     add_subdirectory(${ROOT_DIR} ${CMAKE_BINARY_DIR}/trusttunnel)
 endif ()
 
-add_library(vpn_easy_a STATIC src/vpn_easy.cpp src/vpn_easy_pipe.cpp)
-target_include_directories(vpn_easy_a PUBLIC include)
-target_link_libraries(vpn_easy_a vpnlibs_trusttunnel)
+include(${ROOT_DIR}/cmake/version.cmake)
+if (WIN32)
+    configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/resources/trusttunnel_windows.rc.in
+            ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_windows.rc
+            @ONLY)
+    configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/resources/trusttunnel_service.rc.in
+            ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_service.rc
+            @ONLY)
+    configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/resources/trusttunnel_service_installer.rc.in
+            ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_service_installer.rc
+            @ONLY)
+endif ()
 
-add_library(vpn_easy SHARED src/vpn_easy.cpp)
-target_link_libraries(vpn_easy vpn_easy_a)
+add_library(trusttunnel_windows_a STATIC src/trusttunnel.cpp src/trusttunnel_pipe.cpp)
+target_include_directories(trusttunnel_windows_a PUBLIC include)
+target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel)
 
-add_executable(vpn_easy_test test/vpn_easy_test.cpp)
-target_link_libraries(vpn_easy_test vpn_easy_a)
+add_library(trusttunnel_windows SHARED src/trusttunnel.cpp)
+target_link_libraries(trusttunnel_windows trusttunnel_windows_a)
+set_target_properties(trusttunnel_windows PROPERTIES OUTPUT_NAME trusttunnel)
 
-add_executable(vpn_easy_service src/vpn_easy_service.cpp)
-target_link_libraries(vpn_easy_service vpn_easy_a)
+add_executable(trusttunnel_test test/trusttunnel_test.cpp)
+target_link_libraries(trusttunnel_test trusttunnel_windows_a)
 
-add_executable(vpn_easy_service_test test/vpn_easy_service_test.cpp)
-target_link_libraries(vpn_easy_service_test vpn_easy_a)
-add_dependencies(vpn_easy_service_test vpn_easy_service)
+add_executable(trusttunnel_service src/trusttunnel_service.cpp)
+target_link_libraries(trusttunnel_service trusttunnel_windows_a)
+
+add_executable(trusttunnel_service_installer src/trusttunnel_service_installer.cpp)
+target_link_libraries(trusttunnel_service_installer trusttunnel_windows_a)
+
+# Compile the rendered version resources into the shipped binaries.
+if (WIN32)
+    target_sources(trusttunnel_windows PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_windows.rc)
+    target_sources(trusttunnel_service PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_service.rc)
+    target_sources(trusttunnel_service_installer PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_service_installer.rc)
+endif ()
+
+add_executable(trusttunnel_service_test test/trusttunnel_service_test.cpp)
+target_link_libraries(trusttunnel_service_test trusttunnel_windows_a)
+add_dependencies(trusttunnel_service_test trusttunnel_service)
 
 enable_testing()
 include(${ROOT_DIR}/cmake/add_unit_test.cmake)
 set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
-link_libraries(vpn_easy_a)
+link_libraries(trusttunnel_windows_a)
 
-add_unit_test(vpn_easy_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_ring_buffer_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_log_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+
+# Install the shared library (DLL + import lib).  The shared library contains
+# all transitive static dependencies linked in — no third-party .lib files
+# needed by the consumer.  The import lib (trusttunnel.lib) is used at link
+# time; the DLL (trusttunnel.dll) is needed at runtime.
+install(TARGETS trusttunnel_windows
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    COMPONENT Runtime
+)
+
+# Install the service executable
+install(TARGETS trusttunnel_service
+    RUNTIME DESTINATION bin
+    COMPONENT Runtime
+)
+
+# Install the service installer helper executable
+install(TARGETS trusttunnel_service_installer
+    RUNTIME DESTINATION bin
+    COMPONENT Runtime
+)
+
+# Install public headers
+install(DIRECTORY include/trusttunnel
+    DESTINATION include
+    COMPONENT Runtime
+)
+
+# Install the platform.h header (needed by trusttunnel.h and trusttunnel_service.h)
+install(FILES ${ROOT_DIR}/common/include/vpn/platform.h
+    DESTINATION include/vpn
+    COMPONENT Runtime
+)
+
+# Install the CMake package config file
+install(
+    FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TrustTunnelClientWindowsConfig.cmake
+    DESTINATION lib/cmake/TrustTunnelClientWindows
+    COMPONENT Runtime
+)
