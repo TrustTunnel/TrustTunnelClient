@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The initial connect now falls into the session recovery loop instead of giving up after a fixed number of
+  attempts. Previously `trusttunnel_client` exited when its endpoint happened to be unavailable at startup, while
+  an already established session recovered normally. Errors that will not resolve on their own -- authentication,
+  certificate verification, location unavailable -- still end the session.
+
 ### Security
 
 ## [1.1.5] - 2026-09-02
