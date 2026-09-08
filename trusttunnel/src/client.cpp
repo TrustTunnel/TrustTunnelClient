@@ -294,6 +294,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
                                     },
                             .anti_dpi = m_config.location.anti_dpi,
                     },
+            .retry_info = {.policy = VPN_CRP_FALL_INTO_RECOVERY},
     };
 
     {
