@@ -1,46 +1,209 @@
 #include "native_vpn_impl.h"
-#include "vpn/vpn_easy.h"
+#include "trusttunnel/trusttunnel.h"
+#include "trusttunnel/trusttunnel_service.h"
+#include "vpn/vpn.h"
 
-namespace {
-void state_changed_handler(void *arg, int state) {
-    auto *ctx = static_cast<NativeVpnImpl *>(arg);
-    ctx->NotifyStateChanged(state);
+#include <filesystem>
+
+#define WIN32_LEAN_AND_MEAN
+#include <shellapi.h>
+#include <windows.h>
+
+static void s_notify_state_changed(void *arg, int state) {
+    static_cast<NativeVpnImpl *>(arg)->NotifyStateChanged(state);
 }
-} // namespace
+
+static void s_notify_connection_info(void *arg, const char *json) {
+    static_cast<NativeVpnImpl *>(arg)->NotifyConnectionInfo(std::string(json));
+}
+
+NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
+        std::filesystem::path ring_buffer_path, std::filesystem::path logs_dir, std::wstring service_name,
+        std::wstring pipe_name)
+        : m_callbacks(std::move(callbacks))
+        , m_dispatcher(dispatcher)
+        , m_ring_buffer_path(std::move(ring_buffer_path))
+        , m_logs_dir(std::move(logs_dir))
+        , m_service_name(std::move(service_name))
+        , m_pipe_name(std::move(pipe_name)) {
+    // Install the client-process file log sink before anything logs.
+    trusttunnel_log_init(m_logs_dir.wstring().c_str());
+
+    // Read all persisted connection info records on construction (before VPN is started)
+    trusttunnel_service_read_all_connection_info(m_ring_buffer_path.wstring().c_str(), s_notify_connection_info, this);
+
+    // Try to attach to a running service to detect current VPN state.
+    int32_t attach_result = attach_service();
+
+    if (attach_result != 0) {
+        infolog(m_logger, "VPN service not running (attach result: {}), assuming DISCONNECTED", attach_result);
+    } else {
+        infolog(m_logger, "Attached to running VPN service");
+    }
+}
+
+NativeVpnImpl::~NativeVpnImpl() {
+    trusttunnel_service_detach();
+}
 
 void NativeVpnImpl::NotifyStateChanged(int state) {
     m_dispatcher->RunOnUIThread([this, state]() {
         m_callbacks.OnStateChanged(
                 state, []() { /*do nothing*/ },
                 [this](const FlutterError &error) {
-                    warnlog(m_logger, "Faield to set updated VPN state: {}:{}", error.code(), error.message());
+                    warnlog(m_logger, "Failed to set updated VPN state: {}:{}", error.code(), error.message());
                 });
     });
 }
 
-NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks)
-        : m_callbacks(std::move(callbacks))
-        , m_dispatcher(dispatcher) {
+void NativeVpnImpl::NotifyConnectionInfo(const std::string &json) {
+    m_dispatcher->RunOnUIThread([this, json]() {
+        m_callbacks.OnConnectionInfo(
+                json, []() { /*do nothing*/ },
+                [this](const FlutterError &error) {
+                    warnlog(m_logger, "Failed to set connection info: {}:{}", error.code(), error.message());
+                });
+    });
+}
+
+int32_t NativeVpnImpl::install_service() {
+    wchar_t exe_path[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+    std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
+    std::wstring service_exe = exe_dir / L"trusttunnel_service.exe";
+    std::wstring logs_dir = m_logs_dir.wstring();
+    std::wstring ring_buffer_path_w = m_ring_buffer_path.wstring();
+
+    std::wstring helper_exe = (exe_dir / L"trusttunnel_service_installer.exe").wstring();
+
+    // Build the command-line arguments for trusttunnel_service_installer.exe:
+    //   install <image_path> <logs_dir> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
+    std::wstring params = L"install";
+    params += L" \"" + service_exe + L"\"";
+    params += L" \"" + logs_dir + L"\"";
+    params += L" \"" + m_pipe_name + L"\"";
+    params += L" \"" + m_service_name + L"\"";
+    params += L" \"TrustTunnel VPN Service\"";
+    params += L" \"Provides VPN connectivity for the TrustTunnel client.\"";
+    params += L" \"" + ring_buffer_path_w + L"\"";
+
+    // Launch the helper with UAC elevation (runas verb triggers the consent prompt).
+    // SEE_MASK_NOCLOSEPROCESS is required to get sei.hProcess back — without it,
+    // hProcess is NULL and we can't wait for the process or get its exit code.
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = helper_exe.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    // Wait for the elevated helper to finish.
+    WaitForSingleObject(sei.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(sei.hProcess, &exit_code);
+    CloseHandle(sei.hProcess);
+
+    return static_cast<int32_t>(exit_code);
+}
+
+int32_t NativeVpnImpl::uninstall_service() {
+    wchar_t exe_path[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+    std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
+    std::wstring helper_exe = (exe_dir / L"trusttunnel_service_installer.exe").wstring();
+
+    std::wstring params = L"uninstall \"" + m_service_name + L"\"";
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = helper_exe.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            return TRUSTTUNNEL_SVC_ERR_ACCESS;
+        }
+        return TRUSTTUNNEL_SVC_ERR_OTHER;
+    }
+
+    WaitForSingleObject(sei.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(sei.hProcess, &exit_code);
+    CloseHandle(sei.hProcess);
+
+    return static_cast<int32_t>(exit_code);
+}
+
+int32_t NativeVpnImpl::attach_service() {
+    return trusttunnel_service_attach(
+            m_service_name.c_str(), m_pipe_name.c_str(), s_notify_state_changed, this, s_notify_connection_info, this);
+}
+
+int32_t NativeVpnImpl::start_service(const std::string &config) {
+    return trusttunnel_service_start(config.c_str());
 }
 
 std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {
-    vpn_easy_start(config.c_str(), state_changed_handler, this);
-    // Always return no error because flutter treats them as exceptions
-    // and pigeon doesn't allow to handle them in a general way
+    int32_t start_result = start_service(config);
+
+    if (start_result == TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE) {
+        // Service not installed — install once (needs admin), then retry.
+        int32_t install_result = install_service();
+        if (install_result != 0) {
+            warnlog(m_logger, "Failed to install VPN service: {}", install_result);
+            return FlutterError("SERVICE_INSTALL", "Failed to install VPN service");
+        }
+
+        start_result = start_service(config);
+    }
+
+    if (start_result != 0) {
+        warnlog(m_logger, "Failed to start VPN service: {}", start_result);
+        return FlutterError("SERVICE_START", "Failed to start VPN service");
+    }
     return std::nullopt;
 }
 
 std::optional<FlutterError> NativeVpnImpl::Stop() {
-    vpn_easy_stop();
+    int32_t stop_result = trusttunnel_service_stop();
+    if (stop_result != 0) {
+        warnlog(m_logger, "Failed to stop VPN service: {}", stop_result);
+    }
     return std::nullopt;
 }
 
 ErrorOr<flutter::EncodableList> NativeVpnImpl::ExportLogs() {
-    // Log export is not yet implemented for the Windows adapter
-    return flutter::EncodableList{};
+    // Unique temp export dir per call; the caller owns cleanup.
+    std::filesystem::path export_dir = std::filesystem::temp_directory_path()
+            / ("trusttunnel_windows_logs_" + std::to_string(static_cast<unsigned long long>(GetTickCount64())));
+
+    flutter::EncodableList result;
+    trusttunnel_log_export(
+            export_dir.wstring().c_str(),
+            [](void *arg, const wchar_t *path) {
+                // Dart strings are marshaled as UTF-8; transcode the native wide path.
+                std::u8string u8 = std::filesystem::path(path).u8string();
+                static_cast<flutter::EncodableList *>(arg)->push_back(
+                        flutter::EncodableValue(std::string(u8.begin(), u8.end())));
+            },
+            &result);
+    return result;
 }
 
 std::optional<FlutterError> NativeVpnImpl::ClearLogs() {
-    // Log clearing is not yet implemented for the Windows adapter
+    trusttunnel_log_clear();
     return std::nullopt;
 }
