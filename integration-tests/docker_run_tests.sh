@@ -40,6 +40,9 @@ run_main_tests() {
     if [ -n "$LIVE_TESTS" ]; then
         ENV_ARGS="$ENV_ARGS -e LIVE_TESTS=$LIVE_TESTS"
     fi
+    if [ -n "$CLIENT_RANDOM_PSK_KEY" ]; then
+        ENV_ARGS="$ENV_ARGS -e CLIENT_RANDOM_PSK_KEY=$CLIENT_RANDOM_PSK_KEY"
+    fi
 
     # Run the tests
     docker run --platform linux/amd64 --rm \

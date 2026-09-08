@@ -12,6 +12,7 @@ CONFIG_FILE="vpn.conf"
 TLS_HOSTS_SETTINGS_FILE="tls_hosts.conf"
 RULES_FILE="rules.conf"
 TLS_CLIENT_RANDOM="${TLS_CLIENT_RANDOM:-160200085c112870/9622006c5f112b73}"
+CLIENT_RANDOM_PSK_KEY="${CLIENT_RANDOM_PSK_KEY:-}"
 CREDENTIALS_FILE="credentials.conf"
 USERNAME="premium"
 PASSWORD="premium"
@@ -56,13 +57,23 @@ private_key_path = "key.pem"
 EOF
 
 echo "Creating connection rules file..."
+if [[ -n "$CLIENT_RANDOM_PSK_KEY" ]]; then
 cat > "$RULES_FILE" << EOF
 [[rule]]
-tls_client_random = "$TLS_CLIENT_RANDOM"
+client_random_psk_key = "$CLIENT_RANDOM_PSK_KEY"
 action = "allow"
 [[rule]]
 action = "deny"
 EOF
+else
+cat > "$RULES_FILE" << EOF
+[[rule]]
+client_random_prefix = "$TLS_CLIENT_RANDOM"
+action = "allow"
+[[rule]]
+action = "deny"
+EOF
+fi
 
 echo "Creating credentials file..."
 cat > "$CREDENTIALS_FILE" << EOF
