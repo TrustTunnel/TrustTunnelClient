@@ -1,4 +1,3 @@
-
 import 'package:flutter/cupertino.dart';
 
 import 'native_communication.dart';
@@ -22,20 +21,32 @@ class VpnStateNotifier extends ChangeNotifier {
   }
 }
 
+class ConnectionInfoNotifier extends ChangeNotifier {
+  final List<String> _records = [];
+  List<String> get records => List.unmodifiable(_records);
+
+  void addRecord(String json) {
+    _records.add(json);
+    notifyListeners();
+  }
+}
+
 class FlutterCallbacksImpl extends FlutterCallbacks {
-  final VpnStateNotifier _notifier;
-  FlutterCallbacksImpl(this._notifier);
+  final VpnStateNotifier _stateNotifier;
+  final ConnectionInfoNotifier _infoNotifier;
+
+  FlutterCallbacksImpl(this._stateNotifier, this._infoNotifier);
 
   @override
   void onStateChanged(int state) {
     if (state >= VpnState.values.length) {
       return;
     }
-    _notifier.onStateChanged(VpnState.values[state]);
+    _stateNotifier.onStateChanged(VpnState.values[state]);
   }
 
   @override
   void onConnectionInfo(String json) {
-    print(json);
+    _infoNotifier.addRecord(json);
   }
 }

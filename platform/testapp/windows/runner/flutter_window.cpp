@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <filesystem>
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -44,7 +45,16 @@ bool FlutterWindow::OnCreate() {
 
     auto *messanger = flutter_controller_->engine()->messenger();
     FlutterCallbacks callbacks(messanger);
-    native_interface_ = std::make_unique<NativeVpnImpl>(this, std::move(callbacks));
+
+    // Determine a path for the persistent ring buffer next to the executable
+    wchar_t exe_path[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+    std::filesystem::path exe_dir = std::filesystem::path(exe_path).parent_path();
+    std::filesystem::path ring_buffer_path = exe_dir / "connection_info.dat";
+    std::filesystem::path logs_dir = exe_dir / "logs";
+
+    native_interface_ = std::make_unique<NativeVpnImpl>(this, std::move(callbacks), std::move(ring_buffer_path),
+            std::move(logs_dir), L"TrustTunnelVpn", L"\\\\.\\pipe\\trusttunnel_vpn");
     NativeVpnInterface::SetUp(messanger, native_interface_.get());
 
     return true;

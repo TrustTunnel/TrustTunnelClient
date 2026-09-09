@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <list>
 #include <mutex>
@@ -14,9 +15,9 @@
 
 #include "common/defs.h"
 #include "common/logger.h"
-#include "vpn/vpn_easy_service.h"
+#include "trusttunnel/trusttunnel_service.h"
 
-namespace ag::vpn_easy {
+namespace ag::trusttunnel_windows {
 
 namespace detail {
 /** Free a security descriptor returned by an SDDL helper. Used as the deleter for `SecurityDescriptorPtr`. */
@@ -51,7 +52,7 @@ public:
      * Callback invoked from `loop()`'s thread for every fully-received message.
      * The `data` view is valid only for the duration of the call.
      */
-    using Handler = std::function<void(VpnEasyServiceMessageType what, ag::Uint8View data)>;
+    using Handler = std::function<void(TrusttunnelServiceMessageType what, ag::Uint8View data)>;
 
     virtual ~PipeEndpoint();
 
@@ -73,7 +74,15 @@ public:
      * Drop the message if no peer is connected. If the internal queue is full, drop the oldest
      * pending messages.
      */
-    void send(VpnEasyServiceMessageType what, ag::Uint8View data);
+    void send(TrusttunnelServiceMessageType what, ag::Uint8View data);
+
+    /**
+     * Enqueue a task to be executed on `loop()`'s thread. Thread-safe; may be called from any
+     * thread, including from inside the receive handler. Tasks are executed in FIFO order and
+     * never concurrently with each other or with a handler. Tasks posted after `loop()` has
+     * returned are never executed.
+     */
+    void post(std::function<void()> task);
 
 protected:
     /**
@@ -183,19 +192,26 @@ private:
     std::mutex m_pending_writes_lock;
     std::list<PendingWrite> m_pending_writes; // Guarded by m_pending_writes_lock.
 
+    // Tasks posted via post(); drained by the loop thread. Guarded by m_tasks_lock.
+    std::mutex m_tasks_lock;
+    std::deque<std::function<void()>> m_tasks;
+
     // Owned exclusively by the loop thread: the message currently being written (possibly with an
     // overlapped WriteFile in flight). Moved here from m_pending_writes under the lock and kept
     // alive until the write fully completes, so that send() can never free the in-flight buffer.
     std::optional<PendingWrite> m_inflight_write;
 
-    static std::vector<uint8_t> compose_message(VpnEasyServiceMessageType what, ag::Uint8View data);
+    static std::vector<uint8_t> compose_message(TrusttunnelServiceMessageType what, ag::Uint8View data);
+
+    // Run all tasks queued via post(). Called by the loop thread only.
+    void run_pending_tasks();
 
     // Returns nullopt to continue the loop; otherwise the value `loop()` should return.
     std::optional<bool> handle_disconnect();
 
     bool start_read();
     bool complete_read();
-    bool handle_input();
+    bool dispatch_one_message();
     bool pump_writes();
     bool complete_write();
     void disconnect_and_reset();
@@ -272,6 +288,13 @@ public:
      */
     bool wait_connected();
 
+    /**
+     * Whether the client is currently connected to the server.
+     */
+    bool is_connected() const {
+        return m_connected.load(std::memory_order_relaxed);
+    }
+
 protected:
     bool start_connect() override;
     void teardown_pipe() override;
@@ -288,4 +311,4 @@ private:
     HANDLE m_connected_or_failed_event = nullptr;
 };
 
-} // namespace ag::vpn_easy
+} // namespace ag::trusttunnel_windows
