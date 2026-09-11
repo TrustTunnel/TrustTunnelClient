@@ -85,6 +85,11 @@ jobs:
 
               echo "${test_status:-0}" > /src/results/test-status
               cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true
+              # Capture the sccache counters where the compilations happened:
+              # the runner-side daemon never sees them (all zeros otherwise).
+              # The .txt is for the job log, the .json drives force-save.
+              sccache --show-stats > /src/results/sccache-stats.txt 2>&1 || true
+              sccache --show-stats --stats-format=json > /src/results/sccache-stats.json 2>/dev/null || true
 
               conan remote login art "$(cat /run/secrets/artifactory_user)" \
                   --password "$(cat /run/secrets/artifactory_api_key)" || true
@@ -97,8 +102,7 @@ jobs:
 
               FROM scratch AS native-tests-output
 
-              COPY --from=native-tests /src/results/junit.xml /junit.xml
-              COPY --from=native-tests /src/results/test-status /test-status
+              COPY --from=native-tests /src/results/ /
               COPY --from=native-tests /src/.sccache /sccache
               EOF
               DOCKER_BUILDKIT=1 docker build --progress=plain \
