@@ -49,10 +49,8 @@ jobs:
               # syntax=docker/dockerfile:1
               FROM adguard/core-libs:2.12 AS build
 
-              # sccache caches the C/C++ compilations. The pinned binary is
-              # installed once: this layer depends only on the base image, so it
-              # stays cached across runs (the native-tests stage is rebuilt by
-              # --no-cache-filter, this one is not).
+              # sccache caches the compilations; the pinned binary is installed
+              # before COPY . . so this layer stays cached across source changes.
               RUN curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz \
                   | tar -xz -C /usr/local/bin --strip-components=1
 
@@ -75,6 +73,9 @@ jobs:
               # The store was restored into .sccache and copied here by COPY . .;
               # CMAKE_LAUNCHER makes cmake use sccache for C/C++ compilations.
               export SCCACHE_DIR=/src/.sccache
+              # Pin the daemon to this container: a foreign one on the shared
+              # builder cannot see our sources ("No such file or directory").
+              export SCCACHE_SERVER_UDS=/tmp/sccache.sock
               export PRESET=clang-relwithdebinfo-sanitizer
               export SKIP_BOOTSTRAP=1
 
