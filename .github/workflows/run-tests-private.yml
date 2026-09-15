@@ -277,5 +277,14 @@ jobs:
         run: |
           set -e
           set -x
-          SKIP_BOOTSTRAP=1 make clangd-tidy
+          SKIP_BOOTSTRAP=1 make clangd-tidy CLANGD_TIDY_JOBS=1
+
+      # Tell an OOM kill apart from a clangd crash: the counters are 0 unless
+      # the cgroup limit was hit.
+      - name: Memory accounting
+        if: always()
+        run: |
+          set -x
+          cat /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.peak 2>/dev/null || true
+          cat /sys/fs/cgroup/memory.events 2>/dev/null || true
 
