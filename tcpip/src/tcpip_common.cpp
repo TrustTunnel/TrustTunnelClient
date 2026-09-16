@@ -184,12 +184,6 @@ static err_t netif_init_cb(struct netif *netif) {
     return ERR_OK;
 }
 
-enum TunReadStatus {
-    TRS_OK,   // data was read from tun device and sent to netif driver
-    TRS_DROP, // read data was malformed, so another read is required
-    TRS_STOP  // no more data can be read from tun device
-};
-
 /**
  * Read data from tun device and send it to netif driver.
  * If packet is VpnPacket was sent to netif driver, its destructor will be called on the driver's side,
@@ -207,10 +201,11 @@ static TunReadStatus process_data_from_utun(TcpipCtx *ctx, VpnPacket *packet) {
             {.iov_base = &hdr, .iov_len = HDR_SIZE}, {.iov_base = packet->data, .iov_len = ctx->parameters.mtu_size}};
     ssize_t bytes_read = readv(ctx->parameters.tun_fd, iov, std::size(iov));
     if (bytes_read <= 0) {
-        if (EWOULDBLOCK != errno) {
+        TunReadStatus status = tun_read_status(bytes_read, errno);
+        if (TRS_FATAL == status) {
             errlog(ctx->logger, "data from UTUN: read failed (errno={})", strerror(errno));
         }
-        return TRS_STOP;
+        return status;
     }
     if (bytes_read < HDR_SIZE) {
         errlog(ctx->logger, "data from UTUN: read less than header size bytes");
@@ -227,10 +222,11 @@ static TunReadStatus process_data_from_tun(TcpipCtx *ctx, VpnPacket *packet) {
 
     ssize_t bytes_read = read(ctx->parameters.tun_fd, packet->data, ctx->parameters.mtu_size);
     if (bytes_read <= 0) {
-        if (EWOULDBLOCK != errno) {
+        TunReadStatus status = tun_read_status(bytes_read, errno);
+        if (TRS_FATAL == status) {
             errlog(ctx->logger, "data from TUN: read failed (errno={})", strerror(errno));
         }
-        return TRS_STOP;
+        return status;
     }
     packet->size = bytes_read;
     tracelog(ctx->logger, "data from TUN: {} bytes", bytes_read);
@@ -303,6 +299,11 @@ static void tun_event_callback(evutil_socket_t fd, short ev_flag, void *arg) {
         if (status != TRS_OK && packet.destructor) {
             packet.destructor(packet.destructor_arg, packet.data);
         }
+        if (status == TRS_FATAL) {
+            // a broken descriptor stays readable, so a persistent event on it spins
+            event_del(ctx->tun_event);
+            break;
+        }
         if (status == TRS_STOP) {
             break;
         }
@@ -324,7 +325,7 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
 #ifdef __GLIBC__
         malloc_trim(0);
 #elif defined(__MACH__)
-        malloc_zone_pressure_relief(NULL, 0);
+        malloc_zone_pressure_relief(nullptr, 0);
 #elif defined(_WIN32)
         // HeapOptimizeResources is available on Windows 8.1+ (NTDDI >= 0x06030000).
         // Use runtime loading so the binary works on Win7 too.
@@ -333,7 +334,7 @@ static void timer_callback(evutil_socket_t, short, void *arg) {
         if (heap_set_info) {
             HEAP_OPTIMIZE_RESOURCES_INFORMATION heap_opt_info = {};
             heap_opt_info.Version = HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION;
-            heap_set_info(NULL, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
+            heap_set_info(nullptr, HeapOptimizeResources, &heap_opt_info, sizeof(heap_opt_info));
         }
 #endif
     }

@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A TUN device that fails unrecoverably (for example `EBADFD` after the
+  descriptor is lost) no longer spins the event loop: the read event is removed
+  instead of being left armed on a descriptor that reports itself readable
+  forever, which produced one error log line per iteration at roughly 20 MB/s.
+
 ### Security
 
 ## [1.1.5] - 2026-09-02
