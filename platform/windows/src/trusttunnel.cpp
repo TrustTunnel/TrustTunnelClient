@@ -650,6 +650,11 @@ static int32_t setup_pipe_client(const wchar_t *pipe_name) {
 /// service that is not running is started; otherwise it is an error. An existing session is
 /// reused, so this is idempotent. Caller must hold `g_svc_state.mutex`.
 static int32_t ensure_live_session(bool start_service) {
+    if (g_svc_state.service_name.empty()) {
+        errlog(g_logger, "Not attached to a service, call trusttunnel_service_attach() first");
+        return TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE;
+    }
+
     if (g_svc_state.pipe_client) {
         if (g_svc_state.pipe_client->is_connected()) {
             return 0;
@@ -729,11 +734,6 @@ int32_t trusttunnel_service_attach(const wchar_t *service_name, const wchar_t *p
 
 int32_t trusttunnel_service_start(const char *toml_config) {
     std::scoped_lock lock{g_svc_state.mutex};
-
-    if (g_svc_state.service_name.empty()) {
-        errlog(g_logger, "Not attached to a service, call trusttunnel_service_attach() first");
-        return TRUSTTUNNEL_SVC_ERR_OTHER;
-    }
 
     toml::parse_result parsed_config = toml::parse(toml_config);
     if (!parsed_config) {
