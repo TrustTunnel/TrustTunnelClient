@@ -232,6 +232,10 @@ bool PipeEndpoint::start_read() {
         return false;
     }
     DWORD read_size = 0;
+    // Clear a stale completion signal (e.g. one left behind by a synchronously-completed
+    // previous read) before queueing the read, so that any signal observed afterwards can only
+    // belong to this operation.
+    ResetEvent(m_io_event);
     BOOL ok = ReadFile(m_pipe, m_input_buf.data() + m_input_buf_used,
             static_cast<DWORD>(m_input_buf.size() - m_input_buf_used), &read_size, &m_olr);
     if (ok) {
@@ -316,6 +320,10 @@ bool PipeEndpoint::pump_writes() {
         }
 
         PendingWrite &w = *m_inflight_write;
+        // Clear a stale completion signal (e.g. one left behind by a synchronously-completed
+        // previous write) before queueing the write, so that any signal observed afterwards can
+        // only belong to this operation.
+        ResetEvent(m_write_event);
         DWORD written = 0;
         BOOL ok = WriteFile(
                 m_pipe, w.data.data() + w.written, static_cast<DWORD>(w.data.size() - w.written), &written, &m_olw);
