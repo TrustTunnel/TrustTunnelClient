@@ -1541,3 +1541,217 @@ TEST_F(PipeTest, ClientReceivesConnectionInfoFromServer) {
     signal_stop();
     ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
 }
+
+TEST_F(PipeTest, ClientReceivesBurstWithoutFramingCorruptionWhenReadsCompleteSynchronously) {
+    // Regression: a synchronously-completed ReadFile may leave m_io_event signaled (the kernel
+    // is allowed to do this, but is not required to). Prior to the fix, that stale signal
+    // survived into the next overlapped read, so the loop woke on m_io_event while an unread
+    // operation was still pending and complete_read() reaped a stale byte count from the reused
+    // OVERLAPPED structure. The stale count desynchronized the receive framing, which surfaced
+    // as a garbage length field in dispatch_one_message (an absurd "incoming message size")
+    // and a dropped connection. start_read() now resets m_io_event before queueing each read.
+    //
+    // Drive the client with bursts of small framed messages so that its reads repeatedly
+    // complete synchronously, then verify that every message arrived exactly once and in order,
+    // and that the client stayed connected throughout.
+    Handle server_pipe{CreateNamedPipeW(m_pipe_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr)};
+    ASSERT_TRUE(server_pipe);
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    // Accept the client's connection via overlapped ConnectNamedPipe.
+    OVERLAPPED ol{};
+    Handle ev{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    ol.hEvent = ev.get();
+    BOOL ok = ConnectNamedPipe(server_pipe.get(), &ol);
+    DWORD err = GetLastError();
+    if (!ok && err == ERROR_IO_PENDING) {
+        ASSERT_EQ(WaitForSingleObject(ol.hEvent,
+                          static_cast<DWORD>(
+                                  std::chrono::duration_cast<std::chrono::milliseconds>(TEST_TIMEOUT).count())),
+                WAIT_OBJECT_0);
+        DWORD t = 0;
+        ASSERT_TRUE(GetOverlappedResult(server_pipe.get(), &ol, &t, FALSE));
+    } else if (!ok) {
+        ASSERT_EQ(err, static_cast<DWORD>(ERROR_PIPE_CONNECTED));
+    }
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Blast the whole burst in one tight loop so that, while the client is still draining, each
+    // read it posts finds bytes already buffered in the kernel and completes synchronously.
+    // The client also sends on every round, like the attach() flow does (QUERY_STATE + START),
+    // so its write pipeline runs concurrently with the reads.
+    constexpr int ROUNDS = 8;
+    constexpr int PER_ROUND = 25;
+    constexpr size_t PAYLOAD_SIZE = 64;
+    static_assert(ROUNDS * PER_ROUND * (WIRE_HEADER_SIZE + PAYLOAD_SIZE) < 64 * 1024,
+            "burst must fit the server-side pipe in-buffer to avoid blocking writes");
+    for (int round = 0; round < ROUNDS; ++round) {
+        std::vector<uint8_t> burst;
+        burst.reserve(PER_ROUND * (WIRE_HEADER_SIZE + PAYLOAD_SIZE));
+        for (int i = 0; i < PER_ROUND; ++i) {
+            uint32_t seq = static_cast<uint32_t>(round * PER_ROUND + i);
+            std::vector<uint8_t> payload(PAYLOAD_SIZE);
+            memcpy(payload.data(), &seq, sizeof(seq));
+            auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, payload);
+            burst.insert(burst.end(), frame.begin(), frame.end());
+        }
+        ASSERT_TRUE(write_all(server_pipe.get(), burst));
+        client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+    }
+
+    constexpr size_t TOTAL = static_cast<size_t>(ROUNDS) * PER_ROUND;
+    ASSERT_TRUE(client_collector.wait_for_count(TOTAL, TEST_TIMEOUT));
+
+    // Framing integrity: every message exactly once, payload sequence strictly increasing, and
+    // the connection must still be up (a framing desync would have dropped it).
+    EXPECT_TRUE(client.is_connected());
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), TOTAL);
+    for (size_t i = 0; i < msgs.size(); ++i) {
+        uint32_t seq = 0;
+        ASSERT_EQ(msgs[i].payload.size(), PAYLOAD_SIZE);
+        memcpy(&seq, msgs[i].payload.data(), sizeof(seq));
+        EXPECT_EQ(seq, i) << "message " << i << " is missing, duplicated or out of order";
+    }
+
+    SetEvent(client_stop.get());
+    auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(client_result);
+    EXPECT_TRUE(*client_result);
+}
+
+TEST_F(PipeTest, ServerSurvivesConcurrentWriteBurstsToSlowConsumer) {
+    // Reproduces the production conditions of the client framing-desync investigation: the
+    // service (PipeServer) is driven by both producer concurrency profiles at once -- sends
+    // posted to the loop thread (mirroring send_state) and sends from an external thread
+    // (mirroring the VPN event loop's connection-info pushes) -- while the client consumes
+    // slowly, so that the server's pipe output buffer fills and its writes complete
+    // overlapped, possibly partially. Frames carry sequence numbers: every delivered sequence
+    // must arrive at most once and in order (whole-frame drops under queue-overflow pressure
+    // are legitimate), and the connection must stay up (a frame whose header was fused from a
+    // different message would trip either the write bookkeeping invariants or the
+    // receive-side size check).
+    MessageCollector server_collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeEndpoint::Handler slow_sink = [sink = client_collector.make_handler()](
+                                              TrusttunnelServiceMessageType what, ag::Uint8View data) {
+        // Slow consumer: stall the client's read loop so that the server's pipe output buffer
+        // fills and its writes go overlapped.
+        std::this_thread::sleep_for(1ms);
+        sink(what, data);
+    };
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), std::move(slow_sink)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    constexpr int PER_STATE = 100;
+    constexpr int PER_INFO = 200;
+    constexpr size_t INFO_PAYLOAD_SIZE = 600;
+    static_assert(PER_INFO * (WIRE_HEADER_SIZE + INFO_PAYLOAD_SIZE) > 64 * 1024,
+            "volume must exceed the pipe output buffer so writes go overlapped");
+
+    std::thread state_producer{[&] {
+        for (int i = 0; i < PER_STATE; ++i) {
+            server.post([&server, i] {
+                auto seq = static_cast<uint32_t>(i);
+                server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&seq), sizeof(seq)});
+            });
+            std::this_thread::sleep_for(1ms);
+        }
+    }};
+    std::thread info_producer{[&] {
+        std::vector<uint8_t> payload(INFO_PAYLOAD_SIZE, 0xAB);
+        for (int i = 0; i < PER_INFO; ++i) {
+            auto seq = static_cast<uint32_t>(i);
+            memcpy(payload.data(), &seq, sizeof(seq));
+            server.send(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {payload.data(), payload.size()});
+            std::this_thread::sleep_for(200us);
+        }
+    }};
+
+    state_producer.join();
+    info_producer.join();
+
+    // Push a sentinel last; its arrival means everything queued before it has been delivered
+    // (or legitimately dropped under queue pressure), so verification can start.
+    uint32_t sentinel = 0xDEADBEEF;
+    server.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {reinterpret_cast<const uint8_t *>(&sentinel), sizeof(sentinel)});
+
+    ASSERT_TRUE(wait_until(
+            [&] {
+                auto msgs = client_collector.snapshot();
+                return !msgs.empty() && msgs.back().what == TRUSTTUNNEL_SVC_MSG_QUERY_STATE;
+            },
+            std::chrono::seconds{20}))
+            << "sentinel was not delivered";
+
+    EXPECT_TRUE(client.is_connected());
+
+    auto msgs = client_collector.snapshot();
+    ASSERT_FALSE(msgs.empty());
+    // Drop the sentinel, then verify both streams: sequence numbers strictly increasing (no
+    // duplicates or reorderings) and payload sizes as composed.
+    msgs.pop_back();
+    uint32_t prev_state = 0;
+    bool have_state = false;
+    uint32_t prev_info = 0;
+    bool have_info = false;
+    size_t state_count = 0;
+    size_t info_count = 0;
+    for (const auto &m : msgs) {
+        if (m.what == TRUSTTUNNEL_SVC_MSG_STATE_CHANGED) {
+            ASSERT_EQ(m.payload.size(), sizeof(uint32_t));
+            uint32_t seq = 0;
+            memcpy(&seq, m.payload.data(), sizeof(seq));
+            if (have_state) {
+                EXPECT_GT(seq, prev_state) << "STATE_CHANGED sequence " << seq << " is duplicated or out of order";
+            }
+            prev_state = seq;
+            have_state = true;
+            ++state_count;
+        } else if (m.what == TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO) {
+            ASSERT_EQ(m.payload.size(), INFO_PAYLOAD_SIZE);
+            uint32_t seq = 0;
+            memcpy(&seq, m.payload.data(), sizeof(seq));
+            if (have_info) {
+                EXPECT_GT(seq, prev_info) << "CONNECTION_INFO sequence " << seq << " is duplicated or out of order";
+            }
+            prev_info = seq;
+            have_info = true;
+            ++info_count;
+        } else {
+            ADD_FAILURE() << "unexpected message type " << static_cast<int>(m.what);
+        }
+    }
+    // Whole-frame drops under queue pressure are legitimate (and expected here), but neither
+    // stream may be lost entirely.
+    EXPECT_GT(state_count, 0u);
+    EXPECT_GT(info_count, 0u);
+
+    SetEvent(client_stop.get());
+    auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(client_result);
+    EXPECT_TRUE(*client_result);
+
+    signal_stop();
+    auto server_result = server_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(server_result);
+    EXPECT_TRUE(*server_result);
+}

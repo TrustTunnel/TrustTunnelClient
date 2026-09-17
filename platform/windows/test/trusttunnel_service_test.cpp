@@ -9,6 +9,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <thread>
 
 #include <fmt/format.h>
 #include <magic_enum/magic_enum.hpp>
@@ -246,6 +247,96 @@ static int test_restart_after_stop() {
     return 0;
 }
 
+/// Test the semantics of trusttunnel_service_stop() around missing and dead sessions: stopping
+/// while not attached must succeed without doing anything, a binding to a service that is not
+/// running means the VPN client is already stopped (success), and a late STOP after the session
+/// died with the service must report the already-stopped state as success instead of silently
+/// claiming a request that was never delivered.
+static int test_stop_semantics() {
+    fmt::println(stderr, "=== test_stop_semantics ===");
+
+    // Stopping without being attached must be a success without side effects.
+    int32_t ret = trusttunnel_service_stop();
+    if (ret != 0) {
+        fmt::println(stderr, "FAILED: stop without attachment returned {}", ret);
+        return -1;
+    }
+
+    // A binding to a service that does not exist: stop must still report success (already
+    // stopped), not an error, because the desired state already holds.
+    ret = trusttunnel_service_attach(
+            L"trusttunnel_no_such_service", PIPE_NAME, recording_state_changed_cb, nullptr, nullptr, nullptr);
+    if (ret != TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE) {
+        fmt::println(stderr, "FAILED: attach to a nonexistent service returned {}", ret);
+        return -1;
+    }
+    ret = trusttunnel_service_stop();
+    if (ret != 0) {
+        fmt::println(stderr, "FAILED: stop with a binding to a nonexistent service returned {}", ret);
+        return -1;
+    }
+    trusttunnel_service_detach();
+
+    // Then end-to-end: a session that dies together with the service (uninstall stops the
+    // service, which tears down the pipe and the VPN client with it). Stopping afterwards must
+    // report success: the service is gone, so the stopped state holds.
+    std::string config = read_config();
+    if (config.empty()) {
+        return -1;
+    }
+
+    ret = install_service();
+    if (ret) {
+        fmt::println(stderr, "trusttunnel_service_install: {}", ret);
+        return -1;
+    }
+
+    trusttunnel_service_attach(SERVICE_NAME, PIPE_NAME, recording_state_changed_cb, nullptr, nullptr, nullptr);
+    ret = trusttunnel_service_start(config.c_str());
+    if (ret) {
+        fmt::println(stderr, "trusttunnel_service_start: {}", ret);
+        trusttunnel_service_detach();
+        trusttunnel_service_uninstall(SERVICE_NAME);
+        return -1;
+    }
+    if (!wait_for_state(ag::VPN_SS_CONNECTED, std::chrono::seconds(30))) {
+        fmt::println(stderr, "Timed out waiting for VPN_SS_CONNECTED");
+        trusttunnel_service_detach();
+        trusttunnel_service_uninstall(SERVICE_NAME);
+        return -1;
+    }
+
+    fmt::println(stderr, "Uninstalling the service (kills the pipe session and the VPN client with it)...");
+    ret = trusttunnel_service_uninstall(SERVICE_NAME);
+    if (ret) {
+        fmt::println(stderr, "trusttunnel_service_uninstall: {}", ret);
+        return -1;
+    }
+    if (!wait_for_state(ag::VPN_SS_DISCONNECTED, std::chrono::seconds(30))) {
+        fmt::println(stderr, "Timed out waiting for VPN_SS_DISCONNECTED");
+        return -1;
+    }
+
+    // The session is dead and the service is being torn down by the SCM. The SCM keeps a
+    // deleted service entry briefly visible after uninstall, so retry until it fully
+    // disappears; stopping must then report success rather than a failed delivery.
+    for (int i = 0;; ++i) {
+        ret = trusttunnel_service_stop();
+        if (ret == 0) {
+            break;
+        }
+        if (i == 20) {
+            fmt::println(stderr, "FAILED: stop with a dead session returned {}", ret);
+            return -1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    trusttunnel_service_detach();
+    fmt::println(stderr, "Done.");
+    return 0;
+}
+
 int main(int argc, char **argv) {
     ag::Logger::set_log_level(ag::LOG_LEVEL_DEBUG);
 
@@ -260,10 +351,13 @@ int main(int argc, char **argv) {
     if (strcmp(test, "restart_after_stop") == 0) {
         return test_restart_after_stop();
     }
+    if (strcmp(test, "stop_semantics") == 0) {
+        return test_stop_semantics();
+    }
     if (strcmp(test, "full") == 0) {
         return test_full_lifecycle();
     }
 
-    fmt::println(stderr, "Usage: {} [install|startstop|restart_after_stop|full]", argv[0]);
+    fmt::println(stderr, "Usage: {} [install|startstop|restart_after_stop|stop_semantics|full]", argv[0]);
     return 1;
 }
