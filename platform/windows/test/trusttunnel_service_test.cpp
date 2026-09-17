@@ -61,14 +61,18 @@ static int32_t install_service() {
     auto image = absolute(std::filesystem::path(".") / "trusttunnel_service.exe").wstring();
     auto logs_dir = absolute(std::filesystem::path(".") / "trusttunnel_service.log").wstring();
     auto ring_buffer = absolute(std::filesystem::path(".") / "test_ring_buffer.dat").wstring();
+    // The test binary itself plays the controlling app: unsigned in local runs (pinless
+    // install), signed in release CI (pinned install).
+    wchar_t app_exe[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, app_exe, MAX_PATH);
 
     int32_t ret = trusttunnel_service_install(image.c_str(), logs_dir.c_str(), PIPE_NAME, SERVICE_NAME,
-            L"VPN easy service", L"Test description", ring_buffer.c_str());
+            L"VPN easy service", L"Test description", ring_buffer.c_str(), app_exe);
     if (ret == TRUSTTUNNEL_SVC_ERR_SERVICE_EXISTS) {
         fmt::println(stderr, "Service already exists, uninstalling first...");
         trusttunnel_service_uninstall(SERVICE_NAME);
         ret = trusttunnel_service_install(image.c_str(), logs_dir.c_str(), PIPE_NAME, SERVICE_NAME, L"VPN easy service",
-                L"Test description", ring_buffer.c_str());
+                L"Test description", ring_buffer.c_str(), app_exe);
     }
     return ret;
 }

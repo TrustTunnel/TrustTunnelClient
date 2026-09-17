@@ -8,12 +8,14 @@
 #include <string>
 #include <utility>
 
-#include "common/defs.h"
-#include "common/logger.h"
+#include <magic_enum/magic_enum.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "client_authenticator.h"
+#include "common/defs.h"
+#include "common/logger.h"
 #include "common/system_error.h"
 #include "scoped_file_lock.h"
 #include "trusttunnel_log.h"
@@ -31,6 +33,7 @@ static std::wstring g_pipe_name;
 static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static trusttunnel_t *g_vpn;
+static std::optional<ag::trusttunnel_windows::CertificatePin> g_pin;
 static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
 static std::filesystem::path g_ring_buffer_path;
 static std::optional<ag::FileLogger> g_file_logger;
@@ -152,11 +155,29 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
 
     service_set_status(SERVICE_START_PENDING);
 
+    // The authenticator is wired into the server via a validator callback, so it must outlive
+    // `server`. It is engaged only when a pin was provisioned.
+    std::optional<ag::trusttunnel_windows::ClientAuthenticator> authenticator;
+    ag::trusttunnel_windows::PipeServer::PeerValidator peer_validator;
+    if (g_pin.has_value()) {
+        infolog(g_logger, "Client authentication is enabled");
+        authenticator.emplace(std::move(*g_pin));
+        peer_validator = [&authenticator](HANDLE pipe) {
+            ag::trusttunnel_windows::ClientValidationDecision decision = authenticator->validate(pipe);
+            if (decision != ag::trusttunnel_windows::ClientValidationDecision::ALLOWED) {
+                warnlog(g_logger, "Rejecting pipe client: {}", magic_enum::enum_name(decision));
+            }
+            return decision == ag::trusttunnel_windows::ClientValidationDecision::ALLOWED;
+        };
+    } else {
+        warnlog(g_logger, "No client-authentication pin provisioned; any local client may control the service");
+    }
+
     PipeServer server{g_pipe_name.c_str(), g_shutdown_event,
             [&server](TrusttunnelServiceMessageType what, ag::Uint8View data) {
                 pipe_handler(server, what, data);
             },
-            PipeServer::for_authenticated_users().get()};
+            PipeServer::for_authenticated_users().get(), std::move(peer_validator)};
 
     service_set_status(SERVICE_RUNNING);
     server.loop();
@@ -170,7 +191,7 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
 }
 
 int wmain(int argc, wchar_t **argv) {
-    if (argc != 4) {
+    if (argc != 5) {
         return 1;
     }
 
@@ -188,6 +209,10 @@ int wmain(int argc, wchar_t **argv) {
         g_ring_buffer_path = std::filesystem::path(argv[3]);
         g_ring_buffer.emplace(g_ring_buffer_path);
     }
+
+    // argv[4] is the client-authentication pin: the thumbprint of the authorized app's
+    // certificate, or an empty string when the service was provisioned without one.
+    g_pin = ag::trusttunnel_windows::CertificatePin::parse(argv[4]);
 
     wchar_t svc_name[] = L"";
     SERVICE_TABLE_ENTRYW start_table[] = {

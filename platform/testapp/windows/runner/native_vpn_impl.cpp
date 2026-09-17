@@ -77,7 +77,8 @@ int32_t NativeVpnImpl::install_service() {
     std::wstring helper_exe = (exe_dir / L"trusttunnel_service_installer.exe").wstring();
 
     // Build the command-line arguments for trusttunnel_service_installer.exe:
-    //   install <image_path> <logs_dir> <pipe_name> <name> <display_name> <description> <ring_buffer_path>
+    //   install <image_path> <logs_dir> <pipe_name> <name> <display_name> <description>
+    //          <ring_buffer_path> <app_exe_path>
     std::wstring params = L"install";
     params += L" \"" + service_exe + L"\"";
     params += L" \"" + logs_dir + L"\"";
@@ -86,6 +87,9 @@ int32_t NativeVpnImpl::install_service() {
     params += L" \"TrustTunnel VPN Service\"";
     params += L" \"Provides VPN connectivity for the TrustTunnel client.\"";
     params += L" \"" + ring_buffer_path_w + L"\"";
+    // The app executable is the authorized service client; its Authenticode signature is pinned
+    // at install time (unsigned dev builds install without a pin).
+    params += L" \"" + std::wstring(exe_path) + L"\"";
 
     // Launch the helper with UAC elevation (runas verb triggers the consent prompt).
     // SEE_MASK_NOCLOSEPROCESS is required to get sei.hProcess back — without it,
