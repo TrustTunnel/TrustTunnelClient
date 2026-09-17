@@ -767,9 +767,15 @@ void trusttunnel_service_detach() {
 
 int32_t trusttunnel_service_stop() {
     std::scoped_lock lock{g_svc_state.mutex};
-    if (!g_svc_state.pipe_client) {
-        return 0;
+
+    if (int32_t err = ensure_live_session(false); err != 0) {
+        if (err == TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE) {
+            dbglog(g_logger, "The service is already stopped");
+            return 0;
+        }
+        return err;
     }
+
     g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_STOP, {});
     return 0;
 }
