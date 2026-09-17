@@ -76,6 +76,10 @@ ag::QuicConnector *ag::quic_connector_create(const ag::QuicConnectorParameters *
 
 void ag::quic_connector_destroy(ag::QuicConnector *connector) {
     if (connector) {
+        // Destroy the client before cancelling the report task: the client's destructor sends CONNECTION_CLOSE
+        // through `on_client_output`, and if that write fails, `report_error` schedules a report task,
+        // which would otherwise run after the connector is deleted.
+        connector->client.reset();
         if (connector->report_task != -1) {
             vpn_event_loop_cancel(connector->parameters.ev_loop, connector->report_task);
         }
