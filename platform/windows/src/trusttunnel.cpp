@@ -641,6 +641,8 @@ static int32_t setup_pipe_client(const wchar_t *pipe_name) {
         return TRUSTTUNNEL_SVC_ERR_TIMED_OUT;
     }
 
+    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
     return 0;
 }
 
@@ -721,8 +723,6 @@ int32_t trusttunnel_service_attach(const wchar_t *service_name, const wchar_t *p
     if (int32_t err = ensure_live_session(false); err != 0) {
         return err;
     }
-
-    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
 
     return 0;
 }
