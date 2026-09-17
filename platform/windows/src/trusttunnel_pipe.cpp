@@ -420,9 +420,10 @@ SecurityDescriptorPtr PipeServer::for_authenticated_users() {
     return SecurityDescriptorPtr{static_cast<SECURITY_DESCRIPTOR *>(sd)};
 }
 
-PipeServer::PipeServer(
-        const wchar_t *pipe_name, HANDLE stop_event, Handler handler, SECURITY_DESCRIPTOR *security_descriptor)
-        : PipeEndpoint{stop_event, std::move(handler), g_server_logger} {
+PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+        SECURITY_DESCRIPTOR *security_descriptor, PeerValidator validator)
+        : PipeEndpoint{stop_event, std::move(handler), g_server_logger}
+        , m_validator{std::move(validator)} {
     m_pipe = create_pipe(pipe_name, security_descriptor);
 }
 
@@ -451,37 +452,60 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *se
     return h;
 }
 
+bool PipeServer::validate_peer() {
+    // A null validator means "accept everyone".
+    return m_validator == nullptr || m_validator(m_pipe);
+}
+
+bool PipeServer::accept_connected_client() {
+    if (!validate_peer()) {
+        // Rejection routes through the reconnect path, never a fatal loop exit: drop the client
+        // and let the caller re-post ConnectNamedPipe for the next one.
+        infolog(m_logger, "peer validation rejected the client; dropping it");
+        DisconnectNamedPipe(m_pipe);
+        return false;
+    }
+    m_connected.store(true, std::memory_order_relaxed);
+    SetEvent(m_wake_event);
+    return true;
+}
+
 bool PipeServer::start_connect() {
-    prepare_for_connect();
     if (m_pipe == INVALID_HANDLE_VALUE) {
         // create_pipe() failed in the constructor.
         return false;
     }
 
-    if (ConnectNamedPipe(m_pipe, &m_olr)) {
-        // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
-        // used by the kernel in this case, so do not call finalize_connect (which would call
-        // GetOverlappedResult on it). Mark connected directly and kick the loop.
-        ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(m_logger, "client connected (sync)");
-        return true;
+    for (;;) {
+        prepare_for_connect();
+
+        if (ConnectNamedPipe(m_pipe, &m_olr)) {
+            // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
+            // used by the kernel in this case, so do not call finalize_connect (which would call
+            // GetOverlappedResult on it). Mark connected directly and kick the loop.
+            ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
+            if (!accept_connected_client()) {
+                continue;
+            }
+            infolog(m_logger, "client connected (sync)");
+            return true;
+        }
+        DWORD err = GetLastError();
+        if (err == ERROR_PIPE_CONNECTED) {
+            // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op
+            // was submitted; mark connected directly.
+            if (!accept_connected_client()) {
+                continue;
+            }
+            infolog(m_logger, "client connected (already connected)");
+            return true;
+        }
+        if (err == ERROR_IO_PENDING) {
+            return true;
+        }
+        errlog(m_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
+        return false;
     }
-    DWORD err = GetLastError();
-    if (err == ERROR_PIPE_CONNECTED) {
-        // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op was
-        // submitted; mark connected directly.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(m_logger, "client connected (already connected)");
-        return true;
-    }
-    if (err == ERROR_IO_PENDING) {
-        return true;
-    }
-    errlog(m_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
-    return false;
 }
 
 bool PipeServer::finalize_connect() {
@@ -492,6 +516,13 @@ bool PipeServer::finalize_connect() {
         return false;
     }
     ResetEvent(m_io_event);
+    if (!validate_peer()) {
+        // Rejection takes the normal reconnect path: returning false here routes through
+        // disconnect_and_reset() (teardown_pipe() -> DisconnectNamedPipe) and start_connect()
+        // re-posts ConnectNamedPipe, so a rejected client looks like any other disconnect.
+        infolog(m_logger, "peer validation rejected the client");
+        return false;
+    }
     m_connected.store(true, std::memory_order_relaxed);
     infolog(m_logger, "client connected");
     return true;

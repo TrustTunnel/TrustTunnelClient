@@ -224,6 +224,13 @@ private:
 class PipeServer : public PipeEndpoint {
 public:
     /**
+     * Connect-time client validation callback. Invoked on the loop thread with the just-connected
+     * pipe handle, before any of the client's bytes are read. Returning false rejects the client
+     * and drops it through the normal reconnect path. May be null: every client is accepted.
+     */
+    using PeerValidator = std::function<bool(HANDLE)>;
+
+    /**
      * Create a security descriptor that grants GENERIC_READ | GENERIC_WRITE to
      * NT AUTHORITY\Authenticated Users, and full control to SYSTEM and BUILTIN\Administrators.
      * Suitable for a service-side IPC named pipe that must be reachable from any locally
@@ -239,9 +246,12 @@ public:
      *                            the system default DACL is used. The pointer is consumed
      *                            synchronously by the constructor; the caller may destroy the
      *                            descriptor immediately after construction returns.
+     * @param validator           Optional connect-time client validation callback. See
+     *                            `PeerValidator`. Must remain valid for the lifetime of this
+     *                            `PipeServer` (it is invoked by the IO loop and never copied out).
      */
     PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
-            SECURITY_DESCRIPTOR *security_descriptor = nullptr);
+            SECURITY_DESCRIPTOR *security_descriptor = nullptr, PeerValidator validator = nullptr);
     ~PipeServer() override;
 
 protected:
@@ -253,7 +263,23 @@ protected:
 private:
     static constexpr DWORD PIPE_BUFFER_SIZE = 64 * 1024;
 
+    /**
+     * Validate the client of a connect that completed without a pending overlapped operation,
+     * and mark the server connected on acceptance. Drop the client and return false on
+     * rejection; the caller retries the connect.
+     */
+    bool accept_connected_client();
+
+    /**
+     * Run the peer validator, if any, on the connected pipe. A null `m_validator` (no validation
+     * requested) accepts every client.
+     */
+    bool validate_peer();
+
     static HANDLE create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *security_descriptor);
+
+    // The connect-time client validation callback; null when no validation was requested.
+    PeerValidator m_validator;
 };
 
 /**

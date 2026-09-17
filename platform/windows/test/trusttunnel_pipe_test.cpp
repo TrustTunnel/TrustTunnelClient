@@ -325,6 +325,23 @@ protected:
     std::wstring m_pipe_name;
 };
 
+// Script for a scripted_validator(): the first `rejections` connections are rejected, all later
+// ones are accepted. `validation_count` records how many connections were validated. Must outlive
+// the `PipeServer` it is wired into.
+struct ValidationScript {
+    int rejections = 0;
+    std::atomic<int> validation_count{0};
+};
+
+// Build a PeerValidator running `script`. `script.rejections` must be set before the loop starts;
+// afterwards it is read on the loop thread only.
+PipeServer::PeerValidator scripted_validator(ValidationScript &script) {
+    return [&script](HANDLE) {
+        int n = script.validation_count.fetch_add(1, std::memory_order_relaxed) + 1;
+        return n > script.rejections;
+    };
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -553,6 +570,94 @@ TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
 
     signal_stop();
     ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnPeerValidationRejection) {
+    // A validator rejection must route through the normal reconnect path: the rejected client is
+    // dropped (its eagerly-written bytes are never dispatched), the server re-posts
+    // ConnectNamedPipe, and a later client is served. The loop must not exit on the rejection.
+    MessageCollector collector;
+    ValidationScript script{.rejections = 1};
+    PipeServer server{
+            m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, scripted_validator(script)};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    // First connection: rejected. Eagerly write a message; it must never be dispatched.
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, std::vector<uint8_t>{0x01});
+        ASSERT_TRUE(write_all(client.get(), frame));
+        EXPECT_TRUE(wait_for_peer_disconnect(client.get(), TEST_TIMEOUT));
+    }
+
+    // Second connection: accepted, and its message is the only one ever dispatched.
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        const std::vector<uint8_t> payload = {0x77};
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STOP, payload);
+        ASSERT_TRUE(write_all(client.get(), frame));
+        ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+        auto msgs = collector.snapshot();
+        ASSERT_EQ(msgs.size(), 1u);
+        EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_STOP);
+        EXPECT_EQ(msgs[0].payload, payload);
+    }
+
+    EXPECT_EQ(script.validation_count.load(std::memory_order_relaxed), 2);
+
+    signal_stop();
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+}
+
+TEST_F(PipeTest, ServerRejectsClientConnectedBeforeListen) {
+    // Same rejection contract, but exercised through the ERROR_PIPE_CONNECTED path of
+    // start_connect(): the client connects before the server ever posts ConnectNamedPipe, so the
+    // connect completes synchronously. The rejected client must still be dropped and a later
+    // client served.
+    MessageCollector collector;
+    ValidationScript script{.rejections = 1};
+    PipeServer server{
+            m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, scripted_validator(script)};
+
+    // Connect BEFORE spawning the loop, so the server's first ConnectNamedPipe observes the
+    // client as already connected.
+    Handle first_client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(first_client);
+    auto rejected_frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, std::vector<uint8_t>{0x01});
+    ASSERT_TRUE(write_all(first_client.get(), rejected_frame));
+
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    EXPECT_TRUE(wait_for_peer_disconnect(first_client.get(), TEST_TIMEOUT));
+    EXPECT_EQ(collector.count(), 0u);
+
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        const std::vector<uint8_t> payload = {0x42};
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, payload);
+        ASSERT_TRUE(write_all(client.get(), frame));
+        ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+        auto msgs = collector.snapshot();
+        ASSERT_EQ(msgs.size(), 1u);
+        EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_START);
+        EXPECT_EQ(msgs[0].payload, payload);
+    }
+
+    EXPECT_EQ(script.validation_count.load(std::memory_order_relaxed), 2);
+
+    signal_stop();
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
 }
 
 TEST_F(PipeTest, ServerSendDeliversMessageToClient) {
