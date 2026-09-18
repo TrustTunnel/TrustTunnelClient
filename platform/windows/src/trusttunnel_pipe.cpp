@@ -451,7 +451,7 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *se
     sa.bInheritHandle = FALSE;
 
     HANDLE h = CreateNamedPipeW(pipe_name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             1, // single instance
             PIPE_BUFFER_SIZE, PIPE_BUFFER_SIZE, 0, security_descriptor != nullptr ? &sa : nullptr);
     if (h == INVALID_HANDLE_VALUE) {

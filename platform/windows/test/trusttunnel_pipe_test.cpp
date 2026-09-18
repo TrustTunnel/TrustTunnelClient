@@ -160,6 +160,18 @@ Handle open_raw_client(const std::wstring &name, std::chrono::milliseconds timeo
     }
 }
 
+// Attempt to connect to a local pipe through the SMB server (\\localhost\pipe\...), i.e. the
+// remote-client path that PIPE_REJECT_REMOTE_CLIENTS is supposed to reject.
+Handle open_remote_client(const std::wstring &name) {
+    const std::wstring local_prefix = L"\\\\.\\pipe\\";
+    if (name.compare(0, local_prefix.size(), local_prefix) != 0) {
+        return {};
+    }
+    std::wstring remote_name = L"\\\\localhost\\pipe\\" + name.substr(local_prefix.size());
+    return Handle{CreateFileW(remote_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED, nullptr)};
+}
+
 // Synchronously write `data` to an overlapped handle.
 bool write_all(HANDLE h, std::span<const uint8_t> data) {
     OVERLAPPED ol{};
@@ -1067,6 +1079,45 @@ TEST_F(PipeTest, ServerWithAuthenticatedUsersDescriptorAcceptsConnections) {
     ASSERT_TRUE(client);
     auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
     ASSERT_TRUE(write_all(client.get(), frame));
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerRejectsRemoteSMBClient) {
+    // PIPE_REJECT_REMOTE_CLIENTS must reject connections that arrive through the SMB server: that
+    // is the only path that can forge GetNamedPipeClientProcessId, and the only remote attack
+    // surface when no pin is provisioned. A direct \\.\pipe connection must keep working.
+    //
+    // A control pipe created without the flag proves the SMB loopback path is usable here; if it
+    // is not (e.g. the Server service is disabled), skip instead of reporting a false success.
+    std::wstring control_name = unique_pipe_name();
+    Handle control{CreateNamedPipeW(control_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr)};
+    ASSERT_TRUE(control);
+    Handle control_remote = open_remote_client(control_name);
+    if (!control_remote) {
+        GTEST_SKIP() << "SMB loopback is unavailable; cannot exercise PIPE_REJECT_REMOTE_CLIENTS";
+    }
+    control_remote.reset();
+    control.reset();
+
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    // Through SMB the client must be rejected before any message is exchanged.
+    Handle remote = open_remote_client(m_pipe_name);
+    EXPECT_FALSE(remote);
+
+    // Direct local clients are unaffected by the flag.
+    Handle local = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(local);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
+    ASSERT_TRUE(write_all(local.get(), frame));
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
 
     signal_stop();
