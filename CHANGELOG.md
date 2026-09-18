@@ -12,9 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
   `chrome`, preserving the previous behavior.
 - Introduce windows platform adapter
+- Added pipe client authentication for the Windows adapter.
 
 ### Changed
 
+- Improved Windows adapter stability.
 - Migrated TLS ClientHello construction (`make_ssl`) to the shared NativeLibsCommon
   `ag::tls::make_ssl` implementation.
 
