@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.1.6] - 2026-09-18
+
+### Fixed
+
+- Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
+
 ## [1.1.5] - 2026-09-02
 
 ### Added
@@ -428,7 +434,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63
