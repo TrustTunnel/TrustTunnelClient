@@ -1,4 +1,5 @@
 #include "client_authenticator.h"
+#include "process_info.h"
 
 #include <gtest/gtest.h>
 
@@ -44,6 +45,44 @@ static std::wstring current_module_path() {
         }
         path.resize(path.size() * 2);
     }
+}
+
+TEST(ProcessInfo, CurrentResolvesOwnImagePath) {
+    // The sibling check compares the service's path and the client's path, both resolved by this
+    // module, so it must agree with the module path the process was loaded from.
+    std::optional<ProcessInfo> info = ProcessInfo::current();
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->image_path(), current_module_path());
+}
+
+TEST(SiblingPath, MatchesSameDirectory) {
+    EXPECT_TRUE(is_same_directory(L"C:\\app\\client.exe", L"C:\\app\\service.exe"));
+}
+
+TEST(SiblingPath, RejectsDifferentDirectory) {
+    EXPECT_FALSE(is_same_directory(L"C:\\other\\client.exe", L"C:\\app\\service.exe"));
+    EXPECT_FALSE(is_same_directory(L"C:\\app\\sub\\client.exe", L"C:\\app\\service.exe"));
+    EXPECT_FALSE(is_same_directory(L"client.exe", L"C:\\app\\service.exe"));
+}
+
+TEST(SiblingPath, IgnoresLetterCase) {
+    EXPECT_TRUE(is_same_directory(L"c:\\APP\\client.exe", L"C:\\app\\service.exe"));
+    EXPECT_TRUE(is_same_directory(L"C:\\App\\CLIENT.EXE", L"c:\\aPP\\Service.Exe"));
+}
+
+TEST(SiblingPath, IgnoresSeparatorStyle) {
+    EXPECT_TRUE(is_same_directory(L"C:/app/client.exe", L"C:\\app\\service.exe"));
+    EXPECT_TRUE(is_same_directory(L"C:\\app/client.exe", L"C:/app\\service.exe"));
+}
+
+TEST(SiblingPath, NormalizesTrailingSeparators) {
+    EXPECT_TRUE(is_same_directory(L"C:\\app\\", L"C:\\app\\service.exe"));
+    EXPECT_TRUE(is_same_directory(L"C:\\app\\client.exe", L"C:\\app\\"));
+    EXPECT_FALSE(is_same_directory(L"C:\\app\\sub\\", L"C:\\app\\service.exe"));
+}
+
+TEST(SiblingPath, SameDirectoryDifferentFileNames) {
+    EXPECT_TRUE(is_same_directory(L"C:\\app\\first.exe", L"C:\\app\\second.exe"));
 }
 
 TEST(CertificatePin, EmptyValueIsAbsent) {
@@ -121,7 +160,12 @@ TEST(ClientValidationPolicy, DeniesMalformedPin) {
 }
 
 TEST(ClientAuthenticator, RejectsUnresolvablePipe) {
-    ClientAuthenticator authenticator{pin_from(VALID_PIN_W)};
+    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo::current()};
+    EXPECT_EQ(authenticator.validate(nullptr), ClientValidationDecision::VERIFICATION_FAILURE);
+}
+
+TEST(ClientAuthenticator, RejectsUnresolvablePipeWhenPinless) {
+    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
     EXPECT_EQ(authenticator.validate(nullptr), ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
@@ -156,11 +200,41 @@ protected:
     HANDLE m_client = nullptr;
 };
 
+TEST_F(ClientAuthenticatorTest, ResolvesClientProcessInfoFromPipe) {
+    std::optional<ProcessInfo> info = ProcessInfo::from_pipe(m_server);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->image_path(), current_module_path());
+}
+
 TEST_F(ClientAuthenticatorTest, RejectsPipeClientWithNonMatchingPin) {
-    // A client whose signature (if any) does not contain the pinned certificate is rejected;
-    // an unsigned test binary is rejected because it has no signer at all.
-    ClientAuthenticator authenticator{pin_from(VALID_PIN_W)};
+    // Sibling check passes (the test process runs in the service directory), so the rejection
+    // comes from the pin policy: a client whose signature (if any) does not contain the pinned
+    // certificate is rejected, and an unsigned test binary has no signer at all.
+    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo::current()};
     EXPECT_NE(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
+}
+
+TEST_F(ClientAuthenticatorTest, AllowsPipeClientInServiceDirectoryWhenPinless) {
+    // An unsigned test binary is accepted in pinless mode as long as it is a sibling.
+    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
+}
+
+TEST_F(ClientAuthenticatorTest, RejectsPipeClientOutsideServiceDirectoryWhenPinless) {
+    ClientAuthenticator authenticator{std::nullopt, ProcessInfo{L"X:\\somewhere\\else\\service.exe"}};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::SIBLING_PATH_MISMATCH);
+}
+
+TEST_F(ClientAuthenticatorTest, RejectsWhenServiceProcessInfoIsUnresolved) {
+    // No client can be a sibling when the service's own process info is unknown.
+    ClientAuthenticator authenticator{std::nullopt, std::nullopt};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::VERIFICATION_FAILURE);
+}
+
+TEST_F(ClientAuthenticatorTest, SiblingMismatchWinsOverPinPolicy) {
+    // A sibling mismatch rejects the client before the signature is even considered.
+    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo{L"X:\\somewhere\\else\\service.exe"}};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::SIBLING_PATH_MISMATCH);
 }
 
 TEST(AuthenticodeSignature, ExtractsSignersFromSignedBinaryWhenPresent) {

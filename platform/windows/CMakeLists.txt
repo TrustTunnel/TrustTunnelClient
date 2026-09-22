@@ -44,7 +44,11 @@ if (WIN32)
             @ONLY)
 endif ()
 
-add_library(trusttunnel_windows_a STATIC src/trusttunnel.cpp src/trusttunnel_pipe.cpp src/client_authenticator.cpp)
+add_library(trusttunnel_windows_a STATIC
+    src/trusttunnel.cpp
+    src/trusttunnel_pipe.cpp
+    src/client_authenticator.cpp
+    src/process_info.cpp)
 target_include_directories(trusttunnel_windows_a PUBLIC include)
 target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel)
 

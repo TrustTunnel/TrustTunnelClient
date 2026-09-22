@@ -156,22 +156,22 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
     service_set_status(SERVICE_START_PENDING);
 
     // The authenticator is wired into the server via a validator callback, so it must outlive
-    // `server`. It is engaged only when a pin was provisioned.
-    std::optional<ag::trusttunnel_windows::ClientAuthenticator> authenticator;
-    ag::trusttunnel_windows::PipeServer::PeerValidator peer_validator;
+    // `server`. It is always engaged: in pinless mode it enforces the sibling-path gate alone.
+    // The service's own process info is the other half of the sibling check; the client's comes
+    // from the pipe connection.
+    ag::trusttunnel_windows::ClientAuthenticator authenticator{g_pin, ag::trusttunnel_windows::ProcessInfo::current()};
     if (g_pin.has_value()) {
         infolog(g_logger, "Client authentication is enabled");
-        authenticator.emplace(std::move(*g_pin));
-        peer_validator = [&authenticator](HANDLE pipe) {
-            ag::trusttunnel_windows::ClientValidationDecision decision = authenticator->validate(pipe);
-            if (decision != ag::trusttunnel_windows::ClientValidationDecision::ALLOWED) {
-                warnlog(g_logger, "Rejecting pipe client: {}", magic_enum::enum_name(decision));
-            }
-            return decision == ag::trusttunnel_windows::ClientValidationDecision::ALLOWED;
-        };
     } else {
-        warnlog(g_logger, "No client-authentication pin provisioned; any local client may control the service");
+        warnlog(g_logger, "No client-authentication pin provided");
     }
+    auto peer_validator = [&authenticator](HANDLE pipe) {
+        ag::trusttunnel_windows::ClientValidationDecision decision = authenticator.validate(pipe);
+        if (decision != ag::trusttunnel_windows::ClientValidationDecision::ALLOWED) {
+            warnlog(g_logger, "Rejecting pipe client: {}", magic_enum::enum_name(decision));
+        }
+        return decision == ag::trusttunnel_windows::ClientValidationDecision::ALLOWED;
+    };
 
     PipeServer server{g_pipe_name.c_str(), g_shutdown_event,
             [&server](TrusttunnelServiceMessageType what, ag::Uint8View data) {

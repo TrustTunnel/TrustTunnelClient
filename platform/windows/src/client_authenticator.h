@@ -10,6 +10,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "process_info.h"
+
 namespace ag::trusttunnel_windows {
 
 /** Result of verifying an executable's Authenticode signature. */
@@ -46,6 +48,8 @@ private:
 /** Verdict for one accepted client connection. */
 enum class ClientValidationDecision {
     ALLOWED,
+    /** The client's executable is not in the service's own directory. */
+    SIBLING_PATH_MISMATCH,
     NO_SIGNATURE,
     BAD_DIGEST,
     NO_MATCHING_SIGNER,
@@ -54,8 +58,9 @@ enum class ClientValidationDecision {
 
 /**
  * Authenticode certificate pin: the lowercase SHA-256 thumbprint of a signer leaf certificate.
- * An absent pin (`std::nullopt`) disables client validation; a present but malformed pin can never
- * match a signer and therefore rejects every client.
+ * An absent pin (`std::nullopt`) disables certificate pinning, leaving the always-on sibling-path
+ * gate as the only check; a present but malformed pin can never match a signer and therefore
+ * rejects every client.
  */
 class CertificatePin {
 public:
@@ -78,6 +83,14 @@ private:
     std::string m_value;
 };
 
+/**
+ * Report whether the directory containing each of the two paths is the same. The comparison is
+ * lexical: case-insensitive, separator-normalizing, and ignoring trailing separators. No
+ * file-system access is performed and no symlinks or junctions are resolved: the path itself is
+ * the credential.
+ */
+bool is_same_directory(std::wstring_view first, std::wstring_view second);
+
 /** Decides whether a verified Authenticode signature is authorized by a certificate pin. */
 class ClientValidationPolicy {
 public:
@@ -98,15 +111,20 @@ private:
 /** Connect-time authentication of the process holding an accepted pipe connection. */
 class ClientAuthenticator {
 public:
-    explicit ClientAuthenticator(CertificatePin pin)
-            : m_policy{std::move(pin)} {
-    }
+    /**
+     * @param pin          Certificate pin to enforce. `std::nullopt` enables pinless mode: every
+     *                     client whose executable lives in the service's own directory is accepted.
+     * @param service_info The service's own process info, or `std::nullopt` when it could not be
+     *                     resolved, which rejects every client.
+     */
+    explicit ClientAuthenticator(std::optional<CertificatePin> pin, std::optional<ProcessInfo> service_info);
 
     /** Validate the process at the other end of `pipe`. */
     ClientValidationDecision validate(HANDLE pipe) const;
 
 private:
-    ClientValidationPolicy m_policy;
+    std::optional<ProcessInfo> m_service_info;
+    std::optional<ClientValidationPolicy> m_policy;
 };
 
 } // namespace ag::trusttunnel_windows

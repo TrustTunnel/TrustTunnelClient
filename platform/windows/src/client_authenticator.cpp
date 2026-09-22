@@ -1,13 +1,16 @@
 #include "client_authenticator.h"
 
+#include <filesystem>
 #include <utility>
 
 #include <softpub.h>
+#include <stringapiset.h>
 #include <wincrypt.h>
 #include <wintrust.h>
 
 #include "common/logger.h"
 #include "common/system_error.h"
+#include "process_info.h"
 
 namespace ag::trusttunnel_windows {
 
@@ -15,7 +18,6 @@ static ag::Logger g_logger{"CLIENT_AUTH"};
 
 static constexpr size_t PIN_HEX_LENGTH = 64;
 static constexpr size_t SHA256_LENGTH = 32;
-static constexpr size_t MAX_IMAGE_PATH_LENGTH = 0x8000;
 
 static bool is_hex_digit(wchar_t c) {
     return (c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
@@ -41,56 +43,13 @@ static std::string sha256_hex(const BYTE *data, DWORD size) {
     return out;
 }
 
-static std::optional<std::wstring> query_image_path(HANDLE process) {
-    std::wstring path(MAX_PATH, L'\0');
-    for (;;) {
-        DWORD size = static_cast<DWORD>(path.size());
-        if (QueryFullProcessImageNameW(process, 0, path.data(), &size)) {
-            path.resize(size);
-            return path;
-        }
-        DWORD err = GetLastError();
-        if (err != ERROR_INSUFFICIENT_BUFFER || path.size() >= MAX_IMAGE_PATH_LENGTH) {
-            dbglog(g_logger, "QueryFullProcessImageNameW: {} ({})", err, ag::sys::strerror(err));
-            return std::nullopt;
-        }
-        path.resize(path.size() * 2);
-    }
+bool is_same_directory(std::wstring_view first, std::wstring_view second) {
+    std::wstring first_dir = std::filesystem::path{first}.parent_path().generic_wstring();
+    std::wstring second_dir = std::filesystem::path{second}.parent_path().generic_wstring();
+    return CompareStringOrdinal(first_dir.c_str(), static_cast<int>(first_dir.size()), second_dir.c_str(),
+                   static_cast<int>(second_dir.size()), TRUE)
+            == CSTR_EQUAL;
 }
-
-/** Process at the client end of an accepted pipe connection. */
-class ClientProcess {
-public:
-    static std::optional<ClientProcess> from_pipe(HANDLE pipe);
-
-    ClientProcess(ClientProcess &&other) noexcept
-            : m_handle{std::exchange(other.m_handle, nullptr)}
-            , m_image_path{std::move(other.m_image_path)} {
-    }
-
-    ~ClientProcess() {
-        if (m_handle != nullptr) {
-            CloseHandle(m_handle);
-        }
-    }
-
-    ClientProcess(const ClientProcess &) = delete;
-    ClientProcess &operator=(const ClientProcess &) = delete;
-    ClientProcess &operator=(ClientProcess &&) = delete;
-
-    const std::wstring &image_path() const {
-        return m_image_path;
-    }
-
-private:
-    ClientProcess(HANDLE handle, std::wstring image_path)
-            : m_handle{handle}
-            , m_image_path{std::move(image_path)} {
-    }
-
-    HANDLE m_handle;
-    std::wstring m_image_path;
-};
 
 AuthenticodeSignature AuthenticodeSignature::of_file(const std::wstring &path) {
     AuthenticodeSignature signature;
@@ -175,33 +134,35 @@ ClientValidationDecision ClientValidationPolicy::decide(const AuthenticodeSignat
     return ClientValidationDecision::NO_MATCHING_SIGNER;
 }
 
-std::optional<ClientProcess> ClientProcess::from_pipe(HANDLE pipe) {
-    DWORD pid = 0;
-    if (!GetNamedPipeClientProcessId(pipe, &pid)) {
-        dbglog(g_logger, "GetNamedPipeClientProcessId: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
-        return std::nullopt;
+ClientAuthenticator::ClientAuthenticator(std::optional<CertificatePin> pin, std::optional<ProcessInfo> service_info)
+        : m_service_info{std::move(service_info)} {
+    if (pin.has_value()) {
+        m_policy.emplace(std::move(*pin));
     }
-
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (process == nullptr) {
-        dbglog(g_logger, "OpenProcess({}): {} ({})", pid, GetLastError(), ag::sys::strerror(GetLastError()));
-        return std::nullopt;
+    if (!m_service_info.has_value()) {
+        warnlog(g_logger, "The service's own process info is unresolved; every client will be rejected");
     }
-
-    std::optional<std::wstring> image_path = query_image_path(process);
-    if (!image_path.has_value()) {
-        CloseHandle(process);
-        return std::nullopt;
-    }
-    return ClientProcess{process, std::move(*image_path)};
 }
 
 ClientValidationDecision ClientAuthenticator::validate(HANDLE pipe) const {
-    std::optional<ClientProcess> process = ClientProcess::from_pipe(pipe);
+    std::optional<ProcessInfo> process = ProcessInfo::from_pipe(pipe);
     if (!process.has_value()) {
         return ClientValidationDecision::VERIFICATION_FAILURE;
     }
-    return m_policy.decide(AuthenticodeSignature::of_file(process->image_path()));
+    if (!m_service_info.has_value()) {
+        // The service's own process info could not be resolved, so no client can be a sibling.
+        return ClientValidationDecision::VERIFICATION_FAILURE;
+    }
+    // The sibling gate is always active, pin or no pin: the path is the credential, so it needs
+    // no provisioning and no file to verify after the fact.
+    if (!is_same_directory(process->image_path(), m_service_info->image_path())) {
+        return ClientValidationDecision::SIBLING_PATH_MISMATCH;
+    }
+    if (!m_policy.has_value()) {
+        // Pinless mode: the sibling gate alone decides, and no signature is computed.
+        return ClientValidationDecision::ALLOWED;
+    }
+    return m_policy->decide(AuthenticodeSignature::of_file(process->image_path()));
 }
 
 } // namespace ag::trusttunnel_windows
