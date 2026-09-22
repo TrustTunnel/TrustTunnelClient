@@ -62,9 +62,6 @@ public:
     /** Parse a pin from the service command line (`argv[4]`); `std::nullopt` when it is empty. */
     static std::optional<CertificatePin> parse(std::wstring_view value);
 
-    /** Compute the pin to provision for `exe_path`; `std::nullopt` when it has no signer. */
-    static std::optional<CertificatePin> from_executable(const wchar_t *exe_path);
-
     const std::string &value() const {
         return m_value;
     }

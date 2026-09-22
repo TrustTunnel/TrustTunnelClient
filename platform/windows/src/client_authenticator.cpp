@@ -155,22 +155,6 @@ std::optional<CertificatePin> CertificatePin::parse(std::wstring_view value) {
     return CertificatePin{std::move(normalized)};
 }
 
-std::optional<CertificatePin> CertificatePin::from_executable(const wchar_t *exe_path) {
-    if (exe_path == nullptr || *exe_path == L'\0') {
-        return std::nullopt;
-    }
-    if (GetFileAttributesW(exe_path) == INVALID_FILE_ATTRIBUTES) {
-        dbglog(g_logger, "GetFileAttributesW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
-        return std::nullopt;
-    }
-
-    AuthenticodeSignature signature = AuthenticodeSignature::of_file(exe_path);
-    if (!signature.has_signer()) {
-        return std::nullopt;
-    }
-    return CertificatePin{signature.signer_thumbprints().front()};
-}
-
 ClientValidationDecision ClientValidationPolicy::decide(const AuthenticodeSignature &signature) const {
     if (signature.status() == TRUST_E_NOSIGNATURE) {
         return ClientValidationDecision::NO_SIGNATURE;

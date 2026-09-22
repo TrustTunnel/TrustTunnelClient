@@ -19,7 +19,6 @@
 #include <fmt/format.h>
 #include <fmt/xchar.h>
 
-#include "client_authenticator.h"
 #include "common/logger.h"
 #include "common/net_utils.h"
 #include "common/utils.h"
@@ -370,23 +369,20 @@ static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
 
 int32_t trusttunnel_service_install(const wchar_t *image_path_, const wchar_t *logs_dir_, const wchar_t *pipe_name_,
         const wchar_t *name, const wchar_t *display_name, const wchar_t *description, const wchar_t *ring_buffer_path_,
-        const wchar_t *app_exe_path) {
+        const wchar_t *client_cert_pin) {
     std::wstring image_path = escape(image_path_, L"\"", L'\\');
     std::wstring logs_dir = escape(logs_dir_, L"\"", L'\\');
     std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
     std::wstring ring_buffer_path = escape(ring_buffer_path_, L"\"", L'\\');
 
-    // Derive the client-authentication pin at provisioning time: the thumbprint of the app
-    // executable's Authenticode signature, or no pin for an unsigned (or absent) executable.
-    std::optional<ag::trusttunnel_windows::CertificatePin> pin =
-            ag::trusttunnel_windows::CertificatePin::from_executable(app_exe_path);
-    std::wstring pin_arg;
-    if (pin.has_value()) {
-        infolog(g_logger, "Pinning service client authentication to certificate {}", pin->value());
-        // The pin is lowercase hex, so widening is lossless.
-        pin_arg.assign(pin->value().begin(), pin->value().end());
+    // The pin is an explicit provisioning input, passed through as-is: an empty value provisions
+    // the service without client certificate authentication, any other value is the pin the
+    // service will enforce against connecting clients.
+    std::wstring pin_arg = (client_cert_pin != nullptr) ? client_cert_pin : L"";
+    if (pin_arg.empty()) {
+        infolog(g_logger, "Installing without a client-authentication pin");
     } else {
-        infolog(g_logger, "App executable is not signed; installing without a client-authentication pin");
+        infolog(g_logger, "Installing with a client-authentication pin");
     }
 
     std::wstring cmd = fmt::format(

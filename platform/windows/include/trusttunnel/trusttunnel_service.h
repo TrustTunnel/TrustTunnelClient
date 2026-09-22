@@ -88,8 +88,8 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  * Create and start a VPN service. This function requires administrator privileges. The service is configured
  * to start manually (on demand). After startup, the service is listening on a named pipe `pipe_name`,
  * and can be controlled by connecting and sending messages on that pipe. The protocol details are given by the
- * description of `TrusttunnelServiceMessageType` enumeration. Pipe clients are authenticated when a pin is
- * provisioned from `app_exe_path` (see below).
+ * description of `TrusttunnelServiceMessageType` enumeration. Pipe clients are authenticated with the client
+ * certificate pin passed to this function (see below).
  * @param image_path The absolute path to the `trusttunnel_service` executable.
  * @param logs_dir The absolute path to the directory where the service writes its rotating `service.log`
  *                 family. Created if absent.
@@ -101,16 +101,17 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  *                     At most 256 characters.
  * @param description A comment that explains the purpose of the service.
  * @param ring_buffer_path The absolute path to the persistent ring buffer file for connection info storage.
- * @param app_exe_path The absolute path to the application executable that is allowed to control the
- *                     service. If it is Authenticode-signed, the SHA-256 thumbprint of its signature
- *                     is pinned, and the service accepts only clients whose executable carries that
- *                     signature. If it is unsigned or NULL, no pin is provisioned and every client
- *                     is accepted.
+ * @param client_cert_pin The SHA-256 thumbprint of the certificate the allowed application is signed
+ *                        with, as 64 hexadecimal characters (case-insensitive), or an empty string to
+ *                        provision the service without client certificate authentication. The value is
+ *                        passed to the service as-is: no validation is performed at install time. A
+ *                        non-empty value that is not 64 hexadecimal characters can never match a
+ *                        client's signature, so every client will be rejected at runtime.
  * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
  */
 WIN_EXPORT int32_t trusttunnel_service_install(const wchar_t *image_path, const wchar_t *logs_dir,
         const wchar_t *pipe_name, const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
-        const wchar_t *ring_buffer_path, const wchar_t *app_exe_path);
+        const wchar_t *ring_buffer_path, const wchar_t *client_cert_pin);
 
 /**
  * Stop and delete the VPN service named `name`. This function requires administrator privileges. The service is

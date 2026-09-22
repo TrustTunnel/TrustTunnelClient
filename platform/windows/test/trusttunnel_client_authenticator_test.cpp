@@ -156,15 +156,11 @@ protected:
     HANDLE m_client = nullptr;
 };
 
-TEST_F(ClientAuthenticatorTest, ValidatesPipeClientAgainstComputedPin) {
+TEST_F(ClientAuthenticatorTest, RejectsPipeClientWithNonMatchingPin) {
+    // A client whose signature (if any) does not contain the pinned certificate is rejected;
+    // an unsigned test binary is rejected because it has no signer at all.
     ClientAuthenticator authenticator{pin_from(VALID_PIN_W)};
     EXPECT_NE(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
-
-    std::optional<CertificatePin> pin = CertificatePin::from_executable(current_module_path().c_str());
-    if (pin.has_value()) {
-        ClientAuthenticator self_authenticator{*pin};
-        EXPECT_EQ(self_authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
-    }
 }
 
 TEST(AuthenticodeSignature, ExtractsSignersFromSignedBinaryWhenPresent) {
@@ -178,18 +174,4 @@ TEST(AuthenticodeSignature, ExtractsSignersFromSignedBinaryWhenPresent) {
     for (const std::string &thumbprint : signature.signer_thumbprints()) {
         EXPECT_EQ(thumbprint.size(), 64u);
     }
-}
-
-TEST(CertificatePin, ComputesPinFromSignedBinaryWhenPresent) {
-    std::optional<CertificatePin> pin = CertificatePin::from_executable(current_module_path().c_str());
-    if (!pin.has_value()) {
-        GTEST_SKIP() << "test binary has no Authenticode signer";
-    }
-    EXPECT_EQ(pin->value().size(), 64u);
-}
-
-TEST(CertificatePin, ReturnsNoPinForMissingExecutable) {
-    EXPECT_FALSE(CertificatePin::from_executable(L"X:\\this\\file\\does\\not\\exist.exe").has_value());
-    EXPECT_FALSE(CertificatePin::from_executable(L"").has_value());
-    EXPECT_FALSE(CertificatePin::from_executable(nullptr).has_value());
 }
