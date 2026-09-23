@@ -93,9 +93,12 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  * @param image_path The absolute path to the `trusttunnel_service` executable.
  * @param logs_dir The absolute path to the directory where the service writes its rotating `service.log`
  *                 family. Created if absent.
- * @param pipe_name The name for the named pipe used to communicate with the service.
- *                  A string of at most 256 characters of the form: "\\.\pipe\<pipename>", where "<pipename>"
- *                  can include any character except the backslash.
+ * @param pipe_name The name for the named pipe used to communicate with the service, or an empty
+ *                  string to let the service generate a fresh random name on every start and
+ *                  publish it for `trusttunnel_service_attach()` to discover.
+ *                  A non-empty name is a string of at most 256 characters of the form:
+ *                  "\\.\pipe\<pipename>", where "<pipename>" can include any character except the
+ *                  backslash.
  * @param name The service name. At most 256 characters.
  * @param display_name The display name to be used by user interface programs to identify the service.
  *                     At most 256 characters.
