@@ -18,14 +18,12 @@ static void s_notify_connection_info(void *arg, const char *json) {
 }
 
 NativeVpnImpl::NativeVpnImpl(IUIThreadDispatcher *dispatcher, FlutterCallbacks &&callbacks,
-        std::filesystem::path ring_buffer_path, std::filesystem::path logs_dir, std::wstring service_name,
-        std::wstring pipe_name)
+        std::filesystem::path ring_buffer_path, std::filesystem::path logs_dir, std::wstring service_name)
         : m_callbacks(std::move(callbacks))
         , m_dispatcher(dispatcher)
         , m_ring_buffer_path(std::move(ring_buffer_path))
         , m_logs_dir(std::move(logs_dir))
-        , m_service_name(std::move(service_name))
-        , m_pipe_name(std::move(pipe_name)) {
+        , m_service_name(std::move(service_name)) {
     // Install the client-process file log sink before anything logs.
     trusttunnel_log_init(m_logs_dir.wstring().c_str());
 
@@ -78,18 +76,16 @@ int32_t NativeVpnImpl::install_service() {
 
     // Build the command-line arguments for trusttunnel_service_installer.exe:
     //   install <image_path> <logs_dir> <pipe_name> <name> <display_name> <description>
-    //          <ring_buffer_path> <app_exe_path>
+    //          <ring_buffer_path> <pin>
     std::wstring params = L"install";
     params += L" \"" + service_exe + L"\"";
     params += L" \"" + logs_dir + L"\"";
-    params += L" \"" + m_pipe_name + L"\"";
+    params += L" \"\""; // pipe name: empty lets the service generate and publish a name per start
     params += L" \"" + m_service_name + L"\"";
     params += L" \"TrustTunnel VPN Service\"";
     params += L" \"Provides VPN connectivity for the TrustTunnel client.\"";
     params += L" \"" + ring_buffer_path_w + L"\"";
-    // The app executable is the authorized service client; its Authenticode signature is pinned
-    // at install time (unsigned dev builds install without a pin).
-    params += L" \"" + std::wstring(exe_path) + L"\"";
+    params += L" \"\""; // pin: empty provisions the service without client certificate authentication
 
     // Launch the helper with UAC elevation (runas verb triggers the consent prompt).
     // SEE_MASK_NOCLOSEPROCESS is required to get sei.hProcess back — without it,
@@ -152,8 +148,9 @@ int32_t NativeVpnImpl::uninstall_service() {
 }
 
 int32_t NativeVpnImpl::attach_service() {
+    // A null pipe name discovers the name the running service published for itself.
     return trusttunnel_service_attach(
-            m_service_name.c_str(), m_pipe_name.c_str(), s_notify_state_changed, this, s_notify_connection_info, this);
+            m_service_name.c_str(), nullptr, s_notify_state_changed, this, s_notify_connection_info, this);
 }
 
 int32_t NativeVpnImpl::start_service(const std::string &config) {
