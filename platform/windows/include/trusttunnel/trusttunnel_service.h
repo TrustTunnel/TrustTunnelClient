@@ -164,7 +164,8 @@ WIN_EXPORT int32_t trusttunnel_service_stop();
  * parameters) must remain valid until `trusttunnel_service_detach()` is called.
  *
  * @param service_name The service name passed to `trusttunnel_service_install()`.
- * @param pipe_name The pipe name passed to `trusttunnel_service_install()`.
+ * @param pipe_name The pipe name passed to `trusttunnel_service_install()`, or NULL/empty
+ *                  string to discover the name the running service published for itself.
  * @param state_changed_cb State change callback.
  * @param state_changed_cb_arg Argument for state change callback.
  * @param connection_info_cb Connection info callback. May be NULL.

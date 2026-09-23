@@ -23,6 +23,7 @@
 #include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/tls.h"
+#include "pipe_name_registry.h"
 #include "scoped_file_lock.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
@@ -469,6 +470,8 @@ static struct ServiceControllerState {
     /// The service this controller is bound to. Set by `trusttunnel_service_attach()` and kept until
     /// `trusttunnel_service_detach()`, independently of whether a pipe session could be established.
     std::wstring service_name;
+    /// The pipe name passed to `trusttunnel_service_attach()`: a non-empty name is used as-is,
+    /// an empty one means "discover the name the service published", resolved on every new session.
     std::wstring pipe_name;
     HANDLE stop_event = nullptr;
     std::unique_ptr<ag::trusttunnel_windows::PipeClient> pipe_client;
@@ -698,7 +701,20 @@ static int32_t ensure_live_session(bool start_service) {
         }
     }
 
-    if (int32_t err = setup_pipe_client(g_svc_state.pipe_name.c_str()); err != 0) {
+    // Resolved on every new session: an empty name discovers what the service published at its
+    // own startup, so a service restarted with a new random name is picked up.
+    std::wstring pipe_name = g_svc_state.pipe_name;
+    if (pipe_name.empty()) {
+        ag::trusttunnel_windows::PipeNameRegistry pipe_registry{g_svc_state.service_name};
+        std::optional<std::wstring> published = pipe_registry.discover();
+        if (!published) {
+            errlog(g_logger, "The service is running but has not published a pipe name");
+            return TRUSTTUNNEL_SVC_ERR_OTHER;
+        }
+        pipe_name = std::move(*published);
+    }
+
+    if (int32_t err = setup_pipe_client(pipe_name.c_str()); err != 0) {
         return err;
     }
 
@@ -718,7 +734,7 @@ int32_t trusttunnel_service_attach(const wchar_t *service_name, const wchar_t *p
     // Bound even if the service turns out not to be running, so that a later
     // `trusttunnel_service_start()` has everything it needs to start it.
     g_svc_state.service_name = service_name;
-    g_svc_state.pipe_name = pipe_name;
+    g_svc_state.pipe_name = pipe_name ? pipe_name : L"";
     g_svc_state.set_callbacks({state_changed_cb, state_changed_cb_arg, connection_info_cb, connection_info_cb_arg});
 
     if (int32_t err = ensure_live_session(false); err != 0) {

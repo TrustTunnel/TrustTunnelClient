@@ -125,3 +125,20 @@ TEST_F(PipeNameRegistryTest, DeletesThePublishedName) {
     ASSERT_EQ(registry.remove(), 0);
     EXPECT_FALSE(registry.discover().has_value());
 }
+
+TEST_F(PipeNameRegistryTest, AValueOfTheWrongTypeIsNotDiscovered) {
+    // A value of the wrong type is as unusable as a missing one.
+    ASSERT_EQ(
+            PipeNameRegistry{m_service_name}.publish(L"\\\\.\\pipe\\trusttunnel_vpn-0123456789abcdef0123456789abcdef"),
+            0);
+
+    HKEY key = nullptr;
+    std::wstring parameters_path = service_key_path() + L"\\Parameters";
+    ASSERT_EQ(RegOpenKeyExW(HKEY_LOCAL_MACHINE, parameters_path.c_str(), 0, KEY_SET_VALUE, &key), ERROR_SUCCESS);
+    DWORD value = 42;
+    ASSERT_EQ(RegSetValueExW(key, L"PipeName", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&value), sizeof(value)),
+            ERROR_SUCCESS);
+    RegCloseKey(key);
+
+    EXPECT_FALSE(PipeNameRegistry{m_service_name}.discover().has_value());
+}
