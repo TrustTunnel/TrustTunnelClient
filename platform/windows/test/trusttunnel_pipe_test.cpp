@@ -1719,8 +1719,11 @@ TEST_F(PipeTest, ClientReceivesBurstWithoutFramingCorruptionWhenReadsCompleteSyn
 }
 
 TEST_F(PipeTest, ServerSurvivesConcurrentWriteBurstsToSlowConsumer) {
-    // Reproduces the production conditions of the client framing-desync investigation: the
-    // service (PipeServer) is driven by both producer concurrency profiles at once -- sends
+    // Reproduces the production conditions of the client framing-desync investigation. The desync
+    // it guards against is the receive buffer being compacted while an overlapped read is in
+    // flight: dispatching buffered messages moved the read's destination, so the read's bytes
+    // landed at a stale offset and the parser resumed in the middle of a payload.
+    // The service (PipeServer) is driven by both producer concurrency profiles at once -- sends
     // posted to the loop thread (mirroring send_state) and sends from an external thread
     // (mirroring the VPN event loop's connection-info pushes) -- while the client consumes
     // slowly, so that the server's pipe output buffer fills and its writes complete

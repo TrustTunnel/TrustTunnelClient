@@ -186,8 +186,12 @@ private:
     bool m_read_pending = false;
     bool m_write_pending = false;
 
+    // Receive buffer: `[0, m_input_buf_pos)` is consumed, `[m_input_buf_pos, m_input_buf_used)` is
+    // the unconsumed tail. Reads append at `m_input_buf_used`, so the fill level must not move while
+    // a read is in flight (see compact_input_buf()).
     std::vector<uint8_t> m_input_buf;
     size_t m_input_buf_used = 0;
+    size_t m_input_buf_pos = 0;
 
     std::mutex m_pending_writes_lock;
     std::list<PendingWrite> m_pending_writes; // Guarded by m_pending_writes_lock.
@@ -208,6 +212,14 @@ private:
 
     // Returns nullopt to continue the loop; otherwise the value `loop()` should return.
     std::optional<bool> handle_disconnect();
+
+    /**
+     * Move the unconsumed tail of the receive buffer to its front. Must only be called while no
+     * read is in flight: a pending read writes at the fill level captured when it was issued, so
+     * moving that fill level underneath it would land the read's bytes at a stale offset and
+     * desynchronize the stream.
+     */
+    void compact_input_buf();
 
     bool start_read();
     bool complete_read();

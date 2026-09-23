@@ -72,6 +72,7 @@ void PipeEndpoint::prepare_for_connect() {
     m_read_pending = false;
     m_write_pending = false;
     m_input_buf_used = 0;
+    m_input_buf_pos = 0;
     ResetEvent(m_io_event);
     ResetEvent(m_write_event);
 }
@@ -223,7 +224,20 @@ std::optional<bool> PipeEndpoint::handle_disconnect() {
     return std::nullopt;
 }
 
+void PipeEndpoint::compact_input_buf() {
+    if (m_input_buf_pos == 0) {
+        return;
+    }
+    std::memmove(m_input_buf.data(), m_input_buf.data() + m_input_buf_pos, m_input_buf_used - m_input_buf_pos);
+    m_input_buf_used -= m_input_buf_pos;
+    m_input_buf_pos = 0;
+}
+
 bool PipeEndpoint::start_read() {
+    // No read is in flight here, so compacting the consumed prefix is safe and gives the read the
+    // largest possible destination.
+    compact_input_buf();
+
     if (m_input_buf_used >= m_input_buf.size()) {
         // Buffer is full but no complete message could be parsed -- impossible if MAX_MESSAGE_SIZE
         // is honored, so this indicates a protocol violation. Drop the connection.
@@ -282,7 +296,7 @@ bool PipeEndpoint::complete_read() {
 }
 
 bool PipeEndpoint::dispatch_one_message() {
-    ag::wire_utils::Reader r{{m_input_buf.data(), m_input_buf_used}};
+    ag::wire_utils::Reader r{{m_input_buf.data() + m_input_buf_pos, m_input_buf_used - m_input_buf_pos}};
     auto what = r.get_u32();
     auto size = r.get_u32();
     if (!what.has_value() || !size.has_value()) {
@@ -298,11 +312,15 @@ bool PipeEndpoint::dispatch_one_message() {
         return true; // Need more bytes for the payload.
     }
 
+    m_input_buf_pos += sizeof(uint32_t) + sizeof(uint32_t) + *size; // type + length + payload
     m_handler(static_cast<TrusttunnelServiceMessageType>(*what), *data);
-    ag::Uint8View remaining = r.get_buffer();
-    std::memmove(m_input_buf.data(), remaining.data(), remaining.size());
-    m_input_buf_used = remaining.size();
-    if (m_input_buf_used != 0) {
+
+    // A read in flight writes at the fill level captured when it was issued, so the buffer must not
+    // be moved until it completes; the next start_read() compacts instead.
+    if (!m_read_pending) {
+        compact_input_buf();
+    }
+    if (m_input_buf_pos != m_input_buf_used) {
         SetEvent(m_wake_event);
     }
     return true;
@@ -406,6 +424,7 @@ void PipeEndpoint::disconnect_and_reset() {
     m_read_pending = false;
     m_write_pending = false;
     m_input_buf_used = 0;
+    m_input_buf_pos = 0;
 }
 
 // ---------------------------------------------------------------------------
