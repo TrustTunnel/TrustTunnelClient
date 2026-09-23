@@ -488,7 +488,7 @@ bool PipeServer::accept_connected_client() {
     if (!validate_peer()) {
         // Rejection routes through the reconnect path, never a fatal loop exit: drop the client
         // and let the caller re-post ConnectNamedPipe for the next one.
-        infolog(m_logger, "peer validation rejected the client; dropping it");
+        warnlog(m_logger, "peer validation rejected the client; dropping it");
         DisconnectNamedPipe(m_pipe);
         return false;
     }
