@@ -19,6 +19,7 @@
 #include "common/logger.h"
 #include "vpn/internal/wire_utils.h"
 
+#include "client_authenticator.h"
 #include "trusttunnel_pipe.h"
 
 using namespace ag::trusttunnel_windows;
@@ -1172,6 +1173,44 @@ TEST_F(PipeTest, ClientServerExchangeMessages) {
     auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
     ASSERT_TRUE(client_result);
     EXPECT_TRUE(*client_result);
+
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientConnectsAtAnonymousImpersonationLevelAndPassesValidation) {
+    // Regression for the client's SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS flag: the real client
+    // must still connect through a server running the real validation, and its messages must be
+    // dispatched (a rejected client is dropped before dispatch). Pinless mode accepts the client
+    // through the sibling gate, because the client is this test process and its directory is the
+    // service directory.
+    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
+    MessageCollector server_collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler(), nullptr,
+            [&authenticator](HANDLE pipe) {
+                return authenticator.validate(pipe) == ClientValidationDecision::ALLOWED;
+            }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+    client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(server_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = server_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_QUERY_STATE);
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
 
     signal_stop();
     ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));

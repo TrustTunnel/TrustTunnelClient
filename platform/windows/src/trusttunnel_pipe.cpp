@@ -607,7 +607,7 @@ bool PipeClient::start_connect() {
     for (;;) {
         // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
         m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED, nullptr);
+                FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr);
         if (m_pipe != INVALID_HANDLE_VALUE) {
             break;
         }
