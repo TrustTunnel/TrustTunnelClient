@@ -32,8 +32,8 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.10.1-3-g809d4ea1@adguard/oss", transitive_headers=True)
-        self.requires("native_libs_common/8.1.50@adguard/oss", transitive_headers=True)
+        self.requires("dns-libs/2.10.2@adguard/oss", transitive_headers=True)
+        self.requires("native_libs_common/8.1.52@adguard/oss", transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
         self.requires("cxxopts/3.1.1", transitive_headers=True)
