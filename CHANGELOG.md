@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
+
 ### Security
 
 ## [1.1.5] - 2026-09-02
