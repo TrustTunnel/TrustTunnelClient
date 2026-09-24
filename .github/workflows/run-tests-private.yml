@@ -106,7 +106,10 @@ jobs:
         ARTIFACTORY_USER=${{ secrets.ARTIFACTORY_USER }}
         ARTIFACTORY_API_KEY=${{ secrets.ARTIFACTORY_API_KEY }}
     with:
-      runs-on: ${{ matrix.runs-on }}
+      # The job-unique label cannot be built inside the matrix value (the
+      # `strategy` context is unavailable there), so append it here where
+      # `strategy.job-index` is in scope.
+      runs-on: ${{ format('["{0}","ephemeral-job-key-{1}-{2}-{3}"]', join(fromJSON(matrix.runs-on), '","'), github.run_id, github.job, strategy.job-index || 0) }}
       container-image: ${{ matrix.container-image }}
       test-command: ${{ matrix.test-command }}
       finally-script: ${{ matrix.finally-script }}
@@ -123,6 +126,7 @@ jobs:
       - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
