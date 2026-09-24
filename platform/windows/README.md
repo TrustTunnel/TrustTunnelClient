@@ -64,7 +64,7 @@ trusttunnel-client-windows-1.1.3-x86_64/
 
 ## Consuming via FetchContent
 
-Add this to your app's `CMakeLists.txt` (e.g. `windows/runner/CMakeLists.txt` for Flutter):
+Add this to your app's `CMakeLists.txt`:
 
 ```cmake
 include(FetchContent)
@@ -94,25 +94,40 @@ list(APPEND CMAKE_PREFIX_PATH "${trusttunnelclientwindows_SOURCE_DIR}")
 
 find_package(TrustTunnelClientWindows REQUIRED)
 
-target_link_libraries(${BINARY_NAME} PRIVATE TrustTunnelClientWindows::trusttunnel)
-add_dependencies(${BINARY_NAME} TrustTunnelClientWindows::trusttunnel_service TrustTunnelClientWindows::trusttunnel_service_installer)
+target_link_libraries(myapp PRIVATE TrustTunnelClientWindows::trusttunnel)
 ```
 
 To switch between Maven and local testing, only change `TRUSTTUNNEL_URL`.
 
 ### Deploying Runtime Binaries
 
-`trusttunnel.dll`, `trusttunnel_service.exe`, `trusttunnel_service_installer.exe`, and `wintun.dll` must be next to the app executable at runtime. Copy them as a post-build step:
+`trusttunnel.dll`, `trusttunnel_service.exe`, `trusttunnel_service_installer.exe`, and `wintun.dll` must be next to the app executable at runtime. `trusttunnel_stage_runtime(<dir> <out_var>)` copies them into `<dir>` at build time, creates the `trusttunnel_runtime` target, and sets `<out_var>` to the copies. A relative `<dir>` is resolved against the current binary directory.
+
+Add this after `find_package()`, and deploy the staged copies next to the app executable, e.g. with `install()`:
 
 ```cmake
-set(_TT_BIN_DIR "${trusttunnelclientwindows_SOURCE_DIR}/bin")
-add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/trusttunnel.dll" $<TARGET_FILE_DIR:${BINARY_NAME}>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/trusttunnel_service.exe" $<TARGET_FILE_DIR:${BINARY_NAME}>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/trusttunnel_service_installer.exe" $<TARGET_FILE_DIR:${BINARY_NAME}>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_TT_BIN_DIR}/wintun.dll" $<TARGET_FILE_DIR:${BINARY_NAME}>
-)
+trusttunnel_stage_runtime(trusttunnel_runtime TRUSTTUNNEL_RUNTIME_BINARIES)
+add_dependencies(myapp trusttunnel_runtime)
+
+install(TARGETS myapp RUNTIME DESTINATION .)
+install(FILES ${TRUSTTUNNEL_RUNTIME_BINARIES} DESTINATION .)
 ```
+
+The three adapter binaries are staged with their Authenticode signature stripped; `wintun.dll` is copied as is (it keeps WireGuard's signature and is never part of the check). A signed service accepts only clients whose signer certificates equal its own, so the package's signed service would reject a locally built app. An unsigned service falls back to the sibling-path gate.
+
+`signtool.exe` from the Windows SDK is run by name at build time. The Visual Studio generator provides it automatically; with other generators, build from a developer command prompt.
+
+### Release Signing
+
+A release build must re-sign the staged binaries, otherwise the service accepts any client in its directory. After the release build is installed and before packaging the installer, sign the app executable and the three adapter binaries in the install directory with the same certificate, each with an embedded, timestamped signature:
+
+```powershell
+signtool sign /fd sha256 /tr <timestamp-url> /td sha256 /sha1 <certificate-thumbprint> `
+    <app>.exe trusttunnel.dll trusttunnel_service.exe trusttunnel_service_installer.exe
+if ((Get-AuthenticodeSignature trusttunnel_service.exe).Status -eq 'NotSigned') { throw 'trusttunnel_service.exe is unsigned' }
+```
+
+Signing only the installer or the MSIX package is not enough: the service checks the signature embedded in each binary. Install into a directory that only administrators can write, such as `Program Files`.
 
 ## Publishing to GitHub Maven Packages
 

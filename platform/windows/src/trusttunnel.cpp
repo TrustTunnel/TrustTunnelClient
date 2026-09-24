@@ -369,25 +369,14 @@ static bool grant_authenticated_users_start_stop(SC_HANDLE svc) {
 }
 
 int32_t trusttunnel_service_install(const wchar_t *image_path_, const wchar_t *logs_dir_, const wchar_t *pipe_name_,
-        const wchar_t *name, const wchar_t *display_name, const wchar_t *description, const wchar_t *ring_buffer_path_,
-        const wchar_t *client_cert_pin) {
+        const wchar_t *name, const wchar_t *display_name, const wchar_t *description,
+        const wchar_t *ring_buffer_path_) {
     std::wstring image_path = escape(image_path_, L"\"", L'\\');
     std::wstring logs_dir = escape(logs_dir_, L"\"", L'\\');
     std::wstring pipe_name = escape(pipe_name_, L"\"", L'\\');
     std::wstring ring_buffer_path = escape(ring_buffer_path_, L"\"", L'\\');
 
-    // The pin is an explicit provisioning input, passed through as-is: an empty value provisions
-    // the service without client certificate authentication, any other value is the pin the
-    // service will enforce against connecting clients.
-    std::wstring pin_arg = (client_cert_pin != nullptr) ? client_cert_pin : L"";
-    if (pin_arg.empty()) {
-        infolog(g_logger, "Installing without a client-authentication pin");
-    } else {
-        infolog(g_logger, "Installing with a client-authentication pin");
-    }
-
-    std::wstring cmd = fmt::format(
-            L"\"{}\" \"{}\" \"{}\" \"{}\" \"{}\"", image_path, logs_dir, pipe_name, ring_buffer_path, pin_arg);
+    std::wstring cmd = fmt::format(L"\"{}\" \"{}\" \"{}\" \"{}\"", image_path, logs_dir, pipe_name, ring_buffer_path);
 
     AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE)};
     if (!scm) {

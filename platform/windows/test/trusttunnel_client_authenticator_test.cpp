@@ -12,25 +12,8 @@
 
 using namespace ag::trusttunnel_windows;
 
-static constexpr std::string_view VALID_PIN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-static constexpr std::wstring_view VALID_PIN_W = L"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-static constexpr std::wstring_view VALID_PIN_UPPER_W =
-        L"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
-static constexpr std::string_view OTHER_PIN = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
-
-static AuthenticodeSignature signature_with(std::vector<std::string> thumbprints, int32_t status) {
-    return AuthenticodeSignature{status, std::move(thumbprints)};
-}
-
-static CertificatePin pin_from(std::wstring_view value) {
-    std::optional<CertificatePin> pin = CertificatePin::parse(value);
-    EXPECT_TRUE(pin.has_value());
-    return pin.value();
-}
-
-static ClientValidationPolicy policy_with(std::wstring_view pin) {
-    return ClientValidationPolicy{pin_from(pin)};
-}
+static constexpr std::string_view LEAF_A = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+static constexpr std::string_view LEAF_B = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 static std::wstring current_module_path() {
     std::wstring path(MAX_PATH, L'\0');
@@ -45,6 +28,15 @@ static std::wstring current_module_path() {
         }
         path.resize(path.size() * 2);
     }
+}
+
+static AuthenticodeSignature signature_with(std::vector<std::string> thumbprints, int32_t status = S_OK) {
+    return AuthenticodeSignature{status, std::move(thumbprints)};
+}
+
+/// A service at the test binary's path, so that the sibling gate passes for this process.
+static ProcessInfo sibling_service_info() {
+    return ProcessInfo{current_module_path()};
 }
 
 TEST(ProcessInfo, CurrentResolvesOwnImagePath) {
@@ -85,87 +77,121 @@ TEST(SiblingPath, SameDirectoryDifferentFileNames) {
     EXPECT_TRUE(is_same_directory(L"C:\\app\\first.exe", L"C:\\app\\second.exe"));
 }
 
-TEST(CertificatePin, EmptyValueIsAbsent) {
-    EXPECT_FALSE(CertificatePin::parse(L"").has_value());
+TEST(AuthenticodeSignature, ValidStatusesRequireARecoveredSigner) {
+    EXPECT_TRUE(signature_with({std::string{LEAF_A}}).is_valid());
+    EXPECT_TRUE(signature_with({std::string{LEAF_A}}, CERT_E_UNTRUSTEDROOT).is_valid());
+    EXPECT_TRUE(signature_with({std::string{LEAF_A}}, CERT_E_CHAINING).is_valid());
+    EXPECT_TRUE(signature_with({std::string{LEAF_A}}, CERT_E_EXPIRED).is_valid());
+    EXPECT_FALSE(signature_with({}).is_valid());
+    EXPECT_FALSE(signature_with({}, CERT_E_UNTRUSTEDROOT).is_valid());
+    EXPECT_FALSE(signature_with({std::string{LEAF_A}}, TRUST_E_NOSIGNATURE).is_valid());
+    EXPECT_FALSE(signature_with({std::string{LEAF_A}}, TRUST_E_BAD_DIGEST).is_valid());
+    EXPECT_FALSE(signature_with({std::string{LEAF_A}}, TRUST_E_SYSTEM_ERROR).is_valid());
 }
 
-TEST(CertificatePin, LowercaseValueIsParsedAsIs) {
-    std::optional<CertificatePin> pin = CertificatePin::parse(VALID_PIN_W);
-    ASSERT_TRUE(pin.has_value());
-    EXPECT_EQ(pin->value(), VALID_PIN);
+TEST(AuthenticodeSignature, CurrentProcessIsUnsignedOrValid) {
+    std::optional<AuthenticodeSignature> signature = AuthenticodeSignature::of_current_process();
+    if (!signature.has_value()) {
+        // Local and CI build binaries are unsigned.
+        GTEST_SKIP() << "test binary has no embedded signature";
+    }
+    EXPECT_TRUE(signature->is_valid());
+    for (const std::string &thumbprint : signature->signer_thumbprints()) {
+        EXPECT_EQ(thumbprint.size(), 64u);
+    }
 }
 
-TEST(CertificatePin, UppercaseValueIsNormalizedToLowercase) {
-    std::optional<CertificatePin> pin = CertificatePin::parse(VALID_PIN_UPPER_W);
-    ASSERT_TRUE(pin.has_value());
-    EXPECT_EQ(pin->value(), VALID_PIN);
+TEST(MatchSignatures, AllowsEqualSignerSets) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}), signature_with({std::string{LEAF_A}})),
+            ClientValidationDecision::ALLOWED);
 }
 
-TEST(CertificatePin, MatchesNormalizedValue) {
-    CertificatePin pin = pin_from(VALID_PIN_UPPER_W);
-    EXPECT_TRUE(pin.matches(VALID_PIN));
-    EXPECT_FALSE(pin.matches(OTHER_PIN));
-    EXPECT_FALSE(pin.matches(""));
+TEST(MatchSignatures, IgnoresSignerOrderAndDuplicates) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}, std::string{LEAF_B}}),
+                      signature_with({std::string{LEAF_B}, std::string{LEAF_A}, std::string{LEAF_A}})),
+            ClientValidationDecision::ALLOWED);
 }
 
-TEST(ClientValidationPolicy, DeniesUnsignedBinary) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({}, TRUST_E_NOSIGNATURE)),
+TEST(MatchSignatures, RejectsDisjointSignerSets) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}), signature_with({std::string{LEAF_B}})),
+            ClientValidationDecision::NO_MATCHING_SIGNER);
+}
+
+TEST(MatchSignatures, RejectsSubsetSignerSet) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}, std::string{LEAF_B}}),
+                      signature_with({std::string{LEAF_A}})),
+            ClientValidationDecision::NO_MATCHING_SIGNER);
+}
+
+TEST(MatchSignatures, RejectsSupersetSignerSet) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}),
+                      signature_with({std::string{LEAF_A}, std::string{LEAF_B}})),
+            ClientValidationDecision::NO_MATCHING_SIGNER);
+}
+
+TEST(MatchSignatures, AllowsEqualSetsOnUntrustedRoot) {
+    // A self-signed dev certificate is expected to fail chain building; the leaf set still counts.
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}, CERT_E_UNTRUSTEDROOT),
+                      signature_with({std::string{LEAF_A}}, CERT_E_UNTRUSTEDROOT)),
+            ClientValidationDecision::ALLOWED);
+}
+
+TEST(MatchSignatures, AllowsEqualSetsOnExpiredCertificate) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}, CERT_E_EXPIRED),
+                      signature_with({std::string{LEAF_A}}, CERT_E_EXPIRED)),
+            ClientValidationDecision::ALLOWED);
+}
+
+TEST(MatchSignatures, RejectsUnsignedClient) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}), signature_with({}, TRUST_E_NOSIGNATURE)),
             ClientValidationDecision::NO_SIGNATURE);
 }
 
-TEST(ClientValidationPolicy, DeniesBadDigestEvenWithRecoveredSigners) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{VALID_PIN}}, TRUST_E_BAD_DIGEST)),
+TEST(MatchSignatures, RejectsBadDigestEvenWithRecoveredSigners) {
+    EXPECT_EQ(match_signatures(
+                      signature_with({std::string{LEAF_A}}), signature_with({std::string{LEAF_A}}, TRUST_E_BAD_DIGEST)),
             ClientValidationDecision::BAD_DIGEST);
 }
 
-TEST(ClientValidationPolicy, DeniesMachineryFailure) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({}, TRUST_E_SYSTEM_ERROR)),
+TEST(MatchSignatures, RejectsClientStatusOutsideAcceptedSet) {
+    // A recovered signer alone is not enough: the status must be one of the accepted ones.
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}),
+                      signature_with({std::string{LEAF_A}}, TRUST_E_SYSTEM_ERROR)),
             ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
-TEST(ClientValidationPolicy, AllowsMatchingSignerOnTrustedChain) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{VALID_PIN}}, 0)),
-            ClientValidationDecision::ALLOWED);
-}
-
-TEST(ClientValidationPolicy, AllowsMatchingSignerAmongMany) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{OTHER_PIN}, std::string{VALID_PIN}}, 0)),
-            ClientValidationDecision::ALLOWED);
-}
-
-TEST(ClientValidationPolicy, AllowsMatchingSignerOnUntrustedChain) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{VALID_PIN}}, CERT_E_UNTRUSTEDROOT)),
-            ClientValidationDecision::ALLOWED);
-}
-
-TEST(ClientValidationPolicy, AllowsMatchingSignerOnExpiredCertificate) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{VALID_PIN}}, CERT_E_EXPIRED)),
-            ClientValidationDecision::ALLOWED);
-}
-
-TEST(ClientValidationPolicy, DeniesNonMatchingSigner) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({std::string{OTHER_PIN}}, 0)),
-            ClientValidationDecision::NO_MATCHING_SIGNER);
-}
-
-TEST(ClientValidationPolicy, DeniesUntrustedChainWithoutRecoveredSigners) {
-    EXPECT_EQ(policy_with(VALID_PIN_W).decide(signature_with({}, CERT_E_UNTRUSTEDROOT)),
+TEST(MatchSignatures, RejectsClientWithoutRecoveredSigners) {
+    EXPECT_EQ(match_signatures(signature_with({std::string{LEAF_A}}), signature_with({}, CERT_E_UNTRUSTEDROOT)),
             ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
-TEST(ClientValidationPolicy, DeniesMalformedPin) {
-    // A malformed pin can never equal a thumbprint, so every client is rejected.
-    EXPECT_EQ(policy_with(L"not-a-pin").decide(signature_with({std::string{VALID_PIN}}, 0)),
-            ClientValidationDecision::NO_MATCHING_SIGNER);
+TEST(MatchSignatures, RejectsEveryClientWhenServiceSignatureIsInvalid) {
+    AuthenticodeSignature service = signature_with({std::string{LEAF_A}}, TRUST_E_SYSTEM_ERROR);
+    EXPECT_EQ(match_signatures(service, signature_with({std::string{LEAF_A}})),
+            ClientValidationDecision::VERIFICATION_FAILURE);
+    EXPECT_EQ(match_signatures(service, signature_with({std::string{LEAF_B}})),
+            ClientValidationDecision::VERIFICATION_FAILURE);
+    EXPECT_EQ(match_signatures(service, signature_with({}, TRUST_E_NOSIGNATURE)),
+            ClientValidationDecision::VERIFICATION_FAILURE);
+    EXPECT_EQ(match_signatures(service, signature_with({std::string{LEAF_A}}, TRUST_E_BAD_DIGEST)),
+            ClientValidationDecision::VERIFICATION_FAILURE);
+}
+
+TEST(MatchSignatures, RejectsEveryClientWhenServiceSignatureHasNoSigners) {
+    AuthenticodeSignature service = signature_with({});
+    EXPECT_EQ(match_signatures(service, signature_with({std::string{LEAF_A}})),
+            ClientValidationDecision::VERIFICATION_FAILURE);
+    EXPECT_EQ(match_signatures(service, signature_with({}, TRUST_E_NOSIGNATURE)),
+            ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
 TEST(ClientAuthenticator, RejectsUnresolvablePipe) {
-    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo::current()};
+    ClientAuthenticator authenticator{sibling_service_info(), signature_with({std::string{LEAF_A}})};
     EXPECT_EQ(authenticator.validate(nullptr), ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
-TEST(ClientAuthenticator, RejectsUnresolvablePipeWhenPinless) {
-    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
+TEST(ClientAuthenticator, RejectsUnresolvablePipeWhenServiceIsUnsigned) {
+    ClientAuthenticator authenticator{sibling_service_info(), std::nullopt};
     EXPECT_EQ(authenticator.validate(nullptr), ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
@@ -206,22 +232,32 @@ TEST_F(ClientAuthenticatorTest, ResolvesClientProcessInfoFromPipe) {
     EXPECT_EQ(info->image_path(), current_module_path());
 }
 
-TEST_F(ClientAuthenticatorTest, RejectsPipeClientWithNonMatchingPin) {
-    // Sibling check passes (the test process runs in the service directory), so the rejection
-    // comes from the pin policy: a client whose signature (if any) does not contain the pinned
-    // certificate is rejected, and an unsigned test binary has no signer at all.
-    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo::current()};
+TEST_F(ClientAuthenticatorTest, RejectsPipeClientWithDifferentSignature) {
+    // The sibling check passes (the test process runs in the service directory), so the rejection
+    // comes from the signature check: the unsigned test binary's leaf set cannot equal the
+    // service's.
+    ClientAuthenticator authenticator{sibling_service_info(), signature_with({std::string{LEAF_A}})};
     EXPECT_NE(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
 }
 
-TEST_F(ClientAuthenticatorTest, AllowsPipeClientInServiceDirectoryWhenPinless) {
-    // An unsigned test binary is accepted in pinless mode as long as it is a sibling.
-    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
+TEST_F(ClientAuthenticatorTest, AllowsPipeClientInServiceDirectoryWhenServiceIsUnsigned) {
+    // An unsigned service accepts any sibling, signed or not.
+    ClientAuthenticator authenticator{sibling_service_info(), std::nullopt};
     EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
 }
 
-TEST_F(ClientAuthenticatorTest, RejectsPipeClientOutsideServiceDirectoryWhenPinless) {
-    ClientAuthenticator authenticator{std::nullopt, ProcessInfo{L"X:\\somewhere\\else\\service.exe"}};
+TEST_F(ClientAuthenticatorTest, AllowsPipeClientSignedLikeTheService) {
+    std::optional<AuthenticodeSignature> own_signature = AuthenticodeSignature::of_current_process();
+    if (!own_signature.has_value()) {
+        GTEST_SKIP() << "test binary has no embedded signature";
+    }
+    // The client is this process, so its signature equals the service's.
+    ClientAuthenticator authenticator{sibling_service_info(), own_signature};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::ALLOWED);
+}
+
+TEST_F(ClientAuthenticatorTest, RejectsPipeClientOutsideServiceDirectoryWhenServiceIsUnsigned) {
+    ClientAuthenticator authenticator{ProcessInfo{L"X:\\somewhere\\else\\service.exe"}, std::nullopt};
     EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::SIBLING_PATH_MISMATCH);
 }
 
@@ -231,20 +267,27 @@ TEST_F(ClientAuthenticatorTest, RejectsWhenServiceProcessInfoIsUnresolved) {
     EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
-TEST_F(ClientAuthenticatorTest, SiblingMismatchWinsOverPinPolicy) {
+TEST_F(ClientAuthenticatorTest, SiblingMismatchWinsOverSignatureCheck) {
     // A sibling mismatch rejects the client before the signature is even considered.
-    ClientAuthenticator authenticator{pin_from(VALID_PIN_W), ProcessInfo{L"X:\\somewhere\\else\\service.exe"}};
+    ClientAuthenticator authenticator{
+            ProcessInfo{L"X:\\somewhere\\else\\service.exe"}, signature_with({std::string{LEAF_A}})};
     EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::SIBLING_PATH_MISMATCH);
+}
+
+TEST_F(ClientAuthenticatorTest, RejectsWhenServiceSignatureIsInvalid) {
+    ClientAuthenticator authenticator{
+            sibling_service_info(), signature_with({std::string{LEAF_A}}, TRUST_E_SYSTEM_ERROR)};
+    EXPECT_EQ(authenticator.validate(m_server), ClientValidationDecision::VERIFICATION_FAILURE);
 }
 
 TEST(AuthenticodeSignature, ExtractsSignersFromSignedBinaryWhenPresent) {
     AuthenticodeSignature signature = AuthenticodeSignature::of_file(current_module_path());
     if (signature.status() == TRUST_E_NOSIGNATURE) {
-        // Local and CI build binaries are unsigned; only staged release binaries are signed.
-        EXPECT_FALSE(signature.has_signer());
+        // Local and CI build binaries are unsigned.
+        EXPECT_TRUE(signature.signer_thumbprints().empty());
         GTEST_SKIP() << "test binary is not Authenticode-signed";
     }
-    EXPECT_TRUE(signature.has_signer());
+    EXPECT_FALSE(signature.signer_thumbprints().empty());
     for (const std::string &thumbprint : signature.signer_thumbprints()) {
         EXPECT_EQ(thumbprint.size(), 64u);
     }

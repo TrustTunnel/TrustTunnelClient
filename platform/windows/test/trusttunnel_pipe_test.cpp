@@ -1181,10 +1181,9 @@ TEST_F(PipeTest, ClientServerExchangeMessages) {
 TEST_F(PipeTest, ClientConnectsAtAnonymousImpersonationLevelAndPassesValidation) {
     // Regression for the client's SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS flag: the real client
     // must still connect through a server running the real validation, and its messages must be
-    // dispatched (a rejected client is dropped before dispatch). Pinless mode accepts the client
-    // through the sibling gate, because the client is this test process and its directory is the
-    // service directory.
-    ClientAuthenticator authenticator{std::nullopt, ProcessInfo::current()};
+    // dispatched (a rejected client is dropped before dispatch). An unsigned service accepts the
+    // client through the sibling gate, because the client is this test process.
+    ClientAuthenticator authenticator{ProcessInfo::current(), std::nullopt};
     MessageCollector server_collector;
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler(), nullptr,
             [&authenticator](HANDLE pipe) {

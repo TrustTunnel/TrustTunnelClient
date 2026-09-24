@@ -34,7 +34,6 @@ static std::wstring g_pipe_name;
 static SERVICE_STATUS_HANDLE g_status_handle;
 static HANDLE g_shutdown_event;
 static trusttunnel_t *g_vpn;
-static std::optional<ag::trusttunnel_windows::CertificatePin> g_pin;
 static std::optional<ag::PersistentRingBuffer> g_ring_buffer;
 static std::filesystem::path g_ring_buffer_path;
 static std::optional<ag::FileLogger> g_file_logger;
@@ -159,15 +158,9 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR *argv) {
     service_set_status(SERVICE_START_PENDING);
 
     // The authenticator is wired into the server via a validator callback, so it must outlive
-    // `server`. It is always engaged: in pinless mode it enforces the sibling-path gate alone.
-    // The service's own process info is the other half of the sibling check; the client's comes
-    // from the pipe connection.
-    ag::trusttunnel_windows::ClientAuthenticator authenticator{g_pin, ag::trusttunnel_windows::ProcessInfo::current()};
-    if (g_pin.has_value()) {
-        infolog(g_logger, "Client authentication is enabled");
-    } else {
-        warnlog(g_logger, "No client-authentication pin provided");
-    }
+    // `server`. The service's own image path and signature are the trust anchor for every client.
+    ag::trusttunnel_windows::ClientAuthenticator authenticator{ag::trusttunnel_windows::ProcessInfo::current(),
+            ag::trusttunnel_windows::AuthenticodeSignature::of_current_process()};
     auto peer_validator = [&authenticator](HANDLE pipe) {
         ag::trusttunnel_windows::ClientValidationDecision decision = authenticator.validate(pipe);
         if (decision != ag::trusttunnel_windows::ClientValidationDecision::ALLOWED) {
@@ -209,7 +202,7 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR *argv) {
 }
 
 int wmain(int argc, wchar_t **argv) {
-    if (argc != 5) {
+    if (argc != 4) {
         return 1;
     }
 
@@ -236,10 +229,6 @@ int wmain(int argc, wchar_t **argv) {
         g_ring_buffer_path = std::filesystem::path(argv[3]);
         g_ring_buffer.emplace(g_ring_buffer_path);
     }
-
-    // argv[4] is the client-authentication pin: the thumbprint of the authorized app's
-    // certificate, or an empty string when the service was provisioned without one.
-    g_pin = ag::trusttunnel_windows::CertificatePin::parse(argv[4]);
 
     wchar_t svc_name[] = L"";
     SERVICE_TABLE_ENTRYW start_table[] = {

@@ -19,7 +19,6 @@ static void print_usage() {
             "Usage:\n"
             "  trusttunnel_service_installer.exe install <image_path> <logs_dir> <pipe_name>\n"
             "                                        <name> <display_name> <description> <ring_buffer_path>\n"
-            "                                        <pin>\n"
             "  trusttunnel_service_installer.exe uninstall <name>\n");
 }
 
@@ -32,8 +31,8 @@ int wmain(int argc, wchar_t *argv[]) {
     std::wstring subcommand = argv[1];
 
     if (subcommand == L"install") {
-        if (argc != 10) {
-            errlog(g_logger, "'install' requires exactly 8 arguments");
+        if (argc != 9) {
+            errlog(g_logger, "'install' requires exactly 7 arguments");
             print_usage();
             return 1;
         }
@@ -45,10 +44,9 @@ int wmain(int argc, wchar_t *argv[]) {
         const wchar_t *display_name = argv[6];
         const wchar_t *description = argv[7];
         const wchar_t *ring_buffer_path = argv[8];
-        const wchar_t *client_cert_pin = argv[9];
 
         int32_t result = trusttunnel_service_install(
-                image_path, logs_dir, pipe_name, name, display_name, description, ring_buffer_path, client_cert_pin);
+                image_path, logs_dir, pipe_name, name, display_name, description, ring_buffer_path);
 
         if (result != 0) {
             errlog(g_logger, "trusttunnel_service_install failed with error code: {}", result);

@@ -63,17 +63,16 @@ static int32_t install_service() {
     auto image = absolute(std::filesystem::path(".") / "trusttunnel_service.exe").wstring();
     auto logs_dir = absolute(std::filesystem::path(".") / "trusttunnel_service.log").wstring();
     auto ring_buffer = absolute(std::filesystem::path(".") / "test_ring_buffer.dat").wstring();
-    // The manual test provisions the service pinless, with an empty pipe name so that the
-    // service generates and publishes a fresh random one per start.
-    const wchar_t *pin = L"";
-
+    // The manual test provisions the service with an empty pipe name so that the service
+    // generates and publishes a fresh random one per start. Locally built binaries are unsigned,
+    // so the service accepts any sibling client.
     int32_t ret = trusttunnel_service_install(image.c_str(), logs_dir.c_str(), L"", SERVICE_NAME, L"VPN easy service",
-            L"Test description", ring_buffer.c_str(), pin);
+            L"Test description", ring_buffer.c_str());
     if (ret == TRUSTTUNNEL_SVC_ERR_SERVICE_EXISTS) {
         fmt::println(stderr, "Service already exists, uninstalling first...");
         trusttunnel_service_uninstall(SERVICE_NAME);
         ret = trusttunnel_service_install(image.c_str(), logs_dir.c_str(), L"", SERVICE_NAME, L"VPN easy service",
-                L"Test description", ring_buffer.c_str(), pin);
+                L"Test description", ring_buffer.c_str());
     }
     return ret;
 }
