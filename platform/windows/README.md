@@ -101,21 +101,21 @@ To switch between Maven and local testing, only change `TRUSTTUNNEL_URL`.
 
 ### Deploying Runtime Binaries
 
-`trusttunnel.dll`, `trusttunnel_service.exe`, `trusttunnel_service_installer.exe`, and `wintun.dll` must be next to the app executable at runtime. `trusttunnel_stage_runtime(<dir> <out_var>)` copies them into `<dir>` at build time, creates the `trusttunnel_runtime` target, and sets `<out_var>` to the copies. A relative `<dir>` is resolved against the current binary directory.
+`trusttunnel.dll`, `trusttunnel_service.exe`, `trusttunnel_service_installer.exe`, and `wintun.dll` must be next to the app executable at runtime. `trusttunnel_stage_runtime(<dir> <out_var> <strip_signatures>)` copies them into `<dir>` at build time, creates the `trusttunnel_runtime` target, and sets `<out_var>` to the copies. A relative `<dir>` is resolved against the current binary directory.
 
 Add this after `find_package()`, and deploy the staged copies next to the app executable, e.g. with `install()`:
 
 ```cmake
-trusttunnel_stage_runtime(trusttunnel_runtime TRUSTTUNNEL_RUNTIME_BINARIES)
+trusttunnel_stage_runtime(trusttunnel_runtime TRUSTTUNNEL_RUNTIME_BINARIES ON)
 add_dependencies(myapp trusttunnel_runtime)
 
 install(TARGETS myapp RUNTIME DESTINATION .)
 install(FILES ${TRUSTTUNNEL_RUNTIME_BINARIES} DESTINATION .)
 ```
 
-The three adapter binaries are staged with their Authenticode signature stripped; `wintun.dll` is copied as is (it keeps WireGuard's signature and is never part of the check). A signed service accepts only clients whose signer certificates equal its own, so the package's signed service would reject a locally built app. An unsigned service falls back to the sibling-path gate.
+A signed service accepts only clients whose signer certificates equal its own, so the package's signed service rejects a locally built app. With `<strip_signatures>` set to `ON`, the Authenticode signature is stripped from the three adapter binaries, and the unsigned service falls back to the sibling-path gate. With `OFF`, all binaries are copied as is. `wintun.dll` is always copied as is (it keeps WireGuard's signature and is never part of the check).
 
-`signtool.exe` from the Windows SDK is run by name at build time. The Visual Studio generator provides it automatically; with other generators, build from a developer command prompt.
+Stripping runs `signtool.exe` from the Windows SDK by name at build time. The Visual Studio generator provides it automatically; with other generators, build from a developer command prompt.
 
 ### Release Signing
 
