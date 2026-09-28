@@ -35,38 +35,101 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
-            container-image: 'adguard/core-libs:2.12'
+            runs-on: '["team-corelibs"]'
+            ephemeral: false
+            container-image: ''
             artifact-name: test-results-linux-private
+            results-path: build/junit.xml
+            sccache-key: sccache-linux
             test-command: |
-              set -e
-              set -x
+              set -euxo pipefail
 
-              # Builds go through the CMake presets; see CMakePresets.json.
+              rm -rf build
+              export CONAN_REPO_URL='${{ vars.CONAN_REPO_URL }}'
+              cat > Dockerfile <<'EOF'
+              # syntax=docker/dockerfile:1
+              FROM adguard/core-libs:2.12 AS build
+
+              # sccache caches the compilations; the pinned binary is installed
+              # before COPY . . so this layer stays cached across source changes.
+              RUN curl -fsSL https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz \
+                  | tar -xz -C /usr/local/bin --strip-components=1
+
+              WORKDIR /src
+              COPY . .
+
+              # The image bundles a Conan, but the private workflow installs an
+              # upgraded one via pip just like the previous container job did.
+              RUN python3 -m pip install conan --upgrade
+
+              FROM build AS native-tests
+
+              RUN --mount=type=secret,id=conan_repo_url,required=true \
+                  --mount=type=secret,id=artifactory_user,required=true \
+                  --mount=type=secret,id=artifactory_api_key,required=true <<END
+              set -eux
+
+              conan remote add --index 0 art "$(cat /run/secrets/conan_repo_url)" || true
+              mkdir -p /src/results
+              # The store was restored into .sccache and copied here by COPY . .;
+              # CMAKE_LAUNCHER makes cmake use sccache for C/C++ compilations.
+              export SCCACHE_DIR=/src/.sccache
+              # Pin the daemon to this container: a foreign one on the shared
+              # builder cannot see our sources ("No such file or directory").
+              export SCCACHE_SERVER_UDS=/tmp/sccache.sock
               export PRESET=clang-relwithdebinfo-sanitizer
-              # The image already provides the Conan dependencies.
               export SKIP_BOOTSTRAP=1
 
-              python3 -m pip install conan --upgrade
-              conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
               npm install -g markdownlint-cli
 
-              make lint
+              # clangd-tidy is deliberately NOT run here due to memory constraints
+              (make lint-md lint-rust clang-format && make test CMAKE_LAUNCHER=sccache) || test_status=$?
 
-              make test
-            finally-script: |
-              set -e
-              set -x
+              echo "${test_status:-0}" > /src/results/test-status
+              cp -a cmake-build-clang-relwithdebinfo-sanitizer/junit.xml /src/results/junit.xml 2>/dev/null || true
+              # Capture the sccache counters where the compilations happened:
+              # the runner-side daemon never sees them (all zeros otherwise).
+              # The .txt is for the job log, the .json drives force-save.
+              sccache --show-stats > /src/results/sccache-stats.txt 2>&1 || true
+              sccache --show-stats --stats-format=json > /src/results/sccache-stats.json 2>/dev/null || true
 
-              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
-              echo "conan upload finished"
+              conan remote login art "$(cat /run/secrets/artifactory_user)" \
+                  --password "$(cat /run/secrets/artifactory_api_key)" || true
+              conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
               conan remove -c "*" || true
               conan cache clean || true
+
+              exit 0
+              END
+
+              FROM scratch AS native-tests-output
+
+              COPY --from=native-tests /src/results/ /
+              # Keep the .sccache name: the restore extracts a member named
+              # after its own path, so renaming this silently turns restores
+              # into misses.
+              COPY --from=native-tests /src/.sccache /.sccache
+              EOF
+              DOCKER_BUILDKIT=1 docker build --progress=plain \
+                --no-cache-filter native-tests \
+                --secret id=conan_repo_url,env=CONAN_REPO_URL \
+                --secret id=artifactory_user,env=ARTIFACTORY_USER \
+                --secret id=artifactory_api_key,env=ARTIFACTORY_API_KEY \
+                --target native-tests-output \
+                --output type=local,dest=build \
+                -f Dockerfile .
+
+              test "$(cat build/test-status)" -eq 0
+            finally-script: |
+              # Conan upload is performed inside the inline Dockerfile so it
+              # also runs when the test command itself fails.
+              true
           - name: Mac
             runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
+            ephemeral: true
             container-image: ''
             artifact-name: test-results-macos-private
+            results-path: cmake-build-clang-relwithdebinfo-sanitizer/junit.xml
             test-command: |
               set -e
               set -x
@@ -95,26 +158,33 @@ jobs:
               set -e
               set -x
 
+              # Each step runs in a fresh shell, so re-activate the venv
+              # created by the test-command (conan lives there).
+              source ./venv/bin/activate
+
               conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
               conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
               echo "conan upload finished"
               conan remove -c "*" || true
               conan cache clean || true
-    uses: AdGuardSoftwareLimited/actions/.github/workflows/junit-tests.yml@master
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/junit-tests.yml@feat/AG-57806-use-sccache-for-tests
     secrets:
       test-env: |
         ARTIFACTORY_USER=${{ secrets.ARTIFACTORY_USER }}
         ARTIFACTORY_API_KEY=${{ secrets.ARTIFACTORY_API_KEY }}
+      sccache-config: ${{ secrets.REGISTRY_CACHE_AUTH }}
     with:
       # The job-unique label cannot be built inside the matrix value (the
       # `strategy` context is unavailable there), so append it here where
-      # `strategy.job-index` is in scope.
-      runs-on: ${{ format('["{0}","ephemeral-job-key-{1}-{2}-{3}"]', join(fromJSON(matrix.runs-on), '","'), github.run_id, github.job, strategy.job-index || 0) }}
+      # `strategy.job-index` is in scope. Only entries that actually run on ephemeral runners get it
+      runs-on: ${{ matrix.ephemeral && format('["{0}","ephemeral-job-key-{1}-{2}-{3}"]', join(fromJSON(matrix.runs-on), '","'), github.run_id, github.job, strategy.job-index || 0) || matrix.runs-on }}
       container-image: ${{ matrix.container-image }}
       test-command: ${{ matrix.test-command }}
       finally-script: ${{ matrix.finally-script }}
-      results-path: 'cmake-build-clang-relwithdebinfo-sanitizer/junit.xml'
+      results-path: ${{ matrix.results-path }}
       artifact-name: ${{ matrix.artifact-name }}
+      sccache-key: ${{ matrix.sccache-key }}
+      sccache-path: build/.sccache
 
   win-build:
     name: Windows build
@@ -182,4 +252,45 @@ jobs:
           & conan remove -c "*"
           & conan cache clean
         shell: powershell
+
+  # clangd-tidy is the only lint step that needs serious memory
+  lint:
+    name: Lint (clangd-tidy)
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images]
+    permissions:
+      contents: read
+      id-token: write
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - ephemeral-limit-memory-12288
+      - ephemeral-limit-cpu-8
+    container:
+      image: adguard/core-libs:2.12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Conan
+        run: |
+          set -e
+          set -x
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      - name: Run clangd-tidy
+        run: |
+          set -e
+          set -x
+          SKIP_BOOTSTRAP=1 make clangd-tidy CLANGD_TIDY_JOBS=1
+
+      # Tell an OOM kill apart from a clangd crash: the counters are 0 unless
+      # the cgroup limit was hit.
+      - name: Memory accounting
+        if: always()
+        run: |
+          set -x
+          cat /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.peak 2>/dev/null || true
+          cat /sys/fs/cgroup/memory.events 2>/dev/null || true
 

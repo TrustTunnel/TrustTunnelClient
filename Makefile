@@ -25,6 +25,15 @@ COMPILE_COMMANDS = $(BUILD_DIR)/compile_commands.json
 EXPORT_DIR ?= bin
 SETUP_WIZARD_DIR = trusttunnel/setup_wizard
 
+# Optional compiler launcher (e.g. sccache). Set on the make command line
+# like `make test CMAKE_LAUNCHER=sccache`; environment values are ignored so a
+# stray exported variable cannot enable it for local builds.
+ifeq ($(origin CMAKE_LAUNCHER),environment)
+CMAKE_LAUNCHER :=
+endif
+CMAKE_LAUNCHER ?=
+CMAKE_LAUNCHER_FLAGS = $(if $(CMAKE_LAUNCHER),-DCMAKE_C_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER) -DCMAKE_CXX_COMPILER_LAUNCHER=$(CMAKE_LAUNCHER))
+
 ifeq ($(OS), Windows_NT)
 EXE_SUFFIX = .exe
 NPROC ?= $(or $(NUMBER_OF_PROCESSORS),8)
@@ -32,6 +41,14 @@ else
 NPROC ?= $(shell (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8) | tr -d '\n')
 UNAME_S := $(shell uname -s)
 endif
+
+# Parallelism level for clangd-tidy. Capped at half the CPU count (NPROC / 2,
+# not the full NPROC) because each clangd worker can consume hundreds of MB to
+# over 1 GB of RSS; running one per CPU can exhaust memory on memory-limited
+# CI builders (the docker build on the remote buildkit has --resource
+# memory=6g), OOM-killing clangd mid-analysis. Override per-invocation, e.g.
+# `make clangd-tidy CLANGD_TIDY_JOBS=1`.
+CLANGD_TIDY_JOBS ?= $(shell echo $$(( $(NPROC) / 2 > 0 ? $(NPROC) / 2 : 1 )))
 
 # On macOS CMake would otherwise build for whatever architecture the toolchain
 # defaults to, so pin it to the host. Override with ARCH, which also takes a
@@ -112,7 +129,7 @@ $(BUILD_DIR)/CMakeCache.txt:
 else
 $(BUILD_DIR)/CMakeCache.txt: | bootstrap_deps
 endif
-	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS)
+	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_LAUNCHER_FLAGS) $(CMAKE_ARGS)
 
 .PHONY: reconfigure
 ## Re-run the CMake configure step from scratch, e.g. after changing CMAKE_ARGS.
@@ -123,7 +140,7 @@ reconfigure:
 .PHONY: compile_commands
 ## Generate compile_commands.json for IDE / clang-tidy integration.
 compile_commands:
-	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_ARGS) \
+	cmake --preset $(PRESET) -B $(BUILD_DIR) $(OSX_ARCH_ARGS) $(CMAKE_LAUNCHER_FLAGS) $(CMAKE_ARGS) \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 .PHONY: build_libs
@@ -194,7 +211,7 @@ ifeq ($(SKIP_VENV),1)
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(NPROC)
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(CLANGD_TIDY_JOBS)
 else
 	python3 -m venv env && \
 	. env/bin/activate && \
@@ -202,7 +219,7 @@ else
 	jq -r '.[] | select(.file | endswith(".cpp")) | .file' $(COMPILE_COMMANDS) \
 		| grep -vE '(^|/)(third-party)(/|$$)' \
 		| sort -u \
-		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(NPROC)
+		| xargs clangd-tidy -p $(BUILD_DIR) --tqdm -j$(CLANGD_TIDY_JOBS)
 endif
 
 ## Lint markdown files.
