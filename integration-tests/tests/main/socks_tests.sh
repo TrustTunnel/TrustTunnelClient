@@ -82,7 +82,7 @@ check_iptables() {
 sleep 5
 
 echo "Check connection..."
-retry nc -vz -w 5 127.0.0.1 $SOCKS_PORT >/dev/null
+nc -vz -w 5 127.0.0.1 $SOCKS_PORT >/dev/null
 check_error
 
 echo "HTTP request -> 1.1.1.1..."

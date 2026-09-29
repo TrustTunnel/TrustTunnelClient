@@ -79,25 +79,34 @@ get_egress_ip() {
     return 1
 }
 
-# The egress IP inside the netns must differ from the direct one, otherwise the
-# traffic bypasses the tunnel. Both IPs come from the same service.
+# The egress IP inside the netns must differ from the direct one (both from the same
+# service). Tracing stays off here: the addresses must not reach the CI logs.
 assert_tunnel_used() {
-    local url direct_ip tunnel_ip
-    for url in $IP_ECHO_URLS; do
-        tunnel_ip="$(get_egress_ip tun "$url")" || tunnel_ip=""
-        direct_ip="$(get_egress_ip direct "$url")" || direct_ip=""
-        if [ -n "$tunnel_ip" ] && [ -n "$direct_ip" ]; then
-            echo "Egress IP via $url: direct=$direct_ip, through the tunnel=$tunnel_ip"
-            if [ "$direct_ip" = "$tunnel_ip" ]; then
-                echo "Error: traffic does not go through the tunnel (egress IP $tunnel_ip is the same with and without it)" >&2
-                return 1
+    local attempt=1 url direct_ip="" tunnel_ip="" result=0
+    set +x
+    while [ "$attempt" -le "$RETRY_ATTEMPTS" ]; do
+        for url in $IP_ECHO_URLS; do
+            tunnel_ip="$(get_egress_ip tun "$url")" || tunnel_ip=""
+            direct_ip="$(get_egress_ip direct "$url")" || direct_ip=""
+            if [ -n "$tunnel_ip" ] && [ -n "$direct_ip" ]; then
+                break 2
             fi
-            echo "Tunnel is used: direct egress $direct_ip, tunnel egress $tunnel_ip"
-            return 0
-        fi
+        done
+        attempt=$((attempt + 1))
+        sleep "$RETRY_DELAY"
     done
-    echo "Warning: no service answered on both paths, the leak check is skipped" >&2
-    return 0
+
+    if [ -z "$tunnel_ip" ] || [ -z "$direct_ip" ]; then
+        echo "Error: no service answered on both paths, the leak check cannot be verified" >&2
+        result=1
+    elif [ "$direct_ip" = "$tunnel_ip" ]; then
+        echo "Error: traffic does not go through the tunnel (the egress IPs are identical)" >&2
+        result=1
+    else
+        echo "Tunnel is used: egress IPs differ (via $url)"
+    fi
+    set -x
+    return "$result"
 }
 
 # Insert the outage rules at the top of the chains: the client setup adds its
@@ -150,6 +159,8 @@ assert_tunnel_used
 
 echo "Running browser tests (steady state, 30 minutes)..."
 STEADY_STATE_RESULT=0
+# Drop any report left by a previous run: a crashed phase must not be mistaken for a fresh one.
+rm -f output.json
 
 # Run tests for 30 minutes
 tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || STEADY_STATE_RESULT=$?
@@ -183,6 +194,7 @@ assert_tunnel_used
 
 echo "Running browser tests again after network recovery..."
 RECOVERY_RESULT=0
+rm -f output.json
 tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || RECOVERY_RESULT=$?
 
 # Record the measured reconnect time next to the second phase results.

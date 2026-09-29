@@ -8,8 +8,8 @@ const URLs = (process.env.URLs || 'https://www.bbc.com,https://www.google.com,ht
 const TIME_LIMIT = process.env.TIME_LIMIT || '120s';
 const VERBOSE = process.env.VERBOSE === 'true';
 const OUTPUT_FILE = process.env.OUTPUT_FILE || 'output.json';
-// A failed navigation may be a transient hiccup, so retry it before counting it
-// as a failure; the run fails only when the thresholds below are exceeded.
+// A failed navigation may be a transient hiccup, so retry it; the run fails when
+// the failure count reaches its threshold or the failure ratio exceeds it.
 const NAVIGATION_RETRIES = parseInt(process.env.NAVIGATION_RETRIES || '3', 10);
 const NAVIGATION_TIMEOUT_MS = parseInt(process.env.NAVIGATION_TIMEOUT_MS || '60000', 10);
 const MAX_NAVIGATION_FAILURES = parseInt(process.env.MAX_NAVIGATION_FAILURES || '3', 10);

@@ -87,8 +87,8 @@ The build script automatically handles repository cloning:
 - `BAMBOO_VPN_TOKEN` - Required for browser tests - VPN token for backend authentication
 - `AGVPN_HELPER_URL` - Optional URL to download agvpn_helper if not present in output directory
 - `NAVIGATION_RETRIES`, `NAVIGATION_TIMEOUT_MS` - Navigation retry policy (defaults: 3 attempts, 60000 ms)
-- `MAX_NAVIGATION_FAILURES`, `MAX_NAVIGATION_FAILURE_RATIO` - The run fails only when the number
-    of failed navigations or their ratio exceeds these thresholds (defaults: 3, 0.1)
+- `MAX_NAVIGATION_FAILURES`, `MAX_NAVIGATION_FAILURE_RATIO` - The run fails when the number of
+    failed navigations reaches the first threshold or their ratio exceeds the second (defaults: 3, 0.1)
 - `TUNNEL_READY_ATTEMPTS`, `TUNNEL_READY_DELAY` - Wait window for the initial tunnel readiness check (defaults: 20 x 3 s)
 - `RECONNECT_WAIT_ATTEMPTS`, `RECONNECT_WAIT_DELAY` - Wait window for recovery after the simulated outage (defaults: 40 x 5 s)
 - `IP_ECHO_URLS` - Services that report the egress IP; used to check that the traffic really goes through the VPN

@@ -170,11 +170,11 @@ retry tunexec_timeout 60 ping6 -c 10 ipv6.google.com > /dev/null
 check_error
 
 echo "Test UDP with iperf3..."
-retry tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP
+tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP
 check_error
 
 echo "Test UDP download with iperf3..."
-retry tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP
+tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP
 check_error
 
 if [ $has_error -gt 0 ]
