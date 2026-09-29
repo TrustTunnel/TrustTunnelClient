@@ -44,9 +44,17 @@ if (WIN32)
             @ONLY)
 endif ()
 
-add_library(trusttunnel_windows_a STATIC src/trusttunnel.cpp src/trusttunnel_pipe.cpp)
+add_library(trusttunnel_windows_a STATIC
+    src/trusttunnel.cpp
+    src/trusttunnel_pipe.cpp
+    src/client_authenticator.cpp
+    src/process_info.cpp
+    src/pipe_name_registry.cpp)
 target_include_directories(trusttunnel_windows_a PUBLIC include)
 target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel)
+
+# Crypto for client signature auth, and the OS RNG for pipe name generation
+target_link_libraries(trusttunnel_windows_a wintrust crypt32 bcrypt)
 
 add_library(trusttunnel_windows SHARED src/trusttunnel.cpp)
 target_link_libraries(trusttunnel_windows trusttunnel_windows_a)
@@ -79,6 +87,9 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 link_libraries(trusttunnel_windows_a)
 
 add_unit_test(trusttunnel_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_client_authenticator_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_pipe_name_registry_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_attach_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_ring_buffer_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_log_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 

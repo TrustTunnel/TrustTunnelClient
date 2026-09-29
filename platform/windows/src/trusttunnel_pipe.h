@@ -158,6 +158,8 @@ protected:
 
     // Connection state. Written by the loop thread; read by `send()` (any thread).
     std::atomic<bool> m_connected{false};
+    // Whether an overlapped connect posted on `m_olr` is in flight. Loop thread only.
+    bool m_connect_pending = false;
 
     // Logger. Bound to a static ag::Logger owned by the subclass's translation unit.
     ag::Logger &m_logger;
@@ -186,8 +188,12 @@ private:
     bool m_read_pending = false;
     bool m_write_pending = false;
 
+    // Receive buffer: `[0, m_input_buf_pos)` is consumed, `[m_input_buf_pos, m_input_buf_used)` is
+    // the unconsumed tail. Reads append at `m_input_buf_used`, so the fill level must not move while
+    // a read is in flight (see compact_input_buf()).
     std::vector<uint8_t> m_input_buf;
     size_t m_input_buf_used = 0;
+    size_t m_input_buf_pos = 0;
 
     std::mutex m_pending_writes_lock;
     std::list<PendingWrite> m_pending_writes; // Guarded by m_pending_writes_lock.
@@ -209,6 +215,14 @@ private:
     // Returns nullopt to continue the loop; otherwise the value `loop()` should return.
     std::optional<bool> handle_disconnect();
 
+    /**
+     * Move the unconsumed tail of the receive buffer to its front. Must only be called while no
+     * read is in flight: a pending read writes at the fill level captured when it was issued, so
+     * moving that fill level underneath it would land the read's bytes at a stale offset and
+     * desynchronize the stream.
+     */
+    void compact_input_buf();
+
     bool start_read();
     bool complete_read();
     bool dispatch_one_message();
@@ -223,6 +237,13 @@ private:
  */
 class PipeServer : public PipeEndpoint {
 public:
+    /**
+     * Connect-time client validation callback. Invoked on the loop thread with the just-connected
+     * pipe handle, before any of the client's bytes are read. Returning false rejects the client
+     * and drops it through the normal reconnect path. May be null: every client is accepted.
+     */
+    using PeerValidator = std::function<bool(HANDLE)>;
+
     /**
      * Create a security descriptor that grants GENERIC_READ | GENERIC_WRITE to
      * NT AUTHORITY\Authenticated Users, and full control to SYSTEM and BUILTIN\Administrators.
@@ -239,9 +260,12 @@ public:
      *                            the system default DACL is used. The pointer is consumed
      *                            synchronously by the constructor; the caller may destroy the
      *                            descriptor immediately after construction returns.
+     * @param validator           Optional connect-time client validation callback. See
+     *                            `PeerValidator`. Must remain valid for the lifetime of this
+     *                            `PipeServer` (it is invoked by the IO loop and never copied out).
      */
     PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
-            SECURITY_DESCRIPTOR *security_descriptor = nullptr);
+            SECURITY_DESCRIPTOR *security_descriptor = nullptr, PeerValidator validator = nullptr);
     ~PipeServer() override;
 
 protected:
@@ -252,8 +276,26 @@ protected:
 
 private:
     static constexpr DWORD PIPE_BUFFER_SIZE = 64 * 1024;
+    // Stop-interruptible pause before re-posting a connect after rejecting a synchronously connected client.
+    static constexpr DWORD REJECTION_BACKOFF_MS = 100;
+
+    /**
+     * Validate the client of a connect that completed without a pending overlapped operation,
+     * and mark the server connected on acceptance. Drop the client and return false on
+     * rejection; the caller retries the connect.
+     */
+    bool accept_connected_client();
+
+    /**
+     * Run the peer validator, if any, on the connected pipe. A null `m_validator` (no validation
+     * requested) accepts every client.
+     */
+    bool validate_peer();
 
     static HANDLE create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *security_descriptor);
+
+    // The connect-time client validation callback; null when no validation was requested.
+    PeerValidator m_validator;
 };
 
 /**

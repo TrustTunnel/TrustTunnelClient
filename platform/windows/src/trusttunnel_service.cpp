@@ -8,13 +8,16 @@
 #include <string>
 #include <utility>
 
-#include "common/defs.h"
-#include "common/logger.h"
+#include <magic_enum/magic_enum.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "client_authenticator.h"
+#include "common/defs.h"
+#include "common/logger.h"
 #include "common/system_error.h"
+#include "pipe_name_registry.h"
 #include "scoped_file_lock.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
@@ -146,20 +149,49 @@ static void WINAPI service_ctrl_handler(DWORD control) {
     }
 }
 
-static void WINAPI service_main(DWORD /*argc*/, LPWSTR * /*argv*/) {
-    g_status_handle = RegisterServiceCtrlHandlerW(L"", service_ctrl_handler);
+static void WINAPI service_main(DWORD /*argc*/, LPWSTR *argv) {
+    // The SCM always passes the service name as the first ServiceMain argument.
+    std::wstring service_name = argv[0];
+    g_status_handle = RegisterServiceCtrlHandlerW(service_name.c_str(), service_ctrl_handler);
     g_shutdown_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
     service_set_status(SERVICE_START_PENDING);
+
+    // The authenticator is wired into the server via a validator callback, so it must outlive
+    // `server`. The service's own image path and signature are the trust anchor for every client.
+    ag::trusttunnel_windows::ClientAuthenticator authenticator{ag::trusttunnel_windows::ProcessInfo::current(),
+            ag::trusttunnel_windows::AuthenticodeSignature::of_current_process()};
+    auto peer_validator = [&authenticator](HANDLE pipe) {
+        ag::trusttunnel_windows::ClientValidationDecision decision = authenticator.validate(pipe);
+        if (decision != ag::trusttunnel_windows::ClientValidationDecision::ALLOWED) {
+            warnlog(g_logger, "Rejecting pipe client: {}", magic_enum::enum_name(decision));
+        }
+        return decision == ag::trusttunnel_windows::ClientValidationDecision::ALLOWED;
+    };
 
     PipeServer server{g_pipe_name.c_str(), g_shutdown_event,
             [&server](TrusttunnelServiceMessageType what, ag::Uint8View data) {
                 pipe_handler(server, what, data);
             },
-            PipeServer::for_authenticated_users().get()};
+            PipeServer::for_authenticated_users().get(), std::move(peer_validator)};
+
+    ag::trusttunnel_windows::PipeNameRegistry registry{service_name};
+
+    // Publish the effective pipe name after the pipe exists and before reporting RUNNING, so a
+    // client that observes the running state is guaranteed to find the name. A service that
+    // cannot publish must not serve undiscoverable clients, so this is a hard startup failure.
+    if (int32_t err = registry.publish(g_pipe_name); err != 0) {
+        errlog(g_logger, "Failed to publish the pipe name ({}); stopping", err);
+        service_set_status(SERVICE_STOPPED);
+        return;
+    }
 
     service_set_status(SERVICE_RUNNING);
     server.loop();
+
+    if (int32_t err = registry.remove(); err != 0) {
+        warnlog(g_logger, "Failed to delete the published pipe name ({})", err);
+    }
 
     if (g_vpn != nullptr) {
         infolog(g_logger, "Shutting down: stopping VPN client");
@@ -182,7 +214,16 @@ int wmain(int argc, wchar_t **argv) {
     g_file_logger->install();
     ag::Logger::set_log_level(ag::LOG_LEVEL_INFO);
 
+    // argv[2] is the provisioned pipe name: empty means "generate a fresh one per start".
     g_pipe_name = argv[2];
+    if (g_pipe_name.empty()) {
+        std::optional<std::wstring> generated = ag::trusttunnel_windows::generate_pipe_name();
+        if (!generated.has_value()) {
+            errlog(g_logger, "Failed to generate a pipe name");
+            return 2;
+        }
+        g_pipe_name = std::move(*generated);
+    }
 
     {
         g_ring_buffer_path = std::filesystem::path(argv[3]);
@@ -195,14 +236,10 @@ int wmain(int argc, wchar_t **argv) {
             {nullptr, nullptr},
     };
 
-#ifndef AG_DEBUGGING_TRUSTTUNNEL_SERVICE
     if (!StartServiceCtrlDispatcherW(start_table)) {
         errlog(g_logger, "StartServiceCtrlDispatcherW: {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
         return 3;
     }
-#else
-    service_main(0, nullptr);
-#endif
 
     return 0;
 }
