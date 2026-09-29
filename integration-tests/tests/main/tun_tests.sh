@@ -4,9 +4,56 @@ echo "Integration TUN test start"
 
 ENDPOINT_IP=$1
 CURL_SSL_CONNECT_ERRCODE=35
+# External services may fail transiently, so network checks are retried.
+RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
+RETRY_DELAY="${RETRY_DELAY:-5}"
 
 declare -i has_error
 has_error=0
+
+retry() {
+  local attempt=1
+  local rc=0
+  while true; do
+    "$@" && return 0
+    rc=$?
+    if [ "$attempt" -ge "$RETRY_ATTEMPTS" ]; then
+      echo "Command failed after $RETRY_ATTEMPTS attempts (exit code: $rc): $*" >&2
+      return "$rc"
+    fi
+    echo "Attempt $attempt/$RETRY_ATTEMPTS failed (exit code: $rc), retrying in ${RETRY_DELAY}s: $*" >&2
+    sleep "$RETRY_DELAY"
+    attempt=$((attempt + 1))
+  done
+}
+
+tunexec_timeout() {
+  local seconds="$1"
+  shift
+  timeout "$seconds" ip netns exec tun "$@"
+}
+
+# Speed-test candidates: our own node first, then independent fallbacks; the
+# download is verified by size, so the files may differ.
+SPEED_TEST_URLS="${SPEED_TEST_URLS:-https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin https://proof.ovh.net/files/100Mb.dat https://ash-speed.hetzner.com/100MB.bin https://nbg1-speed.hetzner.com/100MB.bin}"
+SPEED_TEST_MIN_BYTES="${SPEED_TEST_MIN_BYTES:-100000000}"
+
+# Pick the first speed-test host that answers; the arguments are the curl prefix
+# (e.g. "tunexec curl"). The probe is bounded: some hosts ignore Range.
+probe_speed_test_url() {
+  local url code
+  for url in $SPEED_TEST_URLS; do
+    code="$("$@" -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 3 -r 0-1023 "$url" 2>/dev/null | tail -n1)"
+    if [ "$code" = "200" ] || [ "$code" = "206" ]; then
+      echo "$url"
+      return 0
+    fi
+    echo "Speed-test host is not reachable, trying the next one: $url (http code: ${code:-none})" >&2
+  done
+  return 1
+}
+
+echo "Retry policy: up to $RETRY_ATTEMPTS attempts with ${RETRY_DELAY}s delay for network checks"
 
 check_error() {
   if [ $? -eq 0 ]
@@ -50,11 +97,11 @@ tunexec() {
 }
 
 echo "HTTP request -> 1.1.1.1..."
-tunexec curl 1.1.1.1 >/dev/null
+retry tunexec curl -sS --connect-timeout 10 --max-time 30 1.1.1.1 >/dev/null
 check_error
 
 echo "HTTP request -> http://1.1.1.1..."
-tunexec curl -sS http://1.1.1.1 >/dev/null
+retry tunexec curl -sS --connect-timeout 10 --max-time 30 http://1.1.1.1 >/dev/null
 check_error
 
 echo "HTTP request to exclusion -> httpbin.agrd.dev,  ipv4..."
@@ -78,43 +125,56 @@ check_iptables -n /client 1.1.1.1
 check_iptables -z /endpoint 1.1.1.1
 
 echo "HTTPS request -> https://www.cloudflare.com, ipv4..."
-tunexec curl -sS https://www.cloudflare.com -4 >/dev/null
+retry tunexec curl -sS --connect-timeout 10 --max-time 30 https://www.cloudflare.com -4 >/dev/null
 check_error
 
 echo "HTTP request -> ipv6.google.com, ipv6..."
-tunexec curl -6 -sS http://ipv6.google.com >/dev/null
+retry tunexec curl -sS --connect-timeout 10 --max-time 30 -6 http://ipv6.google.com >/dev/null
 check_error
 
 echo "HTTPS request -> ipv6.google.com, ipv6..."
-tunexec curl -6 -sS https://ipv6.google.com >/dev/null
+retry tunexec curl -sS --connect-timeout 10 --max-time 30 -6 https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
-tunexec curl -L -O -sS 'https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin' --max-time 120 >/dev/null
-check_error
+SPEED_TEST_URL="$(probe_speed_test_url tunexec curl || true)"
+if [ -z "$SPEED_TEST_URL" ]; then
+  echo "...failed: no reachable speed-test host"
+  has_error=$((has_error + 1))
+else
+  SPEED_TEST_BYTES="$(tunexec curl -sS -L -o /dev/null -w '%{size_download}' --connect-timeout 10 --max-time 120 \
+    --retry 2 --retry-delay 5 --retry-all-errors "$SPEED_TEST_URL" | tail -n1)"
+  SPEED_TEST_BYTES="${SPEED_TEST_BYTES%%.*}"
+  if [ "${SPEED_TEST_BYTES:-0}" -ge "$SPEED_TEST_MIN_BYTES" ]; then
+    echo "...passed: downloaded $SPEED_TEST_BYTES bytes from $SPEED_TEST_URL"
+  else
+    echo "...failed: downloaded ${SPEED_TEST_BYTES:-0} bytes from $SPEED_TEST_URL, expected at least $SPEED_TEST_MIN_BYTES"
+    has_error=$((has_error + 1))
+  fi
+fi
 
 echo "Check ICMP - ping 1.1.1.1 ..."
-tunexec ping -c 10 1.1.1.1 &> /dev/null
+retry tunexec_timeout 60 ping -c 10 1.1.1.1 > /dev/null
 check_error
 
 echo "Check ICMP - ping 8.8.8.8 ..."
-tunexec ping -c 10 8.8.8.8 &> /dev/null
+retry tunexec_timeout 60 ping -c 10 8.8.8.8 > /dev/null
 check_error
 
 echo "Check ICMP ipv6 - ping 2001:4860:4860::8888 ..."
-tunexec ping -c 10 2001:4860:4860::8888 &> /dev/null
+retry tunexec_timeout 60 ping -c 10 2001:4860:4860::8888 > /dev/null
 check_error
 
 echo "Check ICMP ipv6 - ping6 ipv6.google.com ..."
-tunexec ping6 -c 10 ipv6.google.com &> /dev/null
+retry tunexec_timeout 60 ping6 -c 10 ipv6.google.com > /dev/null
 check_error
 
 echo "Test UDP with iperf3..."
-tunexec iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP
+retry tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP
 check_error
 
 echo "Test UDP download with iperf3..."
-tunexec iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP
+retry tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP
 check_error
 
 if [ $has_error -gt 0 ]

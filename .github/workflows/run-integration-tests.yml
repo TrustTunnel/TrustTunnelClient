@@ -14,6 +14,8 @@ jobs:
     name: Build binaries
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     needs: [resolve-images]
+    # Bounds a wedged build (conan/compiler hang) instead of the 6h default.
+    timeout-minutes: 90
     runs-on:
       - ephemeral
       - ephemeral-linux
@@ -64,6 +66,8 @@ jobs:
     name: Run integration tests
     needs: [build-binaries, resolve-images]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    # The checks themselves take a few minutes; a timeout only catches hangs.
+    timeout-minutes: 60
     runs-on:
       - ephemeral
       - ephemeral-linux

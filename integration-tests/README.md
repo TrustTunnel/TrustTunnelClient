@@ -75,11 +75,23 @@ The build script automatically handles repository cloning:
 - `ENDPOINT_HOSTNAME` - Hostname for SSL certificate generation (default: endpoint.test)
 - `OUTPUT_DIR` - Directory for setup files (default: /output)
 
+### For Main Tests
+
+- `RETRY_ATTEMPTS`, `RETRY_DELAY` - Retry policy for network checks (defaults: 3 attempts, 5 s delay)
+- `SPEED_TEST_URLS` - Space-separated speed-test host candidates, the first reachable one is used
+- `SPEED_TEST_MIN_BYTES` - Minimum accepted download size for the speed test (default: 100000000)
+
 ### For Browser Tests
 
 - `BAMBOO_VPN_APP_ID` - Required for browser tests - VPN app ID for backend authentication
 - `BAMBOO_VPN_TOKEN` - Required for browser tests - VPN token for backend authentication
 - `AGVPN_HELPER_URL` - Optional URL to download agvpn_helper if not present in output directory
+- `NAVIGATION_RETRIES`, `NAVIGATION_TIMEOUT_MS` - Navigation retry policy (defaults: 3 attempts, 60000 ms)
+- `MAX_NAVIGATION_FAILURES`, `MAX_NAVIGATION_FAILURE_RATIO` - The run fails only when the number
+    of failed navigations or their ratio exceeds these thresholds (defaults: 3, 0.1)
+- `TUNNEL_READY_ATTEMPTS`, `TUNNEL_READY_DELAY` - Wait window for the initial tunnel readiness check (defaults: 20 x 3 s)
+- `RECONNECT_WAIT_ATTEMPTS`, `RECONNECT_WAIT_DELAY` - Wait window for recovery after the simulated outage (defaults: 40 x 5 s)
+- `IP_ECHO_URLS` - Services that report the egress IP; used to check that the traffic really goes through the VPN
 
 ## Examples
 
@@ -171,11 +183,15 @@ Each browser test run automatically:
 4. Starts the VPN client in TUN mode (saves PID to `/output/vpn_client.pid`)
 5. Creates network namespace 'tun' for isolation
 6. Installs Node.js and browser test dependencies
-7. Runs Puppeteer-based browser tests for 30 minutes
-8. Simulates network disruption (drops traffic, sends SIGHUP to client)
-9. Restores network and runs tests again for 30 minutes
-10. Collects test results in `/output/output1part.json` and `/output/output2part.json`
-11. Stops processes using PID files and cleans up
+7. Waits until the tunnel passes traffic and checks that the egress IP differs from the one the
+    runner uses directly, so that a tunnel silently forwarding traffic directly cannot look green
+8. Runs Puppeteer-based browser tests for 30 minutes (steady-state phase)
+9. Simulates a network outage (drops traffic in both directions, sends SIGHUP to the client)
+10. Restores the network and waits until the tunnel passes traffic again instead of relying on a
+    fixed delay; the measured recovery time is stored as `reconnectSeconds` in the second phase results
+11. Runs the browser tests again for 30 minutes (after-disruption phase)
+12. Collects test results in `/output/output1part.json` and `/output/output2part.json`
+13. Stops processes using PID files and cleans up
 
 **Note**: The test container has access to built binaries (`trusttunnel_client`, `trusttunnel_endpoint`) via the mounted `/output` directory.
 
