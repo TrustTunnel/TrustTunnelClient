@@ -88,13 +88,19 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
  * Create and start a VPN service. This function requires administrator privileges. The service is configured
  * to start manually (on demand). After startup, the service is listening on a named pipe `pipe_name`,
  * and can be controlled by connecting and sending messages on that pipe. The protocol details are given by the
- * description of `TrusttunnelServiceMessageType` enumeration. Anyone can read/write from/to the pipe.
+ * description of `TrusttunnelServiceMessageType` enumeration. Pipe clients are authenticated by their
+ * Authenticode signature: a signed service accepts only a client whose signer certificate matches its own
+ * signer certificate, while an unsigned service accepts any client whose executable lives in the service's
+ * own directory.
  * @param image_path The absolute path to the `trusttunnel_service` executable.
  * @param logs_dir The absolute path to the directory where the service writes its rotating `service.log`
  *                 family. Created if absent.
- * @param pipe_name The name for the named pipe used to communicate with the service.
- *                  A string of at most 256 characters of the form: "\\.\pipe\<pipename>", where "<pipename>"
- *                  can include any character except the backslash.
+ * @param pipe_name The name for the named pipe used to communicate with the service, or an empty
+ *                  string to let the service generate a fresh random name on every start and
+ *                  publish it for `trusttunnel_service_attach()` to discover.
+ *                  A non-empty name is a string of at most 256 characters of the form:
+ *                  "\\.\pipe\<pipename>", where "<pipename>" can include any character except the
+ *                  backslash.
  * @param name The service name. At most 256 characters.
  * @param display_name The display name to be used by user interface programs to identify the service.
  *                     At most 256 characters.
@@ -154,7 +160,8 @@ WIN_EXPORT int32_t trusttunnel_service_stop();
  * parameters) must remain valid until `trusttunnel_service_detach()` is called.
  *
  * @param service_name The service name passed to `trusttunnel_service_install()`.
- * @param pipe_name The pipe name passed to `trusttunnel_service_install()`.
+ * @param pipe_name The pipe name passed to `trusttunnel_service_install()`, or NULL/empty
+ *                  string to discover the name the running service published for itself.
  * @param state_changed_cb State change callback.
  * @param state_changed_cb_arg Argument for state change callback.
  * @param connection_info_cb Connection info callback. May be NULL.
