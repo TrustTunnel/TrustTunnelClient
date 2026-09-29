@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.1.8] - 2026-09-29
+
+### Changed
+
+- On MIPS, OpenSSL 4.0.2 now replaces the quictls build of OpenSSL 3.1.5, and QUIC is handled by ngtcp2's OpenSSL backend instead of the patched quictls fork.
+
 ## [1.1.7] - 2026-09-24
 
 ### Changed
@@ -440,7 +446,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.7...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.8...HEAD
+[1.1.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
