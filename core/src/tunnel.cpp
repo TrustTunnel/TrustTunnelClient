@@ -27,7 +27,7 @@
             (int64_t) (conn_)->server_id, ##__VA_ARGS__)
 
 // TODO: either remove quic blocking code or fix it to correctly tell QUIC libraries that connection is unreachable.
-#define BLOCK_OLD_QUIC_CONNS 0
+#define BLOCK_OLD_QUIC_CONNS 1
 
 namespace ag {
 
