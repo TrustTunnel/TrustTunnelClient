@@ -24,20 +24,17 @@ tunexec() {
 }
 
 retry() {
-    local attempts="$1"
-    local delay="$2"
-    shift 2
     local attempt=1
+    local rc=0
     while true; do
-        if "$@"; then
-            return 0
+        "$@" && return 0
+        rc=$?
+        if [ "$attempt" -ge "$RETRY_ATTEMPTS" ]; then
+            echo "Command failed after $RETRY_ATTEMPTS attempts (exit code: $rc): $*" >&2
+            return "$rc"
         fi
-        if [ "$attempt" -ge "$attempts" ]; then
-            echo "Command failed after $attempts attempts: $*" >&2
-            return 1
-        fi
-        echo "Attempt $attempt/$attempts failed, retrying in ${delay}s: $*" >&2
-        sleep "$delay"
+        echo "Attempt $attempt/$RETRY_ATTEMPTS failed (exit code: $rc), retrying in ${RETRY_DELAY}s: $*" >&2
+        sleep "$RETRY_DELAY"
         attempt=$((attempt + 1))
     done
 }
@@ -142,7 +139,7 @@ TEST_DIR="$(dirname "$0")"
 cd "$TEST_DIR"
 
 echo "Installing Node.js dependencies..."
-retry "$RETRY_ATTEMPTS" "$RETRY_DELAY" env PUPPETEER_SKIP_DOWNLOAD=true yarn install
+retry env PUPPETEER_SKIP_DOWNLOAD=true yarn install
 
 # Check that VPN client is running
 echo "Checking if VPN client is running..."
