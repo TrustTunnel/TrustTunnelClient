@@ -8,15 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Configurable TLS ClientHello fingerprint per endpoint via the `[endpoint].tls_profile`
-  setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
-  `chrome`, preserving the previous behavior.
-- Introduce windows platform adapter
-
 ### Changed
-
-- Migrated TLS ClientHello construction (`make_ssl`) to the shared NativeLibsCommon
-  `ag::tls::make_ssl` implementation.
 
 ### Deprecated
 
@@ -24,9 +16,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
-
 ### Security
+
+## [1.3.0-beta.1] - 2026-09-29
+
+### Added
+
+- Configurable TLS ClientHello fingerprint per endpoint via the `[endpoint].tls_profile`
+  setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
+  `chrome`, preserving the previous behavior.
+- Introduce windows platform adapter
+- Added pipe client authentication for the Windows adapter.
+
+### Changed
+
+- Improved Windows adapter stability.
+- Migrated TLS ClientHello construction (`make_ssl`) to the shared NativeLibsCommon
+  `ag::tls::make_ssl` implementation.
+
+### Fixed
+
+- Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
 
 ## [1.1.5] - 2026-09-02
 
@@ -438,7 +448,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...HEAD
+[1.3.0-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.3.0-beta.1
 [1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4
 [1.0.63]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.0.62...v1.0.63

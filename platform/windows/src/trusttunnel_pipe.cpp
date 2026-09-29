@@ -61,7 +61,7 @@ void PipeEndpoint::cancel_pending_io() {
         DWORD ignored = 0;
         GetOverlappedResult(m_pipe, &m_olw, &ignored, TRUE);
     }
-    if (m_read_pending || !m_connected.load(std::memory_order_relaxed)) {
+    if (m_read_pending || m_connect_pending) {
         DWORD ignored = 0;
         GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
     }
@@ -69,9 +69,11 @@ void PipeEndpoint::cancel_pending_io() {
 
 void PipeEndpoint::prepare_for_connect() {
     m_connected.store(false, std::memory_order_relaxed);
+    m_connect_pending = false;
     m_read_pending = false;
     m_write_pending = false;
     m_input_buf_used = 0;
+    m_input_buf_pos = 0;
     ResetEvent(m_io_event);
     ResetEvent(m_write_event);
 }
@@ -223,7 +225,20 @@ std::optional<bool> PipeEndpoint::handle_disconnect() {
     return std::nullopt;
 }
 
+void PipeEndpoint::compact_input_buf() {
+    if (m_input_buf_pos == 0) {
+        return;
+    }
+    std::memmove(m_input_buf.data(), m_input_buf.data() + m_input_buf_pos, m_input_buf_used - m_input_buf_pos);
+    m_input_buf_used -= m_input_buf_pos;
+    m_input_buf_pos = 0;
+}
+
 bool PipeEndpoint::start_read() {
+    // No read is in flight here, so compacting the consumed prefix is safe and gives the read the
+    // largest possible destination.
+    compact_input_buf();
+
     if (m_input_buf_used >= m_input_buf.size()) {
         // Buffer is full but no complete message could be parsed -- impossible if MAX_MESSAGE_SIZE
         // is honored, so this indicates a protocol violation. Drop the connection.
@@ -232,6 +247,10 @@ bool PipeEndpoint::start_read() {
         return false;
     }
     DWORD read_size = 0;
+    // Clear a stale completion signal (e.g. one left behind by a synchronously-completed
+    // previous read) before queueing the read, so that any signal observed afterwards can only
+    // belong to this operation.
+    ResetEvent(m_io_event);
     BOOL ok = ReadFile(m_pipe, m_input_buf.data() + m_input_buf_used,
             static_cast<DWORD>(m_input_buf.size() - m_input_buf_used), &read_size, &m_olr);
     if (ok) {
@@ -278,7 +297,7 @@ bool PipeEndpoint::complete_read() {
 }
 
 bool PipeEndpoint::dispatch_one_message() {
-    ag::wire_utils::Reader r{{m_input_buf.data(), m_input_buf_used}};
+    ag::wire_utils::Reader r{{m_input_buf.data() + m_input_buf_pos, m_input_buf_used - m_input_buf_pos}};
     auto what = r.get_u32();
     auto size = r.get_u32();
     if (!what.has_value() || !size.has_value()) {
@@ -294,11 +313,15 @@ bool PipeEndpoint::dispatch_one_message() {
         return true; // Need more bytes for the payload.
     }
 
+    m_input_buf_pos += sizeof(uint32_t) + sizeof(uint32_t) + *size; // type + length + payload
     m_handler(static_cast<TrusttunnelServiceMessageType>(*what), *data);
-    ag::Uint8View remaining = r.get_buffer();
-    std::memmove(m_input_buf.data(), remaining.data(), remaining.size());
-    m_input_buf_used = remaining.size();
-    if (m_input_buf_used != 0) {
+
+    // A read in flight writes at the fill level captured when it was issued, so the buffer must not
+    // be moved until it completes; the next start_read() compacts instead.
+    if (!m_read_pending) {
+        compact_input_buf();
+    }
+    if (m_input_buf_pos != m_input_buf_used) {
         SetEvent(m_wake_event);
     }
     return true;
@@ -316,6 +339,10 @@ bool PipeEndpoint::pump_writes() {
         }
 
         PendingWrite &w = *m_inflight_write;
+        // Clear a stale completion signal (e.g. one left behind by a synchronously-completed
+        // previous write) before queueing the write, so that any signal observed afterwards can
+        // only belong to this operation.
+        ResetEvent(m_write_event);
         DWORD written = 0;
         BOOL ok = WriteFile(
                 m_pipe, w.data.data() + w.written, static_cast<DWORD>(w.data.size() - w.written), &written, &m_olw);
@@ -380,7 +407,7 @@ void PipeEndpoint::disconnect_and_reset() {
     }
     if (m_pipe != INVALID_HANDLE_VALUE) {
         CancelIoEx(m_pipe, nullptr);
-        if (m_read_pending) {
+        if (m_read_pending || m_connect_pending) {
             DWORD ignored = 0;
             GetOverlappedResult(m_pipe, &m_olr, &ignored, TRUE);
         }
@@ -395,9 +422,11 @@ void PipeEndpoint::disconnect_and_reset() {
     // Both event handles may have been left signaled by GetOverlappedResult(TRUE) above.
     ResetEvent(m_io_event);
     ResetEvent(m_write_event);
+    m_connect_pending = false;
     m_read_pending = false;
     m_write_pending = false;
     m_input_buf_used = 0;
+    m_input_buf_pos = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -420,9 +449,10 @@ SecurityDescriptorPtr PipeServer::for_authenticated_users() {
     return SecurityDescriptorPtr{static_cast<SECURITY_DESCRIPTOR *>(sd)};
 }
 
-PipeServer::PipeServer(
-        const wchar_t *pipe_name, HANDLE stop_event, Handler handler, SECURITY_DESCRIPTOR *security_descriptor)
-        : PipeEndpoint{stop_event, std::move(handler), g_server_logger} {
+PipeServer::PipeServer(const wchar_t *pipe_name, HANDLE stop_event, Handler handler,
+        SECURITY_DESCRIPTOR *security_descriptor, PeerValidator validator)
+        : PipeEndpoint{stop_event, std::move(handler), g_server_logger}
+        , m_validator{std::move(validator)} {
     m_pipe = create_pipe(pipe_name, security_descriptor);
 }
 
@@ -442,7 +472,7 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *se
     sa.bInheritHandle = FALSE;
 
     HANDLE h = CreateNamedPipeW(pipe_name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
             1, // single instance
             PIPE_BUFFER_SIZE, PIPE_BUFFER_SIZE, 0, security_descriptor != nullptr ? &sa : nullptr);
     if (h == INVALID_HANDLE_VALUE) {
@@ -451,37 +481,63 @@ HANDLE PipeServer::create_pipe(const wchar_t *pipe_name, SECURITY_DESCRIPTOR *se
     return h;
 }
 
+bool PipeServer::validate_peer() {
+    // A null validator means "accept everyone".
+    return m_validator == nullptr || m_validator(m_pipe);
+}
+
+bool PipeServer::accept_connected_client() {
+    if (!validate_peer()) {
+        // Rejection routes through the reconnect path, never a fatal loop exit: drop the client
+        // and let the caller re-post ConnectNamedPipe for the next one.
+        warnlog(m_logger, "peer validation rejected the client; dropping it");
+        DisconnectNamedPipe(m_pipe);
+        return false;
+    }
+    m_connected.store(true, std::memory_order_relaxed);
+    SetEvent(m_wake_event);
+    return true;
+}
+
 bool PipeServer::start_connect() {
-    prepare_for_connect();
     if (m_pipe == INVALID_HANDLE_VALUE) {
         // create_pipe() failed in the constructor.
         return false;
     }
 
-    if (ConnectNamedPipe(m_pipe, &m_olr)) {
-        // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
-        // used by the kernel in this case, so do not call finalize_connect (which would call
-        // GetOverlappedResult on it). Mark connected directly and kick the loop.
-        ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(m_logger, "client connected (sync)");
-        return true;
+    for (;;) {
+        prepare_for_connect();
+
+        if (ConnectNamedPipe(m_pipe, &m_olr)) {
+            // Synchronous success (very rare for overlapped pipes). The OVERLAPPED was not really
+            // used by the kernel in this case, so do not call finalize_connect (which would call
+            // GetOverlappedResult on it). Mark connected directly and kick the loop.
+            ResetEvent(m_io_event); // Defensive: kernel may have signaled on sync completion.
+            if (accept_connected_client()) {
+                infolog(m_logger, "client connected (sync)");
+                return true;
+            }
+        } else if (DWORD err = GetLastError(); err == ERROR_PIPE_CONNECTED) {
+            // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op
+            // was submitted; mark connected directly.
+            if (accept_connected_client()) {
+                infolog(m_logger, "client connected (already connected)");
+                return true;
+            }
+        } else if (err == ERROR_IO_PENDING) {
+            m_connect_pending = true;
+            return true;
+        } else {
+            errlog(m_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
+            return false;
+        }
+
+        // Reached only after a rejection: pace retries so a peer that keeps pre-connecting cannot spin this loop.
+        if (WaitForSingleObject(stop_event(), REJECTION_BACKOFF_MS) != WAIT_TIMEOUT) {
+            // Stop requested: post nothing, `loop()` observes the stop event on its next wait.
+            return true;
+        }
     }
-    DWORD err = GetLastError();
-    if (err == ERROR_PIPE_CONNECTED) {
-        // A client connected between CreateNamedPipe and ConnectNamedPipe. No overlapped op was
-        // submitted; mark connected directly.
-        m_connected.store(true, std::memory_order_relaxed);
-        SetEvent(m_wake_event);
-        infolog(m_logger, "client connected (already connected)");
-        return true;
-    }
-    if (err == ERROR_IO_PENDING) {
-        return true;
-    }
-    errlog(m_logger, "ConnectNamedPipe: {} ({})", err, ag::sys::strerror(err));
-    return false;
 }
 
 bool PipeServer::finalize_connect() {
@@ -491,7 +547,15 @@ bool PipeServer::finalize_connect() {
         warnlog(m_logger, "GetOverlappedResult(connect): {} ({})", err, ag::sys::strerror(err));
         return false;
     }
+    m_connect_pending = false;
     ResetEvent(m_io_event);
+    if (!validate_peer()) {
+        // Rejection takes the normal reconnect path: returning false here routes through
+        // disconnect_and_reset() (teardown_pipe() -> DisconnectNamedPipe) and start_connect()
+        // re-posts ConnectNamedPipe, so a rejected client looks like any other disconnect.
+        infolog(m_logger, "peer validation rejected the client");
+        return false;
+    }
     m_connected.store(true, std::memory_order_relaxed);
     infolog(m_logger, "client connected");
     return true;
@@ -568,7 +632,7 @@ bool PipeClient::start_connect() {
     for (;;) {
         // CreateFileW is synchronous; FILE_FLAG_OVERLAPPED affects only subsequent IO on the handle.
         m_pipe = CreateFileW(m_pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED, nullptr);
+                FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr);
         if (m_pipe != INVALID_HANDLE_VALUE) {
             break;
         }
