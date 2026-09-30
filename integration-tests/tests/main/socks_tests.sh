@@ -9,25 +9,10 @@ CURL_SSL_CONNECT_ERRCODE=35
 declare -i has_error
 has_error=0
 
-# Speed-test candidates: our own node first, then independent fallbacks; the
-# download is verified by size, so the files may differ.
-SPEED_TEST_URLS="${SPEED_TEST_URLS:-https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin https://proof.ovh.net/files/100Mb.dat https://ash-speed.hetzner.com/100MB.bin https://nbg1-speed.hetzner.com/100MB.bin}"
+# The downloaded size is verified, so an error page or a truncated transfer
+# cannot pass as a successful download.
+SPEED_TEST_URL="${SPEED_TEST_URL:-https://dtpt-nl-ams-02-144utv0e.adguard.io/speed/100mb.bin}"
 SPEED_TEST_MIN_BYTES="${SPEED_TEST_MIN_BYTES:-100000000}"
-
-# Pick the first speed-test host that answers; the arguments are the curl prefix
-# (e.g. "curl -x socks5://..."). The probe is bounded: some hosts ignore Range.
-probe_speed_test_url() {
-  local url code
-  for url in $SPEED_TEST_URLS; do
-    code="$("$@" -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 3 -r 0-1023 "$url" 2>/dev/null | tail -n1)"
-    if [ "$code" = "200" ] || [ "$code" = "206" ]; then
-      echo "$url"
-      return 0
-    fi
-    echo "Speed-test host is not reachable, trying the next one: $url (http code: ${code:-none})" >&2
-  done
-  return 1
-}
 
 check_error() {
   if [ $? -eq 0 ]
@@ -109,20 +94,14 @@ curl -sS --connect-timeout 10 --max-time 30 -x socks5h://127.0.0.1:$SOCKS_PORT h
 check_error
 
 echo "Download 100MB file..."
-SPEED_TEST_URL="$(probe_speed_test_url curl -x socks5://127.0.0.1:$SOCKS_PORT || true)"
-if [ -z "$SPEED_TEST_URL" ]; then
-  echo "...failed: no reachable speed-test host"
-  has_error=$((has_error + 1))
+SPEED_TEST_BYTES="$(curl -sS -L -o /dev/null -w '%{size_download}' --connect-timeout 10 --max-time 120 \
+  -x socks5://127.0.0.1:$SOCKS_PORT "$SPEED_TEST_URL" | tail -n1)"
+SPEED_TEST_BYTES="${SPEED_TEST_BYTES%%.*}"
+if [ "${SPEED_TEST_BYTES:-0}" -ge "$SPEED_TEST_MIN_BYTES" ]; then
+  echo "...passed: downloaded $SPEED_TEST_BYTES bytes"
 else
-  SPEED_TEST_BYTES="$(curl -sS -L -o /dev/null -w '%{size_download}' --connect-timeout 10 --max-time 120 \
-    --retry 2 --retry-delay 5 --retry-all-errors -x socks5://127.0.0.1:$SOCKS_PORT "$SPEED_TEST_URL" | tail -n1)"
-  SPEED_TEST_BYTES="${SPEED_TEST_BYTES%%.*}"
-  if [ "${SPEED_TEST_BYTES:-0}" -ge "$SPEED_TEST_MIN_BYTES" ]; then
-    echo "...passed: downloaded $SPEED_TEST_BYTES bytes from $SPEED_TEST_URL"
-  else
-    echo "...failed: downloaded ${SPEED_TEST_BYTES:-0} bytes from $SPEED_TEST_URL, expected at least $SPEED_TEST_MIN_BYTES"
-    has_error=$((has_error + 1))
-  fi
+  echo "...failed: downloaded ${SPEED_TEST_BYTES:-0} bytes, expected at least $SPEED_TEST_MIN_BYTES"
+  has_error=$((has_error + 1))
 fi
 
 if [ $has_error -gt 0 ]

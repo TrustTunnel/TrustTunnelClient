@@ -77,7 +77,7 @@ The build script automatically handles repository cloning:
 
 ### For Main Tests
 
-- `SPEED_TEST_URLS` - Space-separated speed-test host candidates, the first reachable one is used
+- `SPEED_TEST_URL` - Speed-test download URL (default: the AdGuard speed node)
 - `SPEED_TEST_MIN_BYTES` - Minimum accepted download size for the speed test (default: 100000000)
 
 ### For Browser Tests
