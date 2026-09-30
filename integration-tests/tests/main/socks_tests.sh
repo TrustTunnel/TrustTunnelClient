@@ -11,6 +11,8 @@ RETRY_DELAY="${RETRY_DELAY:-5}"
 
 declare -i has_error
 has_error=0
+# Reported at the end: a high number means the first attempt fails systematically.
+RETRIES_USED=0
 
 retry() {
   local attempt=1
@@ -22,6 +24,7 @@ retry() {
       echo "Command failed after $RETRY_ATTEMPTS attempts (exit code: $rc): $*" >&2
       return "$rc"
     fi
+    RETRIES_USED=$((RETRIES_USED + 1))
     echo "Attempt $attempt/$RETRY_ATTEMPTS failed (exit code: $rc), retrying in ${RETRY_DELAY}s: $*" >&2
     sleep "$RETRY_DELAY"
     attempt=$((attempt + 1))
@@ -148,9 +151,9 @@ fi
 
 if [ $has_error -gt 0 ]
 then
-  echo "There were errors"
+  echo "There were errors (retries used: $RETRIES_USED)"
   exit 1
 else
-  echo "All tests passed"
+  echo "All tests passed (retries used: $RETRIES_USED)"
   exit 0
 fi
