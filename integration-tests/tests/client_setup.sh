@@ -68,8 +68,11 @@ mkdir -p /sys/fs/cgroup/endpoint
 
 # Allow DNS servers
 for ip in $(grep nameserver /etc/resolv.conf | awk '{print $2}'); do
-  iptables -I OUTPUT -m cgroup --path /client -o eth0 -d "$ip" -j ACCEPT || true
-  ip6tables -I OUTPUT -m cgroup --path /client -o eth0 -d "$ip" -j ACCEPT || true
+  # Each table rejects addresses of the other family, so pick the matching one.
+  case "$ip" in
+    *:*) ip6tables -I OUTPUT -m cgroup --path /client -o eth0 -d "$ip" -j ACCEPT || true ;;
+    *)   iptables  -I OUTPUT -m cgroup --path /client -o eth0 -d "$ip" -j ACCEPT || true ;;
+  esac
 done
 
 # Allow test exclusions

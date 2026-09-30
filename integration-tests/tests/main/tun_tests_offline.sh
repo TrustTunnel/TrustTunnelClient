@@ -64,16 +64,16 @@ iperf3 --server --one-off --port 5201 >/tmp/offline_tun_iperf_upload.log 2>&1 &
 IPERF_UPLOAD_PID=$!
 sleep 1
 tunexec iperf3 --udp --client "$IPERF_LOCALHOST_ROUTABLE_IP" --port 5201
-wait "$IPERF_UPLOAD_PID" 2>/dev/null || true
 check_error
+wait "$IPERF_UPLOAD_PID" 2>/dev/null || true
 
 echo "Test UDP download with iperf3 (offline)"
 iperf3 --server --one-off --port 5202 >/tmp/offline_tun_iperf_reverse.log 2>&1 &
 IPERF_REVERSE_PID=$!
 sleep 1
 tunexec iperf3 --udp --reverse --client "$IPERF_LOCALHOST_ROUTABLE_IP" --port 5202
-wait "$IPERF_REVERSE_PID" 2>/dev/null || true
 check_error
+wait "$IPERF_REVERSE_PID" 2>/dev/null || true
 
 if [ $has_error -gt 0 ]
 then

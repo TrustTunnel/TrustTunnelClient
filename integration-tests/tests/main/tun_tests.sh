@@ -84,10 +84,8 @@ check_iptables() {
   fi
 }
 
-echo "Starting iperf3 server"
 IPERF_LOCALHOST_ROUTABLE_IP="1.2.3.4"
-ip addr add $IPERF_LOCALHOST_ROUTABLE_IP dev lo
-iperf3 --server &
+ip addr add $IPERF_LOCALHOST_ROUTABLE_IP dev lo || true
 
 echo "Waiting 5 seconds before start"
 sleep 5
@@ -169,13 +167,23 @@ echo "Check ICMP ipv6 - ping6 ipv6.google.com ..."
 retry tunexec_timeout 60 ping6 -c 10 ipv6.google.com > /dev/null
 check_error
 
+# An iperf3 server runs one test at a time, so each test gets its own --one-off
+# instance; otherwise the second client hits "the server is busy".
 echo "Test UDP with iperf3..."
-tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP
+iperf3 --server --one-off --port 5201 > /tmp/iperf_upload.log 2>&1 &
+IPERF_UPLOAD_PID=$!
+sleep 1
+tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP --port 5201
 check_error
+wait "$IPERF_UPLOAD_PID" 2>/dev/null || true
 
 echo "Test UDP download with iperf3..."
-tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP
+iperf3 --server --one-off --port 5202 > /tmp/iperf_reverse.log 2>&1 &
+IPERF_REVERSE_PID=$!
+sleep 1
+tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP --port 5202
 check_error
+wait "$IPERF_REVERSE_PID" 2>/dev/null || true
 
 if [ $has_error -gt 0 ]
 then
