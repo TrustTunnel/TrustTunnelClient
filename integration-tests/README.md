@@ -190,7 +190,7 @@ Each browser test run automatically:
 8. Runs Puppeteer-based browser tests for 30 minutes (steady-state phase)
 9. Simulates a network outage (drops traffic in both directions, sends SIGHUP to the client)
 10. Restores the network and waits until the tunnel passes traffic again instead of relying on a
-    fixed delay; the measured recovery time is stored as `reconnectSeconds` in the second phase results
+    fixed delay
 11. Runs the browser tests again for 30 minutes (after-disruption phase)
 12. Collects test results in `/output/output1part.json` and `/output/output2part.json`
 13. Stops processes using PID files and cleans up

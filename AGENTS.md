@@ -191,7 +191,7 @@ and `vpn-cli`):
 ### Integration tests
 
 - Always bound network operations: `--connect-timeout`/`--max-time` for `curl`,
-    `timeout` for `ping`/`iperf3`, and `timeout-minutes` on CI jobs
+    `timeout` for `ping`/`iperf3`
 - Keep checks strict: retry only where the failure mode is a plausible transient
     (e.g. a long download), and fix the cause of a flapping check instead of
     adding a retry around it

@@ -178,15 +178,13 @@ sleep 9
 
 # Restore network connectivity and wait for the tunnel to pass traffic again
 clear_disruption
-RECONNECT_STARTED_AT="$(date +%s)"
 # Recovery runs with the longer RECONNECT_WAIT_* window (this call only).
 if ! TUNNEL_READY_ATTEMPTS="$RECONNECT_WAIT_ATTEMPTS" TUNNEL_READY_DELAY="$RECONNECT_WAIT_DELAY" \
     wait_for_tunnel https://google.com -4; then
     echo "Error: the tunnel did not recover after the network was restored" >&2
     exit 1
 fi
-RECONNECT_SECONDS=$(( $(date +%s) - RECONNECT_STARTED_AT ))
-echo "Tunnel recovered ${RECONNECT_SECONDS}s after the network was restored"
+echo "Tunnel recovered after the network was restored"
 assert_tunnel_used
 
 echo "Running browser tests again after network recovery..."
@@ -194,15 +192,14 @@ RECOVERY_RESULT=0
 rm -f output.json
 tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || RECOVERY_RESULT=$?
 
-# Record the measured reconnect time next to the second phase results.
+# The second phase must produce a fresh report: the previous one was removed above.
 if [ -f output.json ]; then
-    jq --argjson reconnectSeconds "$RECONNECT_SECONDS" '.reconnectSeconds = $reconnectSeconds' output.json \
-        > "${OUTPUT_DIR}/output2part.json" || cp output.json "${OUTPUT_DIR}/output2part.json" || true
+    cp output.json "${OUTPUT_DIR}/output2part.json" 2>/dev/null || true
 else
     echo "Warning: the second phase did not write output.json" >&2
 fi
 
-echo "Phase results: steady-state=$STEADY_STATE_RESULT, after-disruption=$RECOVERY_RESULT, reconnect=${RECONNECT_SECONDS}s"
+echo "Phase results: steady-state=$STEADY_STATE_RESULT, after-disruption=$RECOVERY_RESULT"
 RESULT=0
 if [ "$STEADY_STATE_RESULT" -ne 0 ] || [ "$RECOVERY_RESULT" -ne 0 ]; then
     RESULT=1
