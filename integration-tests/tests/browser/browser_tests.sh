@@ -8,14 +8,6 @@ OUTPUT_DIR="${OUTPUT_DIR:-/output}"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 RETRY_DELAY="${RETRY_DELAY:-10}"
 
-# How long to wait for the tunnel to start passing traffic.
-TUNNEL_READY_ATTEMPTS="${TUNNEL_READY_ATTEMPTS:-20}"
-TUNNEL_READY_DELAY="${TUNNEL_READY_DELAY:-3}"
-
-# Longer window for the recovery wait; it overrides TUNNEL_READY_* for that call.
-RECONNECT_WAIT_ATTEMPTS="${RECONNECT_WAIT_ATTEMPTS:-40}"
-RECONNECT_WAIT_DELAY="${RECONNECT_WAIT_DELAY:-5}"
-
 # Services that report the egress IP; the first one that answers is used.
 IP_ECHO_URLS="${IP_ECHO_URLS:-https://api.ipify.org https://icanhazip.com https://ifconfig.me/ip}"
 
@@ -35,24 +27,6 @@ retry() {
         fi
         echo "Attempt $attempt/$RETRY_ATTEMPTS failed (exit code: $rc), retrying in ${RETRY_DELAY}s: $*" >&2
         sleep "$RETRY_DELAY"
-        attempt=$((attempt + 1))
-    done
-}
-
-# Poll the tunnel until it passes traffic; the window comes from TUNNEL_READY_*.
-wait_for_tunnel() {
-    local attempt=1
-    while true; do
-        if tunexec curl -sS -I --connect-timeout 5 --max-time 15 "$@" >/dev/null; then
-            echo "Tunnel is ready: curl $*"
-            return 0
-        fi
-        if [ "$attempt" -ge "$TUNNEL_READY_ATTEMPTS" ]; then
-            echo "Error: tunnel did not become ready after $TUNNEL_READY_ATTEMPTS attempts: curl $*" >&2
-            return 1
-        fi
-        echo "Tunnel not ready yet (attempt $attempt/$TUNNEL_READY_ATTEMPTS), retrying in ${TUNNEL_READY_DELAY}s: curl $*" >&2
-        sleep "$TUNNEL_READY_DELAY"
         attempt=$((attempt + 1))
     done
 }
@@ -150,8 +124,9 @@ if ! pgrep trusttunnel > /dev/null; then
 fi
 
 echo "Testing that vpn-client actually works"
-wait_for_tunnel https://google.com -4
-wait_for_tunnel https://google.com -6
+# Bounded: a hung request must not keep the job alive until the CI timeout.
+tunexec curl -sS -I --connect-timeout 5 --max-time 15 https://google.com -4 >/dev/null
+tunexec curl -sS -I --connect-timeout 5 --max-time 15 https://google.com -6 >/dev/null
 assert_tunnel_used
 
 echo "Running browser tests (steady state, 30 minutes)..."
@@ -176,15 +151,11 @@ for pid in $PIDS; do
 done
 sleep 9
 
-# Restore network connectivity and wait for the tunnel to pass traffic again
+# Restore network connectivity and wait for the tunnel to pass traffic again.
+# The leak check below is fail-closed and retries on its own, so a tunnel that
+# has not recovered yet is reported as a failure rather than ignored.
 clear_disruption
-# Recovery runs with the longer RECONNECT_WAIT_* window (this call only).
-if ! TUNNEL_READY_ATTEMPTS="$RECONNECT_WAIT_ATTEMPTS" TUNNEL_READY_DELAY="$RECONNECT_WAIT_DELAY" \
-    wait_for_tunnel https://google.com -4; then
-    echo "Error: the tunnel did not recover after the network was restored" >&2
-    exit 1
-fi
-echo "Tunnel recovered after the network was restored"
+sleep 60
 assert_tunnel_used
 
 echo "Running browser tests again after network recovery..."

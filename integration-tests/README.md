@@ -91,8 +91,6 @@ The build script automatically handles repository cloning:
 - `MAX_NAVIGATION_RETRY_RATIO` - The run fails when the share of navigations that needed a retry
     exceeds this threshold, so that a systematic first-attempt failure cannot be hidden by the
     retries; only judged from `MIN_NAVIGATIONS_FOR_RATIO` navigations (defaults: 0.25, 10)
-- `TUNNEL_READY_ATTEMPTS`, `TUNNEL_READY_DELAY` - Wait window for the initial tunnel readiness check (defaults: 20 x 3 s)
-- `RECONNECT_WAIT_ATTEMPTS`, `RECONNECT_WAIT_DELAY` - Wait window for recovery after the simulated outage (defaults: 40 x 5 s)
 - `IP_ECHO_URLS` - Services that report the egress IP; used to check that the traffic really goes through the VPN
 
 ## Examples

@@ -132,6 +132,9 @@ IPERF_UPLOAD_PID=$!
 sleep 1
 tunexec_timeout 120 iperf3 --udp --client $IPERF_LOCALHOST_ROUTABLE_IP --port 5201
 check_error
+# A one-off server that never accepted a connection keeps listening, so stop it
+# explicitly: waiting for it would block forever.
+kill "$IPERF_UPLOAD_PID" 2>/dev/null || true
 wait "$IPERF_UPLOAD_PID" 2>/dev/null || true
 
 echo "Test UDP download with iperf3..."
@@ -140,6 +143,7 @@ IPERF_REVERSE_PID=$!
 sleep 1
 tunexec_timeout 120 iperf3 --udp --reverse --client $IPERF_LOCALHOST_ROUTABLE_IP --port 5202
 check_error
+kill "$IPERF_REVERSE_PID" 2>/dev/null || true
 wait "$IPERF_REVERSE_PID" 2>/dev/null || true
 
 if [ $has_error -gt 0 ]
