@@ -190,13 +190,13 @@ and `vpn-cli`):
 
 ### Integration tests
 
-- Never let a single network request decide the result of a test run: retry
-    operations that depend on external services (the `retry` helpers in
-    `integration-tests/tests/`) and fail only after repeated failures
 - Always bound network operations: `--connect-timeout`/`--max-time` for `curl`,
     `timeout` for `ping`/`iperf3`, and `timeout-minutes` on CI jobs
-- Keep deterministic local checks (local endpoint, iptables counters) strict;
-    retries are only for external dependencies
+- Keep checks strict: retry only where the failure mode is a plausible transient
+    (e.g. a long download), and fix the cause of a flapping check instead of
+    adding a retry around it
+- The browser test tolerates transient navigation failures but measures how often
+    a retry was needed, so a systematic first-attempt failure still fails the run
 
 ## Docker Debug Environment
 

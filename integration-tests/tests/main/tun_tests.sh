@@ -4,31 +4,9 @@ echo "Integration TUN test start"
 
 ENDPOINT_IP=$1
 CURL_SSL_CONNECT_ERRCODE=35
-# External services may fail transiently, so network checks are retried.
-RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
-RETRY_DELAY="${RETRY_DELAY:-5}"
 
 declare -i has_error
 has_error=0
-# Reported at the end: a high number means the first attempt fails systematically.
-RETRIES_USED=0
-
-retry() {
-  local attempt=1
-  local rc=0
-  while true; do
-    "$@" && return 0
-    rc=$?
-    if [ "$attempt" -ge "$RETRY_ATTEMPTS" ]; then
-      echo "Command failed after $RETRY_ATTEMPTS attempts (exit code: $rc): $*" >&2
-      return "$rc"
-    fi
-    RETRIES_USED=$((RETRIES_USED + 1))
-    echo "Attempt $attempt/$RETRY_ATTEMPTS failed (exit code: $rc), retrying in ${RETRY_DELAY}s: $*" >&2
-    sleep "$RETRY_DELAY"
-    attempt=$((attempt + 1))
-  done
-}
 
 tunexec_timeout() {
   local seconds="$1"
@@ -55,8 +33,6 @@ probe_speed_test_url() {
   done
   return 1
 }
-
-echo "Retry policy: up to $RETRY_ATTEMPTS attempts with ${RETRY_DELAY}s delay for network checks"
 
 check_error() {
   if [ $? -eq 0 ]
@@ -98,11 +74,11 @@ tunexec() {
 }
 
 echo "HTTP request -> 1.1.1.1..."
-retry tunexec curl -sS --connect-timeout 10 --max-time 30 1.1.1.1 >/dev/null
+tunexec curl -sS --connect-timeout 10 --max-time 30 1.1.1.1 >/dev/null
 check_error
 
 echo "HTTP request -> http://1.1.1.1..."
-retry tunexec curl -sS --connect-timeout 10 --max-time 30 http://1.1.1.1 >/dev/null
+tunexec curl -sS --connect-timeout 10 --max-time 30 http://1.1.1.1 >/dev/null
 check_error
 
 echo "HTTP request to exclusion -> httpbin.agrd.dev,  ipv4..."
@@ -126,15 +102,15 @@ check_iptables -n /client 1.1.1.1
 check_iptables -z /endpoint 1.1.1.1
 
 echo "HTTPS request -> https://www.cloudflare.com, ipv4..."
-retry tunexec curl -sS --connect-timeout 10 --max-time 30 https://www.cloudflare.com -4 >/dev/null
+tunexec curl -sS --connect-timeout 10 --max-time 30 https://www.cloudflare.com -4 >/dev/null
 check_error
 
 echo "HTTP request -> ipv6.google.com, ipv6..."
-retry tunexec curl -sS --connect-timeout 10 --max-time 30 -6 http://ipv6.google.com >/dev/null
+tunexec curl -sS --connect-timeout 10 --max-time 30 -6 http://ipv6.google.com >/dev/null
 check_error
 
 echo "HTTPS request -> ipv6.google.com, ipv6..."
-retry tunexec curl -sS --connect-timeout 10 --max-time 30 -6 https://ipv6.google.com >/dev/null
+tunexec curl -sS --connect-timeout 10 --max-time 30 -6 https://ipv6.google.com >/dev/null
 check_error
 
 echo "Download 100MB file..."
@@ -155,19 +131,19 @@ else
 fi
 
 echo "Check ICMP - ping 1.1.1.1 ..."
-retry tunexec_timeout 60 ping -c 10 1.1.1.1 > /dev/null
+tunexec_timeout 60 ping -c 10 1.1.1.1 > /dev/null
 check_error
 
 echo "Check ICMP - ping 8.8.8.8 ..."
-retry tunexec_timeout 60 ping -c 10 8.8.8.8 > /dev/null
+tunexec_timeout 60 ping -c 10 8.8.8.8 > /dev/null
 check_error
 
 echo "Check ICMP ipv6 - ping 2001:4860:4860::8888 ..."
-retry tunexec_timeout 60 ping -c 10 2001:4860:4860::8888 > /dev/null
+tunexec_timeout 60 ping -c 10 2001:4860:4860::8888 > /dev/null
 check_error
 
 echo "Check ICMP ipv6 - ping6 ipv6.google.com ..."
-retry tunexec_timeout 60 ping6 -c 10 ipv6.google.com > /dev/null
+tunexec_timeout 60 ping6 -c 10 ipv6.google.com > /dev/null
 check_error
 
 # An iperf3 server runs one test at a time, so each test gets its own --one-off
@@ -190,9 +166,9 @@ wait "$IPERF_REVERSE_PID" 2>/dev/null || true
 
 if [ $has_error -gt 0 ]
 then
-  echo "There were errors (retries used: $RETRIES_USED)"
+  echo "There were errors"
   exit 1
 else
-  echo "All tests passed (retries used: $RETRIES_USED)"
+  echo "All tests passed"
   exit 0
 fi

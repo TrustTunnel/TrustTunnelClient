@@ -77,7 +77,6 @@ The build script automatically handles repository cloning:
 
 ### For Main Tests
 
-- `RETRY_ATTEMPTS`, `RETRY_DELAY` - Retry policy for network checks (defaults: 3 attempts, 5 s delay)
 - `SPEED_TEST_URLS` - Space-separated speed-test host candidates, the first reachable one is used
 - `SPEED_TEST_MIN_BYTES` - Minimum accepted download size for the speed test (default: 100000000)
 
