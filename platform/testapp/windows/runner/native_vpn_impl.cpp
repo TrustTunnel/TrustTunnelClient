@@ -207,3 +207,23 @@ std::optional<FlutterError> NativeVpnImpl::ClearLogs() {
     trusttunnel_log_clear();
     return std::nullopt;
 }
+
+std::optional<FlutterError> NativeVpnImpl::SetConnectOnStartup(bool enabled) {
+    int32_t result = trusttunnel_service_set_connect_on_startup(enabled);
+    if (result != 0) {
+        warnlog(m_logger, "Failed to set connect on startup: {}", result);
+        return FlutterError("SERVICE_CONNECT_ON_STARTUP", "Failed to set connect on startup");
+    }
+    return std::nullopt;
+}
+
+ErrorOr<bool> NativeVpnImpl::IsConnectOnStartupEnabled() {
+    bool enabled = false;
+    int32_t result = trusttunnel_service_get_connect_on_startup(&enabled);
+    // A service that is not installed yet cannot start at boot.
+    if (result != 0 && result != TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE) {
+        warnlog(m_logger, "Failed to get connect on startup: {}", result);
+        return FlutterError("SERVICE_CONNECT_ON_STARTUP", "Failed to get connect on startup");
+    }
+    return enabled;
+}

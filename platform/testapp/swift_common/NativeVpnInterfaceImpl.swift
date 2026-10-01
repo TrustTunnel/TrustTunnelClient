@@ -31,4 +31,14 @@ class NativeVpnInterfaceImpl : NativeVpnInterface {
     func clearLogs() throws {
         _ = vpnManager.clearLogs()
     }
+
+    // ---------------------------------------------------------------------------
+    // No-ops: connect-on-startup is Windows-only
+    // ---------------------------------------------------------------------------
+
+    func setConnectOnStartup(enabled: Bool) throws {
+    }
+    func isConnectOnStartupEnabled() throws -> Bool {
+        return false
+    }
 }

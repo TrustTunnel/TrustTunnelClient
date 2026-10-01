@@ -100,6 +100,12 @@ protocol NativeVpnInterface {
   func exportLogs() throws -> [String]
   /// Clear all log files from the VPN process(es).
   func clearLogs() throws
+  /// Connect with the last used configuration when the system starts.
+  /// Windows only.
+  func setConnectOnStartup(enabled: Bool) throws
+  /// Whether connecting on system start is enabled.
+  /// Windows only.
+  func isConnectOnStartupEnabled() throws -> Bool
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -166,6 +172,38 @@ class NativeVpnInterfaceSetup {
       }
     } else {
       clearLogsChannel.setMessageHandler(nil)
+    }
+    /// Connect with the last used configuration when the system starts.
+    /// Windows only.
+    let setConnectOnStartupChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.setConnectOnStartup\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setConnectOnStartupChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let enabledArg = args[0] as! Bool
+        do {
+          try api.setConnectOnStartup(enabled: enabledArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setConnectOnStartupChannel.setMessageHandler(nil)
+    }
+    /// Whether connecting on system start is enabled.
+    /// Windows only.
+    let isConnectOnStartupEnabledChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.isConnectOnStartupEnabled\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      isConnectOnStartupEnabledChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.isConnectOnStartupEnabled()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      isConnectOnStartupEnabledChannel.setMessageHandler(nil)
     }
   }
 }

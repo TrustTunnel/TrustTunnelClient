@@ -28,6 +28,14 @@ abstract class NativeVpnInterface {
 
   /// Clear all log files from the VPN process(es).
   void clearLogs();
+
+  /// Connect with the last used configuration when the system starts.
+  /// Windows only.
+  void setConnectOnStartup(bool enabled);
+
+  /// Whether connecting on system start is enabled.
+  /// Windows only.
+  bool isConnectOnStartupEnabled();
 }
 
 @FlutterApi()

@@ -19,6 +19,8 @@ public:
     std::optional<FlutterError> Stop() override;
     ErrorOr<flutter::EncodableList> ExportLogs() override;
     std::optional<FlutterError> ClearLogs() override;
+    std::optional<FlutterError> SetConnectOnStartup(bool enabled) override;
+    ErrorOr<bool> IsConnectOnStartupEnabled() override;
 
     void NotifyStateChanged(int state);
     void NotifyConnectionInfo(const std::string &json);

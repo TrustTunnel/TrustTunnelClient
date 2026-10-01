@@ -69,10 +69,18 @@ interface NativeVpnInterface {
    * directory. The caller is responsible for cleaning up these files.
    */
   fun exportLogs(): List<String>
-  /**
-   * Clear all log files from the VPN process(es).
-   */
+  /** Clear all log files from the VPN process(es). */
   fun clearLogs()
+  /**
+   * Connect with the last used configuration when the system starts.
+   * Windows only.
+   */
+  fun setConnectOnStartup(enabled: Boolean)
+  /**
+   * Whether connecting on system start is enabled.
+   * Windows only.
+   */
+  fun isConnectOnStartupEnabled(): Boolean
 
   companion object {
     /** The codec used by NativeVpnInterface. */
@@ -139,6 +147,39 @@ interface NativeVpnInterface {
             val wrapped: List<Any?> = try {
               api.clearLogs()
               listOf(null)
+            } catch (exception: Throwable) {
+              NativeCommunicationPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.setConnectOnStartup$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val enabledArg = args[0] as Boolean
+            val wrapped: List<Any?> = try {
+              api.setConnectOnStartup(enabledArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              NativeCommunicationPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.com_adguard_testapp.NativeVpnInterface.isConnectOnStartupEnabled$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.isConnectOnStartupEnabled())
             } catch (exception: Throwable) {
               NativeCommunicationPigeonUtils.wrapError(exception)
             }

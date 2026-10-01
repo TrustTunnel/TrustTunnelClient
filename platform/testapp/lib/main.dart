@@ -77,6 +77,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _buttonSwitch = false;
+  bool _connectOnStartup = false;
   final CodeController _config = CodeController();
 
   final NativeVpnInterface _nativeVpnInterface = NativeVpnInterface();
@@ -159,6 +160,35 @@ class _MyHomePageState extends State<MyHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to clear logs: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadConnectOnStartup() async {
+    try {
+      final enabled = await _nativeVpnInterface.isConnectOnStartupEnabled();
+      if (mounted) {
+        setState(() => _connectOnStartup = enabled);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to get connect on startup: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _setConnectOnStartup(bool enabled) async {
+    try {
+      await _nativeVpnInterface.setConnectOnStartup(enabled);
+      final result = await _nativeVpnInterface.isConnectOnStartupEnabled();
+      setState(() => _connectOnStartup = result);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to set connect on startup: $e')),
         );
       }
     }
@@ -268,6 +298,9 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     _config.text = VpnConfig.defaultConfig;
+    if (Platform.isWindows) {
+      _loadConnectOnStartup();
+    }
   }
 
   @override
@@ -344,6 +377,17 @@ class _MyHomePageState extends State<MyHomePage> {
                 child: const Text('Clear Logs'),
               ),
             ),
+            if (Platform.isWindows)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Connect on startup'),
+                  Switch(
+                    value: _connectOnStartup,
+                    onChanged: _setConnectOnStartup,
+                  ),
+                ],
+              ),
             const SizedBox(height: 10.0),
             Text(
               'VPN State: ${vpnStateWatcher.state.name}',

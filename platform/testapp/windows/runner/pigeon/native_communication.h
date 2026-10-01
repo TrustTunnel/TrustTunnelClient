@@ -89,6 +89,12 @@ class NativeVpnInterface {
   virtual ErrorOr<flutter::EncodableList> ExportLogs() = 0;
   // Clear all log files from the VPN process(es).
   virtual std::optional<FlutterError> ClearLogs() = 0;
+  // Connect with the last used configuration when the system starts.
+  // Windows only.
+  virtual std::optional<FlutterError> SetConnectOnStartup(bool enabled) = 0;
+  // Whether connecting on system start is enabled.
+  // Windows only.
+  virtual ErrorOr<bool> IsConnectOnStartupEnabled() = 0;
 
   // The codec used by NativeVpnInterface.
   static const flutter::StandardMessageCodec& GetCodec();

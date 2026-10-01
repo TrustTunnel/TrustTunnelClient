@@ -32,4 +32,15 @@ class NativeVpnImpl (
     override fun clearLogs() {
         VpnService.clearLogs()
     }
+
+    // ---------------------------------------------------------------------------
+    // No-ops: connect-on-startup is Windows-only
+    // ---------------------------------------------------------------------------
+
+    override fun setConnectOnStartup(enabled: Boolean) {
+    }
+
+    override fun isConnectOnStartupEnabled(): Boolean {
+        return false
+    }
 }
