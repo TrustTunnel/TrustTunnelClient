@@ -229,6 +229,15 @@ mod tests {
     }
 
     #[test]
+    fn compose_writes_tls_profile() {
+        let mut settings = test_settings(vec![]);
+        settings.endpoint.tls_profile = "firefox".into();
+        let doc = compose_document(None, &settings).unwrap();
+        let parsed: toml::Value = doc.to_string().parse().unwrap();
+        assert_eq!(parsed["endpoint"]["tls_profile"].as_str(), Some("firefox"));
+    }
+
+    #[test]
     fn compose_writes_endpoint_dns_upstreams() {
         let settings = test_settings(vec!["tls://dns.adguard-dns.com".into()]);
         let doc = compose_document(None, &settings).unwrap();
