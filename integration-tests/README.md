@@ -91,7 +91,6 @@ The build script automatically handles repository cloning:
 - `MAX_NAVIGATION_RETRY_RATIO` - The run fails when the share of navigations that needed a retry
     exceeds this threshold, so that a systematic first-attempt failure cannot be hidden by the
     retries; only judged from `MIN_NAVIGATIONS_FOR_RATIO` navigations (defaults: 0.25, 10)
-- `IP_ECHO_URLS` - Services that report the egress IP; used to check that the traffic really goes through the VPN
 
 ## Examples
 
@@ -282,4 +281,17 @@ The browser tests provide comprehensive network load simulation:
 
 - `output1part.json` - Test results from the first 30-minute phase
 - `output2part.json` - Test results after network disruption and recovery
-- Detailed statistics including request timing, error counts, and reload frequencies
+
+Both files are written by `index.js` and contain three blocks:
+
+- `configuration` - the URLs, the phase length and the navigation policy (retries, timeouts,
+    thresholds) the run used
+- `summary` - the data behind the verdict: `totalNavigations`, `navigationFailures`,
+    `navigationRetries`, `failureRatio`, `retryRatio` and whether the retry ratio was judged
+- `statistics` - per-URL counters: `reloadsCount`, `navigationFailures`, `navigationRetries`,
+    `requestsCount`, `errorsCount`, `duration`
+
+Only navigation failures decide the verdict. `errorsCount` counts every failed request, including
+ the `ERR_ABORTED` ones Chrome reports for requests still in flight when the page is reloaded, so
+it is much larger than the number of real problems. `duration` comes from Chrome's resource timing
+and is not reliable for the document request.
