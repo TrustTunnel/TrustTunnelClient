@@ -56,6 +56,7 @@ private:
     void deinit() override;
     void complete_connect_request(uint64_t id, ClientConnectResult result) override;
     void close_connection(uint64_t id, bool graceful, bool async) override;
+    void reject_connection_unreachable(uint64_t id) override;
     ssize_t send(uint64_t id, const uint8_t *data, size_t length) override;
     void consume(uint64_t id, size_t n) override;
     TcpFlowCtrlInfo flow_control_info(uint64_t id) override;

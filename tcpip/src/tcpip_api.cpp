@@ -123,6 +123,13 @@ void tcpip_close_connection(TcpipCtx *ctx, uint64_t id, bool graceful) {
     }
 }
 
+void tcpip_reject_connection_unreachable(TcpipCtx *ctx, uint64_t id) {
+    auto *udp_conn = (UdpConnDescriptor *) tcpip_get_connection_by_id(&ctx->udp.connections, id);
+    if (udp_conn != nullptr) {
+        udp_cm_reject_unreachable(ctx, udp_conn);
+    }
+}
+
 TcpFlowCtrlInfo tcpip_flow_ctrl_info(const TcpipCtx *ctx, uint64_t id) {
     const TcpConnDescriptor *tcp_conn = (TcpConnDescriptor *) tcpip_get_connection_by_id(&ctx->tcp.connections, id);
     if (tcp_conn != nullptr) {
