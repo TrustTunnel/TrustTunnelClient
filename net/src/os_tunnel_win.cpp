@@ -223,6 +223,7 @@ ag::VpnError ag::VpnWinTunnel::init(
         errlog(logger, "setup_interface: {}", ag::sys::strerror(ag::sys::last_error()));
         return {-1, "Failed to configure the WinTun interface"};
     }
+    mark_tunnel_active();
     m_system_dns_setup_success = setup_dns();
     if (!m_system_dns_setup_success) {
         errlog(logger, "setup_dns: {}", ag::sys::strerror(ag::sys::last_error()));
@@ -425,6 +426,7 @@ void ag::VpnWinTunnel::deinit() {
     m_wintun_session = nullptr;
     m_wintun_adapter = nullptr;
     m_system_dns_setup_success = false;
+    clear_tunnel_active();
 }
 
 evutil_socket_t ag::VpnWinTunnel::get_fd() {
@@ -496,6 +498,7 @@ void ag::VpnWinTunnel::stop_recv_packets() {
 }
 ag::VpnWinTunnel::~VpnWinTunnel() {
     close_wintun(m_wintun_session, m_wintun_adapter);
+    clear_tunnel_active();
     CloseHandle(m_wintun_quit_event);
 }
 
@@ -558,7 +561,7 @@ static bool protect_with_unicast_if(evutil_socket_t fd, const ag::SocketAddress 
 bool ag::vpn_win_socket_protect(evutil_socket_t fd, const sockaddr *addr) {
     uint32_t bound_if = vpn_network_manager_get_outbound_interface();
     if (bound_if == 0) {
-        return true;
+        return !vpn_network_manager_get_tunnel_active();
     }
 
     ag::SocketAddress sa(addr);

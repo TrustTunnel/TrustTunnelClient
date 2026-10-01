@@ -201,7 +201,7 @@ private:
 
 // -- Public API --
 
-PersistentRingBuffer::PersistentRingBuffer(std::string path, uint32_t max_records, uint32_t max_record_bytes)
+PersistentRingBuffer::PersistentRingBuffer(std::filesystem::path path, uint32_t max_records, uint32_t max_record_bytes)
         : m_path(std::move(path))
         , m_max_records(max_records)
         , m_max_record_bytes(max_record_bytes) {
@@ -214,7 +214,7 @@ bool PersistentRingBuffer::append(std::string_view record) {
     }
 
     bool created = !fs::exists(m_path);
-    ScopedFileHandle fd(file::open(m_path, file::CREAT | file::RDWR));
+    ScopedFileHandle fd(file::open(m_path.string(), file::CREAT | file::RDWR));
     if (!fd.is_valid()) {
         errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()),
                 sys::last_error());
@@ -269,7 +269,7 @@ std::optional<RingBufferReadResult> PersistentRingBuffer::read_since(std::option
         return RingBufferReadResult{};
     }
 
-    ScopedFileHandle fd(file::open(m_path, file::RDONLY));
+    ScopedFileHandle fd(file::open(m_path.string(), file::RDONLY));
     if (!fd.is_valid()) {
         errlog(g_logger, "Failed to open ring buffer file: {} ({})", sys::strerror(sys::last_error()),
                 sys::last_error());

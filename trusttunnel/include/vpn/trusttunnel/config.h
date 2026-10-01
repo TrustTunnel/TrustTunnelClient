@@ -26,6 +26,7 @@ struct TrustTunnelConfig {
         std::vector<Endpoint> endpoints;
         ag::UniquePtr<X509_STORE, &X509_STORE_free> ca_store;
         ag::VpnUpstreamProtocol upstream_protocol = ag::VPN_UP_HTTP2;
+        ag::VpnTlsProfile tls_profile = ag::VPN_TLS_PROFILE_CHROME;
         std::string client_random;
         std::string client_random_mask;
         std::optional<std::vector<std::string>> dns_upstreams;

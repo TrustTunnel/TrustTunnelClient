@@ -25,6 +25,8 @@ pub struct Endpoint {
     #[serde(default)]
     pub upstream_protocol: String,
     #[serde(default)]
+    pub tls_profile: String,
+    #[serde(default)]
     pub anti_dpi: bool,
     #[serde(default)]
     pub custom_sni: String,
@@ -60,6 +62,10 @@ impl Endpoint {
 
     pub fn default_upstream_protocol() -> String {
         "http2".into()
+    }
+
+    pub fn default_tls_profile() -> String {
+        "chrome".into()
     }
 
     pub fn default_anti_dpi() -> bool {
@@ -110,6 +116,10 @@ impl Endpoint {
         "Protocol to be used to communicate with the endpoint [http2, http3]"
     }
 
+    pub fn doc_tls_profile() -> &'static str {
+        "TLS ClientHello fingerprint to mimic [chrome, safari, firefox, okhttp, openssl, default]"
+    }
+
     pub fn doc_anti_dpi() -> &'static str {
         "Is anti-DPI measures should be enabled"
     }
@@ -151,6 +161,7 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
         skip_verification: config.skip_verification,
         certificate,
         upstream_protocol: config.upstream_protocol.to_string(),
+        tls_profile: Endpoint::default_tls_profile(),
         anti_dpi: config.anti_dpi,
         custom_sni: config.custom_sni.unwrap_or_default(),
         dns_upstreams: config.dns_upstreams,

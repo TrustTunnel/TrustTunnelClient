@@ -46,6 +46,7 @@ jobs:
       - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
       # 2.12 is the first image with zig, which the musl-cross-* presets use.
       image: adguard/core-libs:2.12
@@ -165,6 +166,7 @@ jobs:
       - ephemeral
       - ephemeral-mac
       - ${{ needs.resolve-images.outputs.macos }}
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     permissions:
       contents: read
       id-token: write
@@ -326,6 +328,7 @@ jobs:
       - ${{ needs.resolve-images.outputs.windows }}
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     permissions:
       contents: read
       id-token: write

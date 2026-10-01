@@ -338,6 +338,9 @@ std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const Trus
 #ifdef __APPLE__
         uint32_t idx = vpn_network_manager_get_outbound_interface();
         if (idx == 0) {
+            if (vpn_network_manager_get_tunnel_active()) {
+                event->result = -1;
+            }
             return;
         }
         if (event->peer->sa_family == AF_INET) {
@@ -353,13 +356,20 @@ std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const Trus
 
 #ifdef __linux__
         uint32_t idx = vpn_network_manager_get_outbound_interface();
-        char if_name[IF_NAMESIZE]{};
-        if_indextoname(idx, if_name);
-        std::string bound_if{if_name};
-        if (!bound_if.empty()) {
-            if (setsockopt(event->fd, SOL_SOCKET, SO_BINDTODEVICE, bound_if.data(), (socklen_t) bound_if.size()) != 0) {
+        if (idx == 0) {
+            if (vpn_network_manager_get_tunnel_active()) {
                 event->result = -1;
             }
+            return;
+        }
+        char if_name[IF_NAMESIZE]{};
+        if (!if_indextoname(idx, if_name)) {
+            event->result = -1;
+            return;
+        }
+        std::string bound_if{if_name};
+        if (setsockopt(event->fd, SOL_SOCKET, SO_BINDTODEVICE, bound_if.data(), (socklen_t) bound_if.size()) != 0) {
+            event->result = -1;
         }
 #endif
 

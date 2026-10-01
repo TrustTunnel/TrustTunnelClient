@@ -34,6 +34,20 @@ typedef enum {
                   // VpnUpstreamConfig: Use endpoints' preferred protocol.
 } VpnUpstreamProtocol;
 
+/**
+ * TLS ClientHello fingerprint profile. Selects which client the outgoing TLS
+ * ClientHello mimics (its JA4 fingerprint).
+ * `VPN_TLS_PROFILE_CHROME` is the default behavior.
+ */
+typedef enum {
+    VPN_TLS_PROFILE_CHROME,          // Chrome-like ClientHello (default)
+    VPN_TLS_PROFILE_SAFARI,          // Safari-like ClientHello
+    VPN_TLS_PROFILE_FIREFOX,         // Firefox-like ClientHello
+    VPN_TLS_PROFILE_OKHTTP,          // OkHttp (Android) client
+    VPN_TLS_PROFILE_OPENSSL_DEFAULT, // OpenSSL default ClientHello
+    VPN_TLS_PROFILE_DEFAULT,         // No mimicry — library defaults
+} VpnTlsProfile;
+
 struct VpnConnectionStats {
     uint32_t rtt_us;          // RTT in microseconds
     double packet_loss_ratio; // the ratio of the number of lost packets to the total number of sent packets

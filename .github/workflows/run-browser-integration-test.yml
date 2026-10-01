@@ -20,8 +20,9 @@ jobs:
       - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs:2.11
+      image: adguard/core-libs:2.12
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,8 +57,9 @@ jobs:
       - ${{ needs.resolve-images.outputs.corelibs-builder }}
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs-testing:2.11.0
+      image: adguard/core-libs-testing:2.12.0
       options: --privileged
     steps:
       - name: Checkout
@@ -76,7 +78,7 @@ jobs:
         env:
           ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
         run: |
-          curl -O ${ARTIFACTORY_URL}/adguard-pods/binaries/agvpn_helper/agvpn_helper-linux.tar.gz
+          curl -fsSL -O ${ARTIFACTORY_URL}/artifactory/adguard-pods/binaries/agvpn_helper/agvpn_helper-linux.tar.gz
           tar -C output --strip-components=1 -xvf agvpn_helper-linux.tar.gz
 
       - name: Run browser tests

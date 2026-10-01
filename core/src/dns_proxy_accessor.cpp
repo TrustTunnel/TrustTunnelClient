@@ -107,6 +107,13 @@ bool DnsProxyAccessor::start() {
         return false;
     }
 
+#ifndef __ANDROID__
+    if (vpn_network_manager_get_tunnel_active() && vpn_network_manager_get_outbound_interface() == 0) {
+        log_accessor(this, err, "Cannot start DNS proxy without an outbound interface while tunnel is active");
+        return false;
+    }
+#endif // __ANDROID__
+
     m_dns_proxy = std::make_unique<dns::DnsProxy>();
     auto [ok, msg] = m_dns_proxy->init(make_dns_proxy_settings(m_parameters),
             {

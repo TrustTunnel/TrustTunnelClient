@@ -15,6 +15,7 @@
 #include "common/error.h"
 #include "common/socket_address.h"
 #include "common/utils.h"
+#include "net/network_manager.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
@@ -198,6 +199,9 @@ public:
     VpnOsTunnel &operator=(VpnOsTunnel &&) = delete;
 
 protected:
+    void mark_tunnel_active();
+    void clear_tunnel_active();
+
     void init_settings(const VpnOsTunnelSettings *settings) {
         m_settings.reset(vpn_os_tunnel_settings_clone(settings));
     }
@@ -206,6 +210,7 @@ protected:
     uint32_t m_if_index = 0;
     bool m_system_dns_setup_success = false;
     bool m_ipv6_available = false;
+    VpnTunnelActivityToken m_tunnel_activity_token = VPN_TUNNEL_ACTIVITY_TOKEN_INVALID;
 };
 
 #ifdef __linux__

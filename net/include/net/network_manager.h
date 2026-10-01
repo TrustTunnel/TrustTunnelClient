@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -63,5 +64,33 @@ extern "C" WIN_EXPORT void vpn_network_manager_set_outbound_interface(uint32_t i
  * Get the outbound interface for outgoing connections
  */
 uint32_t vpn_network_manager_get_outbound_interface();
+
+using VpnTunnelActivityToken = uint64_t;
+
+/** Invalid tunnel activity token. */
+constexpr VpnTunnelActivityToken VPN_TUNNEL_ACTIVITY_TOKEN_INVALID = 0;
+
+/**
+ * Register an active VPN TUN interface in this process.
+ *
+ * While at least one TUN interface is active, outgoing connections must not use the system default route: platform
+ * socket protection handlers must fail if no outbound interface or equivalent platform protection is available.
+ * The returned ownership token must be released exactly once with
+ * `vpn_network_manager_release_tunnel_activity()` after the TUN interface is closed.
+ *
+ * @return A non-zero ownership token.
+ */
+extern "C" WIN_EXPORT VpnTunnelActivityToken vpn_network_manager_acquire_tunnel_activity();
+
+/**
+ * Unregister an active VPN TUN interface previously registered with `vpn_network_manager_acquire_tunnel_activity()`.
+ * Invalid or already released tokens are ignored.
+ */
+extern "C" WIN_EXPORT void vpn_network_manager_release_tunnel_activity(VpnTunnelActivityToken token);
+
+/**
+ * Check whether a VPN TUN interface is active in this process.
+ */
+bool vpn_network_manager_get_tunnel_active();
 
 } // namespace ag

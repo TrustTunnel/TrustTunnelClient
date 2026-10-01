@@ -303,6 +303,67 @@ To test local changes in the library when used as a Conan package dependency, fo
    Note:
     - If you have already exported the library in this way, the cached version must be purged: `conan remove -c vpn-libs/<commit_hash>`.
 
+## Integrating Tunnel Activity Tracking
+
+The library tracks whether a VPN TUN interface is active in the process to fail
+closed when an outgoing socket cannot be protected from being routed into the
+tunnel. Applications that create a TUN interface themselves (as opposed to
+using the built-in tunnels from `net/os_tunnel.h`) **must** register it with
+this API, otherwise the socket protection handlers have no way to distinguish
+"no tunnel" from "tunnel active but unprotected".
+
+### API overview
+
+- `vpn_network_manager_acquire_tunnel_activity()` — registers an active TUN
+  interface and returns a non-zero ownership token.
+- `vpn_network_manager_release_tunnel_activity(token)` — unregisters a TUN
+  interface previously registered with `acquire`. Invalid or already released
+  tokens are ignored, so duplicate releases are safe.
+- `vpn_network_manager_get_tunnel_active()` — returns `true` while at least one
+  TUN interface is registered.
+- `vpn_network_manager_set_outbound_interface(idx)` — sets the index of the
+  physical interface that outgoing sockets should be bound to. See below.
+
+### Integration checklist
+
+1. **Acquire when the TUN interface is created.** Call
+   `vpn_network_manager_acquire_tunnel_activity()` only after the TUN interface
+   has been successfully established (e.g. after the TUN fd has been opened),
+   and store the returned token. Do not acquire before the interface exists:
+   on failure there is nothing to release, and the token must not outlive the interface.
+
+2. **Release when the TUN interface is closed.** Call
+   `vpn_network_manager_release_tunnel_activity(token)` with the stored token
+   after the TUN interface (and all its duplicated descriptors) are closed.
+   Releasing earlier would allow sockets to fall back to the system default
+   route while the tunnel is still capturing it. Keep the token for the whole
+   lifetime of the interface.
+
+3. **Set the outbound interface before notifying about network changes.**
+   Call `vpn_network_manager_set_outbound_interface()` with the index of the
+   physical interface **before** notifying the running VPN instance with
+   `vpn_notify_network_change()`. The DNS handler restarts the system DNS proxy
+   on network changes and reads the current outbound interface at that moment.
+
+4. **Multiple TUN interfaces are supported.** Each interface acquires its own
+   token; the state stays active until the last token is released. Never reuse
+   a token for two interfaces, and never release a token owned by another
+   interface.
+
+5. **Platform equivalents of a bound interface.** On Android, sockets are
+   protected with `VpnService.protect(fd)` instead of an interface binding; the
+   application is responsible for routing its outgoing sockets through that
+   mechanism while the tunnel is active. On Apple, the built-in `AGTunnel`
+   registers the activity automatically.
+
+### Behavior
+
+While `vpn_network_manager_get_tunnel_active()` returns `true` and the outbound
+interface is zero (or stale), platform socket protection handlers reject
+outgoing sockets instead of letting them use the system default route. This
+prevents the VPN's own traffic from looping back into the TUN interface. The
+DNS proxy startup is also gated on the same condition on non-Android platforms.
+
 ## Companion Endpoint Repository
 
 Complementary endpoint implementation for the TrustTunnel VPN can be found in

@@ -252,6 +252,9 @@ fn build_endpoint_manually(
         upstream_protocol: opt_field!(template, upstream_protocol)
             .cloned()
             .unwrap_or_else(Endpoint::default_upstream_protocol),
+        tls_profile: opt_field!(template, tls_profile)
+            .cloned()
+            .unwrap_or_else(Endpoint::default_tls_profile),
         anti_dpi: opt_field!(template, anti_dpi)
             .cloned()
             .unwrap_or_else(Endpoint::default_anti_dpi),
@@ -468,6 +471,8 @@ pub struct EndpointConfig {
     #[serde(default)]
     upstream_protocol: String,
     #[serde(default)]
+    tls_profile: String,
+    #[serde(default)]
     anti_dpi: bool,
     #[serde(default)]
     custom_sni: String,
@@ -491,6 +496,8 @@ fn candidate_from_endpoint_config(config: &EndpointConfig) -> Endpoint {
         skip_verification: config.skip_verification,
         certificate: empty_to_none(config.certificate.clone()),
         upstream_protocol: config.upstream_protocol.clone(),
+        tls_profile: empty_to_none(config.tls_profile.clone())
+            .unwrap_or_else(Endpoint::default_tls_profile),
         anti_dpi: config.anti_dpi,
         custom_sni: config.custom_sni.clone(),
         dns_upstreams: config.dns_upstreams.clone(),
@@ -635,6 +642,7 @@ impl fmt::Display for EndpointSummary<'_> {
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
+  TLS profile:       {}
   Anti-DPI:          {}
   DNS upstreams:     {}",
             ep.hostname,
@@ -646,6 +654,7 @@ impl fmt::Display for EndpointSummary<'_> {
             if ep.skip_verification { "yes" } else { "no" },
             cert_display,
             ep.upstream_protocol,
+            ep.tls_profile,
             if ep.anti_dpi { "yes" } else { "no" },
             dns_upstreams,
         )

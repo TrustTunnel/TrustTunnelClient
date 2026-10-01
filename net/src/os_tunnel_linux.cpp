@@ -81,6 +81,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
         return {-1, "Failed to init tunnel"};
     }
     setup_if();
+    mark_tunnel_active();
 
     if (managed_routing) {
         m_sport_supported = check_sport_rule_support();
@@ -108,6 +109,7 @@ void ag::VpnLinuxTunnel::deinit() {
         teardown_routes(TABLE_ID);
     }
     m_system_dns_setup_success = false;
+    clear_tunnel_active();
 }
 
 evutil_socket_t ag::VpnLinuxTunnel::get_fd() {

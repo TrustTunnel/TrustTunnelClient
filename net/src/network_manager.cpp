@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 
 #include "common/cache.h"
@@ -28,6 +29,10 @@ static struct NetworkManagerHolder {
     std::mutex guard;
     ag::LruTimeoutCache<std::string, bool> app_domain_cache;
     std::atomic<uint32_t> outbound_interface = 0;
+    std::mutex tunnel_activity_guard;
+    std::unordered_set<VpnTunnelActivityToken> tunnel_activity_tokens;
+    VpnTunnelActivityToken next_tunnel_activity_token = 1;
+    std::atomic_size_t tunnel_activity_count = 0;
 
     NetworkManagerHolder()
             : app_domain_cache(DEFAULT_CACHE_SIZE, std::chrono::minutes(10)) {
@@ -79,6 +84,38 @@ void vpn_network_manager_set_outbound_interface(uint32_t idx) {
 
 uint32_t vpn_network_manager_get_outbound_interface() {
     return g_network_manager_holder.outbound_interface;
+}
+
+VpnTunnelActivityToken vpn_network_manager_acquire_tunnel_activity() {
+    std::scoped_lock l(g_network_manager_holder.tunnel_activity_guard);
+    VpnTunnelActivityToken token;
+    do {
+        token = g_network_manager_holder.next_tunnel_activity_token++;
+    } while (token == VPN_TUNNEL_ACTIVITY_TOKEN_INVALID
+            || g_network_manager_holder.tunnel_activity_tokens.contains(token));
+
+    g_network_manager_holder.tunnel_activity_tokens.insert(token);
+    g_network_manager_holder.tunnel_activity_count = g_network_manager_holder.tunnel_activity_tokens.size();
+    dbglog(g_logger, "Tunnel activity acquired, active owners: {}",
+            g_network_manager_holder.tunnel_activity_tokens.size());
+    return token;
+}
+
+void vpn_network_manager_release_tunnel_activity(VpnTunnelActivityToken token) {
+    std::scoped_lock l(g_network_manager_holder.tunnel_activity_guard);
+    if (token == VPN_TUNNEL_ACTIVITY_TOKEN_INVALID
+            || g_network_manager_holder.tunnel_activity_tokens.erase(token) == 0) {
+        warnlog(g_logger, "Ignoring invalid or already released tunnel activity token");
+        return;
+    }
+
+    g_network_manager_holder.tunnel_activity_count = g_network_manager_holder.tunnel_activity_tokens.size();
+    dbglog(g_logger, "Tunnel activity released, active owners: {}",
+            g_network_manager_holder.tunnel_activity_tokens.size());
+}
+
+bool vpn_network_manager_get_tunnel_active() {
+    return g_network_manager_holder.tunnel_activity_count != 0;
 }
 
 } // namespace ag

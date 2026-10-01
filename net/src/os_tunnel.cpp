@@ -1,6 +1,7 @@
 #include <vector>
 
 #include "common/utils.h"
+#include "net/network_manager.h"
 #include "net/os_tunnel.h"
 #include "net/utils.h"
 
@@ -21,6 +22,19 @@ static ag::Logger g_logger("OS_TUNNEL");
 static constexpr std::string_view DEFAULT_IPV4_ROUTE = "0.0.0.0/0";
 static constexpr std::string_view DEFAULT_IPV6_ROUTE = "::/0";
 static constexpr std::string_view DEFAULT_IPV6_ROUTE_UNICAST = "2000::/3";
+
+void ag::VpnOsTunnel::mark_tunnel_active() {
+    if (m_tunnel_activity_token == VPN_TUNNEL_ACTIVITY_TOKEN_INVALID) {
+        m_tunnel_activity_token = vpn_network_manager_acquire_tunnel_activity();
+    }
+}
+
+void ag::VpnOsTunnel::clear_tunnel_active() {
+    if (m_tunnel_activity_token != VPN_TUNNEL_ACTIVITY_TOKEN_INVALID) {
+        vpn_network_manager_release_tunnel_activity(m_tunnel_activity_token);
+        m_tunnel_activity_token = VPN_TUNNEL_ACTIVITY_TOKEN_INVALID;
+    }
+}
 
 void ag::tunnel_utils::split_default_route(std::vector<ag::CidrRange> &routes, ag::CidrRange route) {
     for (size_t idx = 0; idx < routes.size(); ++idx) {

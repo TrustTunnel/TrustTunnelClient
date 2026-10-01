@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -18,9 +19,10 @@
 #include "common/logger.h"
 #include "vpn/internal/wire_utils.h"
 
-#include "vpn_easy_pipe.h"
+#include "client_authenticator.h"
+#include "trusttunnel_pipe.h"
 
-using namespace ag::vpn_easy;
+using namespace ag::trusttunnel_windows;
 using namespace std::chrono_literals;
 
 namespace {
@@ -62,7 +64,7 @@ std::vector<uint8_t> make_framed_with_advertised_len(uint32_t what, uint32_t adv
 }
 
 struct ReceivedMessage {
-    VpnEasyServiceMessageType what;
+    TrusttunnelServiceMessageType what;
     std::vector<uint8_t> payload;
 };
 
@@ -70,7 +72,7 @@ struct ReceivedMessage {
 class MessageCollector {
 public:
     PipeEndpoint::Handler make_handler() {
-        return [this](VpnEasyServiceMessageType what, ag::Uint8View data) {
+        return [this](TrusttunnelServiceMessageType what, ag::Uint8View data) {
             std::scoped_lock l{m_lock};
             m_messages.push_back({what, std::vector<uint8_t>(data.begin(), data.end())});
             m_cv.notify_all();
@@ -159,6 +161,18 @@ Handle open_raw_client(const std::wstring &name, std::chrono::milliseconds timeo
     }
 }
 
+// Attempt to connect to a local pipe through the SMB server (\\localhost\pipe\...), i.e. the
+// remote-client path that PIPE_REJECT_REMOTE_CLIENTS is supposed to reject.
+Handle open_remote_client(const std::wstring &name) {
+    const std::wstring local_prefix = L"\\\\.\\pipe\\";
+    if (name.compare(0, local_prefix.size(), local_prefix) != 0) {
+        return {};
+    }
+    std::wstring remote_name = L"\\\\localhost\\pipe\\" + name.substr(local_prefix.size());
+    return Handle{CreateFileW(remote_name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED, nullptr)};
+}
+
 // Synchronously write `data` to an overlapped handle.
 bool write_all(HANDLE h, std::span<const uint8_t> data) {
     OVERLAPPED ol{};
@@ -225,7 +239,7 @@ bool read_framed_message(HANDLE h, ReceivedMessage &out, std::chrono::millisecon
     if (!what.has_value() || !len.has_value()) {
         return false;
     }
-    out.what = static_cast<VpnEasyServiceMessageType>(*what);
+    out.what = static_cast<TrusttunnelServiceMessageType>(*what);
     out.payload.assign(*len, 0);
     if (*len == 0) {
         return true;
@@ -324,6 +338,23 @@ protected:
     std::wstring m_pipe_name;
 };
 
+// Script for a scripted_validator(): the first `rejections` connections are rejected, all later
+// ones are accepted. `validation_count` records how many connections were validated. Must outlive
+// the `PipeServer` it is wired into.
+struct ValidationScript {
+    int rejections = 0;
+    std::atomic<int> validation_count{0};
+};
+
+// Build a PeerValidator running `script`. `script.rejections` must be set before the loop starts;
+// afterwards it is read on the loop thread only.
+PipeServer::PeerValidator scripted_validator(ValidationScript &script) {
+    return [&script](HANDLE) {
+        int n = script.validation_count.fetch_add(1, std::memory_order_relaxed) + 1;
+        return n > script.rejections;
+    };
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -370,13 +401,13 @@ TEST_F(PipeTest, ServerReceivesSingleFramedMessage) {
     ASSERT_TRUE(client);
 
     const std::vector<uint8_t> payload = {0xDE, 0xAD, 0xBE, 0xEF};
-    auto frame = make_framed(VPN_EASY_SVC_MSG_START, payload);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, payload);
     ASSERT_TRUE(write_all(client.get(), frame));
 
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
     auto msgs = collector.snapshot();
     ASSERT_EQ(msgs.size(), 1u);
-    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_START);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_START);
     EXPECT_EQ(msgs[0].payload, payload);
 
     signal_stop();
@@ -401,19 +432,19 @@ TEST_F(PipeTest, ServerReceivesMultipleConcatenatedMessages) {
         auto f = make_framed(what, p);
         combined.insert(combined.end(), f.begin(), f.end());
     };
-    append(VPN_EASY_SVC_MSG_START, {});
-    append(VPN_EASY_SVC_MSG_STOP, {1, 2, 3});
-    append(VPN_EASY_SVC_MSG_STATE_CHANGED, {0xFF, 0xEE});
+    append(TRUSTTUNNEL_SVC_MSG_START, {});
+    append(TRUSTTUNNEL_SVC_MSG_STOP, {1, 2, 3});
+    append(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {0xFF, 0xEE});
     ASSERT_TRUE(write_all(client.get(), combined));
 
     ASSERT_TRUE(collector.wait_for_count(3, TEST_TIMEOUT));
     auto msgs = collector.snapshot();
     ASSERT_EQ(msgs.size(), 3u);
-    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_START);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_START);
     EXPECT_TRUE(msgs[0].payload.empty());
-    EXPECT_EQ(msgs[1].what, VPN_EASY_SVC_MSG_STOP);
+    EXPECT_EQ(msgs[1].what, TRUSTTUNNEL_SVC_MSG_STOP);
     EXPECT_EQ(msgs[1].payload, (std::vector<uint8_t>{1, 2, 3}));
-    EXPECT_EQ(msgs[2].what, VPN_EASY_SVC_MSG_STATE_CHANGED);
+    EXPECT_EQ(msgs[2].what, TRUSTTUNNEL_SVC_MSG_STATE_CHANGED);
     EXPECT_EQ(msgs[2].payload, (std::vector<uint8_t>{0xFF, 0xEE}));
 
     signal_stop();
@@ -434,7 +465,7 @@ TEST_F(PipeTest, ServerReassemblesMessageSplitAcrossWrites) {
     for (size_t i = 0; i < payload.size(); ++i) {
         payload[i] = static_cast<uint8_t>(i);
     }
-    auto frame = make_framed(VPN_EASY_SVC_MSG_CONNECTION_INFO, payload);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, payload);
 
     // Header alone, then half the payload, then the rest. The brief sleeps make the test
     // deterministic about reassembly across multiple ReadFile completions.
@@ -448,7 +479,7 @@ TEST_F(PipeTest, ServerReassemblesMessageSplitAcrossWrites) {
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
     auto msgs = collector.snapshot();
     ASSERT_EQ(msgs.size(), 1u);
-    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_CONNECTION_INFO);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO);
     EXPECT_EQ(msgs[0].payload, payload);
 
     signal_stop();
@@ -475,7 +506,7 @@ TEST_F(PipeTest, ServerReceivesAllMessagesWhenReadFileCompletesSynchronously) {
     constexpr int MESSAGE_COUNT = 100;
     for (int i = 0; i < MESSAGE_COUNT; ++i) {
         uint8_t payload[2] = {static_cast<uint8_t>(i >> 8), static_cast<uint8_t>(i & 0xFF)};
-        auto frame = make_framed(VPN_EASY_SVC_MSG_STATE_CHANGED, payload);
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, payload);
         DWORD written = 0;
         ASSERT_TRUE(WriteFile(client.get(), frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr));
         ASSERT_EQ(written, frame.size());
@@ -508,7 +539,7 @@ TEST_F(PipeTest, ServerAcceptsMaxSizedMessage) {
     ASSERT_TRUE(client);
 
     std::vector<uint8_t> payload(MAX_MESSAGE_SIZE, 0xAB);
-    auto frame = make_framed(VPN_EASY_SVC_MSG_CONNECTION_INFO, payload);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, payload);
     ASSERT_TRUE(write_all(client.get(), frame));
 
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
@@ -532,7 +563,7 @@ TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
         Handle client = open_raw_client(m_pipe_name);
         ASSERT_TRUE(client);
         auto frame =
-                make_framed_with_advertised_len(VPN_EASY_SVC_MSG_START, static_cast<uint32_t>(MAX_MESSAGE_SIZE + 1));
+                make_framed_with_advertised_len(TRUSTTUNNEL_SVC_MSG_START, static_cast<uint32_t>(MAX_MESSAGE_SIZE + 1));
         ASSERT_TRUE(write_all(client.get(), frame));
         EXPECT_TRUE(wait_for_peer_disconnect(client.get(), TEST_TIMEOUT));
     }
@@ -542,7 +573,7 @@ TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
         Handle client = open_raw_client(m_pipe_name);
         ASSERT_TRUE(client);
         const std::vector<uint8_t> payload = {0x42};
-        auto frame = make_framed(VPN_EASY_SVC_MSG_START, payload);
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, payload);
         ASSERT_TRUE(write_all(client.get(), frame));
         ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
         auto msgs = collector.snapshot();
@@ -552,6 +583,160 @@ TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnOversizedMessage) {
 
     signal_stop();
     ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerDropsConnectionAndReconnectsOnPeerValidationRejection) {
+    // A validator rejection must route through the normal reconnect path: the rejected client is
+    // dropped (its eagerly-written bytes are never dispatched), the server re-posts
+    // ConnectNamedPipe, and a later client is served. The loop must not exit on the rejection.
+    MessageCollector collector;
+    ValidationScript script{.rejections = 1};
+    PipeServer server{
+            m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, scripted_validator(script)};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    // First connection: rejected. Eagerly write a message; it must never be dispatched.
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, std::vector<uint8_t>{0x01});
+        ASSERT_TRUE(write_all(client.get(), frame));
+        EXPECT_TRUE(wait_for_peer_disconnect(client.get(), TEST_TIMEOUT));
+    }
+
+    // Second connection: accepted, and its message is the only one ever dispatched.
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        const std::vector<uint8_t> payload = {0x77};
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STOP, payload);
+        ASSERT_TRUE(write_all(client.get(), frame));
+        ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+        auto msgs = collector.snapshot();
+        ASSERT_EQ(msgs.size(), 1u);
+        EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_STOP);
+        EXPECT_EQ(msgs[0].payload, payload);
+    }
+
+    EXPECT_EQ(script.validation_count.load(std::memory_order_relaxed), 2);
+
+    signal_stop();
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+}
+
+TEST_F(PipeTest, ServerRejectsClientConnectedBeforeListen) {
+    // Same rejection contract, but exercised through the ERROR_PIPE_CONNECTED path of
+    // start_connect(): the client connects before the server ever posts ConnectNamedPipe, so the
+    // connect completes synchronously. The rejected client must still be dropped and a later
+    // client served.
+    MessageCollector collector;
+    ValidationScript script{.rejections = 1};
+    PipeServer server{
+            m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, scripted_validator(script)};
+
+    // Connect BEFORE spawning the loop, so the server's first ConnectNamedPipe observes the
+    // client as already connected.
+    Handle first_client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(first_client);
+    auto rejected_frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, std::vector<uint8_t>{0x01});
+    ASSERT_TRUE(write_all(first_client.get(), rejected_frame));
+
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    EXPECT_TRUE(wait_for_peer_disconnect(first_client.get(), TEST_TIMEOUT));
+    EXPECT_EQ(collector.count(), 0u);
+
+    {
+        Handle client = open_raw_client(m_pipe_name);
+        ASSERT_TRUE(client);
+        const std::vector<uint8_t> payload = {0x42};
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, payload);
+        ASSERT_TRUE(write_all(client.get(), frame));
+        ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+        auto msgs = collector.snapshot();
+        ASSERT_EQ(msgs.size(), 1u);
+        EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_START);
+        EXPECT_EQ(msgs[0].payload, payload);
+    }
+
+    EXPECT_EQ(script.validation_count.load(std::memory_order_relaxed), 2);
+
+    signal_stop();
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+}
+
+TEST_F(PipeTest, ServerBacksOffBeforeRepostingConnectAfterSyncRejection) {
+    // Mirrors PipeServer::REJECTION_BACKOFF_MS (private). If that changes, update here.
+    constexpr auto REJECTION_BACKOFF = 100ms;
+    // Tolerance for the coarse Windows timer resolution.
+    constexpr auto TIMER_SLACK = 20ms;
+
+    MessageCollector collector;
+    std::mutex times_lock;
+    std::vector<std::chrono::steady_clock::time_point> validation_times;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, [&](HANDLE) {
+                          std::scoped_lock l{times_lock};
+                          validation_times.push_back(std::chrono::steady_clock::now());
+                          return validation_times.size() > 1;
+                      }};
+
+    Handle first_client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(first_client);
+
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    EXPECT_TRUE(wait_for_peer_disconnect(first_client.get(), TEST_TIMEOUT));
+    Handle second_client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(second_client);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, std::vector<uint8_t>{0x42});
+    ASSERT_TRUE(write_all(second_client.get(), frame));
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+
+    {
+        std::scoped_lock l{times_lock};
+        ASSERT_EQ(validation_times.size(), 2u);
+        EXPECT_GE(validation_times[1] - validation_times[0], REJECTION_BACKOFF - TIMER_SLACK);
+    }
+
+    signal_stop();
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+}
+
+TEST_F(PipeTest, ServerStopEventDuringSyncRejectionBackoffExitsGracefully) {
+    // The stop event is signaled by the validator itself, i.e. right before the post-rejection
+    // back-off: the loop must exit gracefully without validating any further client.
+    MessageCollector collector;
+    std::atomic<int> validation_count{0};
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler(), nullptr, [&](HANDLE) {
+                          validation_count.fetch_add(1, std::memory_order_relaxed);
+                          signal_stop();
+                          return false;
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+    EXPECT_EQ(validation_count.load(std::memory_order_relaxed), 1);
+    EXPECT_EQ(collector.count(), 0u);
 }
 
 TEST_F(PipeTest, ServerSendDeliversMessageToClient) {
@@ -566,11 +751,11 @@ TEST_F(PipeTest, ServerSendDeliversMessageToClient) {
     std::this_thread::sleep_for(50ms); // Let the server observe the connection.
 
     const std::vector<uint8_t> payload = {1, 2, 3, 4, 5};
-    server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {payload.data(), payload.size()});
+    server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {payload.data(), payload.size()});
 
     ReceivedMessage rx{};
     ASSERT_TRUE(read_framed_message(client.get(), rx, TEST_TIMEOUT));
-    EXPECT_EQ(rx.what, VPN_EASY_SVC_MSG_STATE_CHANGED);
+    EXPECT_EQ(rx.what, TRUSTTUNNEL_SVC_MSG_STATE_CHANGED);
     EXPECT_EQ(rx.payload, payload);
 
     signal_stop();
@@ -587,7 +772,7 @@ TEST_F(PipeTest, ServerSendDropsMessageWhenNoPeerConnected) {
     // Send a few messages with no peer connected; they must be dropped.
     const std::vector<uint8_t> dropped_payload = {0xAA};
     for (int i = 0; i < 5; ++i) {
-        server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {dropped_payload.data(), dropped_payload.size()});
+        server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {dropped_payload.data(), dropped_payload.size()});
     }
     std::this_thread::sleep_for(50ms);
 
@@ -597,11 +782,11 @@ TEST_F(PipeTest, ServerSendDropsMessageWhenNoPeerConnected) {
 
     // Send a sentinel via the live connection. Only the sentinel must arrive.
     const std::vector<uint8_t> sentinel_payload = {0x55};
-    server.send(VPN_EASY_SVC_MSG_CONNECTION_INFO, {sentinel_payload.data(), sentinel_payload.size()});
+    server.send(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {sentinel_payload.data(), sentinel_payload.size()});
 
     ReceivedMessage rx{};
     ASSERT_TRUE(read_framed_message(client.get(), rx, TEST_TIMEOUT));
-    EXPECT_EQ(rx.what, VPN_EASY_SVC_MSG_CONNECTION_INFO);
+    EXPECT_EQ(rx.what, TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO);
     EXPECT_EQ(rx.payload, sentinel_payload);
 
     // No further messages should arrive (the dropped ones must not have been queued).
@@ -631,7 +816,7 @@ TEST_F(PipeTest, ServerSendIsThreadSafe) {
         senders.emplace_back([&, t] {
             for (int i = 0; i < PER_THREAD; ++i) {
                 uint8_t payload[2] = {static_cast<uint8_t>(t), static_cast<uint8_t>(i)};
-                server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {payload, 2});
+                server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {payload, 2});
             }
         });
     }
@@ -659,11 +844,11 @@ TEST_F(PipeTest, ServerSendIsThreadSafe) {
 }
 
 TEST_F(PipeTest, ServerHandlerCanCallSend) {
-    // Handler echoes any incoming message back as VPN_EASY_SVC_MSG_STATE_CHANGED, exercising
+    // Handler echoes any incoming message back as TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, exercising
     // send() being called from the loop's own thread.
     PipeServer *server_ptr = nullptr;
-    PipeEndpoint::Handler echo = [&](VpnEasyServiceMessageType, ag::Uint8View data) {
-        server_ptr->send(VPN_EASY_SVC_MSG_STATE_CHANGED, data);
+    PipeEndpoint::Handler echo = [&](TrusttunnelServiceMessageType, ag::Uint8View data) {
+        server_ptr->send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, data);
     };
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), echo};
     server_ptr = &server;
@@ -675,12 +860,12 @@ TEST_F(PipeTest, ServerHandlerCanCallSend) {
     ASSERT_TRUE(client);
 
     const std::vector<uint8_t> payload = {0x10, 0x20, 0x30};
-    auto frame = make_framed(VPN_EASY_SVC_MSG_START, payload);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, payload);
     ASSERT_TRUE(write_all(client.get(), frame));
 
     ReceivedMessage rx{};
     ASSERT_TRUE(read_framed_message(client.get(), rx, TEST_TIMEOUT));
-    EXPECT_EQ(rx.what, VPN_EASY_SVC_MSG_STATE_CHANGED);
+    EXPECT_EQ(rx.what, TRUSTTUNNEL_SVC_MSG_STATE_CHANGED);
     EXPECT_EQ(rx.payload, payload);
 
     signal_stop();
@@ -697,7 +882,7 @@ TEST_F(PipeTest, ServerReconnectsAfterClientDisconnects) {
     {
         Handle client = open_raw_client(m_pipe_name);
         ASSERT_TRUE(client);
-        auto frame = make_framed(VPN_EASY_SVC_MSG_START, {});
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
         ASSERT_TRUE(write_all(client.get(), frame));
         ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
         // Client closes here.
@@ -707,13 +892,13 @@ TEST_F(PipeTest, ServerReconnectsAfterClientDisconnects) {
         Handle client = open_raw_client(m_pipe_name);
         ASSERT_TRUE(client);
         const std::vector<uint8_t> payload = {0x77};
-        auto frame = make_framed(VPN_EASY_SVC_MSG_STOP, payload);
+        auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STOP, payload);
         ASSERT_TRUE(write_all(client.get(), frame));
         ASSERT_TRUE(collector.wait_for_count(2, TEST_TIMEOUT));
         auto msgs = collector.snapshot();
-        EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_START);
+        EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_START);
         EXPECT_EQ(msgs[0].payload.size(), 0);
-        EXPECT_EQ(msgs[1].what, VPN_EASY_SVC_MSG_STOP);
+        EXPECT_EQ(msgs[1].what, TRUSTTUNNEL_SVC_MSG_STOP);
         EXPECT_EQ(msgs[1].payload, payload);
     }
 
@@ -739,7 +924,7 @@ TEST_F(PipeTest, ServerSendQueueFlushedOnDisconnectNewClientSeesNoStaleMessages)
 
         const std::vector<uint8_t> stale_payload = {0xAA, 0xBB};
         for (int i = 0; i < 5; ++i) {
-            server.send(VPN_EASY_SVC_MSG_STATE_CHANGED, {stale_payload.data(), stale_payload.size()});
+            server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {stale_payload.data(), stale_payload.size()});
         }
         // Give the loop a moment to pick up the sends (but don't read from client_a).
         std::this_thread::sleep_for(50ms);
@@ -753,12 +938,12 @@ TEST_F(PipeTest, ServerSendQueueFlushedOnDisconnectNewClientSeesNoStaleMessages)
         std::this_thread::sleep_for(50ms); // Let the server observe the reconnection.
 
         const std::vector<uint8_t> fresh_payload = {0xCC, 0xDD};
-        server.send(VPN_EASY_SVC_MSG_CONNECTION_INFO, {fresh_payload.data(), fresh_payload.size()});
+        server.send(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {fresh_payload.data(), fresh_payload.size()});
 
         // Read the first message from client B: it must be the fresh one, not stale.
         ReceivedMessage rx{};
         ASSERT_TRUE(read_framed_message(client_b.get(), rx, TEST_TIMEOUT));
-        EXPECT_EQ(rx.what, VPN_EASY_SVC_MSG_CONNECTION_INFO);
+        EXPECT_EQ(rx.what, TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO);
         EXPECT_EQ(rx.payload, fresh_payload);
 
         // Verify no extra (stale) messages follow.
@@ -779,7 +964,7 @@ TEST_F(PipeTest, ServerStopEventDuringActiveConnectionExitsCleanly) {
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
-    auto frame = make_framed(VPN_EASY_SVC_MSG_START, {});
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
     ASSERT_TRUE(write_all(client.get(), frame));
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
 
@@ -787,6 +972,160 @@ TEST_F(PipeTest, ServerStopEventDuringActiveConnectionExitsCleanly) {
     auto loop_result = runner.wait_for(JOIN_TIMEOUT);
     ASSERT_TRUE(loop_result);
     EXPECT_TRUE(*loop_result);
+}
+
+// ---------------------------------------------------------------------------
+// PipeEndpoint::post() tests
+// ---------------------------------------------------------------------------
+
+// Poll a predicate until it returns true or the timeout elapses.
+template <typename F>
+bool wait_until(F &&pred, std::chrono::milliseconds timeout) {
+    auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!pred()) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(10ms);
+    }
+    return true;
+}
+
+TEST_F(PipeTest, ServerRunsTaskPostedFromAnotherThread) {
+    // A task posted via post() must execute exactly once, on the server's loop thread.
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    std::atomic<int> run_count{0};
+    std::thread::id loop_thread_id;
+    std::thread poster([&] {
+        std::this_thread::sleep_for(50ms);
+        server.post([&] {
+            ++run_count;
+            loop_thread_id = std::this_thread::get_id();
+        });
+    });
+
+    ASSERT_TRUE(wait_until(
+            [&] {
+                return run_count.load() == 1;
+            },
+            TEST_TIMEOUT));
+    EXPECT_NE(loop_thread_id, poster.get_id());
+    // The task must not run twice.
+    std::this_thread::sleep_for(50ms);
+    EXPECT_EQ(run_count.load(), 1);
+
+    poster.join();
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerRunsPostedTasksInFifoOrder) {
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    std::mutex order_lock;
+    std::vector<int> order;
+    for (int i = 0; i < 5; ++i) {
+        server.post([&, i] {
+            std::scoped_lock l{order_lock};
+            order.push_back(i);
+        });
+    }
+
+    ASSERT_TRUE(wait_until(
+            [&] {
+                std::scoped_lock l{order_lock};
+                return order.size() == 5;
+            },
+            TEST_TIMEOUT));
+    {
+        std::scoped_lock l{order_lock};
+        EXPECT_EQ(order, (std::vector<int>{0, 1, 2, 3, 4}));
+    }
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerRunsTaskPostedFromHandler) {
+    // A task posted from inside the receive handler must run on the loop thread after the
+    // handler returns (i.e. without deadlocking the loop).
+    PipeServer *server_ptr = nullptr;
+    std::atomic<int> task_run_count{0};
+    PipeEndpoint::Handler handler = [&](TrusttunnelServiceMessageType, ag::Uint8View) {
+        server_ptr->post([&] {
+            ++task_run_count;
+        });
+    };
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), handler};
+    server_ptr = &server;
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
+    ASSERT_TRUE(write_all(client.get(), frame));
+
+    ASSERT_TRUE(wait_until(
+            [&] {
+                return task_run_count.load() == 1;
+            },
+            TEST_TIMEOUT));
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientIsConnectedReflectsPeerDisconnect) {
+    // is_connected() must report true after connecting and false after the peer closes.
+    Handle server_pipe{CreateNamedPipeW(m_pipe_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr)};
+    ASSERT_TRUE(server_pipe);
+
+    MessageCollector collector;
+    PipeClient client{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return client.loop();
+                      }};
+
+    // Accept the client's connection via overlapped ConnectNamedPipe.
+    OVERLAPPED ol{};
+    Handle ev{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    ol.hEvent = ev.get();
+    BOOL ok = ConnectNamedPipe(server_pipe.get(), &ol);
+    DWORD err = GetLastError();
+    if (!ok && err == ERROR_IO_PENDING) {
+        ASSERT_EQ(WaitForSingleObject(ol.hEvent,
+                          static_cast<DWORD>(
+                                  std::chrono::duration_cast<std::chrono::milliseconds>(TEST_TIMEOUT).count())),
+                WAIT_OBJECT_0);
+        DWORD t = 0;
+        ASSERT_TRUE(GetOverlappedResult(server_pipe.get(), &ol, &t, FALSE));
+    } else if (!ok) {
+        ASSERT_EQ(err, static_cast<DWORD>(ERROR_PIPE_CONNECTED));
+    }
+
+    ASSERT_TRUE(client.wait_connected());
+    EXPECT_TRUE(client.is_connected());
+
+    // Tear down the server side; the client's loop() must exit and is_connected() go false.
+    DisconnectNamedPipe(server_pipe.get());
+    server_pipe.reset();
+
+    auto loop_result = runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(loop_result);
+    EXPECT_TRUE(*loop_result);
+    EXPECT_FALSE(client.is_connected());
 }
 
 TEST_F(PipeTest, ServerWithAuthenticatedUsersDescriptorAcceptsConnections) {
@@ -805,8 +1144,47 @@ TEST_F(PipeTest, ServerWithAuthenticatedUsersDescriptorAcceptsConnections) {
 
     Handle client = open_raw_client(m_pipe_name);
     ASSERT_TRUE(client);
-    auto frame = make_framed(VPN_EASY_SVC_MSG_START, {});
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
     ASSERT_TRUE(write_all(client.get(), frame));
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerRejectsRemoteSMBClient) {
+    // PIPE_REJECT_REMOTE_CLIENTS must reject connections that arrive through the SMB server: that
+    // is the only path that can forge GetNamedPipeClientProcessId, and the only remote attack
+    // surface when no pin is provisioned. A direct \\.\pipe connection must keep working.
+    //
+    // A control pipe created without the flag proves the SMB loopback path is usable here; if it
+    // is not (e.g. the Server service is disabled), skip instead of reporting a false success.
+    std::wstring control_name = unique_pipe_name();
+    Handle control{CreateNamedPipeW(control_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, nullptr)};
+    ASSERT_TRUE(control);
+    Handle control_remote = open_remote_client(control_name);
+    if (!control_remote) {
+        GTEST_SKIP() << "SMB loopback is unavailable; cannot exercise PIPE_REJECT_REMOTE_CLIENTS";
+    }
+    control_remote.reset();
+    control.reset();
+
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    // Through SMB the client must be rejected before any message is exchanged.
+    Handle remote = open_remote_client(m_pipe_name);
+    EXPECT_FALSE(remote);
+
+    // Direct local clients are unaffected by the flag.
+    Handle local = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(local);
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_START, {});
+    ASSERT_TRUE(write_all(local.get(), frame));
     ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
 
     signal_stop();
@@ -829,10 +1207,10 @@ TEST_F(PipeTest, ClientLoopFailsImmediatelyWhenServerNotPresent) {
 }
 
 TEST_F(PipeTest, ClientServerExchangeMessages) {
-    // Server echoes any incoming message back as VPN_EASY_SVC_MSG_STATE_CHANGED.
+    // Server echoes any incoming message back as TRUSTTUNNEL_SVC_MSG_STATE_CHANGED.
     PipeServer *server_ptr = nullptr;
-    PipeEndpoint::Handler server_handler = [&](VpnEasyServiceMessageType, ag::Uint8View data) {
-        server_ptr->send(VPN_EASY_SVC_MSG_STATE_CHANGED, data);
+    PipeEndpoint::Handler server_handler = [&](TrusttunnelServiceMessageType, ag::Uint8View data) {
+        server_ptr->send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, data);
     };
     PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
     server_ptr = &server;
@@ -849,18 +1227,55 @@ TEST_F(PipeTest, ClientServerExchangeMessages) {
 
     ASSERT_TRUE(client.wait_connected());
     const std::vector<uint8_t> payload = {0xAB, 0xCD, 0xEF};
-    client.send(VPN_EASY_SVC_MSG_START, {payload.data(), payload.size()});
+    client.send(TRUSTTUNNEL_SVC_MSG_START, {payload.data(), payload.size()});
 
     ASSERT_TRUE(client_collector.wait_for_count(1, TEST_TIMEOUT));
     auto msgs = client_collector.snapshot();
     ASSERT_EQ(msgs.size(), 1u);
-    EXPECT_EQ(msgs[0].what, VPN_EASY_SVC_MSG_STATE_CHANGED);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_STATE_CHANGED);
     EXPECT_EQ(msgs[0].payload, payload);
 
     SetEvent(client_stop.get());
     auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
     ASSERT_TRUE(client_result);
     EXPECT_TRUE(*client_result);
+
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientConnectsAtAnonymousImpersonationLevelAndPassesValidation) {
+    // Regression for the client's SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS flag: the real client
+    // must still connect through a server running the real validation, and its messages must be
+    // dispatched (a rejected client is dropped before dispatch). An unsigned service accepts the
+    // client through the sibling gate, because the client is this test process.
+    ClientAuthenticator authenticator{ProcessInfo::current(), std::nullopt};
+    MessageCollector server_collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler(), nullptr,
+            [&authenticator](HANDLE pipe) {
+                return authenticator.validate(pipe) == ClientValidationDecision::ALLOWED;
+            }};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+    client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(server_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = server_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_QUERY_STATE);
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
 
     signal_stop();
     ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
@@ -946,7 +1361,7 @@ TEST_F(PipeTest, ClientCanReconnectViaFreshInstance) {
                           }};
         ASSERT_TRUE(client.wait_connected());
         const std::vector<uint8_t> payload = {0x01};
-        client.send(VPN_EASY_SVC_MSG_START, {payload.data(), payload.size()});
+        client.send(TRUSTTUNNEL_SVC_MSG_START, {payload.data(), payload.size()});
         server_collector.wait_for_count(server_collector.count() + 1, TEST_TIMEOUT);
         SetEvent(stop.get());
         auto loop_result = runner.wait_for(JOIN_TIMEOUT);
@@ -987,7 +1402,7 @@ TEST_F(PipeTest, ClientStartConnectRetriesUntilServerInstanceBecomesAvailable) {
     // Once connected, the client should be able to send and the server should observe it.
     ASSERT_TRUE(client.wait_connected());
     const std::vector<uint8_t> payload = {0x99};
-    client.send(VPN_EASY_SVC_MSG_START, {payload.data(), payload.size()});
+    client.send(TRUSTTUNNEL_SVC_MSG_START, {payload.data(), payload.size()});
     ASSERT_TRUE(server_collector.wait_for_count(1, TEST_TIMEOUT));
 
     SetEvent(client_stop.get());
@@ -1131,4 +1546,370 @@ TEST(PipeSecurityDescriptor, ForAuthenticatedUsersReturnsValidDescriptor) {
     ASSERT_TRUE(sd);
     ASSERT_NE(sd.get(), nullptr);
     EXPECT_TRUE(IsValidSecurityDescriptor(sd.get()));
+}
+
+// ---------------------------------------------------------------------------
+// TRUSTTUNNEL_SVC_MSG_QUERY_STATE / TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO transport
+// ---------------------------------------------------------------------------
+
+TEST_F(PipeTest, ServerEchoesQueryStateMessage) {
+    // Verify that QUERY_STATE messages (added in the attach/detach branch) can
+    // be sent and received through the pipe framing layer.
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+
+    // QUERY_STATE has an empty payload.
+    auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+    ASSERT_TRUE(write_all(client.get(), frame));
+
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_QUERY_STATE);
+    EXPECT_TRUE(msgs[0].payload.empty());
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ServerReceivesConnectionInfoMessage) {
+    // Verify that CONNECTION_INFO messages (used by the attach/detach feature)
+    // are correctly framed and delivered through the pipe.
+    MessageCollector collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), collector.make_handler()};
+    LoopRunner runner{m_stop_event.get(), [&] {
+                          return server.loop();
+                      }};
+
+    Handle client = open_raw_client(m_pipe_name);
+    ASSERT_TRUE(client);
+
+    const std::string json = R"({"host":"example.com","port":443,"protocol":"TLS"})";
+    auto frame = make_framed(
+            TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+    ASSERT_TRUE(write_all(client.get(), frame));
+
+    ASSERT_TRUE(collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO);
+    std::string payload_str(msgs[0].payload.begin(), msgs[0].payload.end());
+    EXPECT_EQ(payload_str, json);
+
+    signal_stop();
+    ASSERT_TRUE(runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientReceivesQueryStateResponseFromServer) {
+    // Simulate the service responding to QUERY_STATE with a STATE_CHANGED
+    // message — same pattern used by trusttunnel_service_attach().
+    PipeServer *server_ptr = nullptr;
+    PipeEndpoint::Handler server_handler = [&](TrusttunnelServiceMessageType what, ag::Uint8View data) {
+        if (what == TRUSTTUNNEL_SVC_MSG_QUERY_STATE) {
+            // Reply with a STATE_CHANGED message containing VPN_SS_DISCONNECTED (0).
+            uint32_t net_state = htonl(0);
+            server_ptr->send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED,
+                    {reinterpret_cast<const uint8_t *>(&net_state), sizeof(net_state)});
+        }
+    };
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
+    server_ptr = &server;
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Send QUERY_STATE; the server should reply with STATE_CHANGED.
+    client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(client_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_STATE_CHANGED);
+    ASSERT_EQ(msgs[0].payload.size(), sizeof(uint32_t));
+    uint32_t received_state = 0;
+    memcpy(&received_state, msgs[0].payload.data(), sizeof(received_state));
+    EXPECT_EQ(ntohl(received_state), 0u);
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientReceivesConnectionInfoFromServer) {
+    // Simulate the service sending a CONNECTION_INFO message to the client,
+    // which is then dispatched via the client's handler — same path used by
+    // trusttunnel_service_start() and trusttunnel_service_attach().
+    PipeServer *server_ptr = nullptr;
+    PipeEndpoint::Handler server_handler = [&](TrusttunnelServiceMessageType, ag::Uint8View) {
+        // On first connection, send a CONNECTION_INFO message.
+        static bool sent = false;
+        if (!sent) {
+            const std::string json = R"({"host":"10.0.0.1","port":8080})";
+            server_ptr->send(
+                    TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {reinterpret_cast<const uint8_t *>(json.data()), json.size()});
+            sent = true;
+        }
+    };
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_handler};
+    server_ptr = &server;
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Send a message to trigger the server's connection-info push.
+    client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+
+    ASSERT_TRUE(client_collector.wait_for_count(1, TEST_TIMEOUT));
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), 1u);
+    EXPECT_EQ(msgs[0].what, TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO);
+    std::string payload_str(msgs[0].payload.begin(), msgs[0].payload.end());
+    EXPECT_EQ(payload_str, R"({"host":"10.0.0.1","port":8080})");
+
+    SetEvent(client_stop.get());
+    ASSERT_TRUE(client_runner.wait_for(JOIN_TIMEOUT));
+    signal_stop();
+    ASSERT_TRUE(server_runner.wait_for(JOIN_TIMEOUT));
+}
+
+TEST_F(PipeTest, ClientReceivesBurstWithoutFramingCorruptionWhenReadsCompleteSynchronously) {
+    // Regression: a synchronously-completed ReadFile may leave m_io_event signaled (the kernel
+    // is allowed to do this, but is not required to). Prior to the fix, that stale signal
+    // survived into the next overlapped read, so the loop woke on m_io_event while an unread
+    // operation was still pending and complete_read() reaped a stale byte count from the reused
+    // OVERLAPPED structure. The stale count desynchronized the receive framing, which surfaced
+    // as a garbage length field in dispatch_one_message (an absurd "incoming message size")
+    // and a dropped connection. start_read() now resets m_io_event before queueing each read.
+    //
+    // Drive the client with bursts of small framed messages so that its reads repeatedly
+    // complete synchronously, then verify that every message arrived exactly once and in order,
+    // and that the client stayed connected throughout.
+    Handle server_pipe{CreateNamedPipeW(m_pipe_name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr)};
+    ASSERT_TRUE(server_pipe);
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), client_collector.make_handler()};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    // Accept the client's connection via overlapped ConnectNamedPipe.
+    OVERLAPPED ol{};
+    Handle ev{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    ol.hEvent = ev.get();
+    BOOL ok = ConnectNamedPipe(server_pipe.get(), &ol);
+    DWORD err = GetLastError();
+    if (!ok && err == ERROR_IO_PENDING) {
+        ASSERT_EQ(WaitForSingleObject(ol.hEvent,
+                          static_cast<DWORD>(
+                                  std::chrono::duration_cast<std::chrono::milliseconds>(TEST_TIMEOUT).count())),
+                WAIT_OBJECT_0);
+        DWORD t = 0;
+        ASSERT_TRUE(GetOverlappedResult(server_pipe.get(), &ol, &t, FALSE));
+    } else if (!ok) {
+        ASSERT_EQ(err, static_cast<DWORD>(ERROR_PIPE_CONNECTED));
+    }
+
+    ASSERT_TRUE(client.wait_connected());
+
+    // Blast the whole burst in one tight loop so that, while the client is still draining, each
+    // read it posts finds bytes already buffered in the kernel and completes synchronously.
+    // The client also sends on every round, like the attach() flow does (QUERY_STATE + START),
+    // so its write pipeline runs concurrently with the reads.
+    constexpr int ROUNDS = 8;
+    constexpr int PER_ROUND = 25;
+    constexpr size_t PAYLOAD_SIZE = 64;
+    static_assert(ROUNDS * PER_ROUND * (WIRE_HEADER_SIZE + PAYLOAD_SIZE) < 64 * 1024,
+            "burst must fit the server-side pipe in-buffer to avoid blocking writes");
+    for (int round = 0; round < ROUNDS; ++round) {
+        std::vector<uint8_t> burst;
+        burst.reserve(PER_ROUND * (WIRE_HEADER_SIZE + PAYLOAD_SIZE));
+        for (int i = 0; i < PER_ROUND; ++i) {
+            uint32_t seq = static_cast<uint32_t>(round * PER_ROUND + i);
+            std::vector<uint8_t> payload(PAYLOAD_SIZE);
+            memcpy(payload.data(), &seq, sizeof(seq));
+            auto frame = make_framed(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, payload);
+            burst.insert(burst.end(), frame.begin(), frame.end());
+        }
+        ASSERT_TRUE(write_all(server_pipe.get(), burst));
+        client.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {});
+    }
+
+    constexpr size_t TOTAL = static_cast<size_t>(ROUNDS) * PER_ROUND;
+    ASSERT_TRUE(client_collector.wait_for_count(TOTAL, TEST_TIMEOUT));
+
+    // Framing integrity: every message exactly once, payload sequence strictly increasing, and
+    // the connection must still be up (a framing desync would have dropped it).
+    EXPECT_TRUE(client.is_connected());
+    auto msgs = client_collector.snapshot();
+    ASSERT_EQ(msgs.size(), TOTAL);
+    for (size_t i = 0; i < msgs.size(); ++i) {
+        uint32_t seq = 0;
+        ASSERT_EQ(msgs[i].payload.size(), PAYLOAD_SIZE);
+        memcpy(&seq, msgs[i].payload.data(), sizeof(seq));
+        EXPECT_EQ(seq, i) << "message " << i << " is missing, duplicated or out of order";
+    }
+
+    SetEvent(client_stop.get());
+    auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(client_result);
+    EXPECT_TRUE(*client_result);
+}
+
+TEST_F(PipeTest, ServerSurvivesConcurrentWriteBurstsToSlowConsumer) {
+    // Reproduces the production conditions of the client framing-desync investigation. The desync
+    // it guards against is the receive buffer being compacted while an overlapped read is in
+    // flight: dispatching buffered messages moved the read's destination, so the read's bytes
+    // landed at a stale offset and the parser resumed in the middle of a payload.
+    // The service (PipeServer) is driven by both producer concurrency profiles at once -- sends
+    // posted to the loop thread (mirroring send_state) and sends from an external thread
+    // (mirroring the VPN event loop's connection-info pushes) -- while the client consumes
+    // slowly, so that the server's pipe output buffer fills and its writes complete
+    // overlapped, possibly partially. Frames carry sequence numbers: every delivered sequence
+    // must arrive at most once and in order (whole-frame drops under queue-overflow pressure
+    // are legitimate), and the connection must stay up (a frame whose header was fused from a
+    // different message would trip either the write bookkeeping invariants or the
+    // receive-side size check).
+    MessageCollector server_collector;
+    PipeServer server{m_pipe_name.c_str(), m_stop_event.get(), server_collector.make_handler()};
+    LoopRunner server_runner{m_stop_event.get(), [&] {
+                                 return server.loop();
+                             }};
+
+    Handle client_stop{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    MessageCollector client_collector;
+    PipeEndpoint::Handler slow_sink = [sink = client_collector.make_handler()](
+                                              TrusttunnelServiceMessageType what, ag::Uint8View data) {
+        // Slow consumer: stall the client's read loop so that the server's pipe output buffer
+        // fills and its writes go overlapped.
+        std::this_thread::sleep_for(1ms);
+        sink(what, data);
+    };
+    PipeClient client{m_pipe_name.c_str(), client_stop.get(), std::move(slow_sink)};
+    LoopRunner client_runner{client_stop.get(), [&] {
+                                 return client.loop();
+                             }};
+
+    ASSERT_TRUE(client.wait_connected());
+
+    constexpr int PER_STATE = 100;
+    constexpr int PER_INFO = 200;
+    constexpr size_t INFO_PAYLOAD_SIZE = 600;
+    static_assert(PER_INFO * (WIRE_HEADER_SIZE + INFO_PAYLOAD_SIZE) > 64 * 1024,
+            "volume must exceed the pipe output buffer so writes go overlapped");
+
+    std::thread state_producer{[&] {
+        for (int i = 0; i < PER_STATE; ++i) {
+            server.post([&server, i] {
+                auto seq = static_cast<uint32_t>(i);
+                server.send(TRUSTTUNNEL_SVC_MSG_STATE_CHANGED, {reinterpret_cast<const uint8_t *>(&seq), sizeof(seq)});
+            });
+            std::this_thread::sleep_for(1ms);
+        }
+    }};
+    std::thread info_producer{[&] {
+        std::vector<uint8_t> payload(INFO_PAYLOAD_SIZE, 0xAB);
+        for (int i = 0; i < PER_INFO; ++i) {
+            auto seq = static_cast<uint32_t>(i);
+            memcpy(payload.data(), &seq, sizeof(seq));
+            server.send(TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO, {payload.data(), payload.size()});
+            std::this_thread::sleep_for(200us);
+        }
+    }};
+
+    state_producer.join();
+    info_producer.join();
+
+    // Push a sentinel last; its arrival means everything queued before it has been delivered
+    // (or legitimately dropped under queue pressure), so verification can start.
+    uint32_t sentinel = 0xDEADBEEF;
+    server.send(TRUSTTUNNEL_SVC_MSG_QUERY_STATE, {reinterpret_cast<const uint8_t *>(&sentinel), sizeof(sentinel)});
+
+    ASSERT_TRUE(wait_until(
+            [&] {
+                auto msgs = client_collector.snapshot();
+                return !msgs.empty() && msgs.back().what == TRUSTTUNNEL_SVC_MSG_QUERY_STATE;
+            },
+            std::chrono::seconds{20}))
+            << "sentinel was not delivered";
+
+    EXPECT_TRUE(client.is_connected());
+
+    auto msgs = client_collector.snapshot();
+    ASSERT_FALSE(msgs.empty());
+    // Drop the sentinel, then verify both streams: sequence numbers strictly increasing (no
+    // duplicates or reorderings) and payload sizes as composed.
+    msgs.pop_back();
+    uint32_t prev_state = 0;
+    bool have_state = false;
+    uint32_t prev_info = 0;
+    bool have_info = false;
+    size_t state_count = 0;
+    size_t info_count = 0;
+    for (const auto &m : msgs) {
+        if (m.what == TRUSTTUNNEL_SVC_MSG_STATE_CHANGED) {
+            ASSERT_EQ(m.payload.size(), sizeof(uint32_t));
+            uint32_t seq = 0;
+            memcpy(&seq, m.payload.data(), sizeof(seq));
+            if (have_state) {
+                EXPECT_GT(seq, prev_state) << "STATE_CHANGED sequence " << seq << " is duplicated or out of order";
+            }
+            prev_state = seq;
+            have_state = true;
+            ++state_count;
+        } else if (m.what == TRUSTTUNNEL_SVC_MSG_CONNECTION_INFO) {
+            ASSERT_EQ(m.payload.size(), INFO_PAYLOAD_SIZE);
+            uint32_t seq = 0;
+            memcpy(&seq, m.payload.data(), sizeof(seq));
+            if (have_info) {
+                EXPECT_GT(seq, prev_info) << "CONNECTION_INFO sequence " << seq << " is duplicated or out of order";
+            }
+            prev_info = seq;
+            have_info = true;
+            ++info_count;
+        } else {
+            ADD_FAILURE() << "unexpected message type " << static_cast<int>(m.what);
+        }
+    }
+    // Whole-frame drops under queue pressure are legitimate (and expected here), but neither
+    // stream may be lost entirely.
+    EXPECT_GT(state_count, 0u);
+    EXPECT_GT(info_count, 0u);
+
+    SetEvent(client_stop.get());
+    auto client_result = client_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(client_result);
+    EXPECT_TRUE(*client_result);
+
+    signal_stop();
+    auto server_result = server_runner.wait_for(JOIN_TIMEOUT);
+    ASSERT_TRUE(server_result);
+    EXPECT_TRUE(*server_result);
 }

@@ -210,3 +210,29 @@ TEST_F(QuicConnectorTest, TimeoutOnNoResponse) {
     ASSERT_TRUE(ctx.error.has_value());
     EXPECT_EQ(ctx.error->code, utils::AG_ETIMEDOUT) << ctx.error->text;
 }
+
+// The connector may be destroyed while the result (and the half-open client inside it) is
+// still alive: this is what happens when the locations pinger finishes and a losing
+// connection is discarded. The client's callbacks must not reference the destroyed
+// connector then (regression test for a use-after-free).
+TEST_F(QuicConnectorTest, DestroyConnectorBeforeResult) {
+    FakeUdpServer server{{1, 2, 3}};
+    server.start();
+
+    ConnectorCtx ctx = make_ctx();
+    connect(ctx, server.port());
+    run_event_loop();
+
+    if (ctx.error.has_value()) {
+        FAIL() << "Connector reported error: " << ctx.error->text;
+    }
+    ASSERT_NE(ctx.result, nullptr);
+
+    // Simulate the pinger teardown: the connector is destroyed before the result, which
+    // may still hold a half-open client.
+    ctx.connector.reset();
+
+    // Destroying the result now must not access the destroyed connector: the client's
+    // destructor sends a CONNECTION_CLOSE through its callbacks.
+    ctx.result.reset();
+}
