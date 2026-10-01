@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -1546,6 +1548,36 @@ TEST(PipeSecurityDescriptor, ForAuthenticatedUsersReturnsValidDescriptor) {
     ASSERT_TRUE(sd);
     ASSERT_NE(sd.get(), nullptr);
     EXPECT_TRUE(IsValidSecurityDescriptor(sd.get()));
+}
+
+// ---------------------------------------------------------------------------
+// generate_pipe_name
+// ---------------------------------------------------------------------------
+
+TEST(PipeNameGenerator, ProducesFullPathWith32LowercaseHexSuffix) {
+    static constexpr std::wstring_view PREFIX = L"\\\\.\\pipe\\trusttunnel_vpn-";
+    std::optional<std::wstring> name = generate_pipe_name();
+    ASSERT_TRUE(name.has_value());
+    ASSERT_TRUE(std::wstring_view{*name}.starts_with(PREFIX));
+
+    std::wstring_view suffix = std::wstring_view{*name}.substr(PREFIX.size());
+    EXPECT_EQ(suffix.size(), 32U);
+    EXPECT_TRUE(std::all_of(suffix.begin(), suffix.end(), [](wchar_t c) {
+        return (c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f');
+    }));
+}
+
+TEST(PipeNameGenerator, ProducesDistinctNames) {
+    static constexpr size_t COUNT = 100;
+    std::vector<std::wstring> names;
+    names.reserve(COUNT);
+    for (size_t i = 0; i < COUNT; ++i) {
+        std::optional<std::wstring> name = generate_pipe_name();
+        ASSERT_TRUE(name.has_value());
+        names.push_back(std::move(*name));
+    }
+    std::sort(names.begin(), names.end());
+    EXPECT_EQ(std::adjacent_find(names.begin(), names.end()), names.end());
 }
 
 // ---------------------------------------------------------------------------

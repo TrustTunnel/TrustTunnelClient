@@ -23,8 +23,8 @@
 #include "common/net_utils.h"
 #include "common/utils.h"
 #include "net/tls.h"
-#include "pipe_name_registry.h"
 #include "scoped_file_lock.h"
+#include "service_registry.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
 #include "vpn/event_loop.h"
@@ -694,8 +694,8 @@ static int32_t ensure_live_session(bool start_service) {
     // own startup, so a service restarted with a new random name is picked up.
     std::wstring pipe_name = g_svc_state.pipe_name;
     if (pipe_name.empty()) {
-        ag::trusttunnel_windows::PipeNameRegistry pipe_registry{g_svc_state.service_name};
-        std::optional<std::wstring> published = pipe_registry.discover();
+        std::optional<std::wstring> published =
+                ag::trusttunnel_windows::ServiceRegistry{g_svc_state.service_name}.pipe_name().read_string();
         if (!published) {
             errlog(g_logger, "The service is running but has not published a pipe name");
             return TRUSTTUNNEL_SVC_ERR_OTHER;

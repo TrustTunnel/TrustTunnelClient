@@ -17,8 +17,8 @@
 #include "common/defs.h"
 #include "common/logger.h"
 #include "common/system_error.h"
-#include "pipe_name_registry.h"
 #include "scoped_file_lock.h"
+#include "service_registry.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
 #include "vpn/file_logger.h"
@@ -175,12 +175,13 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR *argv) {
             },
             PipeServer::for_authenticated_users().get(), std::move(peer_validator)};
 
-    ag::trusttunnel_windows::PipeNameRegistry registry{service_name};
+    const ag::trusttunnel_windows::RegistryValue published_pipe_name =
+            ag::trusttunnel_windows::ServiceRegistry{service_name}.pipe_name();
 
     // Publish the effective pipe name after the pipe exists and before reporting RUNNING, so a
     // client that observes the running state is guaranteed to find the name. A service that
     // cannot publish must not serve undiscoverable clients, so this is a hard startup failure.
-    if (int32_t err = registry.publish(g_pipe_name); err != 0) {
+    if (int32_t err = published_pipe_name.write_string(g_pipe_name); err != 0) {
         errlog(g_logger, "Failed to publish the pipe name ({}); stopping", err);
         service_set_status(SERVICE_STOPPED);
         return;
@@ -189,7 +190,7 @@ static void WINAPI service_main(DWORD /*argc*/, LPWSTR *argv) {
     service_set_status(SERVICE_RUNNING);
     server.loop();
 
-    if (int32_t err = registry.remove(); err != 0) {
+    if (int32_t err = published_pipe_name.remove(); err != 0) {
         warnlog(g_logger, "Failed to delete the published pipe name ({})", err);
     }
 

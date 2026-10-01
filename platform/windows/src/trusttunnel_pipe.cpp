@@ -1,5 +1,6 @@
 #include "trusttunnel_pipe.h"
 
+#include <bcrypt.h>
 #include <sddl.h>
 
 #include <algorithm>
@@ -17,11 +18,32 @@ namespace ag::trusttunnel_windows {
 static ag::Logger g_server_logger{"PIPE_SERVER"};
 static ag::Logger g_client_logger{"PIPE_CLIENT"};
 
+static constexpr wchar_t PIPE_NAME_PREFIX[] = L"\\\\.\\pipe\\trusttunnel_vpn-";
+static constexpr size_t PIPE_NAME_RANDOM_BYTES = 16;
+
 namespace detail {
 void free_security_descriptor(SECURITY_DESCRIPTOR *sd) {
     LocalFree(sd);
 }
 } // namespace detail
+
+std::optional<std::wstring> generate_pipe_name() {
+    BYTE random[PIPE_NAME_RANDOM_BYTES];
+    NTSTATUS status = BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!BCRYPT_SUCCESS(status)) {
+        errlog(g_server_logger, "BCryptGenRandom: {:#x}", static_cast<uint32_t>(status));
+        return std::nullopt;
+    }
+
+    static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    std::wstring name = PIPE_NAME_PREFIX;
+    name.reserve(name.size() + PIPE_NAME_RANDOM_BYTES * 2);
+    for (BYTE byte : random) {
+        name.push_back(HEX_DIGITS[byte >> 4]);
+        name.push_back(HEX_DIGITS[byte & 0xF]);
+    }
+    return name;
+}
 
 // ---------------------------------------------------------------------------
 // PipeEndpoint

@@ -28,6 +28,12 @@ void free_security_descriptor(SECURITY_DESCRIPTOR *sd);
 using SecurityDescriptorPtr = ag::UniquePtr<SECURITY_DESCRIPTOR, &detail::free_security_descriptor>;
 
 /**
+ * Generate a fresh named-pipe name of the form `\\.\pipe\trusttunnel_vpn-<32 hex>` using the OS
+ * cryptographic RNG. Returns `std::nullopt` when the RNG fails.
+ */
+std::optional<std::wstring> generate_pipe_name();
+
+/**
  * Asynchronous named-pipe endpoint base class for the VPN easy-service control protocol.
  *
  * Holds all framing, queueing, overlapped-IO and event-loop machinery shared by both ends of the
