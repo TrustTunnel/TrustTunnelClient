@@ -10,7 +10,8 @@
 #ifdef OPENSSL_IS_BORINGSSL
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #else
-#include <ngtcp2/ngtcp2_crypto_quictls.h>
+// The quictls backend is incompatible with OpenSSL 4.0 (OSSL_ENCRYPTION_LEVEL removed).
+#include <ngtcp2/ngtcp2_crypto_ossl.h>
 #endif
 
 #include "common/logger.h"

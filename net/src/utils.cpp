@@ -46,7 +46,8 @@
 #ifdef OPENSSL_IS_BORINGSSL
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #else
-#include <ngtcp2/ngtcp2_crypto_quictls.h>
+// The quictls backend is incompatible with OpenSSL 4.0 (OSSL_ENCRYPTION_LEVEL removed).
+#include <ngtcp2/ngtcp2_crypto_ossl.h>
 #endif
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
@@ -612,7 +613,12 @@ bool is_private_or_linklocal_ipv4_address(const in_addr *ip_ptr) {
 static constexpr auto SESSION_LIFETIME = std::chrono::hours(24);
 
 static bool check_session_timings(SSL_SESSION *session) {
+#ifdef OPENSSL_IS_BORINGSSL
     auto session_created = std::chrono::seconds(SSL_SESSION_get_time(session));
+#else
+    // BoringSSL does not provide SSL_SESSION_get_time_ex.
+    auto session_created = std::chrono::seconds(SSL_SESSION_get_time_ex(session));
+#endif
     auto now = std::chrono::system_clock::now().time_since_epoch();
     auto session_timeout = std::chrono::seconds(SSL_SESSION_get_timeout(session));
     if (now > session_created + SESSION_LIFETIME) {
@@ -947,16 +953,21 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
 
     if (type == MSPT_NGTCP2) {
 #ifdef OPENSSL_IS_BORINGSSL
-        if (0 != ngtcp2_crypto_boringssl_configure_client_context(ctx.get()))
-#else
-        if (0 != ngtcp2_crypto_quictls_configure_client_context(ctx.get()))
-#endif
-        {
+        if (0 != ngtcp2_crypto_boringssl_configure_client_context(ctx.get())) {
             return "Couldn't configure SSL object for QUIC";
         }
+#endif
     }
 
     SslPtr ssl{SSL_new(ctx.get())};
+#ifndef OPENSSL_IS_BORINGSSL
+    // The ossl backend configures the SSL session, not the context.
+    if (type == MSPT_NGTCP2) {
+        if (0 != ngtcp2_crypto_ossl_configure_client_session(ssl.get())) {
+            return "Couldn't configure SSL object for QUIC";
+        }
+    }
+#endif
     if (!SocketAddress{sni}.valid()) {
         if (0 == SSL_set_tlsext_host_name(ssl.get(), sni)) {
             return "Failed to set SNI";

@@ -19,6 +19,11 @@
 #include <cassert>
 #include <cstring>
 
+#ifdef OPENSSL_IS_BORINGSSL
+// BoringSSL declares OPENSSL_free in <openssl/mem.h>; OpenSSL has it in
+// <openssl/crypto.h>, included transitively by <openssl/x509.h>.
+#include <openssl/mem.h>
+#endif
 #include <openssl/x509v3.h>
 
 // Size of 24-bit length field used in TLS handshake messages and certificates
@@ -562,20 +567,34 @@ static X509 *ossl_cert_decode(const uint8_t *data, size_t len) {
 
 /** Set subject.CN data. */
 static int ossl_cert_subj_CN(TlsReader *reader, X509 *x) {
-    X509_NAME *subj = X509_get_subject_name(x);
+    // OpenSSL 4.0 made X509_get_subject_name const-correct (returns
+    // const X509_NAME *) and deprecated X509_NAME_get_text_by_NID, while
+    // BoringSSL still returns mutable pointers and keeps the old API. Use the
+    // non-deprecated entry accessors, which work with both.
+    const X509_NAME *subj = X509_get_subject_name(x);
     if (subj == nullptr) {
         return -1;
     }
 
-    reader->x509_subject_common_name.resize(1024);
-    int n = X509_NAME_get_text_by_NID(subj, NID_commonName, reader->x509_subject_common_name.data(),
-            int(reader->x509_subject_common_name.size()));
+    const int idx = X509_NAME_get_index_by_NID(subj, NID_commonName, -1);
+    const X509_NAME_ENTRY *entry = idx < 0 ? nullptr : X509_NAME_get_entry(subj, idx);
+    const ASN1_STRING *cn = entry == nullptr ? nullptr : X509_NAME_ENTRY_get_data(entry);
+    if (cn == nullptr) {
+        reader->x509_subject_common_name.resize(0);
+        return -1;
+    }
+
+    unsigned char *utf8 = nullptr;
+    const int n = ASN1_STRING_to_UTF8(&utf8, cn);
     if (n < 0) {
         reader->x509_subject_common_name.resize(0);
         return -1;
     }
 
-    reader->x509_subject_common_name.resize(n);
+    // std::string::assign(InputIt, InputIt) accepts byte iterators, so no
+    // reinterpret_cast is needed.
+    reader->x509_subject_common_name.assign(utf8, utf8 + n);
+    OPENSSL_free(utf8);
     return 0;
 }
 
