@@ -7,6 +7,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <variant>
 #include <vector>
@@ -387,8 +388,10 @@ int32_t trusttunnel_service_install(const wchar_t *image_path_, const wchar_t *l
         return TRUSTTUNNEL_SVC_ERR_OTHER;
     }
 
+    // Ordered after the network stack for a start at boot, see `trusttunnel_service_set_connect_on_startup()`.
     AutoScHandle svc{CreateServiceW(scm.get(), name, display_name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, nullptr, nullptr, nullptr)};
+            SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, cmd.c_str(), nullptr, nullptr, L"Nsi\0TcpIp\0", nullptr,
+            nullptr)};
     if (!svc) {
         if (ERROR_SERVICE_EXISTS == GetLastError()) {
             return TRUSTTUNNEL_SVC_ERR_SERVICE_EXISTS;
@@ -441,6 +444,12 @@ int32_t trusttunnel_service_uninstall(const wchar_t *name) {
     SERVICE_STATUS status{};
     if (!ControlService(svc.get(), SERVICE_CONTROL_STOP, &status) && ERROR_SERVICE_NOT_ACTIVE != GetLastError()) {
         dbglog(g_logger, "ControlService(STOP): {} ({})", GetLastError(), ag::sys::strerror(GetLastError()));
+    }
+
+    // Delete the saved configuration before the service key: the SCM may keep the deleted key visible for a
+    // while, and the stored credentials must not survive the uninstall.
+    if (int32_t err = ag::trusttunnel_windows::ServiceRegistry{name}.saved_config().remove(); err != 0) {
+        warnlog(g_logger, "Failed to delete the saved VPN configuration ({})", err);
     }
 
     if (!DeleteService(svc.get())) {
@@ -758,6 +767,73 @@ int32_t trusttunnel_service_start(const char *toml_config) {
     g_svc_state.pipe_client->send(
             TRUSTTUNNEL_SVC_MSG_START, {reinterpret_cast<const uint8_t *>(toml_config), strlen(toml_config)});
 
+    return 0;
+}
+
+int32_t trusttunnel_service_update_configuration(const char *toml_config) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    std::string_view toml = toml_config != nullptr ? toml_config : "";
+    // Validated for the same reason as in `trusttunnel_service_start()`.
+    if (!toml.empty()) {
+        toml::parse_result parsed_config = toml::parse(toml);
+        if (!parsed_config || !ag::TrustTunnelConfig::build_config(parsed_config)) {
+            errlog(g_logger, "Invalid VPN client config");
+            return TRUSTTUNNEL_SVC_ERR_OTHER;
+        }
+    }
+
+    if (int32_t err = ensure_live_session(true); err != 0) {
+        return err;
+    }
+
+    g_svc_state.pipe_client->send(
+            TRUSTTUNNEL_SVC_MSG_UPDATE_CONFIG, {reinterpret_cast<const uint8_t *>(toml.data()), toml.size()});
+
+    return 0;
+}
+
+int32_t trusttunnel_service_set_connect_on_startup(bool enabled) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    if (int32_t err = ensure_live_session(true); err != 0) {
+        return err;
+    }
+
+    uint8_t payload = enabled ? 1 : 0;
+    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_SET_CONNECT_ON_STARTUP, {&payload, sizeof(payload)});
+
+    return 0;
+}
+
+int32_t trusttunnel_service_get_connect_on_startup(bool *enabled) {
+    std::scoped_lock lock{g_svc_state.mutex};
+
+    if (g_svc_state.service_name.empty()) {
+        errlog(g_logger, "Not attached to a service, call trusttunnel_service_attach() first");
+        return TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE;
+    }
+
+    AutoScHandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+    if (!scm) {
+        return map_scm_error("OpenSCManagerW");
+    }
+    AutoScHandle svc{OpenServiceW(scm.get(), g_svc_state.service_name.c_str(), SERVICE_QUERY_CONFIG)};
+    if (!svc) {
+        return map_scm_error("OpenServiceW");
+    }
+
+    DWORD size = 0;
+    if (!QueryServiceConfigW(svc.get(), nullptr, 0, &size) && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return map_scm_error("QueryServiceConfigW");
+    }
+    std::vector<uint8_t> buffer(size);
+    auto *config = reinterpret_cast<QUERY_SERVICE_CONFIGW *>(buffer.data());
+    if (!QueryServiceConfigW(svc.get(), config, size, &size)) {
+        return map_scm_error("QueryServiceConfigW");
+    }
+
+    *enabled = config->dwStartType == SERVICE_AUTO_START;
     return 0;
 }
 

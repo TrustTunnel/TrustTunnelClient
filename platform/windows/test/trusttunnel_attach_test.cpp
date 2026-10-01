@@ -23,6 +23,56 @@ TEST(Attach, MissingServiceIsReportedAsNoSuchServiceForEveryPipeNameKind) {
 }
 
 // ---------------------------------------------------------------------------
+// Updating the saved configuration without a service: an unusable configuration is rejected before
+// the SCM is consulted, and everything else needs an attach binding first.
+// ---------------------------------------------------------------------------
+
+TEST(UpdateConfiguration, InvalidConfigurationIsRejectedWithoutAService) {
+    trusttunnel_service_detach();
+
+    // Malformed TOML and a well-formed but unusable configuration are both rejected synchronously.
+    EXPECT_EQ(trusttunnel_service_update_configuration("not = [valid"), TRUSTTUNNEL_SVC_ERR_OTHER);
+    EXPECT_EQ(trusttunnel_service_update_configuration("vpn_mode = \"general\""), TRUSTTUNNEL_SVC_ERR_OTHER);
+}
+
+TEST(UpdateConfiguration, MissingAttachBindingIsReportedAsNoSuchService) {
+    trusttunnel_service_detach();
+
+    EXPECT_EQ(trusttunnel_service_update_configuration(nullptr), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+    EXPECT_EQ(trusttunnel_service_update_configuration(""), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+}
+
+TEST(UpdateConfiguration, MissingServiceIsReportedAsNoSuchService) {
+    trusttunnel_service_detach();
+    ASSERT_EQ(trusttunnel_service_attach(
+                      L"trusttunnel_attach_test_no_such_service", nullptr, nullptr, nullptr, nullptr, nullptr),
+            TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+
+    EXPECT_EQ(trusttunnel_service_update_configuration(nullptr), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+    trusttunnel_service_detach();
+}
+
+TEST(SetConnectOnStartup, MissingAttachBindingIsReportedAsNoSuchService) {
+    trusttunnel_service_detach();
+
+    EXPECT_EQ(trusttunnel_service_set_connect_on_startup(true), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+    bool enabled = false;
+    EXPECT_EQ(trusttunnel_service_get_connect_on_startup(&enabled), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+}
+
+TEST(SetConnectOnStartup, MissingServiceIsReportedAsNoSuchService) {
+    trusttunnel_service_detach();
+    ASSERT_EQ(trusttunnel_service_attach(
+                      L"trusttunnel_attach_test_no_such_service", nullptr, nullptr, nullptr, nullptr, nullptr),
+            TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+
+    EXPECT_EQ(trusttunnel_service_set_connect_on_startup(false), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+    bool enabled = false;
+    EXPECT_EQ(trusttunnel_service_get_connect_on_startup(&enabled), TRUSTTUNNEL_SVC_ERR_NO_SUCH_SERVICE);
+    trusttunnel_service_detach();
+}
+
+// ---------------------------------------------------------------------------
 // A running service that published nothing: the SCM reports it as running, so discovery is
 // attempted and its failure is reported as the generic error.
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # TrustTunnel Windows VPN Adapter
 
-Easy wrapper for the TrustTunnel VPN API — essentially `trusttunnel_client` as a library with two operations: `start` (takes TOML config) and `stop`.
+Easy wrapper for the TrustTunnel VPN API — essentially `trusttunnel_client` as a library with `start` (takes TOML config) and `stop`, plus `update_configuration` (saves the configuration without connecting) and `set_connect_on_startup` (connects with the saved configuration when the system boots).
 
 **Runtime requirements:**
 

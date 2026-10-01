@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "trusttunnel/trusttunnel.h"
@@ -61,6 +62,22 @@ typedef enum {
     /** Ask the service to clear its own log files. `length` must be zero, the data field empty.
      *  Fire-and-forget: the service clears its `service` log family and sends no response. */
     TRUSTTUNNEL_SVC_MSG_CLEAR_LOGS,
+
+    /**
+     * Store or delete the VPN client configuration saved for connecting on startup, without touching
+     * a live VPN connection. The data field contains the VPN client configuration in TOML format
+     * (encoded in UTF-8 as per TOML specification), or is empty to delete the saved configuration.
+     * A `TRUSTTUNNEL_SVC_MSG_START` request stores its configuration the same way.
+     */
+    TRUSTTUNNEL_SVC_MSG_UPDATE_CONFIG,
+
+    /**
+     * Enable or disable connecting with the saved configuration when the system boots. `length` is
+     * always `1`, `data` is a `uint8_t`: non-zero enables, zero disables. Enabling makes the service
+     * start automatically at boot, disabling makes it start on demand again. The setting is
+     * independent of the saved configuration and survives its deletion.
+     */
+    TRUSTTUNNEL_SVC_MSG_SET_CONNECT_ON_STARTUP,
 } TrusttunnelServiceMessageType;
 
 typedef enum {
@@ -86,12 +103,12 @@ typedef void (*on_connection_info_json_t)(void *arg, const char *json);
 
 /**
  * Create and start a VPN service. This function requires administrator privileges. The service is configured
- * to start manually (on demand). After startup, the service is listening on a named pipe `pipe_name`,
- * and can be controlled by connecting and sending messages on that pipe. The protocol details are given by the
- * description of `TrusttunnelServiceMessageType` enumeration. Pipe clients are authenticated by their
- * Authenticode signature: a signed service accepts only a client whose signer certificate matches its own
- * signer certificate, while an unsigned service accepts any client whose executable lives in the service's
- * own directory.
+ * to start manually (on demand), see `trusttunnel_service_set_connect_on_startup()`. After startup, the service
+ * is listening on a named pipe `pipe_name`, and can be controlled by connecting and sending messages on that
+ * pipe. The protocol details are given by the description of `TrusttunnelServiceMessageType` enumeration. Pipe
+ * clients are authenticated by their Authenticode signature: a signed service accepts only a client whose
+ * signer certificate matches its own signer certificate, while an unsigned service accepts any client whose
+ * executable lives in the service's own directory.
  * @param image_path The absolute path to the `trusttunnel_service` executable.
  * @param logs_dir The absolute path to the directory where the service writes its rotating `service.log`
  *                 family. Created if absent.
@@ -133,6 +150,46 @@ WIN_EXPORT int32_t trusttunnel_service_uninstall(const wchar_t *name);
  * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
  */
 WIN_EXPORT int32_t trusttunnel_service_start(const char *toml_config);
+
+/**
+ * Store or delete the VPN client configuration saved for connecting on startup, without starting or
+ * stopping the VPN client. Uses the service bound by `trusttunnel_service_attach()`.
+ *
+ * This will start the Windows service if it's not already running, connect to it through the
+ * named pipe and instruct it to store the provided configuration. A live VPN connection is not
+ * affected. See `trusttunnel_service_set_connect_on_startup()`.
+ *
+ * @param toml_config The VPN client configuration in TOML format (encoded in UTF-8 as per TOML
+ *                    specification), or NULL/empty to delete the saved configuration.
+ * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t trusttunnel_service_update_configuration(const char *toml_config);
+
+/**
+ * Enable or disable connecting with the saved configuration when the system boots. Uses the service
+ * bound by `trusttunnel_service_attach()`.
+ *
+ * This will start the Windows service if it's not already running and instruct it to switch its
+ * start type: automatic at boot when enabled, on demand when disabled. When started at boot, the
+ * service connects with the configuration of the last `trusttunnel_service_start()` or
+ * `trusttunnel_service_update_configuration()` call, retrying for a while until the network is
+ * available; without a stored configuration, nothing is connected. Between attempts the state is
+ * `VPN_SS_WAITING_RECOVERY`, and `trusttunnel_service_stop()` cancels the remaining attempts.
+ *
+ * @param enabled Whether to connect at boot.
+ * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t trusttunnel_service_set_connect_on_startup(bool enabled);
+
+/**
+ * Report whether connecting with the saved configuration when the system boots is enabled, that is
+ * whether the service bound by `trusttunnel_service_attach()` starts automatically. The service
+ * does not need to be running.
+ *
+ * @param enabled Receives the setting on success.
+ * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
+ */
+WIN_EXPORT int32_t trusttunnel_service_get_connect_on_startup(bool *enabled);
 
 /**
  * Stop the VPN client.

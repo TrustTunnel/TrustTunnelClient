@@ -27,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `chrome`, preserving the previous behavior.
 - Introduce windows platform adapter
 - Added pipe client authentication for the Windows adapter.
+- Windows adapter saves the VPN configuration in the registry and can connect with it when the system
+  boots, enabled by `trusttunnel_service_set_connect_on_startup()`.
 
 ### Changed
 
