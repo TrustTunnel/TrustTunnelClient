@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -104,7 +105,31 @@ void test_ip_addr_to_socket_address() {
     }
 }
 
+void test_tun_read_status() {
+    // Data read, errno irrelevant
+    ASSERT(TRS_OK == tun_read_status(1, EBADF));
+    ASSERT(TRS_OK == tun_read_status(1500, 0));
+
+    // Transient
+    ASSERT(TRS_STOP == tun_read_status(-1, EWOULDBLOCK));
+    ASSERT(TRS_STOP == tun_read_status(-1, EAGAIN));
+    ASSERT(TRS_STOP == tun_read_status(-1, EINTR));
+
+    // Will not clear
+    ASSERT(TRS_FATAL == tun_read_status(-1, EBADF));
+#ifdef EBADFD
+    ASSERT(TRS_FATAL == tun_read_status(-1, EBADFD));
+#endif
+    ASSERT(TRS_FATAL == tun_read_status(-1, EIO));
+    ASSERT(TRS_FATAL == tun_read_status(-1, ENXIO));
+
+    // End of file, errno not consulted
+    ASSERT(TRS_FATAL == tun_read_status(0, 0));
+    ASSERT(TRS_FATAL == tun_read_status(0, EWOULDBLOCK));
+}
+
 int main() {
     test_socket_address_to_ip_addr();
     test_ip_addr_to_socket_address();
+    test_tun_read_status();
 }
