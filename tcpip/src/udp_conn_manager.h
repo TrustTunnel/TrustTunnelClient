@@ -53,6 +53,17 @@ void udp_cm_close(TcpipCtx *ctx);
 void udp_cm_complete_connect_request(TcpipCtx *ctx, UdpConnDescriptor *connection, TcpipAction action);
 
 /**
+ * Moves an already-established connection to the unreachable state so that the
+ * following packets from the client are answered with ICMP/ICMPv6
+ * destination-unreachable messages (see `ip_hooks`). The connection is kept for
+ * a short timeout and then closed by the timer.
+ *
+ * @param ctx context of connection returned by `tcpip_open`
+ * @param connection the connection descriptor
+ */
+void udp_cm_reject_unreachable(TcpipCtx *ctx, UdpConnDescriptor *connection);
+
+/**
  * Cleans up resources after running loop has been stopped
  *
  * @param ctx initialized earlier TCP/IP context instance
