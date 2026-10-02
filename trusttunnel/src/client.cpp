@@ -39,8 +39,9 @@ TrustTunnelClient::~TrustTunnelClient() {
     }
 }
 
-Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect(ListenerSettings listener_settings) {
-    return connect_impl(std::move(listener_settings));
+Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect(
+        ListenerSettings listener_settings, ConnectOptions options) {
+    return connect_impl(std::move(listener_settings), options);
 }
 
 int TrustTunnelClient::disconnect() {
@@ -108,7 +109,8 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::set_system_dns()
     return {};
 }
 
-Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(ListenerSettings listener_settings) {
+Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(
+        ListenerSettings listener_settings, ConnectOptions options) {
     VpnSettings settings = {
             .handler = {static_vpn_handler, this},
             .mode = m_config.mode,
@@ -129,7 +131,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(Lis
         return make_error(ConnectResultError{}, "Failed on create VPN instance");
     }
 
-    auto r = vpn_runner(std::move(listener_settings));
+    auto r = vpn_runner(std::move(listener_settings), options);
 
     if (r) {
         disconnect();
@@ -137,8 +139,9 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_impl(Lis
     return r;
 }
 
-Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::vpn_runner(ListenerSettings listener_settings) {
-    if (auto r = connect_to_server(); r) {
+Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::vpn_runner(
+        ListenerSettings listener_settings, ConnectOptions options) {
+    if (auto r = connect_to_server(options); r) {
         return r;
     }
     VpnListener *listener = std::holds_alternative<TrustTunnelConfig::TunListener>(m_config.listener)
@@ -171,7 +174,7 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::vpn_runner(Liste
     return {};
 }
 
-Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_server() {
+Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_server(ConnectOptions options) {
     std::vector<VpnEndpoint> endpoints;
     std::vector<VpnRelay> relays;
     std::vector<std::string> hostnames;
@@ -293,6 +296,11 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
                                             .attempts = UINT32_MAX,
                                     },
                             .anti_dpi = m_config.location.anti_dpi,
+                    },
+            .retry_info =
+                    {
+                            .policy =
+                                    options.fall_into_recovery ? VPN_CRP_FALL_INTO_RECOVERY : VPN_CRP_SEVERAL_ATTEMPTS,
                     },
     };
 

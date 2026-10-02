@@ -207,7 +207,7 @@ int run_client(const cxxopts::ParseResult &cli_args) {
         errlog(g_logger, "{}", res->str());
         return 1;
     }
-    res = client->connect(TrustTunnelClient::AutoSetup{});
+    res = client->connect(TrustTunnelClient::AutoSetup{}, TrustTunnelClient::ConnectOptions{});
     if (res) {
         errlog(g_logger, "{}", res->str());
         return 1;
