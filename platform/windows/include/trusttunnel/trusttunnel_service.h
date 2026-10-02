@@ -23,8 +23,9 @@ extern "C" {
  */
 typedef enum {
     /**
-     * A request to start (connect) the VPN client. The data field must contain the VPN client configuration
-     * in TOML format (encoded in UTF-8 as per TOML specification).
+     * A request to start (connect) the VPN client. The data field must contain a `uint32_t` mask of
+     * `TrusttunnelServiceStartFlag` values in network byte order, followed by the VPN client
+     * configuration in TOML format (encoded in UTF-8 as per TOML specification).
      *
      * Ignored if the client is already connecting or connected: changing the configuration requires
      * an explicit `TRUSTTUNNEL_SVC_MSG_STOP` first.
@@ -62,6 +63,16 @@ typedef enum {
      *  Fire-and-forget: the service clears its `service` log family and sends no response. */
     TRUSTTUNNEL_SVC_MSG_CLEAR_LOGS,
 } TrusttunnelServiceMessageType;
+
+/** Flags for the `TRUSTTUNNEL_SVC_MSG_START` payload. */
+typedef enum {
+    /**
+     * Handle initial connection failures by entering the recovery algorithm
+     * (equivalent to `VPN_CRP_FALL_INTO_RECOVERY`). When unset, a fixed number of
+     * connection attempts is used (`VPN_CRP_SEVERAL_ATTEMPTS`).
+     */
+    TRUSTTUNNEL_SVC_START_FALL_INTO_RECOVERY = 1u << 0,
+} TrusttunnelServiceStartFlag;
 
 typedef enum {
     /** Access denied. Check if the calling process is running as administrator. */
@@ -130,9 +141,12 @@ WIN_EXPORT int32_t trusttunnel_service_uninstall(const wchar_t *name);
  * running: changing the configuration requires an explicit `trusttunnel_service_stop()` first.
  *
  * @param toml_config The VPN client configuration in TOML format (encoded in UTF-8 as per TOML specification).
+ * @param fall_into_recovery If true, failures during initial connection establishment enter the
+ *                           recovery algorithm (`VPN_CRP_FALL_INTO_RECOVERY`) instead of retrying
+ *                           a fixed number of times (`VPN_CRP_SEVERAL_ATTEMPTS`).
  * @return Zero on success, one of `TrusttunnelServiceError` constants on failure.
  */
-WIN_EXPORT int32_t trusttunnel_service_start(const char *toml_config);
+WIN_EXPORT int32_t trusttunnel_service_start(const char *toml_config, bool fall_into_recovery);
 
 /**
  * Stop the VPN client.

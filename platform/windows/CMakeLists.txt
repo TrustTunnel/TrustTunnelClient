@@ -47,6 +47,7 @@ endif ()
 add_library(trusttunnel_windows_a STATIC
     src/trusttunnel.cpp
     src/trusttunnel_pipe.cpp
+    src/trusttunnel_start_request.cpp
     src/client_authenticator.cpp
     src/process_info.cpp
     src/pipe_name_registry.cpp)
@@ -87,6 +88,7 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 link_libraries(trusttunnel_windows_a)
 
 add_unit_test(trusttunnel_pipe_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_start_request_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_client_authenticator_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_pipe_name_registry_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_attach_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)

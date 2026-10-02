@@ -27,6 +27,7 @@
 #include "scoped_file_lock.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
+#include "trusttunnel_start_request.h"
 #include "vpn/event_loop.h"
 #include "vpn/platform.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
@@ -103,8 +104,9 @@ struct trusttunnel_s {
     std::unique_ptr<ag::AutoNetworkMonitor> network_monitor;
 };
 
-trusttunnel_t *trusttunnel_start_ex(const char *toml_config, on_state_changed_t state_changed_cb,
-        void *state_changed_cb_arg, on_connection_info_t connection_info_cb, void *connection_info_cb_arg) {
+trusttunnel_t *trusttunnel_start_ex(const char *toml_config, bool fall_into_recovery,
+        on_state_changed_t state_changed_cb, void *state_changed_cb_arg, on_connection_info_t connection_info_cb,
+        void *connection_info_cb_arg) {
     toml::parse_result parsed_config = toml::parse(toml_config);
     if (!parsed_config) {
         errlog(g_logger, "Failed to parse the TOML config");
@@ -162,7 +164,10 @@ trusttunnel_t *trusttunnel_start_ex(const char *toml_config, on_state_changed_t 
         errlog(g_logger, "Failed to start network monitor");
         return nullptr;
     }
-    if (auto connect_error = vpn->client->connect(ag::TrustTunnelClient::AutoSetup{})) {
+    ag::TrustTunnelClient::ConnectOptions options{
+            .fall_into_recovery = fall_into_recovery,
+    };
+    if (auto connect_error = vpn->client->connect(ag::TrustTunnelClient::AutoSetup{}, options)) {
         errlog(g_logger, "Failed to connect: {}", connect_error->pretty_str());
         return nullptr;
     }
@@ -217,7 +222,7 @@ public:
         return inst;
     }
 
-    void start_async(const std::string &config, on_state_changed_t callback, void *arg) {
+    void start_async(const std::string &config, bool fall_into_recovery, on_state_changed_t callback, void *arg) {
         if (!m_loop) {
             EasyEventLoop loop;
             if (!loop.start()) {
@@ -226,12 +231,13 @@ public:
             }
             m_loop = std::move(loop);
         }
-        m_loop->submit([this, config = config, callback, arg]() {
+        m_loop->submit([this, config = config, fall_into_recovery, callback, arg]() {
             if (m_vpn) {
                 warnlog(g_logger, "VPN has been already started");
                 return;
             }
-            m_vpn = trusttunnel_start_ex(config.data(), callback, arg, nullptr, nullptr); // blocking
+            m_vpn = trusttunnel_start_ex(
+                    config.data(), fall_into_recovery, callback, arg, nullptr, nullptr); // blocking
             if (!m_vpn) {
                 errlog(g_logger, "Failed to start VPN!");
                 return;
@@ -265,8 +271,9 @@ private:
     std::optional<EasyEventLoop> m_loop;
 };
 
-void trusttunnel_start(const char *toml_config, on_state_changed_t state_changed_cb, void *state_changed_cb_arg) {
-    TrusttunnelManager::instance().start_async(toml_config, state_changed_cb, state_changed_cb_arg);
+void trusttunnel_start(const char *toml_config, bool fall_into_recovery, on_state_changed_t state_changed_cb,
+        void *state_changed_cb_arg) {
+    TrusttunnelManager::instance().start_async(toml_config, fall_into_recovery, state_changed_cb, state_changed_cb_arg);
 }
 
 void trusttunnel_stop() {
@@ -733,7 +740,7 @@ int32_t trusttunnel_service_attach(const wchar_t *service_name, const wchar_t *p
     return 0;
 }
 
-int32_t trusttunnel_service_start(const char *toml_config) {
+int32_t trusttunnel_service_start(const char *toml_config, bool fall_into_recovery) {
     std::scoped_lock lock{g_svc_state.mutex};
 
     toml::parse_result parsed_config = toml::parse(toml_config);
@@ -755,8 +762,12 @@ int32_t trusttunnel_service_start(const char *toml_config) {
         return err;
     }
 
-    g_svc_state.pipe_client->send(
-            TRUSTTUNNEL_SVC_MSG_START, {reinterpret_cast<const uint8_t *>(toml_config), strlen(toml_config)});
+    ag::trusttunnel_windows::StartRequest request{
+            .fall_into_recovery = fall_into_recovery,
+            .toml_config = toml_config,
+    };
+    std::vector<uint8_t> payload = request.serialize();
+    g_svc_state.pipe_client->send(TRUSTTUNNEL_SVC_MSG_START, {payload.data(), payload.size()});
 
     return 0;
 }

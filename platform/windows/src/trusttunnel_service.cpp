@@ -21,6 +21,7 @@
 #include "scoped_file_lock.h"
 #include "trusttunnel_log.h"
 #include "trusttunnel_pipe.h"
+#include "trusttunnel_start_request.h"
 #include "vpn/file_logger.h"
 #include "vpn/trusttunnel/connection_info.h"
 #include "vpn/trusttunnel/persistent_ring_buffer.h"
@@ -60,10 +61,15 @@ static void pipe_handler(PipeServer &server, TrusttunnelServiceMessageType what,
             warnlog(g_logger, "VPN is already running, ignoring START");
             break;
         }
-        std::string toml_config(reinterpret_cast<const char *>(data.data()), data.size());
+        std::optional<ag::trusttunnel_windows::StartRequest> request =
+                ag::trusttunnel_windows::StartRequest::deserialize(data);
+        if (!request.has_value()) {
+            warnlog(g_logger, "Malformed START payload");
+            break;
+        }
         infolog(g_logger, "Starting VPN client");
         g_vpn = trusttunnel_start_ex(
-                toml_config.c_str(),
+                request->toml_config.c_str(), request->fall_into_recovery,
                 [](void *arg, int state) {
                     // Runs on the VPN client's event loop thread; everything else runs on the
                     // pipe loop thread, so the work is deferred there.

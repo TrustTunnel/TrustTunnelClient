@@ -432,7 +432,7 @@ public final class VpnManager {
         }
     }
 
-    public func start(config: (String)) {
+    public func start(config: (String), fallIntoRecovery: Bool) {
         apiQueue.async {
             let manager = self.getManager()
             let group = DispatchGroup()
@@ -444,7 +444,9 @@ public final class VpnManager {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
                 } else {
                     do {
-                        try manager.connection.startVPNTunnel()
+                        // The recovery retry policy applies to this particular start only.
+                        try manager.connection.startVPNTunnel(
+                            options: ["fallIntoRecovery": NSNumber(value: fallIntoRecovery)])
                         self.logger.info("VPN has been started!")
                     } catch {
                         self.logger.error("Failed to start VPN tunnel: \(error)")

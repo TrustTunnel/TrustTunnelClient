@@ -248,11 +248,14 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
     _network_monitor = nullptr;
 }
 
-- (bool)start:(NEPacketTunnelFlow *)tunnelFlow {
+- (bool)start:(NEPacketTunnelFlow *)tunnelFlow fallIntoRecovery:(BOOL)fallIntoRecovery {
     _tunnelFlow = tunnelFlow;
     __weak typeof(self) weakSelf = self;
 
-    auto error = _native_client->connect(ag::TrustTunnelClient::UseProcessPackets{});
+    ag::TrustTunnelClient::ConnectOptions options{
+        .fall_into_recovery = fallIntoRecovery,
+    };
+    auto error = _native_client->connect(ag::TrustTunnelClient::UseProcessPackets{}, options);
     if (error) {
         errlog(g_logger, "Failed to connect: {}", error->pretty_str());
         return  false;

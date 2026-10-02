@@ -21,7 +21,7 @@ int main() {
     }
     in.close();
 
-    trusttunnel_t *vpn = trusttunnel_start_ex(config.str().c_str(), state_changed_cb, nullptr, nullptr, nullptr);
+    trusttunnel_t *vpn = trusttunnel_start_ex(config.str().c_str(), false, state_changed_cb, nullptr, nullptr, nullptr);
 
     fprintf(stderr, "Type 's' to stop");
     while (getchar() != 's') {

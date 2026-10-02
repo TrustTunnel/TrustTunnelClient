@@ -112,7 +112,7 @@ static int test_start_stop() {
 
     fmt::println(stderr, "Starting VPN...");
     trusttunnel_service_attach(SERVICE_NAME, nullptr, state_changed_cb, nullptr, nullptr, nullptr);
-    int32_t ret = trusttunnel_service_start(config.c_str());
+    int32_t ret = trusttunnel_service_start(config.c_str(), false);
     if (ret) {
         fmt::println(stderr, "trusttunnel_service_start: {}", ret);
         return -1;
@@ -151,7 +151,7 @@ static int test_full_lifecycle() {
 
     fmt::println(stderr, "Starting VPN via service...");
     trusttunnel_service_attach(SERVICE_NAME, nullptr, state_changed_cb, nullptr, nullptr, nullptr);
-    ret = trusttunnel_service_start(config.c_str());
+    ret = trusttunnel_service_start(config.c_str(), false);
     if (ret) {
         fmt::println(stderr, "trusttunnel_service_start: {}", ret);
         trusttunnel_service_uninstall(SERVICE_NAME);
@@ -207,7 +207,7 @@ static int test_restart_after_stop() {
 
     for (int attempt = 1; attempt <= 2; ++attempt) {
         fmt::println(stderr, "Starting VPN (attempt {})...", attempt);
-        ret = trusttunnel_service_start(config.c_str());
+        ret = trusttunnel_service_start(config.c_str(), false);
         if (ret) {
             fmt::println(stderr, "trusttunnel_service_start: {}", ret);
             if (attempt == 2) {
@@ -272,7 +272,7 @@ static int test_discovery() {
         return -1;
     }
     trusttunnel_service_attach(SERVICE_NAME, nullptr, recording_state_changed_cb, nullptr, nullptr, nullptr);
-    ret = trusttunnel_service_start(config.c_str());
+    ret = trusttunnel_service_start(config.c_str(), false);
     if (ret) {
         fmt::println(stderr, "trusttunnel_service_start: {}", ret);
         return cleanup(-1);
@@ -317,7 +317,7 @@ static int test_discovery() {
         return -1;
     }
     trusttunnel_service_attach(SERVICE_NAME, nullptr, recording_state_changed_cb, nullptr, nullptr, nullptr);
-    ret = trusttunnel_service_start(config.c_str());
+    ret = trusttunnel_service_start(config.c_str(), false);
     if (ret) {
         fmt::println(stderr, "trusttunnel_service_start: {}", ret);
         return cleanup(-1);
@@ -337,7 +337,7 @@ static int test_discovery() {
     // connecting to the explicit one must fail instead of reaching the service.
     fmt::println(stderr, "Attaching with an explicit pipe name (connect timeout is 30 seconds)...");
     trusttunnel_service_attach(SERVICE_NAME, EXPLICIT_PIPE_NAME, recording_state_changed_cb, nullptr, nullptr, nullptr);
-    ret = trusttunnel_service_start(config.c_str());
+    ret = trusttunnel_service_start(config.c_str(), false);
     if (ret != TRUSTTUNNEL_SVC_ERR_TIMED_OUT) {
         fmt::println(stderr, "FAILED: an explicit pipe name returned {} instead of TRUSTTUNNEL_SVC_ERR_TIMED_OUT", ret);
         return cleanup(-1);
@@ -400,7 +400,7 @@ static int test_stop_semantics() {
     }
 
     trusttunnel_service_attach(SERVICE_NAME, nullptr, recording_state_changed_cb, nullptr, nullptr, nullptr);
-    ret = trusttunnel_service_start(config.c_str());
+    ret = trusttunnel_service_start(config.c_str(), false);
     if (ret) {
         fmt::println(stderr, "trusttunnel_service_start: {}", ret);
         trusttunnel_service_detach();

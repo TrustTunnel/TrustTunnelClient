@@ -18,7 +18,7 @@ class NativeVpnImpl (
         if (!VpnService.isPrepared(context)) {
             VpnPrepareActivity.start(context);
         }
-        VpnService.start(context, config);
+        VpnService.start(context, config, false);
     }
 
     override fun stop() {

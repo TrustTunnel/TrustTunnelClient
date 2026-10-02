@@ -45,6 +45,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         private const val ACTION_START = "Start"
         private const val ACTION_STOP  = "Stop"
         private const val PARAM_CONFIG = "Config Extra"
+        private const val PARAM_FALL_INTO_RECOVERY = "Fall Into Recovery Extra"
         private const val NOTIFICATION_ID = 1
         private val IPV4_NON_ROUTABLE = listOf("0.0.0.0/8", "224.0.0.0/3")
         private val ADGUARD_DNS_SERVERS = listOf("46.243.231.30", "46.243.231.31", "2a10:50c0::2:ff", "2a10:50c0::1:ff")
@@ -54,7 +55,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
             return configStorage ?: VpnConfigStorage(context).also { configStorage = it }
         }
 
-        private fun start(context: Context, intent: Intent, config: String?) {
+        private fun start(context: Context, intent: Intent, config: String?, fallIntoRecovery: Boolean) {
             try {
                 if (!isPrepared(context)) {
                     LOG.warn("VPN is not prepared, can't manipulate the service")
@@ -64,6 +65,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                     getConfigStorage(context).save(config)
                     intent.putExtra(PARAM_CONFIG, config)
                 }
+                intent.putExtra(PARAM_FALL_INTO_RECOVERY, fallIntoRecovery)
                 context.startForegroundService(intent)
             } catch (e: Exception) {
                 LOG.error("Error occurred while service starting", e)
@@ -72,10 +74,12 @@ class VpnService : android.net.VpnService(), VpnClientListener {
 
         fun stop(context: Context) {
             getConfigStorage(context).clear()
-            start(context, ACTION_STOP, null)
+            start(context, ACTION_STOP, null, false)
         }
-        fun start(context: Context, config: String?) = start(context, ACTION_START, config)
-        private fun start(context: Context, action: String, config: String?) = start(context, getIntent(context, action), config)
+        fun start(context: Context, config: String?, fallIntoRecovery: Boolean) =
+                start(context, ACTION_START, config, fallIntoRecovery)
+        private fun start(context: Context, action: String, config: String?, fallIntoRecovery: Boolean) =
+                start(context, getIntent(context, action), config, fallIntoRecovery)
 
         fun startNetworkManager(context: Context) = synchronized(NETWORK_MANAGER_SYNC) {
             if (::networkCallback.isInitialized) {
@@ -217,13 +221,14 @@ class VpnService : android.net.VpnService(), VpnClientListener {
                 val config = intent.getStringExtra(PARAM_CONFIG)
                 LOG.info("Start executing action=$action flags=$flags startId=$startId")
                 when (action) {
-                    ACTION_START    -> processStarting(config, startId)
+                    ACTION_START    -> processStarting(config, intent.getBooleanExtra(PARAM_FALL_INTO_RECOVERY, false), startId)
                     ACTION_STOP     -> close(startId)
                     else            -> {
                         startNetworkManager(applicationContext)
                         LOG.info("System-triggered start (Always-On VPN), loading persisted config")
                         val persistedConfig = getConfigStorage(applicationContext).load()
-                        processStarting(persistedConfig, startId)
+                        // Always-On VPN should keep recovering instead of giving up after several attempts.
+                        processStarting(persistedConfig, true, startId)
                     }
                 }
 
@@ -236,7 +241,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         return START_NOT_STICKY
     }
 
-    private fun processStarting(configStr: String?, startId: Int) {
+    private fun processStarting(configStr: String?, fallIntoRecovery: Boolean, startId: Int) {
         if (state == State.Started) {
             LOG.info("VPN service has already been started, do nothing")
             return
@@ -285,7 +290,7 @@ class VpnService : android.net.VpnService(), VpnClientListener {
         vpnClient = VpnClient(configStr, proxyClientListener)
 
         startNetworkNotifications(vpnClient)
-        if (vpnClient?.start(vpnTunInterface) != true) {
+        if (vpnClient?.start(vpnTunInterface, fallIntoRecovery) != true) {
             LOG.error("Failed to start Vpn client");
             close();
         }

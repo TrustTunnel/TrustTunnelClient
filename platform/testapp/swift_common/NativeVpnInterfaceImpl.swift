@@ -20,7 +20,7 @@ class NativeVpnInterfaceImpl : NativeVpnInterface {
         )
     }
     func start(config: String) throws {
-        self.vpnManager.start(config: config)
+        self.vpnManager.start(config: config, fallIntoRecovery: false)
     }
     func stop() throws {
         self.vpnManager.stop()
