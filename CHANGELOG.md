@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.1.10] - 2026-10-02
+
+### Fixed
+
+- Linux network monitor: a stale default route through a re-enumerated (dead) interface is no longer selected.
+
 ## [1.1.9] - 2026-10-01
 
 ### Fixed
@@ -452,7 +458,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.9...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.10...HEAD
+[1.1.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.6...v1.1.7
