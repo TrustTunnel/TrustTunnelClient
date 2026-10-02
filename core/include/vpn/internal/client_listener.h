@@ -137,6 +137,19 @@ public:
     virtual void close_connection(uint64_t id, bool graceful, bool async) = 0;
 
     /**
+     * Reject an already-established connection as unreachable, so that the client is notified with an
+     * ICMP/ICMPv6 destination-unreachable message for its following packets. Used to block QUIC
+     * connections whose domain could not be determined instead of bypassing them, which lets QUIC
+     * apps recover from NAT rebinding instead of hanging.
+     *
+     * The default implementation just closes the connection, for listeners that can't emit ICMP.
+     * @param id connection id
+     */
+    virtual void reject_connection_unreachable(uint64_t id) {
+        close_connection(id, false, true);
+    }
+
+    /**
      * Send data through connection
      * @param id connection id
      * @param data data to send
