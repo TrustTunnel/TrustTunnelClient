@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added an option to fall into recovery in case of a failed initial connection for `TrustTunnelClient` and platform adapters.
+
 ### Changed
 
 ### Deprecated
