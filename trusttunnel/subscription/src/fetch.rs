@@ -233,6 +233,14 @@ fn redirect_target(current: &str, location: &str) -> Result<String, HttpError> {
     Ok(target.into())
 }
 
+/// Extract the lowercase `host:port` netloc of an https URL.
+fn netloc(url: &str) -> Result<String, HttpError> {
+    let parsed = validate_url(url)?;
+    let host = parsed.host_str().ok_or(HttpError::BadUrl)?;
+    let port = parsed.port_or_known_default().ok_or(HttpError::BadUrl)?;
+    Ok(format!("{}:{}", host.to_ascii_lowercase(), port))
+}
+
 // Credentials are only ever sent to the original host.
 fn apply_redirect(prepared: &mut PreparedRequest, location: &str) -> Result<(), HttpError> {
     let target = redirect_target(&prepared.url, location)?;
@@ -318,9 +326,15 @@ fn parse_pem_certificates(pem: &str) -> Vec<rustls::Certificate> {
 pub struct UreqTransport;
 
 impl UreqTransport {
-    fn root_store(request: &HttpRequest) -> Result<rustls::RootCertStore, HttpError> {
+    /// Build the trust store. A pinned certificate is the exclusive trust
+    /// anchor, mirroring the tunnel connection's custom CA store: public
+    /// WebPKI roots are only used when no pin is set, and an unparsable pin
+    /// is an error rather than a silent fallback.
+    fn root_store(
+        pinned_certificate_pem: Option<&str>,
+    ) -> Result<rustls::RootCertStore, HttpError> {
         let mut roots = rustls::RootCertStore::empty();
-        if let Some(pem) = request.pinned_certificate_pem {
+        if let Some(pem) = pinned_certificate_pem {
             let (added, _) = roots.add_parsable_certificates(&parse_pem_certificates(pem));
             if added == 0 {
                 return Err(HttpError::BadPinnedCertificate);
@@ -337,8 +351,11 @@ impl UreqTransport {
         Ok(roots)
     }
 
-    fn build_tls_config(request: &HttpRequest) -> Result<rustls::ClientConfig, HttpError> {
-        if request.skip_verification {
+    fn build_tls_config(
+        pinned_certificate_pem: Option<&str>,
+        skip_verification: bool,
+    ) -> Result<rustls::ClientConfig, HttpError> {
+        if skip_verification {
             return Ok(rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(Arc::new(NoVerification))
@@ -346,8 +363,35 @@ impl UreqTransport {
         }
         Ok(rustls::ClientConfig::builder()
             .with_safe_defaults()
-            .with_root_certificates(Self::root_store(request)?)
+            .with_root_certificates(Self::root_store(pinned_certificate_pem)?)
             .with_no_client_auth())
+    }
+
+    /// Build an agent carrying the request's TLS and addressing policy.
+    fn build_policy_agent(request: &HttpRequest) -> Result<ureq::Agent, HttpError> {
+        let mut builder = ureq::AgentBuilder::new()
+            .timeout(OPERATION_TIMEOUT)
+            .redirects(0)
+            .tls_config(Arc::new(Self::build_tls_config(
+                request.pinned_certificate_pem,
+                request.skip_verification,
+            )?));
+        if let Some(connect_address) = request.connect_address {
+            builder = builder.resolver(PinnedAddressResolver::new(request.url, connect_address)?);
+        }
+        Ok(builder.build())
+    }
+
+    /// Build an agent with the default policy: public roots, verification
+    /// on, system DNS.
+    fn build_default_agent() -> ureq::Agent {
+        ureq::AgentBuilder::new()
+            .timeout(OPERATION_TIMEOUT)
+            .redirects(0)
+            .tls_config(Arc::new(
+                Self::build_tls_config(None, false).expect("default TLS config"),
+            ))
+            .build()
     }
 
     fn fetch_once(
@@ -379,17 +423,21 @@ impl UreqTransport {
 
 impl HttpTransport for UreqTransport {
     fn get(&self, request: &HttpRequest) -> Result<Vec<u8>, HttpError> {
-        let mut builder = ureq::AgentBuilder::new()
-            .timeout(OPERATION_TIMEOUT)
-            .redirects(0)
-            .tls_config(Arc::new(Self::build_tls_config(request)?));
-        if let Some(connect_address) = request.connect_address {
-            builder = builder.resolver(PinnedAddressResolver::new(request.url, connect_address)?);
-        }
-        let agent = builder.build();
+        // The request's TLS and addressing policy applies only to the
+        // original netloc; a redirect to another netloc is fetched with the
+        // default policy, so neither `skip_verification` nor the pin can
+        // leak to a foreign host.
+        let policy_netloc = netloc(request.url)?;
+        let policy_agent = Self::build_policy_agent(request)?;
+        let mut default_agent = None;
         let mut prepared = prepare_request(request.url)?;
         for _ in 0..=MAX_REDIRECTS {
-            let response = Self::fetch_once(&agent, &prepared)?;
+            let agent = if netloc(&prepared.url)? == policy_netloc {
+                &policy_agent
+            } else {
+                default_agent.get_or_insert_with(Self::build_default_agent)
+            };
+            let response = Self::fetch_once(agent, &prepared)?;
             if response.status() < 300 || response.status() >= 400 {
                 return read_bounded(&mut response.into_reader());
             }
@@ -523,33 +571,38 @@ mod tests {
         zg==\n\
         -----END CERTIFICATE-----\n";
 
-    fn request_with_pin(pin: Option<&str>) -> HttpRequest<'_> {
-        HttpRequest {
-            url: "https://vpn.example.com/s",
-            pinned_certificate_pem: pin,
-            skip_verification: false,
-            connect_address: None,
-        }
-    }
-
     #[test]
     fn valid_pin_is_the_only_trust_anchor() {
-        let store = UreqTransport::root_store(&request_with_pin(Some(TEST_CERT_PEM))).unwrap();
+        let store = UreqTransport::root_store(Some(TEST_CERT_PEM)).unwrap();
         assert_eq!(store.len(), 1);
     }
 
     #[test]
     fn unparsable_pin_is_an_error_not_a_fallback_to_public_roots() {
-        let err =
-            UreqTransport::root_store(&request_with_pin(Some("not a certificate"))).unwrap_err();
+        let err = UreqTransport::root_store(Some("not a certificate")).unwrap_err();
         assert!(matches!(err, HttpError::BadPinnedCertificate));
         assert!(err.to_string().contains("pinned certificate"));
     }
 
     #[test]
     fn public_roots_are_used_without_a_pin() {
-        let store = UreqTransport::root_store(&request_with_pin(None)).unwrap();
+        let store = UreqTransport::root_store(None).unwrap();
         assert!(store.len() > 1);
+    }
+
+    #[test]
+    fn policy_netloc_ignores_host_case_and_default_port() {
+        assert_eq!(
+            netloc("https://vpn.example.com/s").unwrap(),
+            netloc("https://VPN.example.COM:443/other").unwrap()
+        );
+    }
+
+    #[test]
+    fn policy_netloc_treats_other_port_and_host_as_foreign() {
+        let original = netloc("https://vpn.example.com/s").unwrap();
+        assert_ne!(netloc("https://vpn.example.com:444/x").unwrap(), original);
+        assert_ne!(netloc("https://other.example.net/x").unwrap(), original);
     }
 
     struct FakeTransport(Result<Vec<u8>, HttpError>);
