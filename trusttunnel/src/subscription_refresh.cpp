@@ -9,10 +9,8 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <string_view>
 
 #include "trusttunnel_subscription.h"
-#include "vpn/platform.h"
 
 namespace ag {
 
@@ -20,44 +18,12 @@ Logger g_logger("SUBSCRIPTION_REFRESH");
 
 using FfiString = std::unique_ptr<char, decltype(&trusttunnel_subscription_string_free)>;
 
-#ifdef _WIN32
 /**
- * Convert a UTF-8 path to the wide form the Windows file APIs expect.
- * Return an empty string when the path is not valid UTF-8.
- */
-static std::wstring widen_path(std::string_view path) {
-    if (path.empty()) {
-        return {};
-    }
-
-    std::wstring wide;
-    int len =
-            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), nullptr, 0);
-    if (len != 0) {
-        wide.resize(static_cast<size_t>(len));
-        MultiByteToWideChar(
-                CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), wide.data(), len);
-    }
-    return wide;
-}
-#endif
-
-/**
- * Read the whole file at `path`. On failure return an empty optional and
- * set `detail` to the OS error message.
+ * Read the whole file at `path`. On failure return an empty optional.
  */
 static std::optional<std::string> read_text_file(const std::string &path) {
     errno = 0;
-#ifdef _WIN32
-    std::wstring wide_path = widen_path(path);
-    if (wide_path.empty()) {
-        detail = "Path is not valid UTF-8";
-        return std::nullopt;
-    }
-    std::ifstream stream(wide_path.c_str(), std::ios::binary);
-#else
     std::ifstream stream(path, std::ios::binary);
-#endif
     std::ostringstream content;
     if (stream) {
         content << stream.rdbuf();
