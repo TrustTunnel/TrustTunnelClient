@@ -304,6 +304,9 @@ set_target_properties(trusttunnel_subscription_ffi PROPERTIES
     IMPORTED_LOCATION "${SUBSCRIPTION_FFI_LIBFILE}"
     INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/subscription-ffi/include"
 )
+if (WIN32)
+    target_link_libraries(trusttunnel_subscription_ffi INTERFACE Bcrypt)
+endif ()
 add_dependencies(trusttunnel_subscription_ffi ${DEEPLINK_FFI_BUILD_TARGET})
 target_link_libraries(vpnlibs_trusttunnel trusttunnel_subscription_ffi)
 
