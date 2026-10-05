@@ -102,12 +102,20 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Result<Documen
     endpoint["dns_upstreams"] = value(Array::from_iter(settings.endpoint.dns_upstreams.iter()));
     endpoint["name"] = value(settings.endpoint.name.as_deref().unwrap_or_default());
     if let Some(subscription) = &settings.endpoint.subscription {
-        let mut table = Table::new();
+        // Update the table in place, preserving its comments and unknown keys.
+        // The value is a table: a non-table `subscription` fails the Settings
+        // deserialization before the composer runs.
+        let table = endpoint
+            .entry("subscription")
+            .or_insert(Item::Table(Table::new()))
+            .as_table_mut()
+            .unwrap();
         table["url"] = value(&subscription.url);
         if let Some(fetched_at) = &subscription.last_fetched_at {
             table["last_fetched_at"] = value(fetched_at);
+        } else {
+            table.remove("last_fetched_at");
         }
-        endpoint["subscription"] = Item::Table(table);
     } else {
         endpoint.remove("subscription");
     }
@@ -282,6 +290,41 @@ mod tests {
         assert!(text.contains("[endpoint.subscription]"));
         assert!(text.contains("url = \"https://u:p@vpn.example.com/subscription\""));
         assert!(text.contains("last_fetched_at = \"2026-07-28T12:00:00Z\""));
+    }
+
+    #[test]
+    fn apply_updates_subscription_table_in_place() {
+        let doc: Document = r#"
+[endpoint]
+
+[endpoint.subscription]
+# keep this comment
+url = "https://old.example.com/subscription"
+last_fetched_at = "2026-01-01T00:00:00Z"
+future_key = "keep me"
+
+[listener.socks]
+address = "127.0.0.1:1080"
+"#
+        .parse()
+        .unwrap();
+        let mut settings = Settings::default();
+        settings.endpoint.subscription = Some(EndpointSubscription {
+            url: "https://u:p@vpn.example.com/subscription".to_string(),
+            last_fetched_at: None,
+        });
+        let out = apply_to_document(doc, &settings).unwrap().to_string();
+        assert!(out.contains("# keep this comment"), "unexpected: {out}");
+        assert!(
+            out.contains("future_key = \"keep me\""),
+            "unexpected: {out}"
+        );
+        assert!(
+            out.contains("url = \"https://u:p@vpn.example.com/subscription\""),
+            "unexpected: {out}"
+        );
+        // The stale fetch stamp must not survive a URL change
+        assert!(!out.contains("last_fetched_at"), "unexpected: {out}");
     }
 
     #[test]
