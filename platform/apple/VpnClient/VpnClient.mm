@@ -14,6 +14,8 @@
 #import <ifaddrs.h>
 #import <os/log.h>
 
+#import <mutex>
+
 static ag::Logger g_logger("VPN_CLIENT");
 
 NS_ASSUME_NONNULL_BEGIN
@@ -153,6 +155,7 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 }
 
 @interface VpnClient () {
+    std::mutex _native_client_mutex;
     std::unique_ptr<ag::TrustTunnelClient> _native_client;
     std::unique_ptr<ag::AutoNetworkMonitor> _network_monitor;
     NEPacketTunnelFlow *_tunnelFlow;
@@ -176,6 +179,7 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
         };
     }
 
+    std::lock_guard lock(_native_client_mutex);
     return _native_client->process_client_packets(nativePackets);
 }
 
@@ -235,7 +239,8 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 
         self->_native_client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
         self->_network_monitor = std::make_unique<ag::AutoNetworkMonitor>(
-                [client = self->_native_client.get()](ag::VpnNetworkState state) {
+                [mutex = &self->_native_client_mutex, client = self->_native_client.get()](ag::VpnNetworkState state) {
+                    std::lock_guard lock(*mutex);
                     client->notify_network_change(state);
                 },
                 std::move(bound_if));
@@ -256,10 +261,13 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
     _tunnelFlow = tunnelFlow;
     __weak typeof(self) weakSelf = self;
 
-    auto error = _native_client->connect(ag::TrustTunnelClient::UseProcessPackets{});
-    if (error) {
-        errlog(g_logger, "Failed to connect: {}", error->pretty_str());
-        return  false;
+    {
+        std::lock_guard lock(_native_client_mutex);
+        auto error = _native_client->connect(ag::TrustTunnelClient::UseProcessPackets{});
+        if (error) {
+            errlog(g_logger, "Failed to connect: {}", error->pretty_str());
+            return  false;
+        }
     }
     _readPacketsHandler = ^(NSArray<NSData *> *packets, NSArray<NSNumber *> *protocols) {
         __strong typeof(self) strongSelf = weakSelf;
@@ -276,13 +284,16 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
 }
 
 - (bool)stop {
+    std::lock_guard lock(_native_client_mutex);
     return _native_client->disconnect();
 }
 
 - (void)notify_sleep {
+    std::lock_guard lock(_native_client_mutex);
     _native_client->notify_sleep();
 }
 - (void)notify_wake {
+    std::lock_guard lock(_native_client_mutex);
     _native_client->notify_wake();
 }
 

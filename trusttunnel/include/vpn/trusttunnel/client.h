@@ -29,6 +29,7 @@ struct VpnCallbacks {
     std::function<void(VpnConnectionInfoEvent *)> connection_info_handler;
 };
 
+// Not thread-safe: callers must serialize calls to the public methods.
 class TrustTunnelClient {
 private:
     class FileHandler {

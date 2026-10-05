@@ -45,6 +45,8 @@ static std::condition_variable g_waiter;
 static std::mutex g_waiter_mutex;
 // Valid config reloaded on SIGHUP to restart the client with, guarded by `g_waiter_mutex`
 static std::optional<TrustTunnelConfig> g_reloaded_config;
+// Serializes client calls from the main, network monitor and sleep notifier threads
+static std::mutex g_client_mutex;
 static std::weak_ptr<TrustTunnelClient> g_client;
 
 static std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const TrustTunnelConfig &config);
@@ -223,6 +225,7 @@ static int run_session(TrustTunnelConfig config) {
     g_client = client;
     AutoNetworkMonitor network_monitor(
             [client = client.get()](VpnNetworkState state) {
+                std::lock_guard lock(g_client_mutex);
                 client->notify_network_change(state);
             },
             std::move(bound_if));
@@ -231,15 +234,18 @@ static int run_session(TrustTunnelConfig config) {
         return 1;
     }
 
-    auto res = client->set_system_dns();
-    if (res) {
-        errlog(g_logger, "{}", res->str());
-        return 1;
-    }
-    res = client->connect(TrustTunnelClient::AutoSetup{});
-    if (res) {
-        errlog(g_logger, "{}", res->str());
-        return 1;
+    {
+        std::lock_guard lock(g_client_mutex);
+        auto res = client->set_system_dns();
+        if (res) {
+            errlog(g_logger, "{}", res->str());
+            return 1;
+        }
+        res = client->connect(TrustTunnelClient::AutoSetup{});
+        if (res) {
+            errlog(g_logger, "{}", res->str());
+            return 1;
+        }
     }
 
 #ifdef _WIN32
@@ -252,11 +258,13 @@ static int run_session(TrustTunnelConfig config) {
     auto sleep_notifier = std::make_unique<AppleSleepNotifier>(
             [client_weak = std::weak_ptr(client)] {
                 if (auto client = client_weak.lock()) {
+                    std::lock_guard lock(g_client_mutex);
                     client->notify_sleep();
                 }
             },
             [client_weak = std::weak_ptr(client)] {
                 if (auto client = client_weak.lock()) {
+                    std::lock_guard lock(g_client_mutex);
                     client->notify_wake();
                 }
             });
