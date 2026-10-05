@@ -965,13 +965,13 @@ mod tests {
     fn test_deeplink_field_mapping() {
         // Encode a config, then decode it and verify the field mapping
         let config = DeepLinkConfig {
-            hostname: "test.host".to_string(),
+            hostname: Some("test.host".to_string()),
             addresses: vec![
                 "10.0.0.1:443".parse().unwrap(),
                 "[::1]:8443".parse().unwrap(),
             ],
-            username: "user1".to_string(),
-            password: "pass1".to_string(),
+            username: Some("user1".to_string()),
+            password: Some("pass1".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: Some("sni.host".to_string()),
@@ -982,16 +982,18 @@ mod tests {
             anti_dpi: true,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).unwrap();
         let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
 
-        assert_eq!(decoded.hostname, "test.host");
+        assert_eq!(decoded.hostname, Some("test.host".to_string()));
         assert_eq!(decoded.addresses.len(), 2);
-        assert_eq!(decoded.username, "user1");
-        assert_eq!(decoded.password, "pass1");
+        assert_eq!(decoded.username, Some("user1".to_string()));
+        assert_eq!(decoded.password, Some("pass1".to_string()));
         assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
+        assert_eq!(decoded.client_random_auth_key, Some("aabbccdd".to_string()));
         assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);

@@ -157,10 +157,10 @@ mod tests {
     #[test]
     fn test_roundtrip() {
         let config = DeepLinkConfig {
-            hostname: "vpn.example.com".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             addresses: vec!["1.2.3.4:443".parse().unwrap()],
-            username: "alice".to_string(),
-            password: "s3cr3t".to_string(),
+            username: Some("alice".to_string()),
+            password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: None,
@@ -171,6 +171,7 @@ mod tests {
             anti_dpi: false,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).expect("encode should succeed");
