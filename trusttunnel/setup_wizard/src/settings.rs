@@ -126,20 +126,18 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 .or(Some("".to_string())),
         )))
     };
-    // Build the candidate from the selected import source. A deep-link's
-    // verified certificate info is kept aside for the confirmation summary.
-    let (mut x, deeplink_cert_infos) = if let Some(uri) = deeplink_uri.as_deref() {
-        let (endpoint, cert_infos) = endpoint_from_deeplink(uri);
-        (endpoint, Some(cert_infos))
+    // Build the candidate from the selected import source.
+    let mut x = if let Some(uri) = deeplink_uri.as_deref() {
+        endpoint_from_deeplink(uri)
     } else if let Some(config) = &endpoint_config {
-        (candidate_from_endpoint_config(config), None)
+        candidate_from_endpoint_config(config)
     } else if let Some(url) = subscription_url.as_deref() {
         let mut candidate = candidate_from_subscription_url(url.to_string());
         candidate.name = predefined_params.name.clone();
         candidate.dns_upstreams = predefined_params.dns.clone();
-        (candidate, None)
+        candidate
     } else {
-        (build_endpoint_manually(template, &predefined_params), None)
+        build_endpoint_manually(template, &predefined_params)
     };
 
     // Fetch the subscription before the configuration is presented to the
@@ -178,24 +176,28 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
         }
     }
 
-    if deeplink_cert_infos.is_none() {
-        if x.certificate.is_some() {
-            parse_cert(x.certificate.clone().unwrap())
-                .expect("Couldn't parse provided certificate");
-        }
-
-        if endpoint_config.is_none() && subscription_url.is_none() {
-            x.skip_verification = x.certificate.is_none()
-                && ask_for_agreement_with_default(
-                    &format!("{}\n", Endpoint::doc_skip_verification()),
-                    opt_field!(template, skip_verification)
-                        .cloned()
-                        .unwrap_or_default(),
-                );
-        }
+    // Imports carry skip_verification from their source; only ask for it
+    // when assembling the endpoint manually.
+    if deeplink_uri.is_none() && endpoint_config.is_none() && subscription_url.is_none() {
+        x.skip_verification = x.certificate.is_none()
+            && ask_for_agreement_with_default(
+                &format!("{}\n", Endpoint::doc_skip_verification()),
+                opt_field!(template, skip_verification)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
     }
 
-    display_and_confirm_endpoint(&x, deeplink_cert_infos.as_deref().unwrap_or_default());
+    // Compute the summary after any subscription fetch: the fetch may have
+    // replaced the certificate, and the confirmation must describe the one
+    // being exported.
+    let cert_infos = x
+        .certificate
+        .as_deref()
+        .map(cert_infos_from_pem)
+        .unwrap_or_default();
+
+    display_and_confirm_endpoint(&x, &cert_infos);
 
     x
 }
@@ -661,15 +663,14 @@ impl fmt::Display for EndpointSummary<'_> {
     }
 }
 
-fn verify_deeplink_certificates(der_bytes: &[u8]) -> Vec<CertInfo> {
-    let pem = trusttunnel_deeplink::cert::der_to_pem(der_bytes)
-        .expect("Failed to convert deep-link certificate from DER to PEM");
-
-    let certs = rustls_pemfile::certs(&mut pem.as_bytes())
-        .expect("Failed to parse PEM certificates from deep-link");
+/// Parse a PEM certificate bundle and collect the summary info for the
+/// confirmation display. Panic on a malformed, empty or expired bundle.
+fn cert_infos_from_pem(pem: &str) -> Vec<CertInfo> {
+    let certs =
+        rustls_pemfile::certs(&mut pem.as_bytes()).expect("Failed to parse PEM certificates");
 
     if certs.is_empty() {
-        panic!("Deep-link certificate field contains no valid certificates");
+        panic!("The certificate bundle contains no valid certificates");
     }
 
     let mut cert_infos = Vec::new();
@@ -712,24 +713,14 @@ fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) {
     }
 }
 
-/// Decode and validate the deep-link. Return the endpoint it describes and
-/// the verified certificate info for the confirmation summary; the summary
-/// itself is shown by the caller once any subscription fetch has overlaid
-/// the live parameters.
-pub fn endpoint_from_deeplink(uri: &str) -> (Endpoint, Vec<CertInfo>) {
+/// Decode the deep-link and return the endpoint it describes. The
+/// certificate is validated when the confirmation summary is built, after
+/// any subscription fetch has overlaid the live parameters.
+pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
     let config = trusttunnel_deeplink::decode(uri)
         .unwrap_or_else(|e| panic!("Failed to decode deep-link URI: {}", e));
-
-    let cert_infos = config
-        .certificate
-        .as_ref()
-        .map(|der| verify_deeplink_certificates(der))
-        .unwrap_or_default();
-
-    let endpoint = trusttunnel_settings::endpoint_from_deeplink_config(config)
-        .unwrap_or_else(|e| panic!("Failed to convert deep-link config: {}", e));
-
-    (endpoint, cert_infos)
+    trusttunnel_settings::endpoint_from_deeplink_config(config)
+        .unwrap_or_else(|e| panic!("Failed to convert deep-link config: {}", e))
 }
 
 #[cfg(test)]
@@ -776,15 +767,43 @@ mod tests {
         assert!(decoded.anti_dpi);
     }
 
+    // A self-signed certificate valid until 2126; generated once for the tests.
+    const TEST_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+        MIICzzCCAbegAwIBAgIUa7LC0WpYc7i8r38ipmuQTGcsyKMwDQYJKoZIhvcNAQEL\n\
+        BQAwDzENMAsGA1UEAwwEdGVzdDAgFw0yNjEwMDUxOTI4MTJaGA8yMTI2MDkxMTE5\n\
+        MjgxMlowDzENMAsGA1UEAwwEdGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC\n\
+        AQoCggEBALtq62lU79lRSqdRZTPO9TQzPFZeJQF9RAG2ujS9P6I19cZnTq7nJki1\n\
+        rm8bKVxj9BLtwU8WGojXPf5HVbDR47cTYTJZ4XnuOX7TQPZCwQ/fuzfyr77r+JgC\n\
+        ozea+w6HQmq9sZ8sYYRja8gsMPRtLizFIuBGUm9VdWm2oW8EXFjBbZ67jZ2nDQEK\n\
+        iAlLHnc6imqimgmlPpOwmwh0TgD9MZQ46V9jLDfvNAztmZrvRURngN1fKAJdeZxZ\n\
+        xfXgvxMeMKJIuRucPr1+QL54ZjrQWUmxb+4X+hjw+gYtNe5VEQBW99qrPJyg9PFG\n\
+        Ottg3j0rRTRccHW9zYVA6dqaA4fgOgMCAwEAAaMhMB8wHQYDVR0OBBYEFKEOCvDy\n\
+        mr6cqa/3qphZ81uSaCAyMA0GCSqGSIb3DQEBCwUAA4IBAQCBfyAQlBfyW+f+B84W\n\
+        /Yry+XwNzu6+to8PjZ0nagRsq/kqR4ew5/oOP4pf6coPbRYXvGN0hvytj20vs5Iv\n\
+        2I6Demdjw6Bp9GXW2Q/QfkMwmmvcAa2zMJtvKc8DxrFz0eMBd7nbfBfIaqvPLyiG\n\
+        /XOmKlJEJvj9z+nWPNLUSd4fkxQRP0thOKDfsu5A9m9C/fSmw51VshV20+RxTrGg\n\
+        0dSlzHhl0woopVKcb+PGoCQ5T9OhwZPGDGLlrSZyWZv19CkpbTPe7fDN7mDvbt+n\n\
+        Nls8iCgCQwB8pRfuJD68kDQMmtJHmkUtpxD8WAiRgs/yzUYXFawRvdPfoWml87jx\n\
+        BO6G\n\
+        -----END CERTIFICATE-----\n";
+
     #[test]
-    fn test_verify_deeplink_certificates_empty() {
-        let result = std::panic::catch_unwind(|| verify_deeplink_certificates(&[]));
+    fn cert_infos_from_pem_reads_certificate_summary() {
+        let infos = cert_infos_from_pem(TEST_CERT_PEM);
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].common_name, "test");
+        assert!(infos[0].expiration_date.contains("2126"));
+    }
+
+    #[test]
+    fn cert_infos_from_pem_rejects_garbage() {
+        let result = std::panic::catch_unwind(|| cert_infos_from_pem("not a pem"));
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_verify_deeplink_certificates_invalid_der() {
-        let result = std::panic::catch_unwind(|| verify_deeplink_certificates(&[0xFF, 0x00, 0x01]));
+    fn cert_infos_from_pem_rejects_empty_bundle() {
+        let result = std::panic::catch_unwind(|| cert_infos_from_pem(""));
         assert!(result.is_err());
     }
 
