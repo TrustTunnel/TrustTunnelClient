@@ -121,7 +121,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `username` | string | *required* | Authorization username |
 | `password` | string | *required* | Authorization password |
 | `client_random` | string | `""` | TLS client random prefix and mask (hex, format: `prefix[/mask]`) |
-| `client_random_psk_key` | string | `""` | TLS client random PSK key (hex). When set, part of `client_random` is derived from this key, the SNI, and other random bytes via HKDF+AES. Takes priority over `client_random`; only one should be set. |
+| `client_random_auth_key` | string | `""` | TLS client random auth key (hex). When set, part of `client_random` is derived from this key, the SNI, and other random bytes via HKDF+AES. Takes priority over `client_random`; only one should be set. |
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
@@ -199,7 +199,7 @@ has_ipv6 = true
 username = "myuser"
 password = "mypassword"
 client_random = ""
-client_random_psk_key = ""
+client_random_auth_key = ""
 skip_verification = false
 certificate = ""
 dns_upstreams = ["tls://1.1.1.1"]

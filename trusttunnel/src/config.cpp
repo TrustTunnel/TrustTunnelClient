@@ -169,9 +169,9 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         }
     }
 
-    // Parse TLS client random PSK key (hex string)
-    if (auto psk_key = config["client_random_psk_key"].value<std::string>()) {
-        location.client_random_psk_key = *psk_key;
+    // Parse TLS client random auth key (hex string)
+    if (auto auth_key = config["client_random_auth_key"].value<std::string>()) {
+        location.client_random_auth_key = *auth_key;
     }
 
     if (const auto *x = config["dns_upstreams"].as_array()) {

@@ -515,12 +515,12 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     U8View client_random_data{config->endpoint->tls_client_random.data, config->endpoint->tls_client_random.size};
     U8View client_random_mask{
             config->endpoint->tls_client_random_mask.data, config->endpoint->tls_client_random_mask.size};
-    U8View client_random_psk_key{
-            config->endpoint->tls_client_random_psk_key.data, config->endpoint->tls_client_random_psk_key.size};
+    U8View client_random_auth_key{
+            config->endpoint->tls_client_random_auth_key.data, config->endpoint->tls_client_random_auth_key.size};
     SslPtr ssl;
     if (auto r = make_ssl(verify_callback, this, {TCP_TLS_ALPN_PROTOS, std::size(TCP_TLS_ALPN_PROTOS)},
                 config->endpoint->name, /*quic*/ MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
-                client_random_psk_key, to_tls_client_profile(config->endpoint->tls_profile));
+                client_random_auth_key, to_tls_client_profile(config->endpoint->tls_profile));
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {

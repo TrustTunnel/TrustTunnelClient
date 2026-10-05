@@ -55,7 +55,7 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Document {
     endpoint["username"] = value(&settings.endpoint.username);
     endpoint["password"] = value(&settings.endpoint.password);
     endpoint["client_random"] = value(&settings.endpoint.client_random);
-    endpoint["client_random_psk_key"] = value(&settings.endpoint.client_random_psk_key);
+    endpoint["client_random_auth_key"] = value(&settings.endpoint.client_random_auth_key);
     endpoint["skip_verification"] = value(settings.endpoint.skip_verification);
     endpoint["anti_dpi"] = value(settings.endpoint.anti_dpi);
     endpoint["certificate"] = value(settings.endpoint.certificate.as_deref().unwrap_or_default());

@@ -98,7 +98,7 @@ password = ""
 {}
 client_random = ""
 {}
-client_random_psk_key = ""
+client_random_auth_key = ""
 {}
 skip_verification = false
 {}
@@ -122,7 +122,7 @@ dns_upstreams = []
         Endpoint::doc_username().to_toml_comment(),
         Endpoint::doc_password().to_toml_comment(),
         Endpoint::doc_client_random().to_toml_comment(),
-        Endpoint::doc_client_random_psk_key().to_toml_comment(),
+        Endpoint::doc_client_random_auth_key().to_toml_comment(),
         Endpoint::doc_skip_verification().to_toml_comment(),
         Endpoint::doc_certificate().to_toml_comment(),
         Endpoint::doc_upstream_protocol().to_toml_comment(),

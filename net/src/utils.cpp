@@ -41,7 +41,7 @@
 #include "common/utils.h"
 #include "net/http_header.h"
 #include "net/http_session.h"
-#include "net/tls_client_random_psk.h"
+#include "net/tls_client_random_auth_key.h"
 #include "vpn/platform.h"
 #include "vpn/utils.h"
 
@@ -185,7 +185,7 @@ AutoVpnEndpoint vpn_endpoint_clone(const VpnEndpoint *src) {
     array_of_copy(dst->additional_data, src->additional_data);
     array_of_copy(dst->tls_client_random, src->tls_client_random);
     array_of_copy(dst->tls_client_random_mask, src->tls_client_random_mask);
-    array_of_copy(dst->tls_client_random_psk_key, src->tls_client_random_psk_key);
+    array_of_copy(dst->tls_client_random_auth_key, src->tls_client_random_auth_key);
 
     return dst;
 }
@@ -200,10 +200,10 @@ void vpn_endpoint_destroy(VpnEndpoint *endpoint) {
     free(endpoint->additional_data.data);
     free(endpoint->tls_client_random.data);
     free(endpoint->tls_client_random_mask.data);
-    if (endpoint->tls_client_random_psk_key.data != nullptr) {
-        // The PSK key is a secret credential used for derivation, cleanse it before freeing
-        OPENSSL_cleanse(endpoint->tls_client_random_psk_key.data, endpoint->tls_client_random_psk_key.size);
-        free(endpoint->tls_client_random_psk_key.data);
+    if (endpoint->tls_client_random_auth_key.data != nullptr) {
+        // The auth key is a secret credential used for derivation, cleanse it before freeing
+        OPENSSL_cleanse(endpoint->tls_client_random_auth_key.data, endpoint->tls_client_random_auth_key.size);
+        free(endpoint->tls_client_random_auth_key.data);
     }
     std::memset(endpoint, 0, sizeof(*endpoint));
 }
@@ -224,7 +224,7 @@ bool vpn_endpoint_equals(const VpnEndpoint *lh, const VpnEndpoint *rh) {
             && ((lh->remote_id == nullptr && rh->remote_id == nullptr) || 0 == strcmp(lh->remote_id, rh->remote_id))
             && array_of_equals(lh->tls_client_random, rh->tls_client_random)
             && array_of_equals(lh->tls_client_random_mask, rh->tls_client_random_mask)
-            && array_of_equals(lh->tls_client_random_psk_key, rh->tls_client_random_psk_key);
+            && array_of_equals(lh->tls_client_random_auth_key, rh->tls_client_random_auth_key);
 }
 
 void vpn_relay_destroy(VpnRelay *relay) {
@@ -240,12 +240,12 @@ void vpn_relay_destroy(VpnRelay *relay) {
     free(relay->tls_client_random_mask.data);
     relay->tls_client_random_mask.data = nullptr;
     relay->tls_client_random_mask.size = 0;
-    if (relay->tls_client_random_psk_key.data != nullptr) {
-        // The PSK key is a secret credential used for derivation, cleanse it before freeing
-        OPENSSL_cleanse(relay->tls_client_random_psk_key.data, relay->tls_client_random_psk_key.size);
-        free(relay->tls_client_random_psk_key.data);
-        relay->tls_client_random_psk_key.data = nullptr;
-        relay->tls_client_random_psk_key.size = 0;
+    if (relay->tls_client_random_auth_key.data != nullptr) {
+        // The auth key is a secret credential used for derivation, cleanse it before freeing
+        OPENSSL_cleanse(relay->tls_client_random_auth_key.data, relay->tls_client_random_auth_key.size);
+        free(relay->tls_client_random_auth_key.data);
+        relay->tls_client_random_auth_key.data = nullptr;
+        relay->tls_client_random_auth_key.size = 0;
     }
     std::memset(&relay->address, 0, sizeof(relay->address));
 }
@@ -258,7 +258,7 @@ AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
     array_of_copy(dst->additional_data, src->additional_data);
     array_of_copy(dst->tls_client_random, src->tls_client_random);
     array_of_copy(dst->tls_client_random_mask, src->tls_client_random_mask);
-    array_of_copy(dst->tls_client_random_psk_key, src->tls_client_random_psk_key);
+    array_of_copy(dst->tls_client_random_auth_key, src->tls_client_random_auth_key);
 
     return dst;
 }
@@ -901,7 +901,7 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
-        U8View tls_client_random_mask, U8View tls_client_random_psk_key, ag::tls::TlsClientProfile profile) {
+        U8View tls_client_random_mask, U8View tls_client_random_auth_key, ag::tls::TlsClientProfile profile) {
     bool quic = type == MSPT_NGTCP2;
 
     // Session resumption persistence stays in the client;
@@ -909,7 +909,7 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     // The popped session must outlive the make_ssl() call: SSL_set_session() up-refs it.
     auto resume_session = pop_session_from_cache(sni, quic);
 
-    // PSK mode takes priority over the raw tls_client_random/mask: derive the full
+    // auth-key mode takes priority over the raw tls_client_random/mask: derive the full
     // 32-byte ClientRandom from the key and the SNI and feed it to the shared
     // factory as a plain custom ClientRandom. With no mask, ag::tls::make_ssl()
     // passes it through to SSL_set_custom_client_random() byte-for-byte.
@@ -919,24 +919,24 @@ std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STO
     U8View client_random_mask = tls_client_random_mask;
 #ifdef SSL_set_custom_client_random
     std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derived_random;
-    if (!tls_client_random_psk_key.empty()) {
+    if (!tls_client_random_auth_key.empty()) {
         if (!tls_client_random.empty()) {
             warnlog(g_logger,
-                    "Both tls_client_random and tls_client_random_psk_key are set; "
-                    "PSK key takes priority, tls_client_random will be ignored");
+                    "Both tls_client_random and tls_client_random_auth_key are set; "
+                    "auth key takes priority, tls_client_random will be ignored");
         }
-        derived_random = derive_client_random_from_psk(tls_client_random_psk_key, sni);
+        derived_random = derive_client_random_from_auth_key(tls_client_random_auth_key, sni);
         if (!derived_random.has_value()) {
-            return "Failed to derive client_random from PSK key";
+            return "Failed to derive client_random from auth key";
         }
         client_random = Uint8View{derived_random->data(), derived_random->size()};
         client_random_mask = {};
     }
 #else
-    if (!tls_client_random_psk_key.empty()) {
+    if (!tls_client_random_auth_key.empty()) {
         warnlog(g_logger,
-                "tls_client_random_psk_key is set but SSL_set_custom_client_random is unavailable "
-                "in this build; PSK-derived client_random authentication will not work");
+                "tls_client_random_auth_key is set but SSL_set_custom_client_random is unavailable "
+                "in this build; auth key-derived client_random authentication will not work");
     }
 #endif
 

@@ -16,15 +16,15 @@ namespace ag {
 #ifdef SSL_set_custom_client_random
 
 /**
- * Derive the full 32-byte TLS client_random from a PSK key and the SNI.
- * @param psk_key PSK key bytes
+ * Derive the full 32-byte TLS client_random from an auth key and the SNI.
+ * @param auth_key auth key bytes
  * @param sni SNI host name (may be nullptr/empty)
  * @param salt the explicit 16-byte salt, or empty (default) to generate one
  *        randomly. The fixed-salt form is exposed for known-answer tests only.
  * @return 32-byte client_random, or std::nullopt if derivation failed
  */
-std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_psk(
-        ag::Uint8View psk_key, const char *sni, ag::Uint8View salt = {});
+std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_auth_key(
+        ag::Uint8View auth_key, const char *sni, ag::Uint8View salt = {});
 
 #endif
 

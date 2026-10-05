@@ -162,7 +162,7 @@ mod tests {
             username: "alice".to_string(),
             password: "s3cr3t".to_string(),
             client_random_prefix: Some("aabb".to_string()),
-            client_random_psk_key: Some("aabbccdd".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -194,12 +194,12 @@ mod tests {
             "Output must contain client_random prefix field with value"
         );
         assert!(
-            toml_str.contains("client_random_psk_key"),
-            "Output must contain client_random_psk_key field"
+            toml_str.contains("client_random_auth_key"),
+            "Output must contain client_random_auth_key field"
         );
         assert!(
             toml_str.contains("aabbccdd"),
-            "Output must contain the PSK key value"
+            "Output must contain the auth key value"
         );
         assert!(
             toml_str.contains("dns.adguard-dns.com"),

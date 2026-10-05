@@ -197,22 +197,22 @@ By default the client authenticates with a fixed `client_random` prefix/mask
 by `tests/endpoint_setup.sh`).
 
 To exercise SNI-derived client random authentication end to end, set
-`CLIENT_RANDOM_PSK_KEY` (hex):
+`CLIENT_RANDOM_AUTH_KEY` (hex):
 
 - The key is written to the endpoint `rules.toml`
-  (`[[rule]].client_random_psk_key`) and to the client config
-  (`[endpoint].client_random_psk_key`); the regular traffic tests then run
-  over a PSK-authenticated connection.
-- In tun mode an additional negative check (`tests/main/psk_tests.sh`) runs
+  (`[[rule]].client_random_auth_key`) and to the client config
+  (`[endpoint].client_random_auth_key`); the regular traffic tests then run
+  over an auth-key-authenticated connection.
+- In tun mode an additional negative check (`tests/main/auth_key_tests.sh`) runs
   after the regular tests: the client is restarted with a different key and
   the tunnel is expected to stay down.
 
 ```bash
-# Run the PSK authentication scenario
-CLIENT_RANDOM_PSK_KEY=00112233445566778899aabbccddeeff ./docker_run_tests.sh main
+# Run the auth-key authentication scenario
+CLIENT_RANDOM_AUTH_KEY=00112233445566778899aabbccddeeff ./docker_run_tests.sh main
 ```
 
-Note: PSK support must exist in both built components. Until the feature is
+Note: auth-key support must exist in both built components. Until the feature is
 released, point `VPN_LIBS_ROOT`/`VPN_ENDPOINT_ROOT` at the corresponding
 feature-branch checkouts before `docker_build.sh`.
 

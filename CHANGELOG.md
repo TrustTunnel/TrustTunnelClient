@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   setting (`chrome`, `safari`, `firefox`, `okhttp`, `openssl`, `default`). Defaults to
   `chrome`, preserving the previous behavior.
 - Introduce windows platform adapter
-- Added `client_random_psk_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
+- Added `client_random_auth_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
 
 ### Changed
 

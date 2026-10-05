@@ -709,23 +709,23 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     U8View endpoint_data;
     U8View client_random_data;
     U8View client_random_mask;
-    U8View client_random_psk_key;
+    U8View client_random_auth_key;
     if (conn->relay->address.sa_family != 0) {
         const VpnRelay &relay = *conn->relay;
         endpoint_data = array_of_view(relay.additional_data);
         client_random_data = array_of_view(relay.tls_client_random);
         client_random_mask = array_of_view(relay.tls_client_random_mask);
-        client_random_psk_key = array_of_view(relay.tls_client_random_psk_key);
+        client_random_auth_key = array_of_view(relay.tls_client_random_auth_key);
     } else {
         const VpnEndpoint &endpoint = *conn->endpoint;
         endpoint_data = array_of_view(endpoint.additional_data);
         client_random_data = array_of_view(endpoint.tls_client_random);
         client_random_mask = array_of_view(endpoint.tls_client_random_mask);
-        client_random_psk_key = array_of_view(endpoint.tls_client_random_psk_key);
+        client_random_auth_key = array_of_view(endpoint.tls_client_random_auth_key);
     }
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
             conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
-            client_random_psk_key, to_tls_client_profile(conn->endpoint->tls_profile));
+            client_random_auth_key, to_tls_client_profile(conn->endpoint->tls_profile));
 
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));

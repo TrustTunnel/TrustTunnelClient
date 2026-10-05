@@ -2,12 +2,12 @@
 
 set -e -x
 
-# Negative PSK authentication check (tun mode, PSK scenario only):
+# Negative auth-key authentication check (tun mode, auth-key scenario only):
 # restart the client with a key that differs from the rule and make sure
 # the tunnel never comes up.
 
 ENDPOINT_IP="$1"
-CLIENT_RANDOM_PSK_KEY="${CLIENT_RANDOM_PSK_KEY:-}"
+CLIENT_RANDOM_AUTH_KEY="${CLIENT_RANDOM_AUTH_KEY:-}"
 TEST_DIR="${TEST_DIR:-/tests}"
 OUTPUT_DIR="${OUTPUT_DIR:-/output}"
 CLIENT_PID_FILE="${OUTPUT_DIR}/vpn_client.pid"
@@ -36,16 +36,16 @@ sleep 1
 
 # Swap in a key other than the one the endpoint rule uses
 WRONG_KEY="deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-if [ "$CLIENT_RANDOM_PSK_KEY" = "$WRONG_KEY" ]; then
+if [ "$CLIENT_RANDOM_AUTH_KEY" = "$WRONG_KEY" ]; then
     WRONG_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 fi
-sed -i "s/^client_random_psk_key = .*/client_random_psk_key = \"$WRONG_KEY\"/" trusttunnel_client.toml
+sed -i "s/^client_random_auth_key = .*/client_random_auth_key = \"$WRONG_KEY\"/" trusttunnel_client.toml
 
-"$TEST_DIR/client_run.sh" "vpn_psk_negative.log"
+"$TEST_DIR/client_run.sh" "vpn_auth_key_negative.log"
 
 for _ in $(seq 1 20); do
     if tunexec ip route show default | grep -q default; then
-        echo "FAIL: tunnel came up with a non-matching client_random_psk_key"
+        echo "FAIL: tunnel came up with a non-matching client_random_auth_key"
         exit 1
     fi
     sleep 1

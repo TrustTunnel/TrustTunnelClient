@@ -29,7 +29,7 @@ struct TrustTunnelConfig {
         ag::VpnTlsProfile tls_profile = ag::VPN_TLS_PROFILE_CHROME;
         std::string client_random;
         std::string client_random_mask;
-        std::string client_random_psk_key;
+        std::string client_random_auth_key;
         std::optional<std::vector<std::string>> dns_upstreams;
         bool skip_verification = false;
         bool anti_dpi = false;

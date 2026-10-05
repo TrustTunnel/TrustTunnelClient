@@ -1,4 +1,4 @@
-#include "net/tls_client_random_psk.h"
+#include "net/tls_client_random_auth_key.h"
 
 #ifdef SSL_set_custom_client_random
 
@@ -14,13 +14,13 @@
 
 #ifndef OPENSSL_IS_BORINGSSL
 #warning "SSL_set_custom_client_random is defined but OPENSSL_IS_BORINGSSL is not; \
-HKDF argument order may differ from BoringSSL and break PSK derivation"
+HKDF argument order may differ from BoringSSL and break auth key derivation"
 #endif
 
 namespace ag {
 
-std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_psk(
-        Uint8View psk_key, const char *sni, Uint8View salt) {
+std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_auth_key(
+        Uint8View auth_key, const char *sni, Uint8View salt) {
     constexpr size_t half = SSL3_RANDOM_SIZE / 2;
     static constexpr std::string_view INFO = "tls13 encryption context";
 
@@ -44,7 +44,7 @@ std::optional<std::array<uint8_t, SSL3_RANDOM_SIZE>> derive_client_random_from_p
 
     uint8_t derived_key[half];
     if (1
-            != HKDF(derived_key, half, EVP_sha256(), psk_key.data(), psk_key.size(), salt.data(), salt.size(),
+            != HKDF(derived_key, half, EVP_sha256(), auth_key.data(), auth_key.size(), salt.data(), salt.size(),
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                     reinterpret_cast<const uint8_t *>(INFO.data()), INFO.size())) {
         return std::nullopt;

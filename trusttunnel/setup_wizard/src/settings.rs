@@ -487,10 +487,10 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .and_then(|x| x.client_random.clone().into())
             .or(opt_field!(template, client_random).cloned())
             .unwrap_or_default(),
-        client_random_psk_key: endpoint_config
+        client_random_auth_key: endpoint_config
             .as_ref()
-            .and_then(|x| x.client_random_psk_key.clone().into())
-            .or(opt_field!(template, client_random_psk_key).cloned())
+            .and_then(|x| x.client_random_auth_key.clone().into())
+            .or(opt_field!(template, client_random_auth_key).cloned())
             .unwrap_or_default(),
         skip_verification: endpoint_config
             .as_ref()
@@ -734,7 +734,7 @@ pub struct EndpointConfig {
     #[serde(default)]
     client_random: String,
     #[serde(default)]
-    client_random_psk_key: String,
+    client_random_auth_key: String,
     #[serde(default)]
     skip_verification: bool,
     #[serde(default)]
@@ -827,10 +827,10 @@ impl fmt::Display for EndpointSummary<'_> {
         } else {
             &ep.client_random
         };
-        let client_random_psk_key = if ep.client_random_psk_key.is_empty() {
+        let client_random_auth_key = if ep.client_random_auth_key.is_empty() {
             "(none)"
         } else {
-            "(set)" // The PSK key is a secret credential, do not print its value
+            "(set)" // The auth key is a secret credential, do not print its value
         };
 
         let cert_display = if self.cert_infos.is_empty() {
@@ -863,7 +863,7 @@ impl fmt::Display for EndpointSummary<'_> {
   Username:          {}
   Password:          ******
   Client random:     {}
-  CR PSK key:        {}
+  CR auth key:        {}
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
@@ -876,7 +876,7 @@ impl fmt::Display for EndpointSummary<'_> {
             if ep.has_ipv6 { "yes" } else { "no" },
             ep.username,
             client_random,
-            client_random_psk_key,
+            client_random_auth_key,
             if ep.skip_verification { "yes" } else { "no" },
             cert_display,
             ep.upstream_protocol,
@@ -973,7 +973,7 @@ mod tests {
             username: "user1".to_string(),
             password: "pass1".to_string(),
             client_random_prefix: Some("aabb".to_string()),
-            client_random_psk_key: Some("aabbccdd".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: Some("sni.host".to_string()),
             has_ipv6: false,
             skip_verification: true,
