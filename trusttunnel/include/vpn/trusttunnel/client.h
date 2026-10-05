@@ -36,7 +36,7 @@ private:
     public:
         explicit FileHandler(std::string_view filename)
                 : m_filename(filename)
-                , m_file(std::fopen(filename.data(), "w")) {
+                , m_file(std::fopen(filename.data(), "a")) {
         }
         ~FileHandler() {
             std::fclose(m_file);

@@ -33,6 +33,10 @@ TrustTunnelClient::TrustTunnelClient(TrustTunnelConfig &&config, VpnCallbacks &&
 };
 
 TrustTunnelClient::~TrustTunnelClient() {
+    if (m_logtofile.has_value()) {
+        // Reset callback still m_logtofile going to be invalidated
+        ag::Logger::set_callback(ag::Logger::LOG_TO_STDERR);
+    }
     vpn_event_loop_stop(m_extra_loop.get());
     if (m_loop_thread.joinable()) {
         m_loop_thread.join();
