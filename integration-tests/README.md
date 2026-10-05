@@ -75,11 +75,22 @@ The build script automatically handles repository cloning:
 - `ENDPOINT_HOSTNAME` - Hostname for SSL certificate generation (default: endpoint.test)
 - `OUTPUT_DIR` - Directory for setup files (default: /output)
 
+### For Main Tests
+
+- `SPEED_TEST_URL` - Speed-test download URL (default: the AdGuard speed node)
+- `SPEED_TEST_MIN_BYTES` - Minimum accepted download size for the speed test (default: 100000000)
+
 ### For Browser Tests
 
 - `BAMBOO_VPN_APP_ID` - Required for browser tests - VPN app ID for backend authentication
 - `BAMBOO_VPN_TOKEN` - Required for browser tests - VPN token for backend authentication
 - `AGVPN_HELPER_URL` - Optional URL to download agvpn_helper if not present in output directory
+- `NAVIGATION_RETRIES`, `NAVIGATION_TIMEOUT_MS` - Navigation retry policy (defaults: 3 attempts, 60000 ms)
+- `MAX_NAVIGATION_FAILURES`, `MAX_NAVIGATION_FAILURE_RATIO` - The run fails when the number of
+    failed navigations reaches the first threshold or their ratio exceeds the second (defaults: 3, 0.1)
+- `MAX_NAVIGATION_RETRY_RATIO` - The run fails when the share of navigations that needed a retry
+    exceeds this threshold, so that a systematic first-attempt failure cannot be hidden by the
+    retries; only judged from `MIN_NAVIGATIONS_FOR_RATIO` navigations (defaults: 0.25, 10)
 
 ## Examples
 
@@ -171,11 +182,15 @@ Each browser test run automatically:
 4. Starts the VPN client in TUN mode (saves PID to `/output/vpn_client.pid`)
 5. Creates network namespace 'tun' for isolation
 6. Installs Node.js and browser test dependencies
-7. Runs Puppeteer-based browser tests for 30 minutes
-8. Simulates network disruption (drops traffic, sends SIGHUP to client)
-9. Restores network and runs tests again for 30 minutes
-10. Collects test results in `/output/output1part.json` and `/output/output2part.json`
-11. Stops processes using PID files and cleans up
+7. Waits until the tunnel passes traffic and checks that the egress IP differs from the one the
+    runner uses directly, so that a tunnel silently forwarding traffic directly cannot look green
+8. Runs Puppeteer-based browser tests for 30 minutes (steady-state phase)
+9. Simulates a network outage (drops traffic in both directions, sends SIGHUP to the client)
+10. Restores the network and waits until the tunnel passes traffic again instead of relying on a
+    fixed delay
+11. Runs the browser tests again for 30 minutes (after-disruption phase)
+12. Collects test results in `/output/output1part.json` and `/output/output2part.json`
+13. Stops processes using PID files and cleans up
 
 **Note**: The test container has access to built binaries (`trusttunnel_client`, `trusttunnel_endpoint`) via the mounted `/output` directory.
 
@@ -292,4 +307,17 @@ The browser tests provide comprehensive network load simulation:
 
 - `output1part.json` - Test results from the first 30-minute phase
 - `output2part.json` - Test results after network disruption and recovery
-- Detailed statistics including request timing, error counts, and reload frequencies
+
+Both files are written by `index.js` and contain three blocks:
+
+- `configuration` - the URLs, the phase length and the navigation policy (retries, timeouts,
+    thresholds) the run used
+- `summary` - the data behind the verdict: `totalNavigations`, `navigationFailures`,
+    `navigationRetries`, `failureRatio`, `retryRatio` and whether the retry ratio was judged
+- `statistics` - per-URL counters: `reloadsCount`, `navigationFailures`, `navigationRetries`,
+    `requestsCount`, `errorsCount`, `duration`
+
+Only navigation failures decide the verdict. `errorsCount` counts every failed request, including
+ the `ERR_ABORTED` ones Chrome reports for requests still in flight when the page is reloaded, so
+it is much larger than the number of real problems. `duration` comes from Chrome's resource timing
+and is not reliable for the document request.

@@ -8,6 +8,29 @@ tunexec() {
     ip netns exec tun "$@"
 }
 
+# Insert the outage rules at the top of the chains: the client setup inserts its
+# ACCEPT rules with -I, so an appended OUTPUT DROP is evaluated after the ACCEPT
+# for the endpoint address and would not cut the tunnel.
+disruption_rules_active=0
+
+apply_disruption() {
+    # Mark active first: if the second insert fails, the trap must still remove the first.
+    disruption_rules_active=1
+    iptables -I OUTPUT 1 -j DROP
+    iptables -I INPUT 1 -j DROP
+}
+
+clear_disruption() {
+    if [ "$disruption_rules_active" -eq 1 ]; then
+        iptables -D OUTPUT -j DROP || true
+        iptables -D INPUT -j DROP || true
+        disruption_rules_active=0
+    fi
+}
+
+# Never leave the container blackholed when the script fails mid-outage.
+trap clear_disruption EXIT
+
 # Browser test implementation
 # This script runs the actual browser tests and should be executed inside the TUN network namespace
 # Usage: browser_tests.sh
@@ -30,20 +53,22 @@ if ! pgrep trusttunnel > /dev/null; then
 fi
 
 echo "Testing that vpn-client actually works"
-tunexec curl -I https://google.com -4
-tunexec curl -I https://google.com -6
+# Bounded: a hung request must not keep the job alive until the CI timeout.
+tunexec curl -sS -I --connect-timeout 5 --max-time 15 https://google.com -4 >/dev/null
+tunexec curl -sS -I --connect-timeout 5 --max-time 15 https://google.com -6 >/dev/null
 
-echo "Running browser tests for 30 minutes..."
-RESULT=0
+echo "Running browser tests (steady state, 30 minutes)..."
+STEADY_STATE_RESULT=0
+# Drop any report left by a previous run: a crashed phase must not be mistaken for a fresh one.
+rm -f output.json
 
 # Run tests for 30 minutes
-tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || RESULT=1
-cp output.json ${OUTPUT_DIR}/output1part.json 2>/dev/null || true
+tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || STEADY_STATE_RESULT=$?
+cp output.json "${OUTPUT_DIR}/output1part.json" 2>/dev/null || true
 
 echo "Simulating network problems..."
-# Imitate network problems. Drop all traffic to endpoint. Client should reconnect.
-iptables -A OUTPUT -j DROP
-iptables -A INPUT -j DROP
+# Cut the network for a moment: the client should reconnect afterwards.
+apply_disruption
 sleep 1
 
 # Send SIGHUP to client to trigger reconnection
@@ -54,15 +79,26 @@ for pid in $PIDS; do
 done
 sleep 9
 
-# Restore network connectivity
-iptables -D OUTPUT -j DROP
-iptables -D INPUT -j DROP
+# Restore network connectivity and wait for the tunnel to recover.
+clear_disruption
 sleep 60
 
 echo "Running browser tests again after network recovery..."
-# Run tests again
-tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || RESULT=1
-cp output.json ${OUTPUT_DIR}/output2part.json 2>/dev/null || true
+RECOVERY_RESULT=0
+rm -f output.json
+tunexec env TIME_LIMIT=30m VERBOSE=true node index.js || RECOVERY_RESULT=$?
 
+# The second phase must produce a fresh report: the previous one was removed above.
+if [ -f output.json ]; then
+    cp output.json "${OUTPUT_DIR}/output2part.json" 2>/dev/null || true
+else
+    echo "Warning: the second phase did not write output.json" >&2
+fi
+
+echo "Phase results: steady-state=$STEADY_STATE_RESULT, after-disruption=$RECOVERY_RESULT"
+RESULT=0
+if [ "$STEADY_STATE_RESULT" -ne 0 ] || [ "$RECOVERY_RESULT" -ne 0 ]; then
+    RESULT=1
+fi
 echo "Browser tests completed with result: $RESULT"
 exit "$RESULT"
