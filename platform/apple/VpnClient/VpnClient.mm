@@ -234,7 +234,11 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
         }
 
         self->_native_client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
-        self->_network_monitor = std::make_unique<ag::AutoNetworkMonitor>(self->_native_client.get(), std::move(bound_if));
+        self->_network_monitor = std::make_unique<ag::AutoNetworkMonitor>(
+                [client = self->_native_client.get()](ag::VpnNetworkState state) {
+                    client->notify_network_change(state);
+                },
+                std::move(bound_if));
         if (!self->_network_monitor->start()) {
             errlog(g_logger, "Failed to start network monitor");
             return nil;

@@ -270,7 +270,11 @@ int run_client(const cxxopts::ParseResult &cli_args) {
         };
     }
 #endif
-    AutoNetworkMonitor network_monitor(client.get(), std::move(bound_if));
+    AutoNetworkMonitor network_monitor(
+            [client = client.get()](VpnNetworkState state) {
+                client->notify_network_change(state);
+            },
+            std::move(bound_if));
     if (!network_monitor.start()) {
         errlog(g_logger, "Failed to start network monitor");
         return 1;

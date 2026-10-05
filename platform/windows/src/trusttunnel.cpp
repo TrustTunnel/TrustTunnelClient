@@ -157,7 +157,11 @@ trusttunnel_t *trusttunnel_start_ex(const char *toml_config, on_state_changed_t 
     }
 
     vpn->client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
-    vpn->network_monitor = std::make_unique<ag::AutoNetworkMonitor>(vpn->client.get(), std::move(bound_if));
+    vpn->network_monitor = std::make_unique<ag::AutoNetworkMonitor>(
+            [client = vpn->client.get()](ag::VpnNetworkState state) {
+                client->notify_network_change(state);
+            },
+            std::move(bound_if));
     if (!vpn->network_monitor->start()) {
         errlog(g_logger, "Failed to start network monitor");
         return nullptr;
