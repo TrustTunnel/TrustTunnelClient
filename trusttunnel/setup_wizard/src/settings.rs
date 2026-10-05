@@ -132,13 +132,19 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
     } else if let Some(config) = &endpoint_config {
         candidate_from_endpoint_config(config)
     } else if let Some(url) = subscription_url.as_deref() {
-        let mut candidate = candidate_from_subscription_url(url.to_string());
-        candidate.name = predefined_params.name.clone();
-        candidate.dns_upstreams = predefined_params.dns.clone();
-        candidate
+        candidate_from_subscription_url(url.to_string())
     } else {
         build_endpoint_manually(template, &predefined_params)
     };
+
+    // Explicit CLI values override whatever the import source provides.
+    // Set before the fetch so they also win over the subscription response.
+    if let Some(name) = &predefined_params.name {
+        x.name = Some(name.clone());
+    }
+    if !predefined_params.dns.is_empty() {
+        x.dns_upstreams = predefined_params.dns.clone();
+    }
 
     // Fetch the subscription before the configuration is presented to the
     // user, so the confirmation shows the live parameters. A failed fetch is
@@ -146,24 +152,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
     // carried complete static parameters, warn and keep them.
     if x.subscription.is_some() {
         match subscription::fetch_and_apply(&mut x) {
-            Ok(()) => {
-                if crate::get_mode() == Mode::Interactive && subscription_url.is_some() {
-                    let name = ask_for_input::<String>(
-                        "Server name",
-                        x.name.clone().or(Some("".to_string())),
-                    );
-                    if !name.is_empty() {
-                        x.name = Some(name);
-                    }
-                    let dns = ask_for_input::<String>(
-                        "DNS upstreams (space-separated)",
-                        Some(x.dns_upstreams.join(" ")),
-                    );
-                    if !dns.is_empty() {
-                        x.dns_upstreams = dns.split_whitespace().map(str::to_string).collect();
-                    }
-                }
-            }
+            Ok(()) => {}
             Err(error) if is_complete(&x) => {
                 eprintln!(
                     "WARNING: Could not fetch the subscription; the exported parameters may be stale ({error})"
@@ -186,6 +175,22 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                     .cloned()
                     .unwrap_or_default(),
             );
+    }
+
+    // Confirm or override the creation-only fields interactively, whatever
+    // the source was.
+    if crate::get_mode() == Mode::Interactive {
+        let name = ask_for_input::<String>("Server name", x.name.clone().or(Some("".to_string())));
+        if !name.is_empty() {
+            x.name = Some(name);
+        }
+        let dns = ask_for_input::<String>(
+            &format!("{}\nDelimit by whitespace.", Endpoint::doc_dns_upstreams()),
+            Some(x.dns_upstreams.join(" ")),
+        );
+        if !dns.is_empty() {
+            x.dns_upstreams = dns.split_whitespace().map(str::to_string).collect();
+        }
     }
 
     // Compute the summary after any subscription fetch: the fetch may have
@@ -260,18 +265,12 @@ fn build_endpoint_manually(
         anti_dpi: opt_field!(template, anti_dpi)
             .cloned()
             .unwrap_or_else(Endpoint::default_anti_dpi),
-        dns_upstreams: ask_for_input::<String>(
-            &format!(
-                "{}\nDelimit by whitespace, leave empty for default.",
-                Endpoint::doc_dns_upstreams()
-            ),
-            opt_field!(template, dns_upstreams)
-                .map(|v| v.join(" "))
-                .or(Some("".to_string())),
-        )
-        .split_whitespace()
-        .map(String::from)
-        .collect(),
+        // Asked by the creation-only confirmation after the endpoint is built
+        dns_upstreams: opt_field!(template, dns_upstreams)
+            .cloned()
+            .unwrap_or_default(),
+        name: opt_field!(template, name).cloned().flatten(),
+        subscription: opt_field!(template, subscription).cloned().flatten(),
         ..Default::default()
     };
 
@@ -634,6 +633,7 @@ impl fmt::Display for EndpointSummary<'_> {
         write!(
             f,
             "
+  Name:              {}
   Hostname:          {}
   Addresses:         {}
   Custom SNI:        {}
@@ -647,6 +647,7 @@ impl fmt::Display for EndpointSummary<'_> {
   TLS profile:       {}
   Anti-DPI:          {}
   DNS upstreams:     {}",
+            ep.name.as_deref().unwrap_or("(none)"),
             ep.hostname,
             addresses,
             custom_sni,
