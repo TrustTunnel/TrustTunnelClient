@@ -22,10 +22,10 @@ fn apply_subscription_at(
     // Parse both views up front; a broken or incomplete config fails here as
     // an ordinary parse error.
     let mut settings: Settings = toml::from_str(config_text)
-        .map_err(|e| SubscriptionError::Other(format!("Failed to parse config: {e}")))?;
+        .map_err(|_| SubscriptionError::Other("Failed to parse config settings".into()))?;
     let document = config_text
         .parse::<toml_edit::Document>()
-        .map_err(|e| SubscriptionError::Other(format!("Failed to parse config: {e}")))?;
+        .map_err(|_| SubscriptionError::Other("Failed to parse config document".into()))?;
 
     if settings.endpoint.subscription.is_none() {
         return Err(SubscriptionError::NoSubscription);
@@ -136,10 +136,28 @@ address = "127.0.0.1:1080"
     }
 
     #[test]
-    fn incomplete_endpoint_fails_as_ordinary_parse_error() {
+    fn incomplete_endpoint_fails_as_parse_error() {
         let config = "[endpoint]\n[endpoint.subscription]\nurl = \"https://u:p@h/s\"\n";
         let err = apply_subscription_at(config, &body(), &fixed_now).unwrap_err();
-        assert!(err.to_string().contains("hostname"), "unexpected: {err}");
+        assert!(
+            err.to_string().contains("Failed to parse config"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_error_does_not_leak_credentials() {
+        // The unterminated string puts the parse error on the URL line.
+        let config = CONFIG.replace(
+            "url = \"https://u:p@old.example.com/subscription\"",
+            "url = \"https://u:p@old.example.com/subscription",
+        );
+        let err = apply_subscription_at(&config, &body(), &fixed_now).unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to parse config"),
+            "unexpected: {err}"
+        );
+        assert!(!err.to_string().contains("u:p@"), "unexpected: {err}");
     }
 
     #[test]

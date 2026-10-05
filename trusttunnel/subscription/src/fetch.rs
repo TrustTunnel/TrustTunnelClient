@@ -173,7 +173,7 @@ pub fn fetch_for_config(
     transport: &dyn HttpTransport,
 ) -> Result<String, SubscriptionError> {
     let settings: trusttunnel_settings::Settings = toml::from_str(config_text)
-        .map_err(|e| SubscriptionError::Other(format!("Failed to parse config: {e}")))?;
+        .map_err(|_| SubscriptionError::Other("Failed to parse config".into()))?;
     let subscription = settings
         .endpoint
         .subscription
@@ -861,5 +861,17 @@ url = "https://u:p@vpn.example.com/subscription"
             err.to_string().contains("Failed to parse config"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn config_fetch_parse_error_does_not_leak_credentials() {
+        // The unterminated string puts the parse error on the URL line.
+        let config = "[endpoint.subscription]\nurl = \"https://u:p@vpn.example.com/subscription\n";
+        let err = fetch_for_config(config, &FakeTransport(Ok(valid_body()))).unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to parse config"),
+            "unexpected: {err}"
+        );
+        assert!(!err.to_string().contains("u:p@"), "unexpected: {err}");
     }
 }
