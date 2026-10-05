@@ -43,6 +43,8 @@ static const ag::Logger g_logger("TRUSTTUNNEL_CLIENT_APP");
 static std::atomic_bool keep_running{true};
 static std::condition_variable g_waiter;
 static std::mutex g_waiter_mutex;
+// Valid config reloaded on SIGHUP to restart the client with, guarded by `g_waiter_mutex`
+static std::optional<TrustTunnelConfig> g_reloaded_config;
 static std::weak_ptr<TrustTunnelClient> g_client;
 
 static std::function<void(SocketProtectEvent *)> get_protect_socket_callback(const TrustTunnelConfig &config);
@@ -65,59 +67,41 @@ static void stop_trusttunnel_client() {
     g_waiter.notify_all();
 }
 
-#ifndef _WIN32
-struct ReloadContext {
-    std::string config_path;
-    std::optional<bool> skip_verification_override;
-    std::optional<std::string> loglevel_override;
-};
-
-static std::mutex g_reload_mutex;
-static std::optional<ReloadContext> g_reload_context;
-
-static void reload_client_config() {
-    auto client = g_client.lock();
-    if (!client) {
-        return;
-    }
-    std::optional<ReloadContext> context;
-    {
-        std::lock_guard lock(g_reload_mutex);
-        context = g_reload_context;
-    }
-    if (!context || !keep_running.load()) {
-        return;
-    }
-
-    infolog(g_logger, "Reloading configuration after SIGHUP");
-    toml::parse_result parse_result = toml::parse_file(context->config_path);
+static std::optional<TrustTunnelConfig> load_config(
+        const std::string &config_path, const cxxopts::ParseResult &cli_args) {
+    toml::parse_result parse_result = toml::parse_file(config_path);
     if (!parse_result) {
-        errlog(g_logger, "Failed parsing configuration, keeping the previous one: {}",
-                parse_result.error().description());
-        return;
+        errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
+        return std::nullopt;
     }
 
     std::optional config = TrustTunnelConfig::build_config(parse_result.table());
     if (!config) {
-        errlog(g_logger, "Failed to parse config, keeping the previous one");
+        errlog(g_logger, "Failed to parse config");
+        return std::nullopt;
+    }
+    if (!TrustTunnelCliUtils::apply_cmd_args(*config, cli_args)) {
+        return std::nullopt;
+    }
+    return config;
+}
+
+#ifndef _WIN32
+static std::string g_config_path;
+static const cxxopts::ParseResult *g_cli_args = nullptr;
+
+static void reload_client_config() {
+    infolog(g_logger, "Reloading configuration after SIGHUP");
+    std::optional config = load_config(g_config_path, *g_cli_args);
+    if (!config) {
+        errlog(g_logger, "Keeping the previous configuration");
         return;
     }
-
-    if (context->skip_verification_override.has_value()) {
-        config->location.skip_verification = *context->skip_verification_override;
+    {
+        std::lock_guard lock(g_waiter_mutex);
+        g_reloaded_config = std::move(config);
     }
-    if (context->loglevel_override.has_value()) {
-        if (auto loglevel = TrustTunnelCliUtils::parse_loglevel(*context->loglevel_override)) {
-            config->loglevel = *loglevel;
-        }
-    }
-    ag::Logger::set_log_level(config->loglevel);
-
-    if (auto err = client->reload(std::move(*config))) {
-        errlog(g_logger, "Failed to apply the reloaded configuration: {}", err->str());
-        return;
-    }
-    infolog(g_logger, "Configuration reloaded");
+    g_waiter.notify_all();
 }
 #endif // _WIN32
 
@@ -217,29 +201,8 @@ int main(int argc, char **argv) {
     return run_client(result);
 }
 
-int run_client(const cxxopts::ParseResult &cli_args) {
-#ifdef _WIN32
-    const std::string config_path = cli_args["config"].as<std::string>();
-#else
-    const std::string config_path =
-            std::filesystem::absolute(cli_args["config"].as<std::string>()).lexically_normal().string();
-#endif
-
-    toml::parse_result parse_result = toml::parse_file(config_path);
-    if (!parse_result) {
-        errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
-        return 1;
-    }
-
-    std::optional config_res = TrustTunnelConfig::build_config(parse_result.table());
-    if (!config_res) {
-        errlog(g_logger, "Failed to parse config");
-        return 1;
-    }
-    auto &config = *config_res;
-    if (!TrustTunnelCliUtils::apply_cmd_args(config, cli_args)) {
-        return 1;
-    }
+// Run the client with `config` until the app stops or a config is reloaded
+static int run_session(TrustTunnelConfig config) {
     ag::Logger::set_log_level(config.loglevel);
 
     vpn_post_quantum_group_set_enabled(config.post_quantum_group_enabled);
@@ -258,18 +221,6 @@ int run_client(const cxxopts::ParseResult &cli_args) {
 
     auto client = std::make_shared<TrustTunnelClient>(std::move(config), std::move(callbacks));
     g_client = client;
-#ifndef _WIN32
-    {
-        std::lock_guard lock(g_reload_mutex);
-        g_reload_context = {
-                .config_path = config_path,
-                .skip_verification_override =
-                        cli_args.count("s") > 0 ? std::optional(cli_args["s"].as<bool>()) : std::nullopt,
-                .loglevel_override =
-                        cli_args.count("l") > 0 ? std::optional(cli_args["l"].as<std::string>()) : std::nullopt,
-        };
-    }
-#endif
     AutoNetworkMonitor network_monitor(
             [client = client.get()](VpnNetworkState state) {
                 client->notify_network_change(state);
@@ -311,24 +262,47 @@ int run_client(const cxxopts::ParseResult &cli_args) {
             });
 #endif
 
-    std::unique_lock<std::mutex> lock(g_waiter_mutex);
-    g_waiter.wait(lock, []() {
-        return !keep_running.load();
-    });
+    {
+        std::unique_lock<std::mutex> lock(g_waiter_mutex);
+        g_waiter.wait(lock, []() {
+            return !keep_running.load() || g_reloaded_config.has_value();
+        });
+    }
 
 #ifdef __APPLE__
     sleep_notifier.reset();
 #endif
 
     network_monitor.stop();
-#ifndef _WIN32
-    {
-        std::lock_guard lock(g_reload_mutex);
-        g_reload_context.reset();
-    }
-#endif
     client->disconnect();
 
+    return 0;
+}
+
+int run_client(const cxxopts::ParseResult &cli_args) {
+#ifdef _WIN32
+    const std::string config_path = cli_args["config"].as<std::string>();
+#else
+    const std::string config_path =
+            std::filesystem::absolute(cli_args["config"].as<std::string>()).lexically_normal().string();
+    g_config_path = config_path;
+    g_cli_args = &cli_args;
+#endif
+
+    std::optional config = load_config(config_path, cli_args);
+    if (!config) {
+        return 1;
+    }
+    while (keep_running) {
+        if (int ret = run_session(std::move(*config)); ret != 0) {
+            return ret;
+        }
+        std::lock_guard lock(g_waiter_mutex);
+        if (!g_reloaded_config) {
+            break;
+        }
+        config = std::exchange(g_reloaded_config, std::nullopt);
+    }
     return 0;
 }
 
@@ -406,7 +380,10 @@ static std::function<void(VpnStateChangedEvent *)> get_state_changed_callback() 
             if (event->error.code != 0) {
                 errlog(g_logger, "Error: {} {}", event->error.code, safe_to_string_view(event->error.text));
             }
-            stop_trusttunnel_client();
+            if (std::lock_guard lock(g_waiter_mutex); !g_reloaded_config) {
+                // Do not stop the client if DISCONNECTED is a result of reloading the config
+                stop_trusttunnel_client();
+            }
             break;
         case VPN_SS_WAITING_RECOVERY:
             infolog(g_logger, "Waiting recovery: to next={}ms error={} {}",

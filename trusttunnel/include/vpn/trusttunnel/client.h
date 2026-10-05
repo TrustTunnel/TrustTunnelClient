@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <memory>
-#include <mutex>
 #include <thread>
 
 #include "common/autofd.h"
@@ -81,14 +80,6 @@ public:
 
     int disconnect();
 
-    /**
-     * Apply a new configuration to a running client
-     * @param config New configuration
-     * @return Error if the client failed to come up with the new configuration
-     * @note The tunnel device and routes are torn down and recreated; traffic is unprotected in between
-     */
-    Error<ConnectResultError> reload(TrustTunnelConfig &&config);
-
     void notify_network_change(VpnNetworkState state);
 
     void notify_sleep();
@@ -103,9 +94,6 @@ private:
     Error<ConnectResultError> vpn_runner(ListenerSettings listener_settings);
     Error<ConnectResultError> connect_to_server();
 
-    // Disconnect from the VPN server without taking the reload lock
-    int disconnect_impl();
-
     VpnListener *make_tun_listener(ListenerSettings listener_settings);
     VpnListener *make_socks_listener(ListenerSettings listener_settings);
 
@@ -114,7 +102,6 @@ private:
 
     VpnSessionState m_connect_result = VPN_SS_DISCONNECTED;
     const ag::Logger m_logger{"TRUSTTUNNEL_CLIENT"};
-    std::mutex m_reload_mutex;
     std::atomic<Vpn *> m_vpn = nullptr;
     TrustTunnelConfig m_config;
     std::thread m_loop_thread;
