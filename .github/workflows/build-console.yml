@@ -4,6 +4,11 @@ name: Build console apps
 # apps for Linux, macOS and Windows, signs/notarizes them, and collects every
 # platform archive into a single `release-artifacts` artifact for the caller to
 # attach to a GitHub Release.
+#
+# macOS: build-macos builds the universal binaries without signing material and
+# packs them as a build contract (xcodebuild action); sign-macos signs them with
+# the Developer ID identity (sign-apple action, material from match-sync);
+# notarize-macos notarizes, GPG-signs and packages them.
 
 on:
   workflow_dispatch:
@@ -167,9 +172,12 @@ jobs:
       - ephemeral-mac
       - ${{ needs.resolve-images.outputs.macos }}
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
+    # The build never gets signing material: without id-token it cannot read it from Vault.
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.unsigned.outputs.sha256 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -177,16 +185,6 @@ jobs:
           ref: ${{ inputs.ref }}
           # Full history + tags so git describe can resolve the version.
           fetch-depth: 0
-
-      - name: Retrieve GPG signing secrets
-        uses: hashicorp/vault-action@v4
-        with:
-          url: ${{ vars.VAULT_URL }}
-          method: jwt
-          role: gpg-signing
-          secrets: |
-            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
-            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
 
       - name: Configure environment
         run: |
@@ -208,20 +206,6 @@ jobs:
             VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Import GPG key
-        run: |
-          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
-
-      - name: Sync signing certificates
-        uses: AdGuardSoftwareLimited/apple-devices/.github/actions/match-sync@master
-        with:
-          type: developer_id
-          app_id: com.adguard.trusttunnel.cli
-          keychain_name: ${{ runner.temp }}/trusttunnel-signing.keychain-db
-          platform: macos
-          skip_profiles: "true"
-          vault_url: ${{ vars.VAULT_URL }}
 
       - name: Build universal binary
         env:
@@ -254,19 +238,135 @@ jobs:
             strip setup_wizard
           popd
 
-      - name: Code sign binaries
+      # Signed in sign-macos with the identifiers and hardened runtime used so far.
+      - name: Pack the unsigned binaries
+        id: unsigned
+        uses: AdGuardSoftwareLimited/actions/actions/xcodebuild@master
+        with:
+          signing: deferred
+          binaries-dir: build_universal
+          binaries: |
+            trusttunnel_client com.adguard.trusttunnel.client.main
+            setup_wizard com.adguard.trusttunnel.client.wizard
+          team-id: TC3Q7MAJXF
+          output-path: ${{ runner.temp }}/trusttunnel-macos-unsigned-build.zip
+
+      # Uploaded as-is (archive: false), so the artifact is named after the file.
+      - name: Upload the unsigned binaries
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/trusttunnel-macos-unsigned-build.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload to Conan and cleanup
+        if: always()
         env:
-          CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
-          CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
-          CODESIGN_IDENTIFIER_WIZARD: "com.adguard.trusttunnel.client.wizard"
-          KEYCHAIN_PATH: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          source ./venv/bin/activate
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
+  sign-macos:
+    name: Mac signing
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images, build-macos]
+    runs-on:
+      - ephemeral
+      - ephemeral-mac
+      - ${{ needs.resolve-images.outputs.macos }}
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download the unsigned binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: trusttunnel-macos-unsigned-build.zip
+          path: ${{ runner.temp }}/unsigned
+          # A raw .zip artifact would otherwise be extracted on download.
+          skip-decompress: true
+
+      - name: Sign
+        id: sign
+        uses: AdGuardSoftwareLimited/actions/actions/sign-apple@master
+        with:
+          input: ${{ runner.temp }}/unsigned/trusttunnel-macos-unsigned-build.zip
+          sha256: ${{ needs.build-macos.outputs.sha256 }}
+          method: developer_id
+          vault-url: ${{ vars.VAULT_URL }}
+
+      - name: Keep the signed binaries for notarization
+        env:
+          SIGNED_DIR: ${{ steps.sign.outputs.output-dir }}
+        run: ditto -c -k "$SIGNED_DIR" "$RUNNER_TEMP/trusttunnel-macos-signed.zip"
+
+      - name: Upload the signed binaries
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/trusttunnel-macos-signed.zip
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the signing report
+        if: always() && steps.sign.outputs.report-dir != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: trusttunnel-macos-signing-report
+          path: ${{ steps.sign.outputs.report-dir }}
+          if-no-files-found: ignore
+
+  notarize-macos:
+    name: Mac notarization and packaging
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    needs: [resolve-images, build-macos, sign-macos]
+    runs-on:
+      - ephemeral
+      - ephemeral-mac
+      - ${{ needs.resolve-images.outputs.macos }}
+      - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Download the signed binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: trusttunnel-macos-signed.zip
+          path: ${{ runner.temp }}/signed
+          # A raw .zip artifact would otherwise be extracted on download.
+          skip-decompress: true
+
+      - name: Restore the signed binaries
         run: |
           set -x -e
-          security unlock-keychain -p "" "${KEYCHAIN_PATH}"
-          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" \
-            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client
-          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER_WIZARD}" \
-            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/setup_wizard
+          mkdir -p build_universal
+          ditto -x -k "$RUNNER_TEMP/signed/trusttunnel-macos-signed.zip" build_universal
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
+
+      - name: Import GPG key
+        run: |
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
 
       - name: Notarize trusttunnel_client
         uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
@@ -282,7 +382,7 @@ jobs:
 
       - name: GPG sign and package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.build-macos.outputs.version }}
           GPG_KEY: devteam@adguard.com
         run: |
           set -x -e
@@ -306,17 +406,6 @@ jobs:
         with:
           name: release-macos
           path: build_universal/trusttunnel_client-*.tar.gz
-
-      - name: Upload to Conan and cleanup
-        if: always()
-        env:
-          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
-          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
-        run: |
-          set -x
-          source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
 
   build-windows:
     name: Windows build
@@ -492,7 +581,7 @@ jobs:
 
   collect:
     name: Collect release artifacts
-    needs: [build-linux, build-macos, package-windows]
+    needs: [build-linux, notarize-macos, package-windows]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     runs-on: [team-corelibs]
     permissions:
