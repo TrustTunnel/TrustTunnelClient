@@ -86,6 +86,7 @@ pub enum HttpError {
     HttpStatus(u16),
     BodyTooLarge,
     Tls,
+    BadPinnedCertificate,
     Transport(String),
 }
 
@@ -105,6 +106,9 @@ impl std::fmt::Display for HttpError {
             HttpError::HttpStatus(code) => write!(f, "server answered HTTP status {code}"),
             HttpError::BodyTooLarge => write!(f, "response exceeded 1 MiB"),
             HttpError::Tls => write!(f, "server certificate verification failed"),
+            HttpError::BadPinnedCertificate => {
+                write!(f, "the pinned certificate could not be parsed")
+            }
             HttpError::Transport(message) => write!(f, "request failed: {message}"),
         }
     }
@@ -314,28 +318,36 @@ fn parse_pem_certificates(pem: &str) -> Vec<rustls::Certificate> {
 pub struct UreqTransport;
 
 impl UreqTransport {
-    fn build_tls_config(request: &HttpRequest) -> rustls::ClientConfig {
+    fn root_store(request: &HttpRequest) -> Result<rustls::RootCertStore, HttpError> {
+        let mut roots = rustls::RootCertStore::empty();
+        if let Some(pem) = request.pinned_certificate_pem {
+            let (added, _) = roots.add_parsable_certificates(&parse_pem_certificates(pem));
+            if added == 0 {
+                return Err(HttpError::BadPinnedCertificate);
+            }
+        } else {
+            roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+                rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    ta.subject,
+                    ta.spki,
+                    ta.name_constraints,
+                )
+            }));
+        }
+        Ok(roots)
+    }
+
+    fn build_tls_config(request: &HttpRequest) -> Result<rustls::ClientConfig, HttpError> {
         if request.skip_verification {
-            return rustls::ClientConfig::builder()
+            return Ok(rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_custom_certificate_verifier(Arc::new(NoVerification))
-                .with_no_client_auth();
+                .with_no_client_auth());
         }
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
-        if let Some(pem) = request.pinned_certificate_pem {
-            roots.add_parsable_certificates(&parse_pem_certificates(pem));
-        }
-        rustls::ClientConfig::builder()
+        Ok(rustls::ClientConfig::builder()
             .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth()
+            .with_root_certificates(Self::root_store(request)?)
+            .with_no_client_auth())
     }
 
     fn fetch_once(
@@ -370,7 +382,7 @@ impl HttpTransport for UreqTransport {
         let mut builder = ureq::AgentBuilder::new()
             .timeout(OPERATION_TIMEOUT)
             .redirects(0)
-            .tls_config(Arc::new(Self::build_tls_config(request)));
+            .tls_config(Arc::new(Self::build_tls_config(request)?));
         if let Some(connect_address) = request.connect_address {
             builder = builder.resolver(PinnedAddressResolver::new(request.url, connect_address)?);
         }
@@ -489,6 +501,55 @@ mod tests {
         let pem = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
         let certs = parse_pem_certificates(pem);
         assert_eq!(certs.len(), 1);
+    }
+
+    // A real self-signed certificate; only its parsability matters here.
+    const TEST_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\n\
+        MIICzTCCAbWgAwIBAgIUI5i58RaE7RDhpJW/t9j2UKj4yMAwDQYJKoZIhvcNAQEL\n\
+        BQAwDzENMAsGA1UEAwwEdGVzdDAeFw0yNjEwMDUxODU1NDdaFw0yNjEwMDYxODU1\n\
+        NDdaMA8xDTALBgNVBAMMBHRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK\n\
+        AoIBAQCZouKsiNOCRoYxOBYXlHt9cQRgof6tM9n0onLrCOxWCrSsBIVYNziIDpGr\n\
+        FDJIc+bo71hXLlmUawp+F5jVzkXkH+hhyOSkb00aQDnd0o1GZW4yi2XSKtDyFbpe\n\
+        YWhAfNCyaHd6OKF8NltmWnHZbLxLfuGSkUOq7c2IyhfbgO3jB09AhtveBP4+GIHU\n\
+        myfBI3d4hAP2pP84L5seHjZSe9sP/Re6cik/3nxTEAFR5LkSTd6wCUYd++ezd9ru\n\
+        T5RrjWqk18jemsMqViOlpMMDz7xboOk5k7GAJbCFAncR3yS+x5HeTfuTFTOiH8t5\n\
+        sbKZg32WCX24PufuSCReJ9UZt1ndAgMBAAGjITAfMB0GA1UdDgQWBBRoCQIn3GGR\n\
+        dT7yykti8S/mz8vCjTANBgkqhkiG9w0BAQsFAAOCAQEAHzb4YoKIxaNHLHQMYGj0\n\
+        9O52KlKPTNnrGcJJ2La06ZTwVl/ob7sCU4LSduYQ80hwjQehSLaiYT+eUByk+ZyZ\n\
+        1JcZWBCe0/EiSDyabEpyV9mbQno/bnw5Ih9qlmGLQg5BQBg/rogSYUL01JLM8k2p\n\
+        vHQo0Vo+hwJk2G66UgcHSVw/nSdX/Og0EvdvigATQ5jBc61jjXxukzQ3fNHjX/Oj\n\
+        5IgWD4pka+J8XIlczIxpRwyzLbXOahGeejusUibMcwt/ASo4l7HFDinvdPBQ1swS\n\
+        2WtNQ80ad3te7ohKHOst4+vvdkW3O6E5Jslch5OiW9czn1NNcMHLwNC3Bpkt7HuH\n\
+        zg==\n\
+        -----END CERTIFICATE-----\n";
+
+    fn request_with_pin(pin: Option<&str>) -> HttpRequest<'_> {
+        HttpRequest {
+            url: "https://vpn.example.com/s",
+            pinned_certificate_pem: pin,
+            skip_verification: false,
+            connect_address: None,
+        }
+    }
+
+    #[test]
+    fn valid_pin_is_the_only_trust_anchor() {
+        let store = UreqTransport::root_store(&request_with_pin(Some(TEST_CERT_PEM))).unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn unparsable_pin_is_an_error_not_a_fallback_to_public_roots() {
+        let err =
+            UreqTransport::root_store(&request_with_pin(Some("not a certificate"))).unwrap_err();
+        assert!(matches!(err, HttpError::BadPinnedCertificate));
+        assert!(err.to_string().contains("pinned certificate"));
+    }
+
+    #[test]
+    fn public_roots_are_used_without_a_pin() {
+        let store = UreqTransport::root_store(&request_with_pin(None)).unwrap();
+        assert!(store.len() > 1);
     }
 
     struct FakeTransport(Result<Vec<u8>, HttpError>);
