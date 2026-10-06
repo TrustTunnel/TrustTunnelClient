@@ -14,6 +14,8 @@ jobs:
     name: Build binaries
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     needs: [resolve-images]
+    # Builds take ~6 minutes; the default limit for self-hosted runners is 24 hours.
+    timeout-minutes: 45
     runs-on:
       - ephemeral
       - ephemeral-linux
@@ -64,6 +66,8 @@ jobs:
     name: Run integration tests
     needs: [build-binaries, resolve-images]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    # The checks take ~2 minutes; the timeout only catches a hung run.
+    timeout-minutes: 30
     runs-on:
       - ephemeral
       - ephemeral-linux
