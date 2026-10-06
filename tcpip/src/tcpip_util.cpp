@@ -4,6 +4,7 @@
 #include <unistd.h>
 #endif
 
+#include <errno.h>
 #include <string.h>
 
 #include <event2/util.h>
@@ -15,6 +16,19 @@
 #include "tcpip/tcpip.h"
 
 namespace ag {
+
+TunReadStatus tun_read_status(ptrdiff_t bytes_read, int err) {
+    if (bytes_read > 0) {
+        return TRS_OK;
+    }
+    if (bytes_read == 0) { // end of file, errno is not meaningful
+        return TRS_FATAL;
+    }
+    if (EWOULDBLOCK == err || EAGAIN == err || EINTR == err) {
+        return TRS_STOP;
+    }
+    return TRS_FATAL;
+}
 
 SocketAddress ip_addr_to_socket_address(const ip_addr_t *addr, uint16_t port) {
     SocketAddressStorage storage = {};
