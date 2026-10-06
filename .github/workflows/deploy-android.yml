@@ -75,7 +75,20 @@ jobs:
           TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
         run: |
           cd platform/android
-          ./gradlew :lib:publishReleasePublicationToGitHubPackagesRepository
+          # Skip re-publishing a version that is already on GitHub Packages:
+          # re-running a release would otherwise fail with HTTP 409 Conflict.
+          if [ -n "${TT_CLIENT_VERSION}" ]; then
+            version="${TT_CLIENT_VERSION}"
+          else
+            version="$(git describe --tags --match 'v*' | sed 's/^v//')"
+          fi
+          artifact_url="https://maven.pkg.github.com/TrustTunnel/TrustTunnelClient/com/adguard/trusttunnel/trusttunnel-client-android/${version}/trusttunnel-client-android-${version}.aar"
+          http_code="$(curl -s -o /dev/null -w '%{http_code}' -u "${USERNAME}:${TOKEN}" "${artifact_url}")"
+          if [ "${http_code}" = "200" ]; then
+            echo "::warning::${version} is already published on GitHub Packages; skipping publish."
+          else
+            ./gradlew :lib:publishReleasePublicationToGitHubPackagesRepository
+          fi
 
       # Upload the Conan packages built above (including dependencies) so that
       # subsequent builds download them instead of rebuilding from source.
