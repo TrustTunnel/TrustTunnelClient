@@ -42,6 +42,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      has_windows: ${{ steps.check_windows.outputs.present }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -50,7 +51,20 @@ jobs:
           # Full history + tags so git describe can resolve the version.
           fetch-depth: 0
 
+      - name: Check Windows build scripts
+        id: check_windows
+        shell: powershell
+        run: |
+          if (Test-Path 'platform\windows\scripts\build.ps1') {
+            "present=true" | Out-File -FilePath $Env:GITHUB_OUTPUT -Append
+            Write-Host "Windows build scripts present."
+          } else {
+            "present=false" | Out-File -FilePath $Env:GITHUB_OUTPUT -Append
+            Write-Host "::warning::platform/windows/scripts/build.ps1 not found in this ref; skipping the Windows adapter build."
+          }
+
       - name: Configure Conan
+        if: steps.check_windows.outputs.present == 'true'
         env:
           CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
         run: |
@@ -58,6 +72,7 @@ jobs:
         shell: powershell
 
       - name: Detect version
+        if: steps.check_windows.outputs.present == 'true'
         id: version
         shell: powershell
         run: |
@@ -71,6 +86,7 @@ jobs:
           "version=$VERSION" | Out-File -FilePath $Env:GITHUB_OUTPUT -Append
 
       - name: Build
+        if: steps.check_windows.outputs.present == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
@@ -101,6 +117,7 @@ jobs:
         shell: powershell
 
       - name: Upload unsigned staging
+        if: steps.check_windows.outputs.present == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: windows-adapter-unsigned
@@ -108,7 +125,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to Conan and cleanup
-        if: always()
+        if: always() && steps.check_windows.outputs.present == 'true'
         env:
           ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
           ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
@@ -124,7 +141,7 @@ jobs:
   sign-windows:
     name: Sign Windows binaries
     needs: [build-windows]
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client' && needs.build-windows.outputs.has_windows == 'true'
     permissions:
       contents: read
       id-token: write
@@ -140,7 +157,7 @@ jobs:
 
   publish-windows:
     name: Deploy library / Windows
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client' && needs.build-windows.outputs.has_windows == 'true'
     needs: [resolve-images, build-windows, sign-windows]
     environment: windows-gh-packages
     runs-on:
