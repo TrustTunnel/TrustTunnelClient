@@ -8,11 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- A way for the application to communicate the reason for certificate verification failure
-  and a new VPN error code for "endpoint certificate is not yet valid". The intention is to
-  help the application to identify and warn the user of a possibly incorrectly set wall clock.
-    - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
-
 ### Changed
 
 ### Deprecated
@@ -22,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.11] - 2026-10-07
+
+### Added
+
+- A way for the application to communicate the reason for certificate verification failure
+  and a new VPN error code for "endpoint certificate is not yet valid". The intention is to
+  help the application to identify and warn the user of a possibly incorrectly set wall clock.
+    - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
 
 ## [1.1.10] - 2026-10-02
 
@@ -463,7 +467,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.10...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.11...HEAD
+[1.1.11]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.7...v1.1.8
