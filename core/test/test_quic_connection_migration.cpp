@@ -206,7 +206,7 @@ size_t TestListener::g_next_connection_id = START_CONNECTION_ID;
 static vpn_client::Event g_last_raised_vpn_event;
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, CertVerifyCtx & /*ctx*/, void * /*arg*/) {
     return 1;
 }
 
