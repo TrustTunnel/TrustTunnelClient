@@ -48,7 +48,7 @@ jobs:
               export CONAN_REPO_URL='${{ vars.CONAN_REPO_URL }}'
               cat > Dockerfile <<'EOF'
               # syntax=docker/dockerfile:1
-              FROM adguard/core-libs:2.12 AS build
+              FROM adguard/core-libs:2.15 AS build
 
               # sccache caches the compilations; the pinned binary is installed
               # before COPY . . so this layer stays cached across source changes.
@@ -268,7 +268,7 @@ jobs:
       - ephemeral-limit-memory-12288
       - ephemeral-limit-cpu-8
     container:
-      image: adguard/core-libs:2.12
+      image: adguard/core-libs:2.15
     steps:
       - name: Checkout
         uses: actions/checkout@v6

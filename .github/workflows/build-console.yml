@@ -49,7 +49,7 @@ jobs:
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
       # 2.12 is the first image with zig, which the musl-cross-* presets use.
-      image: adguard/core-libs:2.12
+      image: adguard/core-libs:2.15
     permissions:
       contents: read
       id-token: write
