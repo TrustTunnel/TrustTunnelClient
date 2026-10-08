@@ -172,12 +172,11 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
     };
 
     Ok(DeepLinkConfig {
-        hostname: Some(endpoint.hostname.clone()),
+        hostname: endpoint.hostname.clone(),
         addresses: endpoint.addresses.clone(),
-        username: Some(endpoint.username.clone()),
-        password: Some(endpoint.password.clone()),
+        username: endpoint.username.clone(),
+        password: endpoint.password.clone(),
         client_random_prefix: endpoint.client_random.split('/').next().and_then(non_empty),
-        client_random_auth_key: non_empty(&endpoint.client_random_auth_key),
         custom_sni: non_empty(&endpoint.custom_sni),
         has_ipv6: endpoint.has_ipv6,
         skip_verification: endpoint.skip_verification,
@@ -186,7 +185,6 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
         anti_dpi: endpoint.anti_dpi,
         name: endpoint.name.as_deref().and_then(non_empty),
         dns_upstreams: endpoint.dns_upstreams.clone(),
-        subscription_url: None,
     })
 }
 
@@ -388,7 +386,6 @@ omxU7kknZApM\n\
             username: "alice".into(),
             password: "s3cr3t".into(),
             client_random: "aabb/ffff".into(),
-            client_random_auth_key: "aabbccdd".into(),
             skip_verification: true,
             certificate: Some(TEST_CERT_CHAIN_PEM.into()),
             upstream_protocol: "http3".into(),
@@ -404,12 +401,11 @@ omxU7kknZApM\n\
     fn test_deeplink_config_from_endpoint_maps_fields() {
         let config = deeplink_config_from_endpoint(&sample_endpoint()).unwrap();
 
-        assert_eq!(config.hostname.as_deref(), Some("vpn.example.com"));
+        assert_eq!(config.hostname, "vpn.example.com");
         assert_eq!(config.addresses, vec!["1.2.3.4:443", "[::1]:8443"]);
-        assert_eq!(config.username.as_deref(), Some("alice"));
-        assert_eq!(config.password.as_deref(), Some("s3cr3t"));
+        assert_eq!(config.username, "alice");
+        assert_eq!(config.password, "s3cr3t");
         assert_eq!(config.client_random_prefix.as_deref(), Some("aabb"));
-        assert_eq!(config.client_random_auth_key.as_deref(), Some("aabbccdd"));
         assert_eq!(config.custom_sni.as_deref(), Some("sni.example.com"));
         assert!(!config.has_ipv6);
         assert!(config.skip_verification);
@@ -417,7 +413,6 @@ omxU7kknZApM\n\
         assert_eq!(config.upstream_protocol, Protocol::Http3);
         assert_eq!(config.name.as_deref(), Some("Example VPN"));
         assert_eq!(config.dns_upstreams, vec!["tls://dns.adguard-dns.com"]);
-        assert_eq!(config.subscription_url, None);
 
         let certificate = config.certificate.expect("certificate must be exported");
         let pem = trusttunnel_deeplink::cert::der_to_pem(&certificate).unwrap();
@@ -438,7 +433,6 @@ omxU7kknZApM\n\
         let config = deeplink_config_from_endpoint(&endpoint).unwrap();
 
         assert_eq!(config.client_random_prefix, None);
-        assert_eq!(config.client_random_auth_key, None);
         assert_eq!(config.custom_sni, None);
         assert_eq!(config.certificate, None);
         assert_eq!(config.name, None);
@@ -486,10 +480,6 @@ omxU7kknZApM\n\
         assert_eq!(restored.username, endpoint.username);
         assert_eq!(restored.password, endpoint.password);
         assert_eq!(restored.client_random, "aabb");
-        assert_eq!(
-            restored.client_random_auth_key,
-            endpoint.client_random_auth_key
-        );
         assert_eq!(restored.custom_sni, endpoint.custom_sni);
         assert_eq!(restored.has_ipv6, endpoint.has_ipv6);
         assert_eq!(restored.skip_verification, endpoint.skip_verification);
