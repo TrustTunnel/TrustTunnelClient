@@ -147,7 +147,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (result.count("export-deeplink") > 0) {
+    if (result["export-deeplink"].as<bool>()) {
+        // The export path reads no `loglevel` from the configuration, so apply the command line one.
+        auto loglevel = TrustTunnelCliUtils::parse_loglevel(result["loglevel"].as<std::string>());
+        if (!loglevel) {
+            errlog(g_logger, "Unexpected log level: {}", result["loglevel"].as<std::string>());
+            return 1;
+        }
+        ag::Logger::set_log_level(*loglevel);
         return export_deeplink(result["config"].as<std::string>());
     }
 
@@ -177,26 +184,13 @@ static int export_deeplink(const std::string &config_path) {
         return 1;
     }
 
-    const toml::table *endpoint_table = parse_result.table()["endpoint"].as_table();
-    if (endpoint_table == nullptr) {
-        errlog(g_logger, "Endpoint configuration is not a table");
+    std::optional export_table = TrustTunnelConfig::build_deeplink_export_table(parse_result.table());
+    if (!export_table) {
         return 1;
     }
 
-    toml::table endpoint = *endpoint_table;
-    std::string hostname = endpoint["hostname"].value_or(std::string{});
-    std::string certificate = endpoint["certificate"].value_or(std::string{});
-    if (!certificate.empty() && TrustTunnelConfig::is_certificate_system_verifiable(certificate, hostname)) {
-        endpoint.insert_or_assign("certificate", std::string{});
-    }
-    if (endpoint["client_random"].value_or(std::string{}).find('/') != std::string::npos) {
-        warnlog(g_logger, "client_random mask is not supported by the deep-link format and will be omitted");
-    }
-
-    toml::table wrapper;
-    wrapper.insert("endpoint", std::move(endpoint));
     std::ostringstream stream;
-    stream << wrapper;
+    stream << *export_table;
 
     DeepLinkError *error = nullptr;
     char *uri = trusttunnel_deeplink_encode(stream.str().c_str(), &error);

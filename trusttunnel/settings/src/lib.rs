@@ -108,6 +108,11 @@ impl Endpoint {
          If set, this value is used as the TLS SNI instead of the hostname."
     }
 
+    pub fn doc_name() -> &'static str {
+        "Human-readable server display name.\n\
+         Exported in the deep-link, unused otherwise."
+    }
+
     pub fn doc_dns_upstreams() -> &'static str {
         "DNS upstreams. Default: AdGuard DNS unfiltered.\n\
          One of the following kinds:\n\

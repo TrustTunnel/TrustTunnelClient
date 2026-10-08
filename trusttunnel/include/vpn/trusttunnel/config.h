@@ -75,11 +75,28 @@ struct TrustTunnelConfig {
     static std::optional<TrustTunnelConfig> build_config(const toml::table &config);
 
     /**
-     * Check if a PEM certificate chain can be verified with the system trust store.
+     * Check if a PEM certificate chain can be verified with a trust store.
      * @param pem_bundle PEM-encoded certificate chain (leaf certificate first)
-     * @param hostname Hostname to verify the leaf certificate against
-     * @return true if the chain is verifiable by system CAs, false otherwise
+     * @param hostname Hostname to verify the leaf certificate against. The pipe syntax
+     *                 (`sni|remote_id`) is accepted, in which case the leaf certificate is
+     *                 verified against the `remote_id` part, just like at connect time
+     * @param store Trusted CA store, the system one is used if null. Intended for tests
+     * @return true if the chain is verifiable by the trust store, false otherwise
      */
-    static bool is_certificate_system_verifiable(std::string_view pem_bundle, std::string_view hostname);
+    static bool is_certificate_system_verifiable(
+            std::string_view pem_bundle, std::string_view hostname, X509_STORE *store = nullptr);
+
+    /**
+     * Build the `[endpoint]` table to be encoded as a deep-link out of a parsed configuration.
+     *
+     * Empty `addresses` and `dns_upstreams` entries are dropped, just like at connect time.
+     * The certificate is omitted when the endpoint certificate chain is verifiable with the
+     * system trust store, or when the verification is skipped altogether.
+     * @param config Root table of the client configuration
+     * @param store Trusted CA store, the system one is used if null. Intended for tests
+     * @return Table holding the single `endpoint` key, or `std::nullopt` on an invalid configuration
+     */
+    static std::optional<toml::table> build_deeplink_export_table(
+            const toml::table &config, X509_STORE *store = nullptr);
 };
 } // namespace ag

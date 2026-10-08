@@ -252,12 +252,18 @@ client (for example, the desktop app), export it as a `tt://` deep-link:
 ./trusttunnel_client --export-deeplink --config <path/to/configuration/file.toml>
 ```
 
-The command prints the deep-link and exits. The link includes the server name
-and the DNS upstreams from the configuration. The certificate is embedded only
-when it cannot be verified with the system certificate store.
+The command prints the deep-link to the standard output and exits, leaving the
+configuration untouched. The link includes the server name and the DNS
+upstreams from the configuration.
+
+The certificate is embedded only when it is needed by the importing client,
+that is, it is omitted when the chain can be verified with the system
+certificate store, and when `skip_verification` is enabled.
 
 The deep-link format carries only a client random prefix, not a mask, so a
 `client_random` value in `prefix/mask` form is exported as its prefix only.
+It has no `auto` upstream protocol either, so `auto` is exported as `http2`.
+Both cases are reported as a warning.
 
 ---
 

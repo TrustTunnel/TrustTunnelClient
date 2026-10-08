@@ -91,7 +91,8 @@ static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view
     return store;
 }
 
-bool TrustTunnelConfig::is_certificate_system_verifiable(std::string_view pem_bundle, std::string_view hostname) {
+bool TrustTunnelConfig::is_certificate_system_verifiable(
+        std::string_view pem_bundle, std::string_view hostname, X509_STORE *store) {
     UniquePtr<BIO, &BIO_free> bio{BIO_new_mem_buf(pem_bundle.data(), static_cast<int>(pem_bundle.size()))};
     if (!bio) {
         return false;
@@ -111,6 +112,15 @@ bool TrustTunnelConfig::is_certificate_system_verifiable(std::string_view pem_bu
         return false;
     }
 
+    // With the pipe syntax (`sni|remote_id`) the certificate is verified against the part
+    // after the pipe at connect time, so apply the same rule here.
+    if (auto pipe_pos = hostname.find('|'); pipe_pos != std::string_view::npos) {
+        hostname = hostname.substr(pipe_pos + 1);
+    }
+    if (hostname.empty()) {
+        return false;
+    }
+
     STACK_OF(X509) *chain = sk_X509_new_null();
     if (chain == nullptr) {
         return false;
@@ -122,10 +132,76 @@ bool TrustTunnelConfig::is_certificate_system_verifiable(std::string_view pem_bu
         }
     }
 
-    bool verified = tls_verify_cert(certs[0].get(), chain, nullptr) == nullptr
+    bool verified = tls_verify_cert(certs[0].get(), chain, store) == nullptr
             && tls_verify_cert_host_name(certs[0].get(), std::string(hostname).c_str());
     sk_X509_free(chain);
     return verified;
+}
+
+/// Collect the non-empty string entries of a TOML array into a new array.
+static toml::array collect_non_empty_strings(const toml::array *array) {
+    toml::array result;
+    if (array == nullptr) {
+        return result;
+    }
+    for (const auto &entry : *array) {
+        if (std::optional value = entry.value<std::string_view>(); value.has_value() && !value->empty()) {
+            result.push_back(std::string(*value));
+        }
+    }
+    return result;
+}
+
+std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
+        const toml::table &config, X509_STORE *store) {
+    const toml::table *endpoint_table = config["endpoint"].as_table();
+    if (endpoint_table == nullptr) {
+        errlog(g_logger, "Endpoint configuration is not a table");
+        return std::nullopt;
+    }
+
+    toml::table endpoint = *endpoint_table;
+
+    auto hostname = endpoint["hostname"].value_or(std::string{});
+    if (hostname.empty()) {
+        errlog(g_logger, "Endpoint hostname is not specified");
+        return std::nullopt;
+    }
+
+    toml::array addresses = collect_non_empty_strings(endpoint["addresses"].as_array());
+    if (addresses.empty()) {
+        errlog(g_logger, "Endpoint addresses are invalid or not specified");
+        return std::nullopt;
+    }
+    endpoint.insert_or_assign("addresses", std::move(addresses));
+
+    if (const auto *dns_upstreams = endpoint["dns_upstreams"].as_array(); dns_upstreams != nullptr) {
+        endpoint.insert_or_assign("dns_upstreams", collect_non_empty_strings(dns_upstreams));
+    }
+
+    // The certificate is only needed by the importing client when it cannot verify the chain
+    // on its own, and it is not needed at all when the verification is skipped.
+    bool skip_verification = endpoint["skip_verification"].value_or(false);
+    if (auto certificate = endpoint["certificate"].value_or(std::string{}); !certificate.empty()) {
+        if (skip_verification) {
+            endpoint.insert_or_assign("certificate", std::string{});
+            warnlog(g_logger, "Certificate verification is skipped, omitting the certificate from the deep-link");
+        } else if (is_certificate_system_verifiable(certificate, hostname, store)) {
+            endpoint.insert_or_assign("certificate", std::string{});
+        }
+    }
+
+    if (endpoint["client_random"].value_or(std::string{}).find('/') != std::string::npos) {
+        warnlog(g_logger, "client_random mask is not supported by the deep-link format and will be omitted");
+    }
+
+    if (endpoint["upstream_protocol"].value_or(std::string{}) == "auto") {
+        warnlog(g_logger, R"(The deep-link format has no "auto" upstream protocol, exporting as "http2")");
+    }
+
+    toml::table wrapper;
+    wrapper.insert("endpoint", std::move(endpoint));
+    return wrapper;
 }
 
 static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::table &config) {
