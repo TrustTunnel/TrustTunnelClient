@@ -73,5 +73,13 @@ struct TrustTunnelConfig {
     Listener listener;
 
     static std::optional<TrustTunnelConfig> build_config(const toml::table &config);
+
+    /**
+     * Check if a PEM certificate chain can be verified with the system trust store.
+     * @param pem_bundle PEM-encoded certificate chain (leaf certificate first)
+     * @param hostname Hostname to verify the leaf certificate against
+     * @return true if the chain is verifiable by system CAs, false otherwise
+     */
+    static bool is_certificate_system_verifiable(std::string_view pem_bundle, std::string_view hostname);
 };
 } // namespace ag

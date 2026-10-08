@@ -1,0 +1,58 @@
+#include <gtest/gtest.h>
+
+#include "vpn/trusttunnel/config.h"
+
+using namespace ag;
+
+// Two-certificate PEM chain: leaf (CN=vpn.example.com) + CA (CN=Test CA).
+// The CA is not present in the system trust store.
+static constexpr std::string_view TEST_CERT_CHAIN_PEM = R"(-----BEGIN CERTIFICATE-----
+MIIC/DCCAeSgAwIBAgIUCI9VIilTMYZq4JfFnFjCuQsAiGIwDQYJKoZIhvcNAQEL
+BQAwEjEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjAyMjYxMzEyMDBaFw0yNzAyMjYx
+MzEyMDBaMBoxGDAWBgNVBAMMD3Zwbi5leGFtcGxlLmNvbTCCASIwDQYJKoZIhvcN
+AQEBBQADggEPADCCAQoCggEBAKnrz9FwFq2xRpOu0D+2hFwymMaixPr556MuB4P1
+nLv8vqRQ3MBZn7p48QTywO5OAqIDL27hpigM1e2tc45UuAuaMYoz+Ryty3O75k9X
+sdYaVaupOLNWBtbjNntRzFgMpYwbz+lZYuaKqwdRmCJM71Af2jt7aPGSUXeMMR/A
+QZZNlRfQuA6NdmhzNsXjaA6xLDBYPk1nGYnFpMxOTlOD9jhM/lImrAMDBATEoMXO
+CyhEclgbJtYla6D5Q5Go3NlbMLPr6zOddoL5g7MkQmerODiWlLAlMPIvC33Bz9FU
+Dn5wVJ8G5gSFDjq66cL30a9Gq8lWStuy9d3WeXSY5WcBzoMCAwEAAaNCMEAwHQYD
+VR0OBBYEFB/yEYFRHwyDdA8/EaeiIi/padZgMB8GA1UdIwQYMBaAFGuqVmspjq2L
+h+FhwZJL3VYEm58DMA0GCSqGSIb3DQEBCwUAA4IBAQBqloNE2yxi/6x3KMOVS4bN
++576mpwU+Kx3bDvAvEP8kNtnvOvLKYATaIHsWK+uHvVjYPf7Nw1InUg3GKnE86IH
+mr1PgUri9ECKucg9UkOyzdS2VdeWeL+ME2POpg3ARXici5vUngzcKPQmVBu27PSK
+dUgkNHQPSxWkBytrxLBi3dynL5qnyoOfzmXkl1odV5XPE77NtvoR4LD5z1/Tn4a1
+StvzAN22qiDLkP4MwOir5r21bShJt4otXyNXFZHA0gE19AjLxmknms8D2v3L4ytx
+UGXW9acA8MoG1D+TT6jQjGqupznNL/73xMRYazqFjaVCpmaaSYGP41AkLsHuiMti
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIDBTCCAe2gAwIBAgIUJQlOhwer2yHQbyhVtk86+1587qowDQYJKoZIhvcNAQEL
+BQAwEjEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjAyMjYxMzEyMDBaFw0yNzAyMjYx
+MzEyMDBaMBIxEDAOBgNVBAMMB1Rlc3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IB
+DwAwggEKAoIBAQCbWJQG4lT5uK571FUQqgZuPcfeCtuvI+WCIfxmGk58zI0wmBDS
+zaZroUVvcEV4qva+03hDENsKNTypDDlMrd83qzc3rEOLBezNrSQVlbiTNG7lYHU1
+3lw9//BlvNmjVBHcQ0643Q+XilG7sDSt3KuqoAT2CiLxm4A/xVN/uzfAoBZhFn5h
+oik448kqXXNh6PsofoZO3jTh+4JZuD++xvj+cVdKzH25UIWWCJxBrNqR9zXo8WO5
+UFcxxVWnHSqpS8dvpFGVj6B7kyjZZb7TSYYuEJoMplN3uR25nMHgrXse0mvatCRi
+uDygNx6Vzg2R7akQXD0bqBVyRmzKY/xAO7CLAgMBAAGjUzBRMB0GA1UdDgQWBBRr
+qlZrKY6ti4fhYcGSS91WBJufAzAfBgNVHSMEGDAWgBRrqlZrKY6ti4fhYcGSS91W
+BJufAzAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCII03BWTUn
+nT2HJrh67ywq34UwWFqqJA0AQIetpS933waW01yr7YJxq3TAznVgsiXKkU/9bFvx
+9u4mnzMHy+LJeGw5TtveDmKz22Jr45KH0ug3kikqdPVqB+ur2Kx73ao0SXFCyeIi
+6E57QnwyAWmSxIKzjIDreMr0Y2tWRfwvgsRkxZZP3Ps+SQakz6yfYoSJesJxJ0o2
+OzTTMTfK4lR2f/QP4MGp8E0dImkfm9eLq6be8VoaNt2nx1MqiD2AxMF3w7FAXmCS
+jhjuhML7Zp8c0/3g+r/60sv/9x4DrPeXTYrGCK+qLgZ1qxpwIARNbl780fGnZCIf
+omxU7kknZApM
+-----END CERTIFICATE-----
+)";
+
+TEST(TrustTunnelConfigTest, SelfSignedChainIsNotSystemVerifiable) {
+    EXPECT_FALSE(TrustTunnelConfig::is_certificate_system_verifiable(TEST_CERT_CHAIN_PEM, "vpn.example.com"));
+}
+
+TEST(TrustTunnelConfigTest, EmptyPemIsNotSystemVerifiable) {
+    EXPECT_FALSE(TrustTunnelConfig::is_certificate_system_verifiable("", "vpn.example.com"));
+}
+
+TEST(TrustTunnelConfigTest, InvalidPemIsNotSystemVerifiable) {
+    EXPECT_FALSE(TrustTunnelConfig::is_certificate_system_verifiable("not a certificate", "vpn.example.com"));
+}

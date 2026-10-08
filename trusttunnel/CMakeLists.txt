@@ -296,6 +296,14 @@ set_target_properties(trusttunnel_deeplink_ffi PROPERTIES
 )
 add_dependencies(trusttunnel_deeplink_ffi ${DEEPLINK_FFI_BUILD_TARGET})
 
+target_link_libraries(trusttunnel_client trusttunnel_deeplink_ffi)
+# System libraries required by the Rust standard library linked into the client.
+if (WIN32)
+    target_link_libraries(trusttunnel_client bcrypt userenv ws2_32 ntdll)
+elseif (UNIX AND NOT APPLE AND NOT ANDROID)
+    target_link_libraries(trusttunnel_client dl pthread m)
+endif ()
+
 enable_testing()
 if (NOT ANDROID)
     add_dependencies(tests
@@ -310,3 +318,4 @@ include(${VPN_LIB_DIR}/cmake/add_unit_test.cmake)
 set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
 add_unit_test(test_persistent_ring_buffer "${TEST_DIR}" "" TRUE TRUE)
+add_unit_test(test_trusttunnel_config "${TEST_DIR}" "" TRUE TRUE)

@@ -126,6 +126,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
 | `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `safari`, `firefox`, `okhttp`, `openssl`, or `default` (no mimicry) |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
+| `name` | string | `null` | Human-readable server display name. Included in the deep-link when exporting with `--export-deeplink` |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN. If empty, AdGuard DNS unfiltered is used |
 
 ### TUN Listener Settings (`[listener.tun]`)
@@ -238,6 +239,21 @@ To run the TrustTunnel CLI Client, execute the following command:
 Replace `<path/to/configuration/file.toml>` with the actual path to your
 configuration file. You may need to run the command with superuser privileges
 if a TUN device is selected.
+
+---
+
+## Exporting a Deep-Link
+
+To transfer the endpoint configured in the CLI client to another TrustTunnel
+client (for example, the desktop app), export it as a `tt://` deep-link:
+
+```shell
+./trusttunnel_client --export-deeplink --config <path/to/configuration/file.toml>
+```
+
+The command prints the deep-link and exits. The link includes the server name
+and the DNS upstreams from the configuration. The certificate is embedded only
+when it cannot be verified with the system certificate store.
 
 ---
 

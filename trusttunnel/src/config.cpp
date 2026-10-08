@@ -91,6 +91,43 @@ static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view
     return store;
 }
 
+bool TrustTunnelConfig::is_certificate_system_verifiable(std::string_view pem_bundle, std::string_view hostname) {
+    UniquePtr<BIO, &BIO_free> bio{BIO_new_mem_buf(pem_bundle.data(), static_cast<int>(pem_bundle.size()))};
+    if (!bio) {
+        return false;
+    }
+
+    std::vector<UniquePtr<X509, &X509_free>> certs;
+    for (;;) {
+        UniquePtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
+        if (!cert) {
+            ERR_clear_error();
+            break;
+        }
+        certs.push_back(std::move(cert));
+    }
+
+    if (certs.empty()) {
+        return false;
+    }
+
+    STACK_OF(X509) *chain = sk_X509_new_null();
+    if (chain == nullptr) {
+        return false;
+    }
+    for (size_t i = 1; i < certs.size(); ++i) {
+        if (sk_X509_push(chain, certs[i].get()) == 0) {
+            sk_X509_free(chain);
+            return false;
+        }
+    }
+
+    bool verified = tls_verify_cert(certs[0].get(), chain, nullptr) == nullptr
+            && tls_verify_cert_host_name(certs[0].get(), std::string(hostname).c_str());
+    sk_X509_free(chain);
+    return verified;
+}
+
 static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::table &config) {
     TrustTunnelConfig::Location location;
     std::vector<TrustTunnelConfig::Endpoint> endpoint;

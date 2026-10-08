@@ -35,7 +35,22 @@ const char *trusttunnel_deeplink_error_message(const DeepLinkError *);
 char *trusttunnel_deeplink_decode(const char *, DeepLinkError **);
 
 /**
- * Free a string returned by `trusttunnel_deeplink_decode`.
+ * Encode an `[endpoint]` TOML section into a NULL-terminated `tt://` URI.
+ *
+ * The input must use the same `[endpoint]` TOML layout that
+ * `trusttunnel_deeplink_decode` produces.
+ *
+ * On success returns a heap-allocated string the caller MUST free with
+ * `trusttunnel_deeplink_string_free`.
+ * On failure returns NULL and, if `error` is non-NULL, writes a newly
+ * allocated `DeepLinkError` into `*error`; free it with
+ * `trusttunnel_deeplink_error_free`.
+ */
+char *trusttunnel_deeplink_encode(const char *, DeepLinkError **);
+
+/**
+ * Free a string returned by `trusttunnel_deeplink_decode` or
+ * `trusttunnel_deeplink_encode`.
  * Passing NULL is safe and has no effect.
  */
 void trusttunnel_deeplink_string_free(char *);

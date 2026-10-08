@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -18,6 +19,7 @@
 #include "common/socket_address.h"
 #include "net/network_manager.h"
 #include "net/tls.h"
+#include "trusttunnel_deeplink.h"
 #include "utils.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
@@ -60,6 +62,7 @@ static bool g_svc_running = false;
 #endif
 
 int run_client(const cxxopts::ParseResult &cli_args);
+static int export_deeplink(const std::string &config_path);
 
 static void stop_trusttunnel_client() {
     keep_running = false;
@@ -121,6 +124,7 @@ int main(int argc, char **argv) {
             ("s", "Skip verify certificate", cxxopts::value<bool>()->default_value("false"))
             ("c,config", "Config file name.", cxxopts::value<std::string>()->default_value(std::string(DEFAULT_CONFIG_FILE)))
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
+            ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage");
 #ifdef _WIN32
     args.add_options()
@@ -143,6 +147,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (result.count("export-deeplink") > 0) {
+        return export_deeplink(result["config"].as<std::string>());
+    }
+
 #ifdef _WIN32
     if (result.count("service-install") && result.count("service-uninstall")) {
         errlog(g_logger, "--service-install and --service-uninstall are mutually exclusive");
@@ -160,6 +168,48 @@ int main(int argc, char **argv) {
 #endif
 
     return run_client(result);
+}
+
+static int export_deeplink(const std::string &config_path) {
+    toml::parse_result parse_result = toml::parse_file(config_path);
+    if (!parse_result) {
+        errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
+        return 1;
+    }
+
+    const toml::table *endpoint_table = parse_result.table()["endpoint"].as_table();
+    if (endpoint_table == nullptr) {
+        errlog(g_logger, "Endpoint configuration is not a table");
+        return 1;
+    }
+
+    toml::table endpoint = *endpoint_table;
+    std::string hostname = endpoint["hostname"].value_or(std::string{});
+    std::string certificate = endpoint["certificate"].value_or(std::string{});
+    if (!certificate.empty() && TrustTunnelConfig::is_certificate_system_verifiable(certificate, hostname)) {
+        endpoint.insert_or_assign("certificate", std::string{});
+    }
+    if (endpoint["client_random"].value_or(std::string{}).find('/') != std::string::npos) {
+        warnlog(g_logger, "client_random mask is not supported by the deep-link format and will be omitted");
+    }
+
+    toml::table wrapper;
+    wrapper.insert("endpoint", std::move(endpoint));
+    std::ostringstream stream;
+    stream << wrapper;
+
+    DeepLinkError *error = nullptr;
+    char *uri = trusttunnel_deeplink_encode(stream.str().c_str(), &error);
+    if (uri == nullptr) {
+        const char *message = error != nullptr ? trusttunnel_deeplink_error_message(error) : "unknown error";
+        errlog(g_logger, "Failed to export deep-link: {}", message);
+        trusttunnel_deeplink_error_free(error);
+        return 1;
+    }
+
+    std::cout << uri << '\n';
+    trusttunnel_deeplink_string_free(uri);
+    return 0;
 }
 
 int run_client(const cxxopts::ParseResult &cli_args) {
