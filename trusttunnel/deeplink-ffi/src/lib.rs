@@ -365,4 +365,64 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             vec!["tls://dns.adguard-dns.com".to_string()]
         );
     }
+
+    #[test]
+    fn test_ffi_export_import_roundtrip() {
+        let endpoint = Endpoint {
+            hostname: "vpn.example.com".to_string(),
+            addresses: vec!["1.2.3.4:443".to_string(), "[2001:db8::1]:8443".to_string()],
+            has_ipv6: false,
+            username: "alice".to_string(),
+            password: "s3cr3t".to_string(),
+            client_random: "aabbccdd".to_string(),
+            skip_verification: true,
+            certificate: None,
+            upstream_protocol: "http3".to_string(),
+            // The deep-link format carries no TLS profile, so it must stay at its default.
+            tls_profile: Endpoint::default_tls_profile(),
+            anti_dpi: true,
+            custom_sni: "sni.example.com".to_string(),
+            dns_upstreams: vec![
+                "tls://dns.adguard-dns.com".to_string(),
+                "8.8.8.8:53".to_string(),
+            ],
+            name: Some("Example VPN".to_string()),
+        };
+        let mut endpoint_toml = toml::to_string(&EndpointWrapper { endpoint }).unwrap();
+        let original: EndpointWrapper = toml::from_str(&endpoint_toml).unwrap();
+
+        // Export the endpoint TOML as a deep-link.
+        let input = CString::new(endpoint_toml.as_str()).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+        let uri_ptr = trusttunnel_deeplink_encode(input.as_ptr(), &mut error);
+        assert!(!uri_ptr.is_null(), "Encode should succeed");
+        assert!(error.is_null(), "No error should be set on success");
+        let uri = unsafe { CStr::from_ptr(uri_ptr) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        trusttunnel_deeplink_string_free(uri_ptr);
+
+        // Reset all settings before importing.
+        endpoint_toml.clear();
+        assert!(endpoint_toml.is_empty(), "endpoint TOML must be reset");
+
+        // Import the deep-link back into the endpoint TOML.
+        let input = CString::new(uri).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+        let restored_ptr = trusttunnel_deeplink_decode(input.as_ptr(), &mut error);
+        assert!(!restored_ptr.is_null(), "Decode should succeed");
+        assert!(error.is_null(), "No error should be set on success");
+        let restored_toml = unsafe { CStr::from_ptr(restored_ptr) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        trusttunnel_deeplink_string_free(restored_ptr);
+
+        let restored: EndpointWrapper = toml::from_str(&restored_toml).unwrap();
+        assert!(
+            restored.endpoint == original.endpoint,
+            "endpoint restored from a deep-link must match the original"
+        );
+    }
 }

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
 
 /// Endpoint connection settings. Shared by `setup_wizard` and `deeplink-ffi`.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default, Deserialize, PartialEq, Serialize)]
 pub struct Endpoint {
     pub hostname: String,
     pub addresses: Vec<String>,
@@ -488,5 +488,46 @@ omxU7kknZApM\n\
         assert_eq!(restored.name, endpoint.name);
         assert_eq!(restored.dns_upstreams, endpoint.dns_upstreams);
         assert!(restored.certificate.is_some());
+    }
+
+    #[test]
+    fn test_endpoint_export_import_roundtrip() {
+        let original = Endpoint {
+            hostname: "vpn.example.com".into(),
+            addresses: vec!["1.2.3.4:443".into(), "[2001:db8::1]:8443".into()],
+            has_ipv6: false,
+            username: "alice".into(),
+            password: "s3cr3t".into(),
+            client_random: "aabbccdd".into(),
+            skip_verification: true,
+            certificate: Some(TEST_CERT_CHAIN_PEM.into()),
+            upstream_protocol: "http3".into(),
+            // The deep-link format carries no TLS profile, so it must stay at its default.
+            tls_profile: Endpoint::default_tls_profile(),
+            anti_dpi: true,
+            custom_sni: "sni.example.com".into(),
+            dns_upstreams: vec!["tls://dns.adguard-dns.com".into(), "8.8.8.8:53".into()],
+            name: Some("Example VPN".into()),
+        };
+
+        // Export the settings as a deep-link.
+        let config = deeplink_config_from_endpoint(&original).unwrap();
+        let uri = trusttunnel_deeplink::encode(&config).unwrap();
+
+        // Reset all settings before importing.
+        let mut endpoint = Endpoint::default();
+        assert!(
+            endpoint != original,
+            "reset endpoint must differ from the original"
+        );
+
+        // Import the deep-link back into the settings.
+        let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
+        endpoint = endpoint_from_deeplink_config(decoded).unwrap();
+
+        assert!(
+            endpoint == original,
+            "endpoint restored from a deep-link must match the original"
+        );
     }
 }
