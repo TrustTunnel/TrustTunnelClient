@@ -205,6 +205,7 @@ dns_upstreams = ["tls://1.1.1.1"]
 upstream_protocol = "http2"
 tls_profile = "chrome"
 anti_dpi = false
+name = "Example VPN"
 
 [listener.tun]
 bound_if = ""
@@ -254,6 +255,9 @@ client (for example, the desktop app), export it as a `tt://` deep-link:
 The command prints the deep-link and exits. The link includes the server name
 and the DNS upstreams from the configuration. The certificate is embedded only
 when it cannot be verified with the system certificate store.
+
+The deep-link format carries only a client random prefix, not a mask, so a
+`client_random` value in `prefix/mask` form is exported as its prefix only.
 
 ---
 
