@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The certificate is embedded only when it is needed, that is, when it is neither verifiable with the system certificate store nor ignored via `skip_verification`. The endpoint `name` is now preserved by the setup wizard as well.
+- Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
 
 ### Changed
 

@@ -102,6 +102,11 @@ bool TrustTunnelConfig::is_certificate_system_verifiable(
     for (;;) {
         UniquePtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
         if (!cert) {
+            // Any parse problem makes the chain not verifiable, so the certificate is kept in
+            // the deep-link. Warn about it to make a corrupted configuration visible.
+            if (auto err = ERR_peek_last_error(); ERR_GET_REASON(err) != PEM_R_NO_START_LINE) {
+                warnlog(g_logger, "Failed to parse certificate, ensure it is in PEM format");
+            }
             ERR_clear_error();
             break;
         }
@@ -153,7 +158,7 @@ static toml::array collect_non_empty_strings(const toml::array *array) {
 }
 
 std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
-        const toml::table &config, X509_STORE *store) {
+        const toml::table &config, std::string_view name, X509_STORE *store) {
     const toml::table *endpoint_table = config["endpoint"].as_table();
     if (endpoint_table == nullptr) {
         errlog(g_logger, "Endpoint configuration is not a table");
@@ -163,6 +168,24 @@ std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
     toml::table endpoint = *endpoint_table;
 
     auto hostname = endpoint["hostname"].value_or(std::string{});
+    auto custom_sni = endpoint["custom_sni"].value_or(std::string{});
+
+    // At connect time the pipe syntax (`sni|remote_id`) means: use `sni` for the TLS SNI and
+    // verify the certificate against `remote_id`. The deep-link has separate fields for that.
+    if (auto pipe_pos = hostname.find('|'); pipe_pos != std::string::npos) {
+        if (!custom_sni.empty()) {
+            errlog(g_logger, "Both custom_sni and pipe syntax in hostname are specified, use only one");
+            return std::nullopt;
+        }
+        std::string sni = hostname.substr(0, pipe_pos);
+        std::string remote_id = hostname.substr(pipe_pos + 1);
+        hostname = remote_id.empty() ? sni : remote_id;
+        if (!sni.empty() && sni != hostname) {
+            endpoint.insert_or_assign("custom_sni", sni);
+        }
+        endpoint.insert_or_assign("hostname", hostname);
+    }
+
     if (hostname.empty()) {
         errlog(g_logger, "Endpoint hostname is not specified");
         return std::nullopt;
@@ -180,15 +203,11 @@ std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
     }
 
     // The certificate is only needed by the importing client when it cannot verify the chain
-    // on its own, and it is not needed at all when the verification is skipped.
-    bool skip_verification = endpoint["skip_verification"].value_or(false);
-    if (auto certificate = endpoint["certificate"].value_or(std::string{}); !certificate.empty()) {
-        if (skip_verification) {
-            endpoint.insert_or_assign("certificate", std::string{});
-            warnlog(g_logger, "Certificate verification is skipped, omitting the certificate from the deep-link");
-        } else if (is_certificate_system_verifiable(certificate, hostname, store)) {
-            endpoint.insert_or_assign("certificate", std::string{});
-        }
+    // on its own. `skip_verification` is not taken into account: importing clients may ignore
+    // it, and then the embedded certificate is the only way to accept a self-signed endpoint.
+    if (auto certificate = endpoint["certificate"].value_or(std::string{});
+            !certificate.empty() && is_certificate_system_verifiable(certificate, hostname, store)) {
+        endpoint.insert_or_assign("certificate", std::string{});
     }
 
     if (endpoint["client_random"].value_or(std::string{}).find('/') != std::string::npos) {
@@ -197,6 +216,10 @@ std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
 
     if (endpoint["upstream_protocol"].value_or(std::string{}) == "auto") {
         warnlog(g_logger, R"(The deep-link format has no "auto" upstream protocol, exporting as "http2")");
+    }
+
+    if (!name.empty()) {
+        endpoint.insert_or_assign("name", std::string(name));
     }
 
     toml::table wrapper;

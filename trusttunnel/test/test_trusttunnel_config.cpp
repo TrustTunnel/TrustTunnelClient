@@ -117,13 +117,14 @@ TEST(TrustTunnelConfigTest, InvalidPemIsNotSystemVerifiable) {
 }
 
 /// Parse `config` and build the deep-link export table out of it, with the test CA trusted.
-static std::optional<toml::table> export_table(std::string_view config, X509_STORE *store = nullptr) {
+static std::optional<toml::table> export_table(
+        std::string_view config, X509_STORE *store = nullptr, std::string_view name = {}) {
     toml::parse_result parsed = toml::parse(config);
     EXPECT_TRUE(parsed) << "the test configuration must be valid TOML";
     if (!parsed) {
         return std::nullopt;
     }
-    return TrustTunnelConfig::build_deeplink_export_table(parsed.table(), store);
+    return TrustTunnelConfig::build_deeplink_export_table(parsed.table(), name, store);
 }
 
 static constexpr std::string_view MINIMAL_CONFIG = R"(
@@ -162,6 +163,45 @@ dns_upstreams = ["tls://dns.adguard-dns.com"]
     ASSERT_NE(dns_upstreams, nullptr);
     ASSERT_EQ(dns_upstreams->size(), 1);
     EXPECT_EQ(dns_upstreams->get(0)->value_or(std::string{}), "tls://dns.adguard-dns.com");
+}
+
+TEST(TrustTunnelExportTest, NameFromConfigIsKeptWithoutOverride) {
+    std::optional result = export_table(R"(
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+name = "From Config"
+)");
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    EXPECT_EQ((*endpoint)["name"].value_or(std::string{}), "From Config");
+}
+
+TEST(TrustTunnelExportTest, NameOverrideReplacesConfigName) {
+    std::optional result = export_table(R"(
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+name = "From Config"
+)",
+            nullptr, "From Command Line");
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    EXPECT_EQ((*endpoint)["name"].value_or(std::string{}), "From Command Line");
+}
+
+TEST(TrustTunnelExportTest, NameOverrideIsOptional) {
+    std::optional result = export_table(MINIMAL_CONFIG);
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    EXPECT_EQ((*endpoint)["name"].value_or(std::string{}), "");
 }
 
 TEST(TrustTunnelExportTest, MissingEndpointTableIsRejected) {
@@ -258,18 +298,70 @@ TEST(TrustTunnelExportTest, UnverifiableCertificateIsKept) {
     EXPECT_EQ((*endpoint)["certificate"].value_or(std::string{}), TEST_LEAF_PEM);
 }
 
-TEST(TrustTunnelExportTest, CertificateIsOmittedWhenVerificationIsSkipped) {
+TEST(TrustTunnelExportTest, CertificateIsKeptWhenVerificationIsSkipped) {
+    // Importing clients may ignore `skip_verification`, so the certificate must survive:
+    // it is the only way for them to accept a self-signed endpoint.
     UniquePtr<X509_STORE, &X509_STORE_free> store{X509_STORE_new()};
     std::optional result = export_table(config_with_certificate("skip_verification = true\n"), store.get());
     ASSERT_TRUE(result.has_value());
     const toml::table *endpoint = (*result)["endpoint"].as_table();
     ASSERT_NE(endpoint, nullptr);
-    EXPECT_EQ((*endpoint)["certificate"].value_or(std::string{}), "");
+    EXPECT_EQ((*endpoint)["certificate"].value_or(std::string{}), TEST_LEAF_PEM);
     EXPECT_TRUE((*endpoint)["skip_verification"].value_or(false));
 }
 
-TEST(TrustTunnelExportTest, ClientRandomMaskIsExportedAsIsAndStrippedByTheEncoder) {
-    // The mask is dropped by the deep-link encoder, the table still carries the raw value.
+TEST(TrustTunnelExportTest, PipeHostnameIsSplitIntoHostnameAndCustomSni) {
+    auto store = make_test_ca_store();
+    std::string config = R"(
+[endpoint]
+hostname = "sni.example.org|vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+certificate = """)";
+    config.append("\n").append(TEST_LEAF_PEM).append("\"\"\"\n");
+
+    std::optional result = export_table(config, store.get());
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    // `remote_id` becomes the hostname (it is what the certificate is verified against),
+    // `sni` becomes the custom SNI.
+    EXPECT_EQ((*endpoint)["hostname"].value_or(std::string{}), "vpn.example.com");
+    EXPECT_EQ((*endpoint)["custom_sni"].value_or(std::string{}), "sni.example.org");
+    EXPECT_EQ((*endpoint)["certificate"].value_or(std::string{}), "");
+}
+
+TEST(TrustTunnelExportTest, PipeHostnameWithoutCustomSniPartUsesRemoteId) {
+    std::optional result = export_table(R"(
+[endpoint]
+hostname = "vpn.example.com|"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+)");
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    EXPECT_EQ((*endpoint)["hostname"].value_or(std::string{}), "vpn.example.com");
+    EXPECT_EQ((*endpoint)["custom_sni"].value_or(std::string{}), "");
+}
+
+TEST(TrustTunnelExportTest, CustomSniWithPipeHostnameIsRejected) {
+    std::optional result = export_table(R"(
+[endpoint]
+hostname = "sni.example.org|vpn.example.com"
+custom_sni = "sni.example.org"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+)");
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(TrustTunnelExportTest, ClientRandomMaskIsKeptInTheExportTable) {
+    // The Rust settings mapping drops the mask when it encodes the deep-link; the export
+    // table itself still carries the raw `prefix/mask` value.
     std::optional result = export_table(R"(
 [endpoint]
 hostname = "vpn.example.com"

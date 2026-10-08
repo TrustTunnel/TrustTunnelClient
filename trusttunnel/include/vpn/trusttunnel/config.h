@@ -90,13 +90,17 @@ struct TrustTunnelConfig {
      * Build the `[endpoint]` table to be encoded as a deep-link out of a parsed configuration.
      *
      * Empty `addresses` and `dns_upstreams` entries are dropped, just like at connect time.
+     * The pipe syntax in `hostname` is split into `hostname` and `custom_sni`, mirroring the
+     * way the client resolves the SNI and the certificate verification name at connect time.
+     * A non-empty `name` overrides the endpoint name from the configuration.
      * The certificate is omitted when the endpoint certificate chain is verifiable with the
-     * system trust store, or when the verification is skipped altogether.
+     * system trust store.
      * @param config Root table of the client configuration
+     * @param name Server display name override, the configuration value is used when empty
      * @param store Trusted CA store, the system one is used if null. Intended for tests
      * @return Table holding the single `endpoint` key, or `std::nullopt` on an invalid configuration
      */
     static std::optional<toml::table> build_deeplink_export_table(
-            const toml::table &config, X509_STORE *store = nullptr);
+            const toml::table &config, std::string_view name = {}, X509_STORE *store = nullptr);
 };
 } // namespace ag

@@ -62,7 +62,7 @@ static bool g_svc_running = false;
 #endif
 
 int run_client(const cxxopts::ParseResult &cli_args);
-static int export_deeplink(const std::string &config_path);
+static int export_deeplink(const std::string &config_path, std::string_view name);
 
 static void stop_trusttunnel_client() {
     keep_running = false;
@@ -124,6 +124,7 @@ int main(int argc, char **argv) {
             ("s", "Skip verify certificate", cxxopts::value<bool>()->default_value("false"))
             ("c,config", "Config file name.", cxxopts::value<std::string>()->default_value(std::string(DEFAULT_CONFIG_FILE)))
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
+            ("n,name", "Human-readable server display name for the deep-link. Overrides the configuration value.", cxxopts::value<std::string>()->default_value(""))
             ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage");
 #ifdef _WIN32
@@ -147,6 +148,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (result.count("name") > 0 && !result["export-deeplink"].as<bool>()) {
+        warnlog(g_logger, "--name is only used together with --export-deeplink and is ignored");
+    }
+
     if (result["export-deeplink"].as<bool>()) {
         // The export path reads no `loglevel` from the configuration, so apply the command line one.
         auto loglevel = TrustTunnelCliUtils::parse_loglevel(result["loglevel"].as<std::string>());
@@ -155,7 +160,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         ag::Logger::set_log_level(*loglevel);
-        return export_deeplink(result["config"].as<std::string>());
+        return export_deeplink(result["config"].as<std::string>(), result["name"].as<std::string>());
     }
 
 #ifdef _WIN32
@@ -177,14 +182,14 @@ int main(int argc, char **argv) {
     return run_client(result);
 }
 
-static int export_deeplink(const std::string &config_path) {
+static int export_deeplink(const std::string &config_path, std::string_view name) {
     toml::parse_result parse_result = toml::parse_file(config_path);
     if (!parse_result) {
         errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
         return 1;
     }
 
-    std::optional export_table = TrustTunnelConfig::build_deeplink_export_table(parse_result.table());
+    std::optional export_table = TrustTunnelConfig::build_deeplink_export_table(parse_result.table(), name);
     if (!export_table) {
         return 1;
     }

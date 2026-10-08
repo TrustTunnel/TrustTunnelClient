@@ -249,16 +249,22 @@ To transfer the endpoint configured in the CLI client to another TrustTunnel
 client (for example, the desktop app), export it as a `tt://` deep-link:
 
 ```shell
-./trusttunnel_client --export-deeplink --config <path/to/configuration/file.toml>
+./trusttunnel_client --export-deeplink --config <path/to/configuration/file.toml> [--name <server-name>]
 ```
 
 The command prints the deep-link to the standard output and exits, leaving the
 configuration untouched. The link includes the server name and the DNS
-upstreams from the configuration.
+upstreams from the configuration. The server name can be overridden with the
+optional `--name` option, which is useful when the configuration has no name.
 
 The certificate is embedded only when it is needed by the importing client,
 that is, it is omitted when the chain can be verified with the system
-certificate store, and when `skip_verification` is enabled.
+certificate store.
+
+If `hostname` uses the `sni|remote_id` syntax, it is split into `hostname`
+(the `remote_id` part) and `custom_sni` (the `sni` part), so that the
+importing client resolves the SNI and the certificate verification name the
+same way the CLI client does.
 
 The deep-link format carries only a client random prefix, not a mask, so a
 `client_random` value in `prefix/mask` form is exported as its prefix only.
