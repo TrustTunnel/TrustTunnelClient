@@ -113,20 +113,22 @@ pub unsafe extern "C" fn trusttunnel_subscription_fetch(
     outcome_string(result, out_json, error)
 }
 
-/// Fetch the subscription document for the endpoint described by the config
-/// text and hand the raw validated JSON body back in `*out_json` (free with
+/// Fetch the subscription document for the endpoint described by the
+/// endpoint TOML fragment (a document with an `[endpoint]` table) and hand
+/// the raw validated JSON body back in `*out_json` (free with
 /// [`trusttunnel_subscription_string_free`]). The subscription URL, the
 /// certificate pin (gated by the endpoint hostname) and the verification
-/// policy are read from the endpoint section of the config. Blocks for the
-/// duration of the request. Returns 0 on success, 1 on failure; the error
-/// message never contains the URL or credentials.
+/// policy are read from the endpoint. Blocks for the duration of the
+/// request. Returns 0 on success, 1 on failure; the error message never
+/// contains the URL or credentials.
 ///
 /// # Safety
-/// `config_text` must be null or a valid NUL-terminated C string; `out_json`
-/// and `error` must be null or point to writable memory for one pointer.
+/// `endpoint_toml` must be null or a valid NUL-terminated C string;
+/// `out_json` and `error` must be null or point to writable memory for one
+/// pointer.
 #[no_mangle]
-pub unsafe extern "C" fn trusttunnel_subscription_fetch_for_config(
-    config_text: *const c_char,
+pub unsafe extern "C" fn trusttunnel_subscription_fetch_for_endpoint(
+    endpoint_toml: *const c_char,
     out_json: *mut *mut c_char,
     error: *mut *mut SubscriptionFfiError,
 ) -> c_int {
@@ -137,9 +139,9 @@ pub unsafe extern "C" fn trusttunnel_subscription_fetch_for_config(
         unsafe { *out_json = std::ptr::null_mut() };
     }
     let result = (|| -> Result<String, String> {
-        let config_text = cstr_arg(config_text, "config text")?;
-        trusttunnel_subscription::fetch_for_config(
-            config_text,
+        let endpoint_toml = cstr_arg(endpoint_toml, "endpoint toml")?;
+        trusttunnel_subscription::fetch_for_endpoint(
+            endpoint_toml,
             &trusttunnel_subscription::UreqTransport,
         )
         .map_err(|e| e.to_string())
@@ -148,20 +150,80 @@ pub unsafe extern "C" fn trusttunnel_subscription_fetch_for_config(
 }
 
 /// Merge the subscription document (as returned by
-/// [`trusttunnel_subscription_fetch`]) into the config text and hand the
-/// updated config back in `*out_config` (free with
+/// [`trusttunnel_subscription_fetch`]) into the endpoint TOML fragment and
+/// hand the updated fragment back in `*out_endpoint` (free with
 /// [`trusttunnel_subscription_string_free`]). Everything the model does not
 /// represent — comments, key order, unknown keys — is preserved. Returns 0
 /// on success, 1 on failure.
 ///
 /// # Safety
-/// `config_text` and `subscription_json` must be null or valid NUL-terminated
-/// C strings; `out_config` and `error` must be null or point to writable
+/// `endpoint_toml` and `subscription_json` must be null or valid
+/// NUL-terminated C strings; `out_endpoint` and `error` must be null or
+/// point to writable memory for one pointer.
+#[no_mangle]
+pub unsafe extern "C" fn trusttunnel_subscription_apply_endpoint(
+    endpoint_toml: *const c_char,
+    subscription_json: *const c_char,
+    out_endpoint: *mut *mut c_char,
+    error: *mut *mut SubscriptionFfiError,
+) -> c_int {
+    if !error.is_null() {
+        unsafe { *error = std::ptr::null_mut() };
+    }
+    if !out_endpoint.is_null() {
+        unsafe { *out_endpoint = std::ptr::null_mut() };
+    }
+    let result = (|| -> Result<String, String> {
+        let endpoint_toml = cstr_arg(endpoint_toml, "endpoint toml")?;
+        let subscription_json = cstr_arg(subscription_json, "subscription json")?;
+        trusttunnel_subscription::apply_endpoint(endpoint_toml, subscription_json)
+            .map_err(|e| e.to_string())
+    })();
+    outcome_string(result, out_endpoint, error)
+}
+
+/// Extract the `[endpoint]` subtree of the config text as a standalone TOML
+/// document and hand it back in `*out_endpoint` (free with
+/// [`trusttunnel_subscription_string_free`]). The subtree keeps its comments
+/// and unknown keys. Returns 0 on success, 1 on failure.
+///
+/// # Safety
+/// `config_text` must be null or a valid NUL-terminated C string;
+/// `out_endpoint` and `error` must be null or point to writable memory for
+/// one pointer.
+#[no_mangle]
+pub unsafe extern "C" fn trusttunnel_subscription_extract_endpoint(
+    config_text: *const c_char,
+    out_endpoint: *mut *mut c_char,
+    error: *mut *mut SubscriptionFfiError,
+) -> c_int {
+    if !error.is_null() {
+        unsafe { *error = std::ptr::null_mut() };
+    }
+    if !out_endpoint.is_null() {
+        unsafe { *out_endpoint = std::ptr::null_mut() };
+    }
+    let result = (|| -> Result<String, String> {
+        let config_text = cstr_arg(config_text, "config text")?;
+        trusttunnel_subscription::extract_endpoint(config_text).map_err(|e| e.to_string())
+    })();
+    outcome_string(result, out_endpoint, error)
+}
+
+/// Replace the config's `[endpoint]` subtree with the one from the endpoint
+/// fragment and hand the updated config back in `*out_config` (free with
+/// [`trusttunnel_subscription_string_free`]). Everything else in the config
+/// — comments, key order, unknown keys — is preserved. Returns 0 on success,
+/// 1 on failure.
+///
+/// # Safety
+/// `config_text` and `endpoint_toml` must be null or valid NUL-terminated C
+/// strings; `out_config` and `error` must be null or point to writable
 /// memory for one pointer.
 #[no_mangle]
-pub unsafe extern "C" fn trusttunnel_subscription_apply(
+pub unsafe extern "C" fn trusttunnel_subscription_replace_endpoint(
     config_text: *const c_char,
-    subscription_json: *const c_char,
+    endpoint_toml: *const c_char,
     out_config: *mut *mut c_char,
     error: *mut *mut SubscriptionFfiError,
 ) -> c_int {
@@ -173,8 +235,8 @@ pub unsafe extern "C" fn trusttunnel_subscription_apply(
     }
     let result = (|| -> Result<String, String> {
         let config_text = cstr_arg(config_text, "config text")?;
-        let subscription_json = cstr_arg(subscription_json, "subscription json")?;
-        trusttunnel_subscription::apply_subscription(config_text, subscription_json)
+        let endpoint_toml = cstr_arg(endpoint_toml, "endpoint toml")?;
+        trusttunnel_subscription::replace_endpoint(config_text, endpoint_toml)
             .map_err(|e| e.to_string())
     })();
     outcome_string(result, out_config, error)
@@ -204,8 +266,8 @@ pub unsafe extern "C" fn trusttunnel_subscription_replace_file_atomic(
     outcome_unit(result, error)
 }
 
-/// Free a string returned in `out_json` or `out_config`. Safe to call with
-/// null.
+/// Free a string returned in `out_json`, `out_endpoint` or `out_config`.
+/// Safe to call with null.
 ///
 /// # Safety
 /// `string` must be null or a pointer previously returned in an
@@ -250,6 +312,7 @@ mod tests {
     use super::*;
 
     const CONFIG: &str = "# keep me\n[endpoint]\nhostname = \"old.example.com\"\naddresses = [\"1.1.1.1:443\"]\nusername = \"alice\"\npassword = \"old\"\n[endpoint.subscription]\nurl = \"https://old.example.com/subscription\"\n[listener.socks]\naddress = \"127.0.0.1:1080\"\n";
+    const ENDPOINT: &str = "# keep me\n[endpoint]\nhostname = \"old.example.com\"\naddresses = [\"1.1.1.1:443\"]\nusername = \"alice\"\npassword = \"old\"\n[endpoint.subscription]\nurl = \"https://old.example.com/subscription\"\n";
     const BODY: &str = r#"{"version":1,"hostname":"new.example.com","address":"5.6.7.8:443","username":"bob","password":"hunter2","has_ipv6":true,"upstream_protocol":"http3","anti_dpi":false,"skip_verification":false}"#;
 
     fn take_string(ptr: *mut c_char) -> String {
@@ -287,11 +350,11 @@ mod tests {
     }
 
     #[test]
-    fn config_fetch_null_config_is_an_error_not_a_crash() {
+    fn endpoint_fetch_null_endpoint_is_an_error_not_a_crash() {
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_fetch_for_config(std::ptr::null(), &mut out, &mut error)
+            trusttunnel_subscription_fetch_for_endpoint(std::ptr::null(), &mut out, &mut error)
         };
         assert_eq!(code, 1);
         assert!(out.is_null());
@@ -299,15 +362,15 @@ mod tests {
     }
 
     #[test]
-    fn config_fetch_without_subscription_is_a_distinct_error() {
-        let config = CString::new(
+    fn endpoint_fetch_without_subscription_is_a_distinct_error() {
+        let endpoint = CString::new(
             "[endpoint]\nhostname = \"h\"\naddresses = [\"1.1.1.1:443\"]\nusername = \"a\"\npassword = \"p\"\n",
         )
         .unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_fetch_for_config(config.as_ptr(), &mut out, &mut error)
+            trusttunnel_subscription_fetch_for_endpoint(endpoint.as_ptr(), &mut out, &mut error)
         };
         assert_eq!(code, 1);
         assert!(out.is_null());
@@ -315,26 +378,31 @@ mod tests {
     }
 
     #[test]
-    fn config_fetch_with_invalid_config_is_a_parse_error() {
-        let config = CString::new("not [valid toml").unwrap();
+    fn endpoint_fetch_with_invalid_endpoint_is_a_parse_error() {
+        let endpoint = CString::new("not [valid toml").unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_fetch_for_config(config.as_ptr(), &mut out, &mut error)
+            trusttunnel_subscription_fetch_for_endpoint(endpoint.as_ptr(), &mut out, &mut error)
         };
         assert_eq!(code, 1);
         assert!(out.is_null());
-        assert!(error_message(error).contains("Failed to parse config"));
+        assert!(error_message(error).contains("Failed to parse endpoint"));
     }
 
     #[test]
-    fn apply_merges_and_returns_the_updated_config() {
-        let config = CString::new(CONFIG).unwrap();
+    fn apply_merges_and_returns_the_updated_endpoint() {
+        let endpoint = CString::new(ENDPOINT).unwrap();
         let body = CString::new(BODY).unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_apply(config.as_ptr(), body.as_ptr(), &mut out, &mut error)
+            trusttunnel_subscription_apply_endpoint(
+                endpoint.as_ptr(),
+                body.as_ptr(),
+                &mut out,
+                &mut error,
+            )
         };
         assert_eq!(code, 0);
         assert!(error.is_null());
@@ -342,16 +410,22 @@ mod tests {
         assert!(updated.contains("hostname = \"new.example.com\""));
         assert!(updated.contains("last_fetched_at"));
         assert!(updated.contains("# keep me"));
+        assert!(!updated.contains("[listener]"), "unexpected: {updated}");
     }
 
     #[test]
     fn apply_invalid_document_is_an_error() {
-        let config = CString::new(CONFIG).unwrap();
+        let endpoint = CString::new(ENDPOINT).unwrap();
         let body = CString::new(BODY.replace("\"version\":1", "\"version\":2")).unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_apply(config.as_ptr(), body.as_ptr(), &mut out, &mut error)
+            trusttunnel_subscription_apply_endpoint(
+                endpoint.as_ptr(),
+                body.as_ptr(),
+                &mut out,
+                &mut error,
+            )
         };
         assert_eq!(code, 1);
         assert!(out.is_null());
@@ -359,12 +433,86 @@ mod tests {
     }
 
     #[test]
-    fn apply_null_config_is_an_error() {
+    fn apply_null_endpoint_is_an_error() {
         let body = CString::new(BODY).unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
         let code = unsafe {
-            trusttunnel_subscription_apply(std::ptr::null(), body.as_ptr(), &mut out, &mut error)
+            trusttunnel_subscription_apply_endpoint(
+                std::ptr::null(),
+                body.as_ptr(),
+                &mut out,
+                &mut error,
+            )
+        };
+        assert_eq!(code, 1);
+        assert!(out.is_null());
+        assert!(error_message(error).contains("null"));
+    }
+
+    #[test]
+    fn extract_returns_the_endpoint_subtree() {
+        let config = CString::new(CONFIG).unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
+        let code = unsafe {
+            trusttunnel_subscription_extract_endpoint(config.as_ptr(), &mut out, &mut error)
+        };
+        assert_eq!(code, 0);
+        assert!(error.is_null());
+        let fragment = take_string(out);
+        assert!(fragment.contains("hostname = \"old.example.com\""));
+        assert!(fragment.contains("[endpoint.subscription]"));
+        assert!(!fragment.contains("[listener]"), "unexpected: {fragment}");
+    }
+
+    #[test]
+    fn extract_null_config_is_an_error() {
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
+        let code = unsafe {
+            trusttunnel_subscription_extract_endpoint(std::ptr::null(), &mut out, &mut error)
+        };
+        assert_eq!(code, 1);
+        assert!(out.is_null());
+        assert!(error_message(error).contains("null"));
+    }
+
+    #[test]
+    fn replace_swaps_the_endpoint_and_preserves_the_config() {
+        let config = CString::new(CONFIG).unwrap();
+        let endpoint =
+            CString::new(ENDPOINT.replace("old.example.com", "new.example.com")).unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
+        let code = unsafe {
+            trusttunnel_subscription_replace_endpoint(
+                config.as_ptr(),
+                endpoint.as_ptr(),
+                &mut out,
+                &mut error,
+            )
+        };
+        assert_eq!(code, 0);
+        assert!(error.is_null());
+        let updated = take_string(out);
+        assert!(updated.contains("hostname = \"new.example.com\""));
+        assert!(updated.contains("# keep me"));
+        assert!(updated.contains("[listener.socks]"));
+    }
+
+    #[test]
+    fn replace_null_endpoint_is_an_error() {
+        let config = CString::new(CONFIG).unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let mut error: *mut SubscriptionFfiError = std::ptr::null_mut();
+        let code = unsafe {
+            trusttunnel_subscription_replace_endpoint(
+                config.as_ptr(),
+                std::ptr::null(),
+                &mut out,
+                &mut error,
+            )
         };
         assert_eq!(code, 1);
         assert!(out.is_null());

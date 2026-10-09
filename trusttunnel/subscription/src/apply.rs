@@ -1,43 +1,41 @@
-use trusttunnel_settings::composer::apply_to_document;
-use trusttunnel_settings::Settings;
+use trusttunnel_settings::composer::apply_endpoint_to_document;
 
-use crate::{SubscriptionError, SubscriptionResponse};
+use crate::{parse_endpoint_toml, SubscriptionError, SubscriptionResponse};
 
-/// Merge the subscription document into the config text: rewrite the live
-/// endpoint fields, stamp the fetch time, and preserve everything the model
-/// does not represent.
-pub fn apply_subscription(
-    config_text: &str,
+/// Merge the subscription document into the endpoint TOML fragment: rewrite
+/// the live endpoint fields, stamp the fetch time, and preserve everything
+/// the model does not represent — comments, key order, unknown keys.
+pub fn apply_endpoint(
+    endpoint_toml: &str,
     subscription_json: &str,
 ) -> Result<String, SubscriptionError> {
-    apply_subscription_at(config_text, subscription_json, &utc_now_rfc3339)
+    apply_endpoint_at(endpoint_toml, subscription_json, &utc_now_rfc3339)
 }
 
-fn apply_subscription_at(
-    config_text: &str,
+fn apply_endpoint_at(
+    endpoint_toml: &str,
     subscription_json: &str,
     now: &dyn Fn() -> String,
 ) -> Result<String, SubscriptionError> {
     let response = SubscriptionResponse::from_json(subscription_json)?;
-    // Parse both views up front; a broken or incomplete config fails here as
-    // an ordinary parse error.
-    let mut settings: Settings = toml::from_str(config_text)
-        .map_err(|_| SubscriptionError::Other("Failed to parse config settings".into()))?;
-    let document = config_text
+    // Parse both views up front; a broken or incomplete endpoint fails here
+    // as an ordinary parse error.
+    let mut endpoint = parse_endpoint_toml(endpoint_toml)?;
+    let document = endpoint_toml
         .parse::<toml_edit::Document>()
-        .map_err(|_| SubscriptionError::Other("Failed to parse config document".into()))?;
+        .map_err(|_| SubscriptionError::Other("Failed to parse endpoint document".into()))?;
 
-    if settings.endpoint.subscription.is_none() {
+    if endpoint.subscription.is_none() {
         return Err(SubscriptionError::NoSubscription);
     }
 
-    response.apply_to(&mut settings.endpoint);
-    if let Some(subscription) = &mut settings.endpoint.subscription {
+    response.apply_to(&mut endpoint);
+    if let Some(subscription) = &mut endpoint.subscription {
         subscription.last_fetched_at = Some(now());
     }
 
-    let document = apply_to_document(document, &settings)
-        .map_err(|e| SubscriptionError::Other(format!("Failed to compose config: {e}")))?;
+    let document = apply_endpoint_to_document(document, &endpoint)
+        .map_err(|e| SubscriptionError::Other(format!("Failed to compose endpoint: {e}")))?;
     Ok(document.to_string())
 }
 
@@ -50,26 +48,20 @@ fn utc_now_rfc3339() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{extract_endpoint, replace_endpoint};
 
-    // NOTE: the `[listener]` table is required — the composer and the C++
-    // `build_config` reject documents without it.
-    const CONFIG: &str = r#"
-# a comment that must survive
-loglevel = "info"
-
+    const ENDPOINT: &str = r#"
 [endpoint]
 hostname = "old.example.com"
 addresses = ["1.1.1.1:443"]
 username = "alice"
 password = "old"
 certificate = "-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n"
+# a comment that must survive
 unknown_key_the_cpp_parser_reads = "keep me"
 
 [endpoint.subscription]
 url = "https://u:p@old.example.com/subscription"
-
-[listener.socks]
-address = "127.0.0.1:1080"
 "#;
 
     fn body() -> String {
@@ -93,7 +85,7 @@ address = "127.0.0.1:1080"
 
     #[test]
     fn apply_rewrites_live_fields_and_stamps_time() {
-        let outcome = apply_subscription_at(CONFIG, &body(), &fixed_now).unwrap();
+        let outcome = apply_endpoint_at(ENDPOINT, &body(), &fixed_now).unwrap();
         let doc: toml_edit::Document = outcome.parse().unwrap();
         assert_eq!(
             doc["endpoint"]["hostname"].as_str(),
@@ -118,12 +110,19 @@ address = "127.0.0.1:1080"
     }
 
     #[test]
+    fn apply_keeps_the_endpoint_scope() {
+        let outcome = apply_endpoint_at(ENDPOINT, &body(), &fixed_now).unwrap();
+        assert!(!outcome.contains("loglevel"), "unexpected: {outcome}");
+        assert!(!outcome.contains("[listener]"), "unexpected: {outcome}");
+    }
+
+    #[test]
     fn missing_subscription_table_is_a_distinct_error() {
-        let config = CONFIG.replace(
+        let endpoint = ENDPOINT.replace(
             "[endpoint.subscription]\nurl = \"https://u:p@old.example.com/subscription\"\n",
             "",
         );
-        let err = apply_subscription_at(&config, &body(), &fixed_now).unwrap_err();
+        let err = apply_endpoint_at(&endpoint, &body(), &fixed_now).unwrap_err();
         assert_eq!(err.to_string(), "No subscription URL configured.");
     }
 
@@ -131,16 +130,16 @@ address = "127.0.0.1:1080"
     fn invalid_document_is_an_error() {
         let mut doc: serde_json::Value = serde_json::from_str(&body()).unwrap();
         doc["version"] = serde_json::json!(2);
-        let err = apply_subscription_at(CONFIG, &doc.to_string(), &fixed_now).unwrap_err();
+        let err = apply_endpoint_at(ENDPOINT, &doc.to_string(), &fixed_now).unwrap_err();
         assert!(err.to_string().contains("upgrade"), "unexpected: {err}");
     }
 
     #[test]
     fn incomplete_endpoint_fails_as_parse_error() {
-        let config = "[endpoint]\n[endpoint.subscription]\nurl = \"https://u:p@h/s\"\n";
-        let err = apply_subscription_at(config, &body(), &fixed_now).unwrap_err();
+        let endpoint = "[endpoint]\n[endpoint.subscription]\nurl = \"https://u:p@h/s\"\n";
+        let err = apply_endpoint_at(endpoint, &body(), &fixed_now).unwrap_err();
         assert!(
-            err.to_string().contains("Failed to parse config"),
+            err.to_string().contains("Failed to parse endpoint"),
             "unexpected: {err}"
         );
     }
@@ -148,22 +147,33 @@ address = "127.0.0.1:1080"
     #[test]
     fn parse_error_does_not_leak_credentials() {
         // The unterminated string puts the parse error on the URL line.
-        let config = CONFIG.replace(
+        let endpoint = ENDPOINT.replace(
             "url = \"https://u:p@old.example.com/subscription\"",
             "url = \"https://u:p@old.example.com/subscription",
         );
-        let err = apply_subscription_at(&config, &body(), &fixed_now).unwrap_err();
+        let err = apply_endpoint_at(&endpoint, &body(), &fixed_now).unwrap_err();
         assert!(
-            err.to_string().contains("Failed to parse config"),
+            err.to_string().contains("Failed to parse endpoint"),
             "unexpected: {err}"
         );
         assert!(!err.to_string().contains("u:p@"), "unexpected: {err}");
     }
 
     #[test]
-    fn missing_listener_table_is_a_compose_error() {
-        let config = CONFIG.replace("\n[listener.socks]\naddress = \"127.0.0.1:1080\"\n", "");
-        let err = apply_subscription_at(&config, &body(), &fixed_now).unwrap_err();
-        assert!(err.to_string().contains("listener"), "unexpected: {err}");
+    fn extract_apply_replace_roundtrip_preserves_the_config() {
+        let config = format!("# a top-level comment\nloglevel = \"info\"\n{ENDPOINT}\n[listener.socks]\naddress = \"127.0.0.1:1080\"\n");
+        let fragment = extract_endpoint(&config).unwrap();
+        let refreshed = apply_endpoint_at(&fragment, &body(), &fixed_now).unwrap();
+        let updated = replace_endpoint(&config, &refreshed).unwrap();
+        let doc: toml_edit::Document = updated.parse().unwrap();
+        assert_eq!(
+            doc["endpoint"]["hostname"].as_str(),
+            Some("new.example.com")
+        );
+        assert!(updated.contains("# a top-level comment"));
+        assert!(updated.contains("loglevel = \"info\""));
+        assert!(updated.contains("[listener.socks]"));
+        // Unknown keys of the endpoint ride through extract and apply.
+        assert!(updated.contains("unknown_key_the_cpp_parser_reads = \"keep me\""));
     }
 }

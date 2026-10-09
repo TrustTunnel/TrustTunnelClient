@@ -52,15 +52,30 @@ int run_subscription_refresh(const std::string &config_path) {
     }
 
     SubscriptionFfiError *error = nullptr;
+    char *endpoint_raw = nullptr;
+    if (trusttunnel_subscription_extract_endpoint(config_text->c_str(), &endpoint_raw, &error) != 0) {
+        print_and_free_error(error);
+        return 1;
+    }
+    FfiString endpoint(endpoint_raw, &trusttunnel_subscription_string_free);
+
     char *json_raw = nullptr;
-    if (trusttunnel_subscription_fetch_for_config(config_text->c_str(), &json_raw, &error) != 0) {
+    if (trusttunnel_subscription_fetch_for_endpoint(endpoint.get(), &json_raw, &error) != 0) {
         print_and_free_error(error);
         return 1;
     }
     FfiString json(json_raw, &trusttunnel_subscription_string_free);
 
+    char *updated_endpoint_raw = nullptr;
+    if (trusttunnel_subscription_apply_endpoint(endpoint.get(), json.get(), &updated_endpoint_raw, &error) != 0) {
+        print_and_free_error(error);
+        return 1;
+    }
+    FfiString updated_endpoint(updated_endpoint_raw, &trusttunnel_subscription_string_free);
+
     char *updated_raw = nullptr;
-    if (trusttunnel_subscription_apply(config_text->c_str(), json.get(), &updated_raw, &error) != 0) {
+    if (trusttunnel_subscription_replace_endpoint(config_text->c_str(), updated_endpoint.get(), &updated_raw, &error)
+            != 0) {
         print_and_free_error(error);
         return 1;
     }

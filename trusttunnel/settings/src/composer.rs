@@ -1,6 +1,7 @@
 use crate::settings::{Listener, Settings, SocksListener, TunListener};
 use crate::template_settings;
 use crate::template_settings::ToTomlComment;
+use crate::Endpoint;
 use std::fmt;
 use std::fs;
 use toml_edit::{value, Array, Document, Item, Table};
@@ -46,8 +47,18 @@ pub fn compose_document(file: Option<&str>, settings: &Settings) -> Result<Docum
 /// the model does not represent.
 pub fn apply_to_document(doc: Document, settings: &Settings) -> Result<Document, ComposeError> {
     let doc = fill_main_table(doc, settings);
-    let doc = fill_endpoint_table(doc, settings)?;
+    let doc = fill_endpoint_table(doc, &settings.endpoint)?;
     fill_listener_table(doc, settings)
+}
+
+/// Apply `endpoint` onto an already-parsed document, preserving everything
+/// the model does not represent. The document must contain an `[endpoint]`
+/// table.
+pub fn apply_endpoint_to_document(
+    doc: Document,
+    endpoint: &Endpoint,
+) -> Result<Document, ComposeError> {
+    fill_endpoint_table(doc, endpoint)
 }
 
 fn read_existing_file(file: &str) -> Result<Document, ComposeError> {
@@ -81,43 +92,43 @@ fn fill_main_table(mut doc: Document, settings: &Settings) -> Document {
     doc
 }
 
-fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Result<Document, ComposeError> {
-    let endpoint = doc
+fn fill_endpoint_table(mut doc: Document, endpoint: &Endpoint) -> Result<Document, ComposeError> {
+    let table = doc
         .get_mut("endpoint")
         .and_then(Item::as_table_mut)
         .ok_or(ComposeError::MissingTable("endpoint"))?;
 
-    endpoint["hostname"] = value(&settings.endpoint.hostname);
-    endpoint["addresses"] = value(Array::from_iter(settings.endpoint.addresses.iter()));
-    endpoint["has_ipv6"] = value(settings.endpoint.has_ipv6);
-    endpoint["username"] = value(&settings.endpoint.username);
-    endpoint["password"] = value(&settings.endpoint.password);
-    endpoint["client_random"] = value(&settings.endpoint.client_random);
-    endpoint["skip_verification"] = value(settings.endpoint.skip_verification);
-    endpoint["anti_dpi"] = value(settings.endpoint.anti_dpi);
-    endpoint["certificate"] = value(settings.endpoint.certificate.as_deref().unwrap_or_default());
-    endpoint["upstream_protocol"] = value(&settings.endpoint.upstream_protocol);
-    endpoint["tls_profile"] = value(&settings.endpoint.tls_profile);
-    endpoint["custom_sni"] = value(&settings.endpoint.custom_sni);
-    endpoint["dns_upstreams"] = value(Array::from_iter(settings.endpoint.dns_upstreams.iter()));
-    endpoint["name"] = value(settings.endpoint.name.as_deref().unwrap_or_default());
-    if let Some(subscription) = &settings.endpoint.subscription {
+    table["hostname"] = value(&endpoint.hostname);
+    table["addresses"] = value(Array::from_iter(endpoint.addresses.iter()));
+    table["has_ipv6"] = value(endpoint.has_ipv6);
+    table["username"] = value(&endpoint.username);
+    table["password"] = value(&endpoint.password);
+    table["client_random"] = value(&endpoint.client_random);
+    table["skip_verification"] = value(endpoint.skip_verification);
+    table["anti_dpi"] = value(endpoint.anti_dpi);
+    table["certificate"] = value(endpoint.certificate.as_deref().unwrap_or_default());
+    table["upstream_protocol"] = value(&endpoint.upstream_protocol);
+    table["tls_profile"] = value(&endpoint.tls_profile);
+    table["custom_sni"] = value(&endpoint.custom_sni);
+    table["dns_upstreams"] = value(Array::from_iter(endpoint.dns_upstreams.iter()));
+    table["name"] = value(endpoint.name.as_deref().unwrap_or_default());
+    if let Some(subscription) = &endpoint.subscription {
         // Update the table in place, preserving its comments and unknown keys.
-        // The value is a table: a non-table `subscription` fails the Settings
+        // The value is a table: a non-table `subscription` fails the Endpoint
         // deserialization before the composer runs.
-        let table = endpoint
+        let subscription_table = table
             .entry("subscription")
             .or_insert(Item::Table(Table::new()))
             .as_table_mut()
             .unwrap();
-        table["url"] = value(&subscription.url);
+        subscription_table["url"] = value(&subscription.url);
         if let Some(fetched_at) = &subscription.last_fetched_at {
-            table["last_fetched_at"] = value(fetched_at);
+            subscription_table["last_fetched_at"] = value(fetched_at);
         } else {
-            table.remove("last_fetched_at");
+            subscription_table.remove("last_fetched_at");
         }
     } else {
-        endpoint.remove("subscription");
+        table.remove("subscription");
     }
 
     Ok(doc)

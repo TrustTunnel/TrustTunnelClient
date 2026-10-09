@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use base64::Engine;
 
-use crate::{SubscriptionError, SubscriptionResponse};
+use crate::{parse_endpoint_toml, SubscriptionError, SubscriptionResponse};
 
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -164,23 +164,21 @@ pub fn fetch_subscription_json(
     Ok(body)
 }
 
-/// Fetch the subscription document for the endpoint described by the config
-/// text and return the raw validated body. The subscription URL and the TLS
-/// parameters reuse policy are read from the endpoint section of the config
-/// (see [`HttpRequest::for_endpoint`]).
-pub fn fetch_for_config(
-    config_text: &str,
+/// Fetch the subscription document for the endpoint described by the
+/// endpoint TOML fragment and return the raw validated body. The
+/// subscription URL and the TLS parameters reuse policy are read from the
+/// endpoint (see [`HttpRequest::for_endpoint`]).
+pub fn fetch_for_endpoint(
+    endpoint_toml: &str,
     transport: &dyn HttpTransport,
 ) -> Result<String, SubscriptionError> {
-    let settings: trusttunnel_settings::Settings = toml::from_str(config_text)
-        .map_err(|_| SubscriptionError::Other("Failed to parse config".into()))?;
-    let subscription = settings
-        .endpoint
+    let endpoint = parse_endpoint_toml(endpoint_toml)?;
+    let subscription = endpoint
         .subscription
         .as_ref()
         .filter(|subscription| !subscription.url.is_empty())
         .ok_or(SubscriptionError::NoSubscription)?;
-    let request = HttpRequest::for_endpoint(&subscription.url, &settings.endpoint);
+    let request = HttpRequest::for_endpoint(&subscription.url, &endpoint);
     let body = fetch_body(&request, transport)?;
     SubscriptionResponse::from_json(&body)?;
     Ok(body)
@@ -703,7 +701,7 @@ mod tests {
         );
     }
 
-    const FETCH_CONFIG: &str = r#"
+    const FETCH_ENDPOINT: &str = r#"
 [endpoint]
 hostname = "vpn.example.com"
 addresses = ["1.1.1.1:443"]
@@ -739,9 +737,9 @@ url = "https://u:p@vpn.example.com/subscription"
     }
 
     #[test]
-    fn config_fetch_reads_url_pin_and_policy_from_the_endpoint() {
+    fn endpoint_fetch_reads_url_pin_and_policy_from_the_endpoint() {
         let transport = RecordingTransport(std::cell::RefCell::new(None));
-        let body = fetch_for_config(FETCH_CONFIG, &transport).unwrap();
+        let body = fetch_for_endpoint(FETCH_ENDPOINT, &transport).unwrap();
         assert_eq!(body, String::from_utf8(valid_body()).unwrap());
         let seen = transport.0.borrow();
         let seen = seen.as_ref().unwrap();
@@ -755,13 +753,13 @@ url = "https://u:p@vpn.example.com/subscription"
     }
 
     #[test]
-    fn config_fetch_drops_the_pin_for_a_foreign_subscription_host() {
-        let config = FETCH_CONFIG.replace(
+    fn endpoint_fetch_drops_the_pin_for_a_foreign_subscription_host() {
+        let fragment = FETCH_ENDPOINT.replace(
             "https://u:p@vpn.example.com/subscription",
             "https://other.example.net/subscription",
         );
         let transport = RecordingTransport(std::cell::RefCell::new(None));
-        fetch_for_config(&config, &transport).unwrap();
+        fetch_for_endpoint(&fragment, &transport).unwrap();
         let seen = transport.0.borrow();
         let seen = seen.as_ref().unwrap();
         assert_eq!(seen.pinned_certificate_pem, None);
@@ -893,36 +891,37 @@ url = "https://u:p@vpn.example.com/subscription"
     }
 
     #[test]
-    fn config_fetch_without_subscription_is_a_distinct_error() {
-        let config = FETCH_CONFIG.replace("[endpoint.subscription]", "[endpoint.other]");
-        let err = fetch_for_config(&config, &FakeTransport(Ok(valid_body()))).unwrap_err();
+    fn endpoint_fetch_without_subscription_is_a_distinct_error() {
+        let fragment = FETCH_ENDPOINT.replace("[endpoint.subscription]", "[endpoint.other]");
+        let err = fetch_for_endpoint(&fragment, &FakeTransport(Ok(valid_body()))).unwrap_err();
         assert_eq!(err.to_string(), "No subscription URL configured.");
     }
 
     #[test]
-    fn config_fetch_with_empty_url_is_a_distinct_error() {
-        let config = FETCH_CONFIG.replace("https://u:p@vpn.example.com/subscription", "");
-        let err = fetch_for_config(&config, &FakeTransport(Ok(valid_body()))).unwrap_err();
+    fn endpoint_fetch_with_empty_url_is_a_distinct_error() {
+        let fragment = FETCH_ENDPOINT.replace("https://u:p@vpn.example.com/subscription", "");
+        let err = fetch_for_endpoint(&fragment, &FakeTransport(Ok(valid_body()))).unwrap_err();
         assert_eq!(err.to_string(), "No subscription URL configured.");
     }
 
     #[test]
-    fn config_fetch_with_invalid_config_is_a_parse_error() {
+    fn endpoint_fetch_with_invalid_endpoint_is_a_parse_error() {
         let err =
-            fetch_for_config("not [valid toml", &FakeTransport(Ok(valid_body()))).unwrap_err();
+            fetch_for_endpoint("not [valid toml", &FakeTransport(Ok(valid_body()))).unwrap_err();
         assert!(
-            err.to_string().contains("Failed to parse config"),
+            err.to_string().contains("Failed to parse endpoint"),
             "unexpected: {err}"
         );
     }
 
     #[test]
-    fn config_fetch_parse_error_does_not_leak_credentials() {
+    fn endpoint_fetch_parse_error_does_not_leak_credentials() {
         // The unterminated string puts the parse error on the URL line.
-        let config = "[endpoint.subscription]\nurl = \"https://u:p@vpn.example.com/subscription\n";
-        let err = fetch_for_config(config, &FakeTransport(Ok(valid_body()))).unwrap_err();
+        let fragment =
+            "[endpoint.subscription]\nurl = \"https://u:p@vpn.example.com/subscription\n";
+        let err = fetch_for_endpoint(fragment, &FakeTransport(Ok(valid_body()))).unwrap_err();
         assert!(
-            err.to_string().contains("Failed to parse config"),
+            err.to_string().contains("Failed to parse endpoint"),
             "unexpected: {err}"
         );
         assert!(!err.to_string().contains("u:p@"), "unexpected: {err}");
