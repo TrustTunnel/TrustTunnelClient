@@ -24,7 +24,7 @@ jobs:
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs:2.12
+      image: adguard/core-libs:2.15
     steps:
       - name: Checkout client
         uses: actions/checkout@v6
@@ -76,7 +76,7 @@ jobs:
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs-testing:2.12.0
+      image: adguard/core-libs-testing:2.15.0
       options: --privileged
     strategy:
       fail-fast: false
