@@ -323,3 +323,51 @@ TEST_F(EventLoopTest, FinalizeExitCallsFinalizeWithoutLock) {
     vpn_event_loop_stop(m_ev_loop.get());
     EXPECT_TRUE(ctx.finalized);
 }
+
+TEST_F(EventLoopTest, IsCurrentThread) {
+    EXPECT_FALSE(vpn_event_loop_is_current_thread(m_ev_loop.get()));
+
+    run_event_loop();
+    bool called_from_loop = false;
+    event_loop::dispatch_sync(m_ev_loop.get(), [&] {
+        called_from_loop = vpn_event_loop_is_current_thread(m_ev_loop.get());
+    });
+    EXPECT_TRUE(called_from_loop);
+    EXPECT_FALSE(vpn_event_loop_is_current_thread(m_ev_loop.get()));
+}
+
+TEST_F(EventLoopTest, SubmitDuringFinalizationIsFinalizedImmediately) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool nested_finalized = false;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // The loop is being finalized, so a new task cannot be queued: it must be finalized
+                                // immediately and not left in the queue.
+                                TaskId id = vpn_event_loop_submit(ctx->loop,
+                                        {
+                                                .arg = &ctx->nested_finalized,
+                                                .action = [](void *, TaskId) {},
+                                                .finalize =
+                                                        [](void *arg) {
+                                                            *(bool *) arg = true;
+                                                        },
+                                        });
+                                EXPECT_EQ(id, -1);
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_TRUE(ctx.nested_finalized);
+}

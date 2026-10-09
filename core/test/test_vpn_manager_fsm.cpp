@@ -67,6 +67,8 @@ protected:
     int raised_events = 0;
     VpnError vpn_error{};
     FsmState vpn_state = 0;
+    /** Called from the event handler before it acquires the test lock; used by tests to block the event loop */
+    std::function<void(VpnEvent)> handler_hook;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -223,6 +225,9 @@ protected:
 
 static void vpn_handler(void *arg, VpnEvent what, void *data) {
     VpnManagerTest *test = (VpnManagerTest *) arg;
+    if (test->handler_hook) {
+        test->handler_hook(what);
+    }
     std::unique_lock l(test->guard);
     test->raised_events |= 1 << what;
     test->vpn_state = test->vpn->fsm.get_state();
@@ -536,4 +541,99 @@ TEST_F(AbandonEndpoint, AllOfFamily) {
 
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
     ASSERT_EQ(vpn_error.code, VPN_EC_LOCATION_UNAVAILABLE);
+}
+
+// Check that an event handler can call library functions that only schedule work on the event loop while another
+// thread is stopping the VPN client.
+// `vpn_stop()` holds the VPN lock while it waits for the event loop to finish, so acquiring that lock from the
+// event loop thread deadlocks.
+TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
+    std::mutex hook_guard;
+    std::condition_variable hook_cv;
+    bool handler_entered = false;
+    bool handler_proceed = false;
+    bool handler_finished = false;
+    bool loop_obtained = false;
+
+    this->handler_hook = [&](VpnEvent what) {
+        if (what != VPN_EVENT_ENDPOINT_CONNECTION_STATS) {
+            return;
+        }
+
+        {
+            std::unique_lock l(hook_guard);
+            handler_entered = true;
+            hook_cv.notify_all();
+            hook_cv.wait(l, [&]() {
+                return handler_proceed;
+            });
+        }
+
+        // `vpn_stop()` is running on another thread: it holds the VPN lock and waits for this thread to finish.
+        // Calling a function that acquires the VPN lock here would deadlock.
+        loop_obtained = vpn_get_event_loop(this->vpn) != nullptr;
+
+        {
+            std::unique_lock l(hook_guard);
+            handler_finished = true;
+            hook_cv.notify_all();
+        }
+    };
+
+    vpn_request_endpoint_connection_stats(this->vpn);
+
+    {
+        std::unique_lock l(hook_guard);
+        ASSERT_TRUE(hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_entered;
+        }));
+    }
+
+    std::thread stop_thread([vpn = this->vpn]() {
+        vpn_stop(vpn);
+    });
+
+    // Wait until `vpn_stop()` has acquired the VPN lock: from this point it holds the lock until the loop exits.
+    bool stop_took_lock = false;
+    for (size_t i = 0; i < 5000 && !stop_took_lock; ++i) {
+        std::unique_lock lock(this->vpn->stop_guard, std::try_to_lock);
+        stop_took_lock = !lock.owns_lock();
+        if (!stop_took_lock) {
+            std::this_thread::sleep_for(milliseconds(1));
+        }
+    }
+    ASSERT_TRUE(stop_took_lock);
+
+    {
+        std::unique_lock l(hook_guard);
+        handler_proceed = true;
+        hook_cv.notify_all();
+    }
+
+    {
+        std::unique_lock l(hook_guard);
+        ASSERT_TRUE(hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_finished;
+        })) << "event handler deadlocked on the VPN lock held by vpn_stop()";
+    }
+
+    stop_thread.join();
+
+    ASSERT_TRUE(loop_obtained);
+}
+
+// Check that calling `vpn_listen()` from the event loop thread is rejected instead of deadlocking the event loop
+TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerIsRejected) {
+    VpnError listen_error{};
+    event_loop::dispatch_sync(vpn_get_event_loop(this->vpn), [&]() {
+        VpnSocksListenerConfig socks_config{};
+        VpnListener *listener = vpn_create_socks_listener(this->vpn, &socks_config);
+        ASSERT_NE(listener, nullptr);
+
+        VpnListenerConfig listener_config{};
+        listen_error = vpn_listen(this->vpn, listener, &listener_config);
+    });
+
+    ASSERT_EQ(listen_error.code, VPN_EC_ERROR);
+    ASSERT_STREQ(listen_error.text, "vpn_listen() must not be called from the event loop thread");
 }

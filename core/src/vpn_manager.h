@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -97,6 +98,8 @@ struct Vpn {
     Fsm fsm;
     std::optional<VpnError> pending_error;
     std::thread executor_thread;
+    /** Identifier of the thread running the event loop, set while it is running */
+    std::atomic<std::thread::id> executor_thread_id{};
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     vpn_manager::RecoveryInfo recovery = {};
     VpnHandler handler = {};
@@ -129,6 +132,9 @@ struct Vpn {
     mutable std::mutex stop_guard;
 
     event_loop::AutoTaskId update_exclusions_task; // Guarded by stop_guard
+
+    /** Bumped when a session starts or stops; detects that a session ended while a lock was released */
+    uint64_t session_generation = 0; // Guarded by stop_guard
 
     ag::Logger log{vpn_manager::LOG_NAME};
     int id;

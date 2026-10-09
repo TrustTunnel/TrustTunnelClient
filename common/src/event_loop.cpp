@@ -70,6 +70,8 @@ enum EventLoopState {
     ELS_STOPPED,
     ELS_RUNNING,
     ELS_BASE_EXITED,
+    /** The loop has exited and its queued tasks are being finalized; it cannot be run again until finalization ends */
+    ELS_FINALIZING,
 };
 
 struct VpnEventLoop {
@@ -176,7 +178,11 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 #endif // __MACH__
 
     loop->guard.lock();
-    assert(loop->state == ELS_STOPPED);
+    if (loop->state != ELS_STOPPED) {
+        log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
+        loop->guard.unlock();
+        return -1;
+    }
     loop->state = ELS_RUNNING;
     loop->thread_id.store(std::this_thread::get_id());
     loop->guard.unlock();
@@ -234,6 +240,7 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
         // the loop API (e.g. `vpn_event_loop_cancel`) or run arbitrary user code.
         tasks.swap(loop->task_queue);
         deferred_tasks.swap(loop->deferred_task_queue);
+        loop->state = ELS_FINALIZING;
     }
 
     for (TaskInfo &info : tasks) {
@@ -266,6 +273,7 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
 
     switch (loop->state) {
     case ELS_BASE_EXITED:
+    case ELS_FINALIZING:
         loop->guard.unlock();
         if (task.finalize != nullptr) {
             log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
@@ -300,6 +308,7 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 
     switch (loop->state) {
     case ELS_BASE_EXITED:
+    case ELS_FINALIZING:
         loop->guard.unlock();
         log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
         task.finalize(task.arg);
@@ -328,8 +337,10 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 
 static bool dispatch_sync_impl(
         VpnEventLoop *loop, std::unique_lock<std::mutex> *caller_lock, void (*action)(void *), void *arg) {
-    if (loop->thread_id.load() == std::this_thread::get_id()) {
+    assert(caller_lock == nullptr || caller_lock->owns_lock());
+    if (vpn_event_loop_is_current_thread(loop)) {
         // The event loop cannot execute the submitted task while its own thread is blocked here.
+        log_loop(loop, err, "dispatch_sync() must not be called from the event loop thread");
         assert(0);
         return false;
     }
@@ -442,6 +453,10 @@ bool vpn_event_loop_is_active(const VpnEventLoop *loop) {
     std::scoped_lock l(loop->guard);
     return loop->state == ELS_RUNNING && !event_base_got_exit(loop->ev_base.get())
             && !event_base_got_break(loop->ev_base.get());
+}
+
+bool vpn_event_loop_is_current_thread(const VpnEventLoop *loop) {
+    return loop != nullptr && loop->thread_id.load() == std::this_thread::get_id();
 }
 
 void vpn_event_loop_hijack(VpnEventLoop *loop) {

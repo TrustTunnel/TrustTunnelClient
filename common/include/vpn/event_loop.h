@@ -150,6 +150,13 @@ struct event_base *vpn_event_loop_get_base(const VpnEventLoop *loop);
 bool vpn_event_loop_is_active(const VpnEventLoop *loop);
 
 /**
+ * Check whether the calling thread is the one running the event loop
+ * @param loop the event loop
+ * @return whether the calling thread is the event loop thread
+ */
+bool vpn_event_loop_is_current_thread(const VpnEventLoop *loop);
+
+/**
  * Ask the loop to exit as soon as possible without cancelling any pending tasks and wait for it to exit.
  * Useful for hijacking the event loop in tests.
  */
