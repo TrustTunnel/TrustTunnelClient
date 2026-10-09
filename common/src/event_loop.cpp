@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <thread>
 
 #include <event2/bufferevent.h>
 #include <event2/event.h>
@@ -83,6 +84,8 @@ struct VpnEventLoop {
     ag::Logger log{"EVLOOP"};
     int id = g_next_loop_id++;
     std::shared_ptr<bool> shutdown_guard = std::make_shared<bool>(true);
+    /** Identifier of the thread running the event loop, if it is running */
+    std::atomic<std::thread::id> thread_id{};
 };
 
 extern "C" struct evthread_lock_callbacks *evthread_get_lock_callbacks(void);
@@ -175,6 +178,7 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
     loop->guard.lock();
     assert(loop->state == ELS_STOPPED);
     loop->state = ELS_RUNNING;
+    loop->thread_id.store(std::this_thread::get_id());
     loop->guard.unlock();
 
     log_loop(loop, dbg, "Running event base...");
@@ -186,6 +190,7 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 
     loop->guard.lock();
     loop->state = (loop->stopping_externally) ? ELS_BASE_EXITED : ELS_STOPPED;
+    loop->thread_id.store(std::thread::id{});
     loop->guard.unlock();
     loop->stop_barrier.notify_one();
 
@@ -214,32 +219,42 @@ void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout) {
 void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     log_loop(loop, dbg, "...");
 
-    std::unique_lock l(loop->guard);
-    log_loop(loop, dbg, "Waiting until run finished (current state={})", magic_enum::enum_name(loop->state));
-    loop->stopping_externally = true;
-    loop->stop_barrier.wait(l, [loop]() -> bool {
-        return loop->state != ELS_RUNNING;
-    });
-    log_loop(loop, dbg, "Run finish waited");
+    std::list<TaskInfo> tasks;
+    std::list<DeferredTaskInfo> deferred_tasks;
+    {
+        std::unique_lock l(loop->guard);
+        log_loop(loop, dbg, "Waiting until run finished (current state={})", magic_enum::enum_name(loop->state));
+        loop->stopping_externally = true;
+        loop->stop_barrier.wait(l, [loop]() -> bool {
+            return loop->state != ELS_RUNNING;
+        });
+        log_loop(loop, dbg, "Run finish waited");
 
-    for (TaskInfo &info : loop->task_queue) {
+        // Move the queues out so that `finalize` callbacks are called without holding the lock: they may re-enter
+        // the loop API (e.g. `vpn_event_loop_cancel`) or run arbitrary user code.
+        tasks.swap(loop->task_queue);
+        deferred_tasks.swap(loop->deferred_task_queue);
+    }
+
+    for (TaskInfo &info : tasks) {
         if (info.task.finalize != nullptr) {
             log_task(loop, info.id, trace, "Finalizing");
             info.task.finalize(info.task.arg);
         }
     }
-    loop->task_queue.clear();
 
-    for (DeferredTaskInfo &info : loop->deferred_task_queue) {
+    for (DeferredTaskInfo &info : deferred_tasks) {
         if (info.basic.task.finalize != nullptr) {
             log_task(loop, info.basic.id, trace, "Finalizing");
             info.basic.task.finalize(info.basic.task.arg);
         }
     }
-    loop->deferred_task_queue.clear();
 
-    loop->state = ELS_STOPPED;
-    loop->stopping_externally = false;
+    {
+        std::scoped_lock l(loop->guard);
+        loop->state = ELS_STOPPED;
+        loop->stopping_externally = false;
+    }
 
     log_loop(loop, dbg, "Done");
 }
@@ -311,7 +326,14 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
     return task_id;
 }
 
-bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *), void *arg) {
+static bool dispatch_sync_impl(
+        VpnEventLoop *loop, std::unique_lock<std::mutex> *caller_lock, void (*action)(void *), void *arg) {
+    if (loop->thread_id.load() == std::this_thread::get_id()) {
+        // The event loop cannot execute the submitted task while its own thread is blocked here.
+        assert(0);
+        return false;
+    }
+
     struct DispatchContext {
         void (*action)(void *);
         void *arg;
@@ -343,11 +365,31 @@ bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *), vo
                                 ctx->cv.notify_all();
                             },
             });
-    std::unique_lock l(ctx.mutex);
-    ctx.cv.wait(l, [&] {
-        return ctx.finalized;
-    });
+
+    if (caller_lock != nullptr) {
+        // Release the caller's lock while waiting, so that the submitted action and any event handlers it invokes
+        // can acquire it. The lock is re-acquired before returning; the caller must re-check the state it guards.
+        caller_lock->unlock();
+    }
+    {
+        std::unique_lock l(ctx.mutex);
+        ctx.cv.wait(l, [&] {
+            return ctx.finalized;
+        });
+    }
+    if (caller_lock != nullptr) {
+        caller_lock->lock();
+    }
     return ctx.executed;
+}
+
+bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *), void *arg) {
+    return dispatch_sync_impl(loop, nullptr, action, arg);
+}
+
+bool vpn_event_loop_dispatch_sync_unlocked(
+        VpnEventLoop *loop, std::unique_lock<std::mutex> &lock, void (*action)(void *), void *arg) {
+    return dispatch_sync_impl(loop, &lock, action, arg);
 }
 
 void vpn_event_loop_cancel(VpnEventLoop *loop, TaskId task_id) {

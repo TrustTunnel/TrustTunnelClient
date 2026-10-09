@@ -175,6 +175,8 @@ bool Vpn::run_event_loop() {
         }
     });
 
+    // This call is made while `vpn_connect` holds `stop_guard`, but it cannot deadlock: no event handlers can run
+    // before the loop has started and the first connect task has been submitted.
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
         vpn_event_loop_stop(this->ev_loop.get());
@@ -382,16 +384,23 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (!vpn->executor_thread.joinable()) {
+    if (!vpn->executor_thread.joinable() || vpn->ev_loop == nullptr) {
         VpnError error = {VPN_EC_ERROR, "VPN client worker is not running"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
 
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    // The lock is released while waiting, so that event handlers can call library functions that acquire
+    // `stop_guard`. It is re-acquired on return, but the VPN may have been stopped while it was released.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         StartListeningArgs args{.listener = std::move(listener), .config = config};
         vpn->fsm.perform_transition(vpn_fsm::CE_START_LISTENING, &args);
     });
+    if (!executed || vpn->ev_loop == nullptr) {
+        VpnError error = {VPN_EC_ERROR, "VPN client was stopped"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
 
     log_vpn(vpn, info, "Done");
 
@@ -861,8 +870,13 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 
 SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     SocketAddressStorage ret{};
-    std::scoped_lock l(vpn->stop_guard);
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    std::unique_lock l(vpn->stop_guard);
+    if (vpn->ev_loop == nullptr) {
+        return ret;
+    }
+    // The lock is released while waiting, so that event handlers can call library functions that acquire
+    // `stop_guard`.
+    event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         ret = *vpn->client.socks_listener_address.c_storage();
     });
     return ret;

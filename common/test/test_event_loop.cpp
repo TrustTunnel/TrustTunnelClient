@@ -276,3 +276,50 @@ TEST_F(EventLoopTest, StopSubmitRun) {
     ASSERT_TRUE(ctx.ran);
     ASSERT_TRUE(ctx.finalized);
 }
+
+TEST_F(EventLoopTest, DispatchSyncUnlocksCallerLock) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+
+    std::mutex guard;
+    bool action_ran = false;
+    {
+        std::unique_lock l(guard);
+        bool executed = event_loop::dispatch_sync(m_ev_loop.get(), l, [&] {
+            // The event loop thread must be able to acquire the guard: the caller releases it while waiting.
+            std::unique_lock guard_l(guard);
+            action_ran = true;
+        });
+        EXPECT_TRUE(executed);
+        EXPECT_TRUE(l.owns_lock());
+    }
+    EXPECT_TRUE(action_ran);
+}
+
+TEST_F(EventLoopTest, FinalizeExitCallsFinalizeWithoutLock) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool finalized = false;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // Finalize callbacks are called without the loop lock, so re-entering the loop API
+                                // here must not deadlock.
+                                vpn_event_loop_cancel(ctx->loop, -1);
+                                ctx->finalized = true;
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_TRUE(ctx.finalized);
+}

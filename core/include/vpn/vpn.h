@@ -475,8 +475,10 @@ typedef struct {
     /**
      * A function, together with its argument, that gets called to notify the application of an event.
      *
-     * NOTE: VPN library functions should NOT be called from this function directly: doing so may lead to a deadlock.
-     * Schedule a call from another thread instead.
+     * Functions that only schedule work on the VPN event loop (e.g. `vpn_get_event_loop`, `vpn_abandon_endpoint`,
+     * `vpn_force_disconnect`) may be called from this function directly.
+     * Functions that wait for the event loop (`vpn_listen`, `vpn_get_socks_listener_address`) or stop and destroy
+     * the client (`vpn_stop`, `vpn_close`) must not be called from it.
      */
     VpnHandler handler;
     /** The VPN mode (see `VpnMode`) */
