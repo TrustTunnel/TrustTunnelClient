@@ -13,6 +13,8 @@ pub struct Endpoint {
     #[serde(default)]
     pub client_random: String,
     #[serde(default)]
+    pub client_random_auth_key: String,
+    #[serde(default)]
     pub skip_verification: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub certificate: Option<String>,
@@ -81,6 +83,12 @@ impl Endpoint {
         "TLS client random prefix and mask (hex string, format: prefix[/mask])"
     }
 
+    pub fn doc_client_random_auth_key() -> &'static str {
+        "TLS client random auth key (hex string). When set, part of client_random \
+         is derived from this key, the SNI, and other random bytes using \
+         HKDF-SHA256 + AES-128"
+    }
+
     pub fn doc_skip_verification() -> &'static str {
         "Skip the endpoint certificate verification?\n\
          That is, any certificate is accepted with this one set to true."
@@ -136,12 +144,13 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
         .map_err(|e| e.to_string())?;
 
     Ok(Endpoint {
-        hostname: config.hostname,
+        hostname: config.hostname.unwrap_or_default(),
         addresses: config.addresses.iter().map(|a| a.to_string()).collect(),
         has_ipv6: config.has_ipv6,
-        username: config.username,
-        password: config.password,
+        username: config.username.unwrap_or_default(),
+        password: config.password.unwrap_or_default(),
         client_random: config.client_random_prefix.unwrap_or_default(),
+        client_random_auth_key: config.client_random_auth_key.unwrap_or_default(),
         skip_verification: config.skip_verification,
         certificate,
         upstream_protocol: config.upstream_protocol.to_string(),
@@ -205,11 +214,12 @@ mod tests {
     #[test]
     fn test_deeplink_field_mapping() {
         let config = DeepLinkConfig {
-            hostname: "vpn.example.com".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             addresses: vec!["1.2.3.4:443".parse().unwrap()],
-            username: "alice".to_string(),
-            password: "s3cr3t".to_string(),
+            username: Some("alice".to_string()),
+            password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: Some("sni.example.com".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -218,6 +228,7 @@ mod tests {
             anti_dpi: false,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let ep = endpoint_from_deeplink_config(config).unwrap();
@@ -226,6 +237,7 @@ mod tests {
         assert_eq!(ep.username, "alice");
         assert_eq!(ep.password, "s3cr3t");
         assert_eq!(ep.client_random, "aabb");
+        assert_eq!(ep.client_random_auth_key, "aabbccdd");
         assert_eq!(ep.custom_sni, "sni.example.com");
         assert!(!ep.has_ipv6);
         assert!(ep.skip_verification);
@@ -239,11 +251,12 @@ mod tests {
     #[test]
     fn test_optional_fields_default_to_empty() {
         let config = DeepLinkConfig {
-            hostname: "h".to_string(),
+            hostname: Some("h".to_string()),
             addresses: vec![],
-            username: "u".to_string(),
-            password: "p".to_string(),
+            username: Some("u".to_string()),
+            password: Some("p".to_string()),
             client_random_prefix: None,
+            client_random_auth_key: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -252,10 +265,12 @@ mod tests {
             anti_dpi: true,
             dns_upstreams: vec![],
             name: None,
+            subscription_url: None,
         };
 
         let ep = endpoint_from_deeplink_config(config).unwrap();
         assert_eq!(ep.client_random, "");
+        assert_eq!(ep.client_random_auth_key, "");
         assert_eq!(ep.custom_sni, "");
         assert_eq!(ep.upstream_protocol, "http3");
         assert!(ep.anti_dpi);
@@ -266,11 +281,12 @@ mod tests {
     #[test]
     fn test_roundtrip_with_dns_upstreams_and_name() {
         let config = DeepLinkConfig {
-            hostname: "vpn.example.com".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             addresses: vec!["1.2.3.4:443".to_string()],
-            username: "alice".to_string(),
-            password: "s3cr3t".to_string(),
+            username: Some("alice".to_string()),
+            password: Some("s3cr3t".to_string()),
             client_random_prefix: None,
+            client_random_auth_key: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -279,6 +295,7 @@ mod tests {
             anti_dpi: false,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).unwrap();
@@ -292,11 +309,12 @@ mod tests {
     #[test]
     fn test_roundtrip_without_dns_upstreams() {
         let config = DeepLinkConfig {
-            hostname: "vpn.example.com".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             addresses: vec!["1.2.3.4:443".to_string()],
-            username: "alice".to_string(),
-            password: "s3cr3t".to_string(),
+            username: Some("alice".to_string()),
+            password: Some("s3cr3t".to_string()),
             client_random_prefix: None,
+            client_random_auth_key: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -305,6 +323,7 @@ mod tests {
             anti_dpi: false,
             dns_upstreams: vec![],
             name: None,
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).unwrap();
