@@ -157,11 +157,12 @@ mod tests {
     #[test]
     fn test_roundtrip() {
         let config = DeepLinkConfig {
-            hostname: "vpn.example.com".to_string(),
+            hostname: Some("vpn.example.com".to_string()),
             addresses: vec!["1.2.3.4:443".parse().unwrap()],
-            username: "alice".to_string(),
-            password: "s3cr3t".to_string(),
+            username: Some("alice".to_string()),
+            password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -170,6 +171,7 @@ mod tests {
             anti_dpi: false,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).expect("encode should succeed");
@@ -189,8 +191,16 @@ mod tests {
         );
         assert!(toml_str.contains("alice"), "Output must contain username");
         assert!(
-            toml_str.contains("aabb"),
-            "Output must contain client_random"
+            toml_str.contains("client_random = \"aabb\""),
+            "Output must contain client_random prefix field with value"
+        );
+        assert!(
+            toml_str.contains("client_random_auth_key"),
+            "Output must contain client_random_auth_key field"
+        );
+        assert!(
+            toml_str.contains("aabbccdd"),
+            "Output must contain the auth key value"
         );
         assert!(
             toml_str.contains("dns.adguard-dns.com"),
