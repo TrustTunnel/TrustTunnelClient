@@ -174,6 +174,8 @@ bool Vpn::run_event_loop() {
             this->pending_error = {.code = VPN_EC_EVENT_LOOP_FAILURE, .text = "Event loop run error"};
             shutdown_cb(this);
         }
+        // The identifier of a finished thread may be reused: do not let another thread be mistaken for the loop
+        this->executor_thread_id.store(std::thread::id{});
     });
 
     // This call is made while `vpn_connect` holds `stop_guard`, but it cannot deadlock: no event handlers can run
@@ -289,21 +291,24 @@ static VpnError validate_upstream_config(const Vpn *vpn, const VpnUpstreamConfig
 }
 
 /**
- * Check whether the calling thread is the one running the VPN event loop
+ * Check whether the calling thread may call the functions that skip the VPN lock: the event loop thread, or the
+ * thread that is currently executing `vpn_stop()` (it holds the VPN lock while the client is being finalized).
  */
-static bool on_vpn_loop_thread(const Vpn *vpn) {
-    return vpn->executor_thread_id.load() == std::this_thread::get_id();
+static bool may_skip_vpn_lock(const Vpn *vpn) {
+    std::thread::id current = std::this_thread::get_id();
+    return vpn->executor_thread_id.load() == current || vpn->stopping_thread_id.load() == current;
 }
 
 /**
- * Take `vpn->stop_guard`, unless the call is made from the VPN event loop thread.
+ * Take `vpn->stop_guard`, unless the call is made from the event loop thread or from the thread executing
+ * `vpn_stop()`.
  *
  * While the event loop thread is running, `vpn_stop()` cannot destroy the loop: it joins that thread before
  * resetting `ev_loop`. Event handlers run on that thread, so they may call functions that only schedule work on the
  * loop without deadlocking against a concurrent `vpn_stop()`.
  */
 static std::unique_lock<std::mutex> lock_unless_on_vpn_loop(Vpn *vpn) {
-    if (on_vpn_loop_thread(vpn)) {
+    if (may_skip_vpn_lock(vpn)) {
         return {};
     }
     return std::unique_lock(vpn->stop_guard);
@@ -405,13 +410,15 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 
     std::unique_ptr<ClientListener> listener((ClientListener *) listener_);
 
-    std::unique_lock l(vpn->stop_guard);
-
-    if (on_vpn_loop_thread(vpn)) {
+    // The check must precede taking the lock: `vpn_stop()` holds it while it waits for the event loop, so taking
+    // it here would deadlock the loop thread.
+    if (may_skip_vpn_lock(vpn)) {
         VpnError error = {VPN_EC_ERROR, "vpn_listen() must not be called from the event loop thread"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
+
+    std::unique_lock l(vpn->stop_guard);
 
     if (!vpn->executor_thread.joinable() || vpn->ev_loop == nullptr) {
         VpnError error = {VPN_EC_ERROR, "VPN client worker is not running"};
@@ -445,7 +452,15 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 void vpn_stop(Vpn *vpn) {
     log_vpn(vpn, info, "...");
 
+    if (may_skip_vpn_lock(vpn)) {
+        log_vpn(vpn, err, "vpn_stop() must not be called from the event loop thread");
+        return;
+    }
+
     std::unique_lock l(vpn->stop_guard);
+    // Handlers fired while the client is finalized run on this thread; `may_skip_vpn_lock` must recognize it so
+    // that they do not deadlock on the lock held here.
+    vpn->stopping_thread_id.store(std::this_thread::get_id());
     ++vpn->session_generation;
 
     if (vpn->ev_loop != nullptr) {
@@ -460,7 +475,6 @@ void vpn_stop(Vpn *vpn) {
     if (vpn->executor_thread.joinable()) {
         vpn->executor_thread.join();
     }
-    vpn->executor_thread_id.store(std::thread::id{});
 
     vpn->fsm.reset();
     vpn->pending_error.reset();
@@ -474,10 +488,15 @@ void vpn_stop(Vpn *vpn) {
     vpn->recovery = {};
     vpn->selected_endpoint.reset();
 
-    vpn->update_exclusions_task.release(); // The event loop is stopped, no need to reset()
+    {
+        std::scoped_lock task_lock(vpn->update_exclusions_task_guard);
+        vpn->update_exclusions_task.release(); // The event loop is stopped, no need to reset()
+    }
 
     vpn->postponed_requests.clear();
     vpn->bypassed_connection_ids.clear();
+
+    vpn->stopping_thread_id.store(std::thread::id{});
 
     log_vpn(vpn, info, "Done");
 }
@@ -488,6 +507,12 @@ void vpn_close(Vpn *vpn) {
     }
 
     log_vpn(vpn, info, "...");
+
+    if (may_skip_vpn_lock(vpn)) {
+        log_vpn(vpn, err, "vpn_close() must not be called from the event loop thread");
+        return;
+    }
+
     vpn->client.deinit();
 
     if (vpn->handler.func == &profiling_vpn_handler) {
@@ -574,21 +599,28 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
             .exclusions = {exclusions.data, exclusions.size},
     };
 
-    vpn->update_exclusions_task = event_loop::submit(vpn->ev_loop.get(),
-            {
-                    .arg = ctx,
-                    .action =
-                            [](void *arg, TaskId) {
-                                auto *ctx = (Ctx *) arg;
-                                ctx->vpn->update_exclusions_task.release();
-                                ctx->vpn->client.reset_connections(-1);
-                                ctx->vpn->client.update_exclusions(ctx->mode, ctx->exclusions);
-                            },
-                    .finalize =
-                            [](void *arg) {
-                                delete (Ctx *) arg;
-                            },
-            });
+    {
+        // `update_exclusions_task` may be accessed from the event loop thread without `stop_guard`
+        std::scoped_lock task_lock(vpn->update_exclusions_task_guard);
+        vpn->update_exclusions_task = event_loop::submit(vpn->ev_loop.get(),
+                {
+                        .arg = ctx,
+                        .action =
+                                [](void *arg, TaskId) {
+                                    auto *ctx = (Ctx *) arg;
+                                    {
+                                        std::scoped_lock task_lock(ctx->vpn->update_exclusions_task_guard);
+                                        ctx->vpn->update_exclusions_task.release();
+                                    }
+                                    ctx->vpn->client.reset_connections(-1);
+                                    ctx->vpn->client.update_exclusions(ctx->mode, ctx->exclusions);
+                                },
+                        .finalize =
+                                [](void *arg) {
+                                    delete (Ctx *) arg;
+                                },
+                });
+    }
 
     log_vpn(vpn, info, "Done");
 }
@@ -913,6 +945,12 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 
 SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     SocketAddressStorage ret{};
+    // The check must precede taking the lock: `vpn_stop()` holds it while it waits for the event loop, so taking
+    // it here would deadlock the loop thread.
+    if (may_skip_vpn_lock(vpn)) {
+        log_vpn(vpn, err, "vpn_get_socks_listener_address() must not be called from the event loop thread");
+        return ret;
+    }
     std::unique_lock l(vpn->stop_guard);
     if (vpn->ev_loop == nullptr) {
         return ret;

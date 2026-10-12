@@ -474,13 +474,15 @@ typedef enum {
 typedef struct {
     /**
      * A function, together with its argument, that gets called to notify the application of an event.
-     * The handler runs on the VPN event loop thread.
+     * The handler is called on the VPN event loop thread, except while the client is being stopped
+     * (`vpn_stop()`): such calls are made on the thread that called `vpn_stop()`.
      *
      * The functions that only schedule work on the event loop (`vpn_get_event_loop`, `vpn_abandon_endpoint`,
      * `vpn_force_reconnect`, `vpn_force_disconnect`, `vpn_complete_connect_request`, `vpn_update_exclusions`,
      * `vpn_reset_connections`, `vpn_notify_network_change`, `vpn_request_endpoint_connection_stats`,
      * `vpn_notify_sleep`, `vpn_notify_wake`, `vpn_process_client_packets`) may be called from this function
-     * directly: the library does not acquire the VPN lock for them when they are called from the event loop thread.
+     * directly: the library does not acquire the VPN lock for them when they are called from the event loop thread
+     * or from the thread that is stopping the client.
      * All other functions, in particular those that wait for the event loop (`vpn_listen`,
      * `vpn_get_socks_listener_address`) or stop and destroy the client (`vpn_stop`, `vpn_close`), must not be called
      * from it.
@@ -695,7 +697,7 @@ WIN_EXPORT ag::VpnError vpn_listen(Vpn *vpn, VpnListener *listener, const VpnLis
  * Stop VPN client.
  * MUST be called if either `vpn_connect` or `vpn_listen` was called previously.
  * MUST NOT be called in event handlers without a context switch (i.e., it's not safe to call
- * `vpn_stop` directly, for example, in disconnected event handler).
+ * `vpn_stop` directly, for example, in disconnected event handler). Such calls are logged and ignored.
  * @param vpn VPN client
  */
 WIN_EXPORT void vpn_stop(Vpn *vpn);
@@ -703,6 +705,7 @@ WIN_EXPORT void vpn_stop(Vpn *vpn);
 /**
  * Close VPN client
  * Must not be called concurrently with any other function.
+ * Must not be called from an event handler: such a call is logged and ignored.
  * @param vpn VPN client
  */
 WIN_EXPORT void vpn_close(Vpn *vpn);

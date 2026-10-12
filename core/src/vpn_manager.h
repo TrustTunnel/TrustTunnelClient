@@ -100,6 +100,8 @@ struct Vpn {
     std::thread executor_thread;
     /** Identifier of the thread running the event loop, set while it is running */
     std::atomic<std::thread::id> executor_thread_id{};
+    /** Identifier of the thread executing `vpn_stop()`, set while it is running */
+    std::atomic<std::thread::id> stopping_thread_id{};
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     vpn_manager::RecoveryInfo recovery = {};
     VpnHandler handler = {};
@@ -131,10 +133,14 @@ struct Vpn {
 
     mutable std::mutex stop_guard;
 
-    event_loop::AutoTaskId update_exclusions_task; // Guarded by stop_guard
+    /** Cancels the previous pending exclusions update; guarded by `update_exclusions_task_guard` */
+    event_loop::AutoTaskId update_exclusions_task;
 
     /** Bumped when a session starts or stops; detects that a session ended while a lock was released */
     uint64_t session_generation = 0; // Guarded by stop_guard
+
+    /** Protects `update_exclusions_task`, which may be accessed from the event loop thread without `stop_guard` */
+    std::mutex update_exclusions_task_guard;
 
     ag::Logger log{vpn_manager::LOG_NAME};
     int id;

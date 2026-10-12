@@ -16,9 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fixed deadlocks around the VPN event loop: `vpn_listen()` and `vpn_get_socks_listener_address()` release the VPN
-  lock while waiting for the loop, task finalizers are no longer called with the loop lock held, and event handlers
-  may call functions that only schedule work on the loop without acquiring the VPN lock.
+- Fixed deadlocks around the VPN event loop: event handlers may call functions that only schedule work on the loop
+  without acquiring the VPN lock, functions that wait for the loop no longer do it on the event loop thread, and
+  task finalizers are no longer called with the loop lock held.
 
 ### Security
 
