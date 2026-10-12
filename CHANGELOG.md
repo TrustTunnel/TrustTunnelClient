@@ -17,8 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Fixed deadlocks around the VPN event loop: event handlers may call functions that only schedule work on the loop
-  without acquiring the VPN lock, functions that wait for the loop no longer do it on the event loop thread, and
-  task finalizers are no longer called with the loop lock held.
+  without acquiring the VPN lock, functions that cannot run on the event loop thread (`vpn_listen()`,
+  `vpn_connect()`, `vpn_stop()`, `vpn_close()`) reject such calls before taking the lock, and task finalizers are
+  no longer called with the loop lock held.
 
 ### Security
 

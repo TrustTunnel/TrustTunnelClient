@@ -674,9 +674,10 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerIsRejected) {
     ASSERT_STREQ(listen_error.text, "vpn_listen() must not be called from the event loop thread");
 }
 
-// Check that `vpn_listen()` and `vpn_get_socks_listener_address()` called from the event loop thread do not wait
-// for the VPN lock, which another thread may hold while it waits for the event loop
-TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerWhileLockIsHeld) {
+// Check that functions that cannot run on the event loop thread (`vpn_listen()`,
+// `vpn_get_socks_listener_address()`, `vpn_connect()`) are rejected before they take the VPN lock, which another
+// thread may hold while it waits for the event loop
+TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
     VpnEventLoop *loop = vpn_get_event_loop(this->vpn);
     ASSERT_NE(loop, nullptr);
 
@@ -685,6 +686,7 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerWhileLockIsHeld) {
     bool handler_finished = false;
     bool listen_rejected = false;
     bool address_rejected = false;
+    bool connect_rejected = false;
 
     std::unique_lock vpn_lock(this->vpn->stop_guard);
     std::thread handler_thread([&]() {
@@ -692,12 +694,19 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerWhileLockIsHeld) {
             VpnSocksListenerConfig socks_config{};
             VpnListener *listener = vpn_create_socks_listener(this->vpn, &socks_config);
             VpnListenerConfig listener_config{};
-            VpnError error = vpn_listen(this->vpn, listener, &listener_config);
-            listen_rejected = (error.code == VPN_EC_ERROR) && (error.text != nullptr)
-                    && (std::string_view(error.text) == "vpn_listen() must not be called from the event loop thread");
+            VpnError listen_error = vpn_listen(this->vpn, listener, &listener_config);
+            listen_rejected = (listen_error.code == VPN_EC_ERROR) && (listen_error.text != nullptr)
+                    && (std::string_view(listen_error.text)
+                            == "vpn_listen() must not be called from the event loop thread");
 
             SocketAddressStorage address = vpn_get_socks_listener_address(this->vpn);
             address_rejected = !SocketAddress(address).valid();
+
+            VpnConnectParameters connect_parameters = {.upstream_config = this->upstream};
+            VpnError connect_error = vpn_connect(this->vpn, &connect_parameters);
+            connect_rejected = (connect_error.code == VPN_EC_ERROR) && (connect_error.text != nullptr)
+                    && (std::string_view(connect_error.text)
+                            == "vpn_connect() must not be called from the event loop thread");
 
             std::scoped_lock l(result_guard);
             handler_finished = true;
@@ -719,6 +728,7 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerWhileLockIsHeld) {
     ASSERT_TRUE(finished_in_time) << "the event handler deadlocked on the VPN lock held by another thread";
     ASSERT_TRUE(listen_rejected);
     ASSERT_TRUE(address_rejected);
+    ASSERT_TRUE(connect_rejected);
 }
 
 // Check that `vpn_stop()` called from the event loop thread is rejected instead of deadlocking the client

@@ -474,8 +474,11 @@ typedef enum {
 typedef struct {
     /**
      * A function, together with its argument, that gets called to notify the application of an event.
-     * The handler is called on the VPN event loop thread, except while the client is being stopped
-     * (`vpn_stop()`): such calls are made on the thread that called `vpn_stop()`.
+     * The handler is called on the VPN event loop thread, except:
+     *   - while the client is being stopped (`vpn_stop()`): such calls are made on the thread that called
+     *     `vpn_stop()`;
+     *   - if the event loop is not running: such calls (e.g. an error reported by
+     *     `vpn_request_endpoint_connection_stats()`) are made on the calling thread.
      *
      * The functions that only schedule work on the event loop (`vpn_get_event_loop`, `vpn_abandon_endpoint`,
      * `vpn_force_reconnect`, `vpn_force_disconnect`, `vpn_complete_connect_request`, `vpn_update_exclusions`,

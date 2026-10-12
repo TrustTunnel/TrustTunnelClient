@@ -317,6 +317,12 @@ static std::unique_lock<std::mutex> lock_unless_on_vpn_loop(Vpn *vpn) {
 VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
     log_vpn(vpn, info, "...");
 
+    if (may_skip_vpn_lock(vpn)) {
+        VpnError error = {VPN_EC_ERROR, "vpn_connect() must not be called from the event loop thread"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+
     std::unique_lock l(vpn->stop_guard);
 
     VpnError error = validate_upstream_config(vpn, &parameters->upstream_config);
