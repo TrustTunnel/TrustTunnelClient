@@ -63,6 +63,8 @@ struct ConnectingVpnManagerTest : MockedTest {
     VpnError vpn_error{};
     bool timed_out = false;
 
+    VpnConnectRetryInfo retry_info = {.policy = VPN_CRP_SEVERAL_ATTEMPTS, .attempts_num = 1};
+
     void SetUp() override {
         MockedTest::SetUp();
 
@@ -85,7 +87,7 @@ struct ConnectingVpnManagerTest : MockedTest {
                                 .password = "1",
                                 .recovery = {.backoff_rate = 1},
                         },
-                .retry_info = {.policy = VPN_CRP_SEVERAL_ATTEMPTS, .attempts_num = 1},
+                .retry_info = retry_info,
         };
         vpn_connect(vpn, &parameters);
         vpn_event_loop_hijack(vpn->ev_loop.get());
@@ -222,6 +224,37 @@ struct ConnectedVpnManagerTest : public ConnectingVpnManagerTest {
         raise_client_event(vpn_client::EVENT_DISCONNECTED);
     }
 };
+
+struct RecoveringOnConnectVpnManagerTest : ConnectingVpnManagerTest {
+    void SetUp() override {
+        retry_info = {.policy = VPN_CRP_FALL_INTO_RECOVERY};
+        ConnectingVpnManagerTest::SetUp();
+    }
+};
+
+// Check that with `VPN_CRP_SEVERAL_ATTEMPTS` the session ends once the attempts
+// run out.
+TEST_F(ConnectingVpnManagerTest, SeveralAttemptsEndsTheSessionWhenTheyRunOut) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_DISCONNECTED));
+}
+
+// Check that with `VPN_CRP_FALL_INTO_RECOVERY` a failed initial connect enters
+// the recovery loop instead of ending the session.
+TEST_F(RecoveringOnConnectVpnManagerTest, FallIntoRecoveryKeepsTheSessionAlive) {
+    raise_client_event(vpn_client::EVENT_DISCONNECTED);
+    ASSERT_TRUE(await_state_change(VPN_SS_WAITING_RECOVERY));
+}
+
+// Check that a fatal error still ends the session under
+// `VPN_CRP_FALL_INTO_RECOVERY`: the fatal-error guard is evaluated before the
+// policy.
+TEST_F(RecoveringOnConnectVpnManagerTest, FallIntoRecoveryStillEndsOnAFatalError) {
+    VpnError error = {VPN_EC_AUTH_REQUIRED, "Authentication required"};
+    raise_client_event(vpn_client::EVENT_DISCONNECTED, &error);
+    ASSERT_TRUE(await_state_change(VPN_SS_DISCONNECTED));
+    ASSERT_EQ(VPN_EC_AUTH_REQUIRED, vpn_error.code);
+}
 
 TEST_F(ConnectedVpnManagerTest, BypassRequestsAreBypassedImmediately) {
     auto &c = test_mock::g_client;
