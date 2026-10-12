@@ -375,3 +375,18 @@ client_random = "aabb/ccdd"
     ASSERT_NE(endpoint, nullptr);
     EXPECT_EQ((*endpoint)["client_random"].value_or(std::string{}), "aabb/ccdd");
 }
+
+TEST(TrustTunnelExportTest, ClientRandomAuthKeyIsKeptInTheExportTable) {
+    std::optional result = export_table(R"(
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+client_random_auth_key = "aabbccdd"
+)");
+    ASSERT_TRUE(result.has_value());
+    const toml::table *endpoint = (*result)["endpoint"].as_table();
+    ASSERT_NE(endpoint, nullptr);
+    EXPECT_EQ((*endpoint)["client_random_auth_key"].value_or(std::string{}), "aabbccdd");
+}

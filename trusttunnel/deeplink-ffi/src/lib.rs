@@ -293,6 +293,7 @@ mod tests {
             username: "alice".to_string(),
             password: "s3cr3t".to_string(),
             client_random: "aabb".to_string(),
+            client_random_auth_key: "aabbccdd".to_string(),
             skip_verification: true,
             certificate: None,
             upstream_protocol: "http3".to_string(),
@@ -307,10 +308,11 @@ mod tests {
         let uri = encode_endpoint_toml(&endpoint_toml).expect("encode should succeed");
         let decoded = trusttunnel_deeplink::decode(&uri).expect("decode should succeed");
 
-        assert_eq!(decoded.hostname, "vpn.example.com");
-        assert_eq!(decoded.username, "alice");
-        assert_eq!(decoded.password, "s3cr3t");
+        assert_eq!(decoded.hostname.as_deref(), Some("vpn.example.com"));
+        assert_eq!(decoded.username.as_deref(), Some("alice"));
+        assert_eq!(decoded.password.as_deref(), Some("s3cr3t"));
         assert_eq!(decoded.client_random_prefix.as_deref(), Some("aabb"));
+        assert_eq!(decoded.client_random_auth_key.as_deref(), Some("aabbccdd"));
         assert_eq!(decoded.custom_sni.as_deref(), Some("sni.example.com"));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);
@@ -368,7 +370,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
 
         assert!(uri.starts_with("tt://?"), "URI must use the tt:// scheme");
         let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
-        assert_eq!(decoded.hostname, "vpn.example.com");
+        assert_eq!(decoded.hostname.as_deref(), Some("vpn.example.com"));
         assert_eq!(decoded.name.as_deref(), Some("Example VPN"));
         assert_eq!(
             decoded.dns_upstreams,
@@ -385,6 +387,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             username: "alice".to_string(),
             password: "s3cr3t".to_string(),
             client_random: "aabbccdd".to_string(),
+            client_random_auth_key: "aabbccdd".to_string(),
             skip_verification: true,
             certificate: None,
             upstream_protocol: "http3".to_string(),
