@@ -19,6 +19,11 @@ USERNAME="${9:-premium}"
 PASSWORD="${10:-premium}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-/output}"
+CLIENT_RANDOM_AUTH_KEY="${CLIENT_RANDOM_AUTH_KEY:-}"
+# The auth key takes priority over the prefix in the client; keep the scenario pure
+if [[ -n "$CLIENT_RANDOM_AUTH_KEY" ]]; then
+    CLIENT_RANDOM=""
+fi
 CLIENT_RANDOM="${CLIENT_RANDOM:-160200085c112870/9622006c5f112b73}"
 
 # Change to output directory where the executable and config files are located
@@ -58,6 +63,7 @@ password = "$PASSWORD"
 skip_verification = true
 upstream_protocol = "$PROTOCOL"
 client_random = "$CLIENT_RANDOM"
+${CLIENT_RANDOM_AUTH_KEY:+client_random_auth_key = "$CLIENT_RANDOM_AUTH_KEY"}
 END
 )
 

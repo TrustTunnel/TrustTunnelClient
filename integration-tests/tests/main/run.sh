@@ -122,5 +122,10 @@ else
     fi
 fi
 
+if [[ -n "${CLIENT_RANDOM_AUTH_KEY:-}" && "$MODE" == "tun" ]]; then
+    echo "Step 6.5: Running auth-key negative check"
+    "$TEST_DIR/main/auth_key_tests.sh" "$ENDPOINT_IP"
+fi
+
 echo "Step 7: Tests completed, cleanup will be handled by trap"
 echo "Main test run completed successfully!"
