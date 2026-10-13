@@ -535,6 +535,11 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 .into()
             })
             .unwrap_or_default(),
+        name: endpoint_config
+            .as_ref()
+            .and_then(|x| x.name.clone())
+            .or_else(|| opt_field!(template, name).cloned().flatten())
+            .and_then(empty_to_none),
         ..Default::default()
     };
 
@@ -749,6 +754,8 @@ pub struct EndpointConfig {
     custom_sni: String,
     #[serde(default)]
     dns_upstreams: Vec<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Debug)]

@@ -62,6 +62,7 @@ fn fill_endpoint_table(mut doc: Document, settings: &Settings) -> Document {
     endpoint["upstream_protocol"] = value(&settings.endpoint.upstream_protocol);
     endpoint["tls_profile"] = value(&settings.endpoint.tls_profile);
     endpoint["custom_sni"] = value(&settings.endpoint.custom_sni);
+    endpoint["name"] = value(settings.endpoint.name.as_deref().unwrap_or_default());
     endpoint["dns_upstreams"] = value(Array::from_iter(settings.endpoint.dns_upstreams.iter()));
 
     doc
@@ -214,5 +215,28 @@ mod tests {
 
         let parsed: toml::Value = output.parse().unwrap();
         assert!(parsed.get("dns_upstreams").is_none());
+    }
+
+    #[test]
+    fn compose_writes_endpoint_name() {
+        let mut settings = test_settings(vec![]);
+        settings.endpoint.name = Some("Example VPN".into());
+        let doc = compose_document(None, &settings);
+        let output = doc.to_string();
+
+        let parsed: toml::Value = output.parse().unwrap();
+        assert_eq!(parsed["endpoint"]["name"].as_str().unwrap(), "Example VPN");
+    }
+
+    #[test]
+    fn compose_writes_empty_endpoint_name() {
+        let settings = test_settings(vec![]);
+        assert!(settings.endpoint.name.is_none());
+        let doc = compose_document(None, &settings);
+        let output = doc.to_string();
+
+        // The key must always be present so that the exporter can pick it up after editing.
+        let parsed: toml::Value = output.parse().unwrap();
+        assert_eq!(parsed["endpoint"]["name"].as_str().unwrap(), "");
     }
 }
