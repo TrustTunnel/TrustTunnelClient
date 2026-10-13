@@ -28,6 +28,9 @@ void VpnClient::disconnect() {
     test_mock::g_client.notify_called(test_mock::CMID_DISCONNECT);
 }
 void VpnClient::finalize_disconnect() {
+    if (test_mock::g_client.on_finalize_disconnect) {
+        test_mock::g_client.on_finalize_disconnect();
+    }
 }
 void VpnClient::deinit() {
 }

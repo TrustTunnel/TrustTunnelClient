@@ -207,6 +207,15 @@ void Vpn::submit(ag::MoveOnlyFunction<void()> func, std::optional<Millis> defer)
             },
     };
 
+    // The event loop can be destroyed by a concurrent `vpn_stop()`: the task will never run, so finalize it
+    // immediately instead of dereferencing a null loop.
+    if (this->ev_loop == nullptr) {
+        if (task.finalize != nullptr) {
+            task.finalize(task.arg);
+        }
+        return;
+    }
+
     if (!defer.has_value()) {
         vpn_event_loop_submit(this->ev_loop.get(), task);
     } else {
@@ -318,7 +327,8 @@ VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
     log_vpn(vpn, info, "...");
 
     if (may_skip_vpn_lock(vpn)) {
-        VpnError error = {VPN_EC_ERROR, "vpn_connect() must not be called from the event loop thread"};
+        VpnError error = {VPN_EC_ERROR,
+                "vpn_connect() must not be called from the event loop thread or while the client is being stopped"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
@@ -419,7 +429,8 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
     // The check must precede taking the lock: `vpn_stop()` holds it while it waits for the event loop, so taking
     // it here would deadlock the loop thread.
     if (may_skip_vpn_lock(vpn)) {
-        VpnError error = {VPN_EC_ERROR, "vpn_listen() must not be called from the event loop thread"};
+        VpnError error = {VPN_EC_ERROR,
+                "vpn_listen() must not be called from the event loop thread or while the client is being stopped"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
@@ -459,7 +470,8 @@ void vpn_stop(Vpn *vpn) {
     log_vpn(vpn, info, "...");
 
     if (may_skip_vpn_lock(vpn)) {
-        log_vpn(vpn, err, "vpn_stop() must not be called from the event loop thread");
+        log_vpn(vpn, err,
+                "vpn_stop() must not be called from the event loop thread or while the client is being stopped");
         return;
     }
 
@@ -489,6 +501,11 @@ void vpn_stop(Vpn *vpn) {
     socket_manager_complete_all(vpn->network_manager->socket);
     vpn->stop_pinging();
     vpn->postponement_window_timer.reset();
+    if (vpn->ev_loop != nullptr) {
+        // Handlers fired while the client is finalized run on this thread and may have queued tasks into the
+        // stopped loop: finalize them before the loop is destroyed.
+        vpn_event_loop_finalize_exit(vpn->ev_loop.get());
+    }
     vpn->ev_loop.reset();
 
     vpn->recovery = {};
@@ -515,7 +532,8 @@ void vpn_close(Vpn *vpn) {
     log_vpn(vpn, info, "...");
 
     if (may_skip_vpn_lock(vpn)) {
-        log_vpn(vpn, err, "vpn_close() must not be called from the event loop thread");
+        log_vpn(vpn, err,
+                "vpn_close() must not be called from the event loop thread or while the client is being stopped");
         return;
     }
 
@@ -954,7 +972,9 @@ SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     // The check must precede taking the lock: `vpn_stop()` holds it while it waits for the event loop, so taking
     // it here would deadlock the loop thread.
     if (may_skip_vpn_lock(vpn)) {
-        log_vpn(vpn, err, "vpn_get_socks_listener_address() must not be called from the event loop thread");
+        log_vpn(vpn, err,
+                "vpn_get_socks_listener_address() must not be called from the event loop thread or while the client "
+                "is being stopped");
         return ret;
     }
     std::unique_lock l(vpn->stop_guard);

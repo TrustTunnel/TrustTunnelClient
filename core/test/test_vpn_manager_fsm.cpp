@@ -100,6 +100,7 @@ protected:
                 std::scoped_lock l(this->guard);
                 this->handler_hook = nullptr;
             }
+            test_mock::g_client.on_finalize_disconnect = nullptr;
             if (this->skip_stop_in_teardown) {
                 // The client is deadlocked by a failed test: leaking it is preferable to hanging here.
                 vpn = nullptr;
@@ -636,7 +637,18 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
         });
     }
 
-    if (!stop_took_lock || !handler_completed) {
+    if (!stop_took_lock) {
+        stop_thread.detach();
+        this->skip_stop_in_teardown = true;
+        {
+            std::scoped_lock l(this->guard);
+            this->handler_hook = nullptr;
+        }
+        FAIL() << "vpn_stop() did not acquire the VPN lock";
+        return;
+    }
+
+    if (!handler_completed) {
         // The handler is deadlocked on the VPN lock held by `vpn_stop()`. Abandon the thread blocked in
         // `vpn_stop()` and let the test report the failure instead of terminating the process.
         stop_thread.detach();
@@ -671,7 +683,8 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerIsRejected) {
     });
 
     ASSERT_EQ(listen_error.code, VPN_EC_ERROR);
-    ASSERT_STREQ(listen_error.text, "vpn_listen() must not be called from the event loop thread");
+    ASSERT_STREQ(listen_error.text,
+            "vpn_listen() must not be called from the event loop thread or while the client is being stopped");
 }
 
 // Check that functions that cannot run on the event loop thread (`vpn_listen()`,
@@ -697,7 +710,8 @@ TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
             VpnError listen_error = vpn_listen(this->vpn, listener, &listener_config);
             listen_rejected = (listen_error.code == VPN_EC_ERROR) && (listen_error.text != nullptr)
                     && (std::string_view(listen_error.text)
-                            == "vpn_listen() must not be called from the event loop thread");
+                            == "vpn_listen() must not be called from the event loop thread or while the client is "
+                               "being stopped");
 
             SocketAddressStorage address = vpn_get_socks_listener_address(this->vpn);
             address_rejected = !SocketAddress(address).valid();
@@ -706,7 +720,8 @@ TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
             VpnError connect_error = vpn_connect(this->vpn, &connect_parameters);
             connect_rejected = (connect_error.code == VPN_EC_ERROR) && (connect_error.text != nullptr)
                     && (std::string_view(connect_error.text)
-                            == "vpn_connect() must not be called from the event loop thread");
+                            == "vpn_connect() must not be called from the event loop thread or while the client is "
+                               "being stopped");
 
             std::scoped_lock l(result_guard);
             handler_finished = true;
@@ -753,8 +768,61 @@ TEST_F(ConnectedVpnManagerTest, StoppingThreadSkipsVpnLock) {
     this->vpn->stopping_thread_id.store(std::this_thread::get_id());
 
     VpnEventLoop *loop = vpn_get_event_loop(this->vpn);
+    vpn_reset_connections(this->vpn, 0);
+    vpn_request_endpoint_connection_stats(this->vpn);
+
     this->vpn->stopping_thread_id.store(std::thread::id{});
     vpn_lock.unlock();
 
     ASSERT_NE(loop, nullptr);
+}
+
+// Check that library functions called from a handler fired while the client is being stopped do not deadlock and
+// that tasks queued into the stopped event loop are finalized before it is destroyed
+TEST_F(ConnectedVpnManagerTest, CallsFromHandlerDuringFinalization) {
+    bool handler_called = false;
+    bool loop_obtained = false;
+    bool task_finalized = false;
+
+    test_mock::g_client.on_finalize_disconnect = [&]() {
+        handler_called = true;
+        // `vpn_stop()` holds the VPN lock while it finalizes the client: these calls must not deadlock.
+        loop_obtained = vpn_get_event_loop(this->vpn) != nullptr;
+        vpn_force_disconnect(this->vpn, false);
+
+        vpn_event_loop_submit(this->vpn->ev_loop.get(),
+                {
+                        .arg = &task_finalized,
+                        .action = [](void *, TaskId) {},
+                        .finalize =
+                                [](void *arg) {
+                                    *(bool *) arg = true;
+                                },
+                });
+    };
+
+    vpn_stop(this->vpn);
+    test_mock::g_client.on_finalize_disconnect = nullptr;
+
+    ASSERT_TRUE(handler_called);
+    ASSERT_TRUE(loop_obtained);
+    ASSERT_TRUE(task_finalized) << "the task queued into the stopped event loop must be finalized";
+}
+
+// Check that submitting a task after the client is stopped does not crash
+TEST_F(VpnManagerTest, SubmitAfterStopDoesNotCrash) {
+    VpnEndpoint endpoints[] = {
+            {sockaddr_from_str("127.0.0.1:443"), "localhost"},
+    };
+    upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
+
+    ASSERT_NO_FATAL_FAILURE(start_connect());
+    ASSERT_NO_FATAL_FAILURE(ping_location());
+    ASSERT_NO_FATAL_FAILURE(connect_client_ok());
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+
+    vpn_stop(this->vpn);
+
+    // The event loop is destroyed now: the task must be finalized immediately instead of dereferencing a null loop
+    ASSERT_NO_FATAL_FAILURE(vpn_force_disconnect(this->vpn, false));
 }

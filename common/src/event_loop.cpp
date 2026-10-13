@@ -181,6 +181,10 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
     if (loop->state != ELS_STOPPED) {
         log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
         loop->guard.unlock();
+#if defined(EVTHREAD_USE_PTHREADS_IMPLEMENTED) && !defined(__MACH__)
+        // Restore SIGPIPE state
+        pthread_sigmask(SIG_SETMASK, &oldset, nullptr);
+#endif
         return -1;
     }
     loop->state = ELS_RUNNING;
