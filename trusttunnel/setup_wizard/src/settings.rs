@@ -487,6 +487,11 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             .and_then(|x| x.client_random.clone().into())
             .or(opt_field!(template, client_random).cloned())
             .unwrap_or_default(),
+        client_random_auth_key: endpoint_config
+            .as_ref()
+            .and_then(|x| x.client_random_auth_key.clone().into())
+            .or(opt_field!(template, client_random_auth_key).cloned())
+            .unwrap_or_default(),
         skip_verification: endpoint_config
             .as_ref()
             .and_then(|x| x.skip_verification.into())
@@ -530,6 +535,11 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
                 .into()
             })
             .unwrap_or_default(),
+        name: endpoint_config
+            .as_ref()
+            .and_then(|x| x.name.clone())
+            .or_else(|| opt_field!(template, name).cloned().flatten())
+            .and_then(empty_to_none),
         ..Default::default()
     };
 
@@ -729,6 +739,8 @@ pub struct EndpointConfig {
     #[serde(default)]
     client_random: String,
     #[serde(default)]
+    client_random_auth_key: String,
+    #[serde(default)]
     skip_verification: bool,
     #[serde(default)]
     certificate: String,
@@ -742,6 +754,8 @@ pub struct EndpointConfig {
     custom_sni: String,
     #[serde(default)]
     dns_upstreams: Vec<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -820,6 +834,11 @@ impl fmt::Display for EndpointSummary<'_> {
         } else {
             &ep.client_random
         };
+        let client_random_auth_key = if ep.client_random_auth_key.is_empty() {
+            "(none)"
+        } else {
+            "(set)" // The auth key is a secret credential, do not print its value
+        };
 
         let cert_display = if self.cert_infos.is_empty() {
             if ep.certificate.is_some() {
@@ -851,6 +870,7 @@ impl fmt::Display for EndpointSummary<'_> {
   Username:          {}
   Password:          ******
   Client random:     {}
+  CR auth key:        {}
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
@@ -863,6 +883,7 @@ impl fmt::Display for EndpointSummary<'_> {
             if ep.has_ipv6 { "yes" } else { "no" },
             ep.username,
             client_random,
+            client_random_auth_key,
             if ep.skip_verification { "yes" } else { "no" },
             cert_display,
             ep.upstream_protocol,
@@ -951,14 +972,15 @@ mod tests {
     fn test_deeplink_field_mapping() {
         // Encode a config, then decode it and verify the field mapping
         let config = DeepLinkConfig {
-            hostname: "test.host".to_string(),
+            hostname: Some("test.host".to_string()),
             addresses: vec![
                 "10.0.0.1:443".parse().unwrap(),
                 "[::1]:8443".parse().unwrap(),
             ],
-            username: "user1".to_string(),
-            password: "pass1".to_string(),
+            username: Some("user1".to_string()),
+            password: Some("pass1".to_string()),
             client_random_prefix: Some("aabb".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: Some("sni.host".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -967,16 +989,18 @@ mod tests {
             anti_dpi: true,
             dns_upstreams: vec!["tls://dns.adguard-dns.com".to_string()],
             name: Some("Example VPN".to_string()),
+            subscription_url: None,
         };
 
         let uri = trusttunnel_deeplink::encode(&config).unwrap();
         let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
 
-        assert_eq!(decoded.hostname, "test.host");
+        assert_eq!(decoded.hostname, Some("test.host".to_string()));
         assert_eq!(decoded.addresses.len(), 2);
-        assert_eq!(decoded.username, "user1");
-        assert_eq!(decoded.password, "pass1");
+        assert_eq!(decoded.username, Some("user1".to_string()));
+        assert_eq!(decoded.password, Some("pass1".to_string()));
         assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
+        assert_eq!(decoded.client_random_auth_key, Some("aabbccdd".to_string()));
         assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);

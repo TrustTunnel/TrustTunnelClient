@@ -91,6 +91,142 @@ static UniquePtr<X509_STORE, &X509_STORE_free> load_certificate(std::string_view
     return store;
 }
 
+bool TrustTunnelConfig::is_certificate_system_verifiable(
+        std::string_view pem_bundle, std::string_view hostname, X509_STORE *store) {
+    UniquePtr<BIO, &BIO_free> bio{BIO_new_mem_buf(pem_bundle.data(), static_cast<int>(pem_bundle.size()))};
+    if (!bio) {
+        return false;
+    }
+
+    std::vector<UniquePtr<X509, &X509_free>> certs;
+    for (;;) {
+        UniquePtr<X509, &X509_free> cert{PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr)};
+        if (!cert) {
+            // Any parse problem makes the chain not verifiable, so the certificate is kept in
+            // the deep-link. Warn about it to make a corrupted configuration visible.
+            if (auto err = ERR_peek_last_error(); ERR_GET_REASON(err) != PEM_R_NO_START_LINE) {
+                warnlog(g_logger, "Failed to parse certificate, ensure it is in PEM format");
+            }
+            ERR_clear_error();
+            break;
+        }
+        certs.push_back(std::move(cert));
+    }
+
+    if (certs.empty()) {
+        return false;
+    }
+
+    // With the pipe syntax (`sni|remote_id`) the certificate is verified against the part
+    // after the pipe at connect time, so apply the same rule here.
+    if (auto pipe_pos = hostname.find('|'); pipe_pos != std::string_view::npos) {
+        hostname = hostname.substr(pipe_pos + 1);
+    }
+    if (hostname.empty()) {
+        return false;
+    }
+
+    STACK_OF(X509) *chain = sk_X509_new_null();
+    if (chain == nullptr) {
+        return false;
+    }
+    for (size_t i = 1; i < certs.size(); ++i) {
+        if (sk_X509_push(chain, certs[i].get()) == 0) {
+            sk_X509_free(chain);
+            return false;
+        }
+    }
+
+    bool verified = tls_verify_cert(certs[0].get(), chain, store) == nullptr
+            && tls_verify_cert_host_name(certs[0].get(), std::string(hostname).c_str());
+    sk_X509_free(chain);
+    return verified;
+}
+
+/// Collect the non-empty string entries of a TOML array into a new array.
+static toml::array collect_non_empty_strings(const toml::array *array) {
+    toml::array result;
+    if (array == nullptr) {
+        return result;
+    }
+    for (const auto &entry : *array) {
+        if (std::optional value = entry.value<std::string_view>(); value.has_value() && !value->empty()) {
+            result.push_back(std::string(*value));
+        }
+    }
+    return result;
+}
+
+std::optional<toml::table> TrustTunnelConfig::build_deeplink_export_table(
+        const toml::table &config, std::string_view name, X509_STORE *store) {
+    const toml::table *endpoint_table = config["endpoint"].as_table();
+    if (endpoint_table == nullptr) {
+        errlog(g_logger, "Endpoint configuration is not a table");
+        return std::nullopt;
+    }
+
+    toml::table endpoint = *endpoint_table;
+
+    auto hostname = endpoint["hostname"].value_or(std::string{});
+    auto custom_sni = endpoint["custom_sni"].value_or(std::string{});
+
+    // At connect time the pipe syntax (`sni|remote_id`) means: use `sni` for the TLS SNI and
+    // verify the certificate against `remote_id`. The deep-link has separate fields for that.
+    if (auto pipe_pos = hostname.find('|'); pipe_pos != std::string::npos) {
+        if (!custom_sni.empty()) {
+            errlog(g_logger, "Both custom_sni and pipe syntax in hostname are specified, use only one");
+            return std::nullopt;
+        }
+        std::string sni = hostname.substr(0, pipe_pos);
+        std::string remote_id = hostname.substr(pipe_pos + 1);
+        hostname = remote_id.empty() ? sni : remote_id;
+        if (!sni.empty() && sni != hostname) {
+            endpoint.insert_or_assign("custom_sni", sni);
+        }
+        endpoint.insert_or_assign("hostname", hostname);
+    }
+
+    if (hostname.empty()) {
+        errlog(g_logger, "Endpoint hostname is not specified");
+        return std::nullopt;
+    }
+
+    toml::array addresses = collect_non_empty_strings(endpoint["addresses"].as_array());
+    if (addresses.empty()) {
+        errlog(g_logger, "Endpoint addresses are invalid or not specified");
+        return std::nullopt;
+    }
+    endpoint.insert_or_assign("addresses", std::move(addresses));
+
+    if (const auto *dns_upstreams = endpoint["dns_upstreams"].as_array(); dns_upstreams != nullptr) {
+        endpoint.insert_or_assign("dns_upstreams", collect_non_empty_strings(dns_upstreams));
+    }
+
+    // The certificate is only needed by the importing client when it cannot verify the chain
+    // on its own. `skip_verification` is not taken into account: importing clients may ignore
+    // it, and then the embedded certificate is the only way to accept a self-signed endpoint.
+    if (auto certificate = endpoint["certificate"].value_or(std::string{});
+            !certificate.empty() && is_certificate_system_verifiable(certificate, hostname, store)) {
+        endpoint.insert_or_assign("certificate", std::string{});
+    }
+
+    if (endpoint["client_random"].value_or(std::string{}).find('/') != std::string::npos) {
+        warnlog(g_logger, "client_random mask is not supported by the deep-link format and will be omitted");
+    }
+
+    if (endpoint["upstream_protocol"].value_or(std::string{}) == "auto") {
+        warnlog(g_logger, R"(The deep-link format has no "auto" upstream protocol, exporting as "http2")");
+    }
+
+    if (!name.empty()) {
+        endpoint.insert_or_assign("name", std::string(name));
+    }
+
+    toml::table wrapper;
+    wrapper.insert("endpoint", std::move(endpoint));
+    return wrapper;
+}
+
 static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::table &config) {
     TrustTunnelConfig::Location location;
     std::vector<TrustTunnelConfig::Endpoint> endpoint;
@@ -167,6 +303,11 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
         } else {
             location.client_random = *client_random;
         }
+    }
+
+    // Parse TLS client random auth key (hex string)
+    if (auto auth_key = config["client_random_auth_key"].value<std::string>()) {
+        location.client_random_auth_key = *auth_key;
     }
 
     if (const auto *x = config["dns_upstreams"].as_array()) {

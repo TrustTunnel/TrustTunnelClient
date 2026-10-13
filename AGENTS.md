@@ -188,6 +188,16 @@ and `vpn-cli`):
     - Include relevant context in log messages (e.g. connection ID, error code)
     - Avoid logging sensitive information (e.g. IP addresses, payload data)
 
+### Integration tests
+
+- Always bound network operations: `--connect-timeout`/`--max-time` for `curl`,
+    `timeout` for `ping`/`iperf3`, and `timeout-minutes` on CI jobs
+- Keep checks strict: retry only where the failure mode is a plausible transient
+    (e.g. a long download), and fix the cause of a flapping check instead of
+    adding a retry around it
+- The browser test tolerates transient navigation failures but measures how often
+    a retry was needed, so a systematic first-attempt failure still fails the run
+
 ## Docker Debug Environment
 
 The `.devcontainer/` directory provides a Docker-based remote debugging setup

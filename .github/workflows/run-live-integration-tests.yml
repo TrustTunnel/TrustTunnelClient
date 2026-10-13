@@ -14,6 +14,8 @@ jobs:
     name: Build binaries
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     needs: [resolve-images]
+    # Builds take ~6 minutes; the default limit for self-hosted runners is 24 hours.
+    timeout-minutes: 45
     runs-on:
       - ephemeral
       - ephemeral-linux
@@ -22,7 +24,7 @@ jobs:
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs:2.12
+      image: adguard/core-libs:2.15
     steps:
       - name: Checkout client
         uses: actions/checkout@v6
@@ -64,6 +66,8 @@ jobs:
     name: Run live integration tests
     needs: [build-binaries, resolve-images]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    # The checks take ~2 minutes; the timeout only catches a hung run.
+    timeout-minutes: 30
     runs-on:
       - ephemeral
       - ephemeral-linux
@@ -72,7 +76,7 @@ jobs:
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     container:
-      image: adguard/core-libs-testing:2.12.0
+      image: adguard/core-libs-testing:2.15.0
       options: --privileged
     strategy:
       fail-fast: false
