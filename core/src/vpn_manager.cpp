@@ -472,6 +472,7 @@ void vpn_stop(Vpn *vpn) {
     if (may_skip_vpn_lock(vpn)) {
         log_vpn(vpn, err,
                 "vpn_stop() must not be called from the event loop thread or while the client is being stopped");
+        assert(0);
         return;
     }
 
@@ -534,6 +535,7 @@ void vpn_close(Vpn *vpn) {
     if (may_skip_vpn_lock(vpn)) {
         log_vpn(vpn, err,
                 "vpn_close() must not be called from the event loop thread or while the client is being stopped");
+        assert(0);
         return;
     }
 

@@ -744,6 +744,7 @@ TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
 
 // Check that `vpn_stop()` called from the event loop thread is rejected instead of deadlocking the client
 TEST_F(ConnectedVpnManagerTest, StopFromEventHandlerIsRejected) {
+#ifdef NDEBUG
     VpnEventLoop *loop = vpn_get_event_loop(this->vpn);
     ASSERT_NE(loop, nullptr);
 
@@ -753,6 +754,10 @@ TEST_F(ConnectedVpnManagerTest, StopFromEventHandlerIsRejected) {
 
     ASSERT_TRUE(vpn_event_loop_is_active(loop));
     ASSERT_TRUE(wait_state(VPN_SS_CONNECTED, Secs{1}));
+#else
+    // `vpn_stop()` asserts on this contract violation in debug builds
+    GTEST_SKIP() << "debug builds assert instead of ignoring the call";
+#endif
 }
 
 // Check that the thread executing `vpn_stop()` may call functions that only schedule work on the event loop:
