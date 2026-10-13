@@ -478,17 +478,19 @@ typedef struct {
      *   - while the client is being stopped (`vpn_stop()`): such calls are made on the thread that called
      *     `vpn_stop()`;
      *   - if the event loop is not running: such calls (e.g. an error reported by
-     *     `vpn_request_endpoint_connection_stats()`) are made on the calling thread.
+     *     `vpn_request_endpoint_connection_stats()`) are made on the calling thread;
+     *   - `VPN_EVENT_VERIFY_CERTIFICATE` for a DNS upstream is raised on an internal DNS proxy thread.
      *
-     * The functions that only schedule work on the event loop (`vpn_get_event_loop`, `vpn_abandon_endpoint`,
-     * `vpn_force_reconnect`, `vpn_force_disconnect`, `vpn_complete_connect_request`, `vpn_update_exclusions`,
-     * `vpn_reset_connections`, `vpn_notify_network_change`, `vpn_request_endpoint_connection_stats`,
-     * `vpn_notify_sleep`, `vpn_notify_wake`, `vpn_process_client_packets`) may be called from this function
-     * directly: the library does not acquire the VPN lock for them when they are called from the event loop thread
-     * or from the thread that is stopping the client.
-     * All other functions, in particular those that wait for the event loop (`vpn_listen`,
-     * `vpn_get_socks_listener_address`) or stop and destroy the client (`vpn_stop`, `vpn_close`), must not be called
-     * from it.
+     * On the event loop thread and on the thread executing `vpn_stop()` the following functions may be called from
+     * this function directly (the library does not acquire the VPN lock for them): `vpn_get_event_loop`,
+     * `vpn_abandon_endpoint`, `vpn_force_reconnect`, `vpn_force_disconnect`, `vpn_complete_connect_request`,
+     * `vpn_update_exclusions`, `vpn_reset_connections`, `vpn_notify_network_change`,
+     * `vpn_request_endpoint_connection_stats`, `vpn_notify_sleep`, `vpn_notify_wake` and
+     * `vpn_process_client_packets`. On any other thread, including the DNS proxy thread, the handler must not call
+     * library functions.
+     *
+     * `vpn_listen`, `vpn_get_socks_listener_address`, `vpn_connect`, `vpn_stop` and `vpn_close` must not be called
+     * from this function on any thread.
      */
     VpnHandler handler;
     /** The VPN mode (see `VpnMode`) */

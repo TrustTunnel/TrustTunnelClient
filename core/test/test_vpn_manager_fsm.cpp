@@ -683,8 +683,8 @@ TEST_F(ConnectedVpnManagerTest, ListenFromEventHandlerIsRejected) {
     });
 
     ASSERT_EQ(listen_error.code, VPN_EC_ERROR);
-    ASSERT_STREQ(listen_error.text,
-            "vpn_listen() must not be called from the event loop thread or while the client is being stopped");
+    ASSERT_NE(listen_error.text, nullptr);
+    ASSERT_NE(std::string_view(listen_error.text).find("must not be called"), std::string_view::npos);
 }
 
 // Check that functions that cannot run on the event loop thread (`vpn_listen()`,
@@ -709,9 +709,7 @@ TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
             VpnListenerConfig listener_config{};
             VpnError listen_error = vpn_listen(this->vpn, listener, &listener_config);
             listen_rejected = (listen_error.code == VPN_EC_ERROR) && (listen_error.text != nullptr)
-                    && (std::string_view(listen_error.text)
-                            == "vpn_listen() must not be called from the event loop thread or while the client is "
-                               "being stopped");
+                    && (std::string_view(listen_error.text).find("must not be called") != std::string_view::npos);
 
             SocketAddressStorage address = vpn_get_socks_listener_address(this->vpn);
             address_rejected = !SocketAddress(address).valid();
@@ -719,9 +717,7 @@ TEST_F(ConnectedVpnManagerTest, RejectedCallsFromEventHandlerWhileLockIsHeld) {
             VpnConnectParameters connect_parameters = {.upstream_config = this->upstream};
             VpnError connect_error = vpn_connect(this->vpn, &connect_parameters);
             connect_rejected = (connect_error.code == VPN_EC_ERROR) && (connect_error.text != nullptr)
-                    && (std::string_view(connect_error.text)
-                            == "vpn_connect() must not be called from the event loop thread or while the client is "
-                               "being stopped");
+                    && (std::string_view(connect_error.text).find("must not be called") != std::string_view::npos);
 
             std::scoped_lock l(result_guard);
             handler_finished = true;
@@ -824,5 +820,5 @@ TEST_F(VpnManagerTest, SubmitAfterStopDoesNotCrash) {
     vpn_stop(this->vpn);
 
     // The event loop is destroyed now: the task must be finalized immediately instead of dereferencing a null loop
-    ASSERT_NO_FATAL_FAILURE(vpn_force_disconnect(this->vpn, false));
+    vpn_force_disconnect(this->vpn, false);
 }

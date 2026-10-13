@@ -156,6 +156,16 @@ void vpn_event_loop_destroy(VpnEventLoop *loop) {
 int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe_unused]]) {
     log_loop(loop, dbg, "...");
 
+    loop->guard.lock();
+    if (loop->state != ELS_STOPPED) {
+        log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
+        loop->guard.unlock();
+        return -1;
+    }
+    loop->state = ELS_RUNNING;
+    loop->thread_id.store(std::this_thread::get_id());
+    loop->guard.unlock();
+
 #ifdef __MACH__
     static auto ensure_sigpipe_ignored [[maybe_unused]] = signal(SIGPIPE, SIG_IGN);
     qos_class_t qos_class = QOS_CLASS_USER_INITIATED;
@@ -176,20 +186,6 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
     sigaddset(&sigset, SIGPIPE);
     pthread_sigmask(SIG_BLOCK, &sigset, &oldset);
 #endif // __MACH__
-
-    loop->guard.lock();
-    if (loop->state != ELS_STOPPED) {
-        log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
-        loop->guard.unlock();
-#if defined(EVTHREAD_USE_PTHREADS_IMPLEMENTED) && !defined(__MACH__)
-        // Restore SIGPIPE state
-        pthread_sigmask(SIG_SETMASK, &oldset, nullptr);
-#endif
-        return -1;
-    }
-    loop->state = ELS_RUNNING;
-    loop->thread_id.store(std::this_thread::get_id());
-    loop->guard.unlock();
 
     log_loop(loop, dbg, "Running event base...");
     int r = event_base_loop(loop->ev_base.get(), EVLOOP_NO_EXIT_ON_EMPTY);
