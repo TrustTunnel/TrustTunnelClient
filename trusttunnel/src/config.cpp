@@ -35,6 +35,7 @@ static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_
 
 static const std::unordered_map<std::string_view, VpnTlsProfile> TLS_PROFILE_MAP = {
         {"chrome", VPN_TLS_PROFILE_CHROME},
+        {"chrome_canary", VPN_TLS_PROFILE_CHROME_CANARY},
         {"safari", VPN_TLS_PROFILE_SAFARI},
         {"firefox", VPN_TLS_PROFILE_FIREFOX},
         {"okhttp", VPN_TLS_PROFILE_OKHTTP},
