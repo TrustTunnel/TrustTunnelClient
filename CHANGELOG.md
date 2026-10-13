@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Added `client_random_auth_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
 - Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
+- Added the `chrome_canary` value for the `[endpoint].tls_profile` setting, which mimics the Chrome Canary TLS ClientHello.
 
 ### Changed
 
