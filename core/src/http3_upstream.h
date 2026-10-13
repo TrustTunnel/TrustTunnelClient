@@ -99,7 +99,7 @@ private:
     std::optional<HealthCheckInfo> m_health_check_info;
     bool m_in_handler = false;
     bool m_closed = false; // @todo: seems like it can be replaced by a separate state
-    bool m_cert_verify_failed = false;
+    std::optional<int> m_cert_verify_error;
     std::optional<VpnError> m_pending_session_error;
     ag::Logger m_log{"H3_UPSTREAM"};
     void *m_ssl_object = nullptr; // A non-owning pointer to the SSL object owned by m_h3_client.

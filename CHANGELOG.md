@@ -41,6 +41,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
 
+## [1.1.11] - 2026-10-07
+
+### Added
+
+- A way for the application to communicate the reason for certificate verification failure
+  and a new VPN error code for "endpoint certificate is not yet valid". The intention is to
+  help the application to identify and warn the user of a possibly incorrectly set wall clock.
+    - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
+
 ## [1.1.5] - 2026-09-02
 
 ### Added
