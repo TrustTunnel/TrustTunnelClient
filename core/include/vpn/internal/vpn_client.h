@@ -58,6 +58,10 @@ enum Event {
                                 and  only for connections routed through a VPN endpoint) */
     EVENT_CONNECTION_CLOSED, /** Raised when a connection is closed (raised with `VpnTunnelConnectionClosedEvent`) */
     EVENT_CONNECTION_INFO,   /** Notifies that connection info is ready (raised with `VpnConnectionInfoEvent`) */
+#ifdef __APPLE__
+    EVENT_CHECK_LOCAL_NETWORK_PERMISSION, /** Raised when a DNS query fails in a way that may indicate that the
+                                             application is missing the Local Network permission (raised with null) */
+#endif                                    // __APPLE__
 };
 
 struct Handler {
