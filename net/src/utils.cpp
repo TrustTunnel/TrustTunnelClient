@@ -599,7 +599,12 @@ bool is_private_or_linklocal_ipv4_address(const in_addr *ip_ptr) {
 static constexpr auto SESSION_LIFETIME = std::chrono::hours(24);
 
 static bool check_session_timings(SSL_SESSION *session) {
+#ifdef OPENSSL_IS_BORINGSSL
     auto session_created = std::chrono::seconds(SSL_SESSION_get_time(session));
+#else
+    // BoringSSL does not provide SSL_SESSION_get_time_ex.
+    auto session_created = std::chrono::seconds(SSL_SESSION_get_time_ex(session));
+#endif
     auto now = std::chrono::system_clock::now().time_since_epoch();
     auto session_timeout = std::chrono::seconds(SSL_SESSION_get_timeout(session));
     if (now > session_created + SESSION_LIFETIME) {
