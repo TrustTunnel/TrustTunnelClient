@@ -374,7 +374,10 @@ addresses = [\"1.2.3.4:443\"]\n\
 username = \"alice\"\n\
 password = \"s3cr3t\"\n\
 name = \"Example VPN\"\n\
-dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
+dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n\
+\n\
+[endpoint.subscription]\n\
+url = \"https://u:p@vpn.example.com/subscription\"\n";
         let input = CString::new(endpoint_toml).unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
 
@@ -395,6 +398,10 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         assert_eq!(
             decoded.dns_upstreams,
             vec!["tls://dns.adguard-dns.com".to_string()]
+        );
+        assert_eq!(
+            decoded.subscription_url.as_deref(),
+            Some("https://u:p@vpn.example.com/subscription")
         );
     }
 
@@ -420,7 +427,12 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
                 "8.8.8.8:53".to_string(),
             ],
             name: Some("Example VPN".to_string()),
-            subscription: None,
+            // The deep-link carries only the subscription URL; the last-fetch
+            // time is local state, so it must stay absent for a full round-trip.
+            subscription: Some(trusttunnel_settings::EndpointSubscription {
+                url: "https://u:p@vpn.example.com/subscription".to_string(),
+                last_fetched_at: None,
+            }),
         };
         let mut endpoint_toml = toml::to_string(&EndpointWrapper { endpoint }).unwrap();
         let original: EndpointWrapper = toml::from_str(&endpoint_toml).unwrap();

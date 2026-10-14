@@ -196,6 +196,10 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
 ///
 /// The deep-link format carries only a client random prefix, not a mask, so
 /// a `prefix/mask` value is exported as its prefix.
+///
+/// The subscription URL is exported so that the importing client can keep
+/// the endpoint up to date. The last-fetch time is local state and is not
+/// exported.
 pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConfig, String> {
     let certificate = match endpoint.certificate.as_deref() {
         Some(pem) if !pem.is_empty() => {
@@ -225,7 +229,10 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
         anti_dpi: endpoint.anti_dpi,
         name: endpoint.name.as_deref().and_then(non_empty),
         dns_upstreams: endpoint.dns_upstreams.clone(),
-        subscription_url: None,
+        subscription_url: endpoint
+            .subscription
+            .as_ref()
+            .and_then(|subscription| non_empty(&subscription.url)),
     })
 }
 
@@ -552,6 +559,28 @@ omxU7kknZApM\n\
     }
 
     #[test]
+    fn test_deeplink_config_from_endpoint_maps_subscription_url() {
+        let mut endpoint = sample_endpoint();
+        endpoint.subscription = Some(EndpointSubscription {
+            url: "https://u:p@vpn.example.com/subscription".into(),
+            last_fetched_at: Some("2026-01-02T03:04:05Z".into()),
+        });
+
+        let config = deeplink_config_from_endpoint(&endpoint).unwrap();
+        assert_eq!(
+            config.subscription_url.as_deref(),
+            Some("https://u:p@vpn.example.com/subscription")
+        );
+
+        endpoint.subscription = Some(EndpointSubscription {
+            url: String::new(),
+            last_fetched_at: None,
+        });
+        let config = deeplink_config_from_endpoint(&endpoint).unwrap();
+        assert_eq!(config.subscription_url, None);
+    }
+
+    #[test]
     fn test_deeplink_config_from_endpoint_omits_empty_optionals() {
         let endpoint = Endpoint {
             hostname: "vpn.example.com".into(),
@@ -569,6 +598,7 @@ omxU7kknZApM\n\
         assert_eq!(config.custom_sni, None);
         assert_eq!(config.certificate, None);
         assert_eq!(config.name, None);
+        assert_eq!(config.subscription_url, None);
         assert!(config.dns_upstreams.is_empty());
         assert_eq!(config.upstream_protocol, Protocol::Http2);
         assert!(config.has_ipv6);
@@ -646,7 +676,12 @@ omxU7kknZApM\n\
             custom_sni: "sni.example.com".into(),
             dns_upstreams: vec!["tls://dns.adguard-dns.com".into(), "8.8.8.8:53".into()],
             name: Some("Example VPN".into()),
-            subscription: None,
+            // The deep-link carries only the subscription URL; the last-fetch
+            // time is local state, so it must stay absent for a full round-trip.
+            subscription: Some(EndpointSubscription {
+                url: "https://u:p@vpn.example.com/subscription".into(),
+                last_fetched_at: None,
+            }),
         };
 
         // Export the settings as a deep-link.

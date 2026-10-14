@@ -286,9 +286,11 @@ client (for example, the desktop app), export it as a `tt://` deep-link:
 ```
 
 The command prints the deep-link to the standard output and exits, leaving the
-configuration untouched. The link includes the server name and the DNS
-upstreams from the configuration. The server name can be overridden with the
-optional `--name` option, which is useful when the configuration has no name.
+configuration untouched. The link includes the server name, the DNS
+upstreams, and the subscription URL from the configuration, so the importing
+client can keep the endpoint up to date. The server name can be overridden
+with the optional `--name` option, which is useful when the configuration has
+no name.
 
 The certificate is embedded only when it is needed by the importing client,
 that is, it is omitted when the chain can be verified with the system
