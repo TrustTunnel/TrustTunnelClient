@@ -725,6 +725,11 @@ void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
 
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't notify sleep since event loop is not active");
+        if (l.owns_lock()) {
+            l.unlock();
+        }
+        // The completion handler must be called even if the notification is not delivered
+        completion_handler(arg);
         return;
     }
 
@@ -988,12 +993,16 @@ SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     uint64_t generation = vpn->session_generation;
     // The lock is released while waiting, so that event handlers can call library functions that acquire
     // `stop_guard`.
-    event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         ret = *vpn->client.socks_listener_address.c_storage();
     });
     if (vpn->session_generation != generation) {
         log_vpn(vpn, warn, "VPN client was stopped while getting the SOCKS listener address");
         return {};
+    }
+    if (!executed) {
+        log_vpn(vpn, warn, "Can't get the SOCKS listener address: the event loop is not running");
+        return ret;
     }
     return ret;
 }

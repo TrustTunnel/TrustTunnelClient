@@ -123,8 +123,8 @@ bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *arg),
  * Requires the event loop to be running: if it is not, the action is not submitted and the function returns `false`.
  * The lock is re-acquired before the function returns, but the state it guards may have changed while it was
  * released, so the caller must re-check it after the call.
- * Note that the task may not be executed in some circumstances (e.g. if the event loop is stopped before it has
- * the chance to execute it), but it is always finalized.
+ * Note that a submitted task may not be executed in some circumstances (e.g. if the event loop is stopped before it
+ * has the chance to execute it), but it is always finalized.
  * @param loop the event loop
  * @param lock the lock to release while waiting
  * @param action the action to be executed

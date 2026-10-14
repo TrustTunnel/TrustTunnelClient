@@ -25,8 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   only schedule work on the loop without acquiring the VPN lock, functions that cannot run on the event loop thread
   (`vpn_listen()`, `vpn_connect()`, `vpn_stop()`, `vpn_close()`) reject such calls before taking the lock, task
   finalizers are called without the loop lock and before the loop is destroyed, a task batch no longer keeps the
-  loop from polling I/O, timers and a pending stop request, and `vpn_get_event_loop()`/`vpn_process_client_packets()`
-  report a stopped client as documented.
+  loop from polling I/O, timers and a pending stop request, `vpn_get_event_loop()`/`vpn_process_client_packets()`
+  report a stopped client as documented, and the sleep notification always calls its completion handler.
 
 ### Security
 

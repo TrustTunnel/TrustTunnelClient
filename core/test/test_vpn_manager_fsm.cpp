@@ -836,3 +836,15 @@ TEST_F(VpnManagerTest, SubmitAfterStopDoesNotCrash) {
     // The event loop is destroyed now: the task must be finalized immediately instead of dereferencing a null loop
     vpn_force_disconnect(this->vpn, false);
 }
+
+// Check that the sleep notification calls the completion handler even when the event loop is not running
+TEST_F(VpnManagerTest, NotifySleepWithoutEventLoopCallsCompletionHandler) {
+    bool completed = false;
+    vpn_notify_sleep(
+            this->vpn,
+            [](void *arg) {
+                *(bool *) arg = true;
+            },
+            &completed);
+    ASSERT_TRUE(completed);
+}

@@ -78,6 +78,11 @@ struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
+    /**
+     * Serializes `vpn_event_loop_finalize_exit()` calls: only one thread may swap the queues and change the state
+     * at a time, otherwise a second caller could mark the loop stopped while the first one is still finalizing.
+     */
+    std::mutex finalize_guard;
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
     std::list<DeferredTaskInfo> deferred_task_queue;
@@ -224,6 +229,11 @@ void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout) {
 
 void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     log_loop(loop, dbg, "...");
+
+    // Only one thread may finalize the loop at a time: otherwise a second caller could set the state to `ELS_STOPPED`
+    // while the first one is still running the finalize callbacks, and a task submitted in between would be queued
+    // forever instead of being finalized.
+    std::scoped_lock finalize_lock(loop->finalize_guard);
 
     std::list<TaskInfo> tasks;
     std::list<DeferredTaskInfo> deferred_tasks;
