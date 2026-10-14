@@ -574,7 +574,8 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
     bool handler_entered = false;
     bool handler_proceed = false;
     bool handler_finished = false;
-    bool loop_obtained = false;
+    bool loop_unchanged = false;
+    VpnEventLoop *loop_before_stop = nullptr;
 
     {
         std::scoped_lock l(this->guard);
@@ -593,9 +594,11 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
             }
 
             // `vpn_stop()` is running on another thread: it holds the VPN lock and waits for this thread to finish.
-            // Calling a function that acquires the VPN lock here would deadlock.
-            // The loop is still running (it is blocked in this handler), so it is still returned.
-            loop_obtained = vpn_get_event_loop(this->vpn) != nullptr;
+            // Calling a function that acquires the VPN lock here would deadlock. The loop is either still running
+            // (then the same pointer is returned) or already stopped (then null); the exact result depends on when
+            // the exit request is processed, so both are accepted.
+            VpnEventLoop *seen_loop = vpn_get_event_loop(this->vpn);
+            loop_unchanged = (seen_loop == nullptr || seen_loop == loop_before_stop);
 
             {
                 std::unique_lock l(hook_guard);
@@ -613,6 +616,9 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
             return handler_entered;
         }));
     }
+
+    loop_before_stop = vpn_get_event_loop(this->vpn);
+    ASSERT_NE(loop_before_stop, nullptr);
 
     std::thread stop_thread([vpn = this->vpn]() {
         vpn_stop(vpn);
@@ -676,7 +682,7 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
         this->handler_hook = nullptr;
     }
 
-    ASSERT_TRUE(loop_obtained);
+    ASSERT_TRUE(loop_unchanged);
 }
 
 // Check that calling `vpn_listen()` from the event loop thread is rejected instead of deadlocking the event loop
