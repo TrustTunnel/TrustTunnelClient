@@ -634,10 +634,9 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
                         .action =
                                 [](void *arg, TaskId) {
                                     auto *ctx = (Ctx *) arg;
-                                    {
-                                        std::scoped_lock task_lock(ctx->vpn->update_exclusions_task_guard);
-                                        ctx->vpn->update_exclusions_task.release();
-                                    }
+                                    // The completed task's id is intentionally left in `update_exclusions_task`:
+                                    // clearing it here could drop the id of a newer update assigned concurrently.
+                                    // Cancelling an already completed task is a no-op.
                                     ctx->vpn->client.reset_connections(-1);
                                     ctx->vpn->client.update_exclusions(ctx->mode, ctx->exclusions);
                                 },
@@ -795,7 +794,7 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
 
     auto packets_holder = VpnPacketsHolder{packets};
 
-    if (!vpn->ev_loop) {
+    if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         return false;
     }
 
@@ -905,7 +904,8 @@ static const char *check_address(const SocketAddress &addr) {
 
 VpnEventLoop *vpn_get_event_loop(Vpn *vpn) {
     std::unique_lock l = lock_unless_on_vpn_loop(vpn);
-    return vpn->ev_loop.get();
+    VpnEventLoop *loop = vpn->ev_loop.get();
+    return (loop != nullptr && vpn_event_loop_is_active(loop)) ? loop : nullptr;
 }
 
 void vpn_abandon_endpoint(Vpn *vpn, const VpnEndpoint *endpoint) {

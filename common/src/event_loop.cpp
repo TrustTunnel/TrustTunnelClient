@@ -310,8 +310,10 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
     case ELS_BASE_EXITED:
     case ELS_FINALIZING:
         loop->guard.unlock();
-        log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
-        task.finalize(task.arg);
+        if (task.finalize != nullptr) {
+            log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
+            task.finalize(task.arg);
+        }
         return -1;
     case ELS_STOPPED:
     case ELS_RUNNING:
@@ -335,14 +337,26 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
     return task_id;
 }
 
-static bool dispatch_sync_impl(
-        VpnEventLoop *loop, std::unique_lock<std::mutex> *caller_lock, void (*action)(void *), void *arg) {
+static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> *caller_lock, void (*action)(void *),
+        void *arg, bool require_running) {
     assert(caller_lock == nullptr || caller_lock->owns_lock());
     if (vpn_event_loop_is_current_thread(loop)) {
         // The event loop cannot execute the submitted task while its own thread is blocked here.
         log_loop(loop, err, "dispatch_sync() must not be called from the event loop thread");
         assert(0);
         return false;
+    }
+    if (require_running) {
+        // A task submitted to a loop that is not running is queued for a possible future run and is not finalized
+        // until the loop is run or finalized, so waiting for it could block forever. A caller that requires the
+        // action to run now must not wait in this case.
+        // Note: the loop can still stop between this check and the submission; in that case the task is finalized
+        // when the loop is finalized.
+        std::scoped_lock l(loop->guard);
+        if (loop->state != ELS_RUNNING) {
+            log_loop(loop, err, "dispatch_sync() cannot run the task: the event loop is not running");
+            return false;
+        }
     }
 
     struct DispatchContext {
@@ -395,12 +409,12 @@ static bool dispatch_sync_impl(
 }
 
 bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *), void *arg) {
-    return dispatch_sync_impl(loop, nullptr, action, arg);
+    return dispatch_sync_impl(loop, nullptr, action, arg, false);
 }
 
 bool vpn_event_loop_dispatch_sync_unlocked(
         VpnEventLoop *loop, std::unique_lock<std::mutex> &lock, void (*action)(void *), void *arg) {
-    return dispatch_sync_impl(loop, &lock, action, arg);
+    return dispatch_sync_impl(loop, &lock, action, arg, true);
 }
 
 void vpn_event_loop_cancel(VpnEventLoop *loop, TaskId task_id) {

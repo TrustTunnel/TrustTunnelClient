@@ -590,6 +590,7 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
 
             // `vpn_stop()` is running on another thread: it holds the VPN lock and waits for this thread to finish.
             // Calling a function that acquires the VPN lock here would deadlock.
+            // The loop is still running (it is blocked in this handler), so it is still returned.
             loop_obtained = vpn_get_event_loop(this->vpn) != nullptr;
 
             {
@@ -782,13 +783,16 @@ TEST_F(ConnectedVpnManagerTest, StoppingThreadSkipsVpnLock) {
 // that tasks queued into the stopped event loop are finalized before it is destroyed
 TEST_F(ConnectedVpnManagerTest, CallsFromHandlerDuringFinalization) {
     bool handler_called = false;
-    bool loop_obtained = false;
+    bool loop_is_null = false;
+    bool packets_rejected = false;
     bool task_finalized = false;
 
     test_mock::g_client.on_finalize_disconnect = [&]() {
         handler_called = true;
         // `vpn_stop()` holds the VPN lock while it finalizes the client: these calls must not deadlock.
-        loop_obtained = vpn_get_event_loop(this->vpn) != nullptr;
+        // The event loop is already stopped, so the documented results are NULL and false.
+        loop_is_null = vpn_get_event_loop(this->vpn) == nullptr;
+        packets_rejected = !vpn_process_client_packets(this->vpn, {});
         vpn_force_disconnect(this->vpn, false);
 
         vpn_event_loop_submit(this->vpn->ev_loop.get(),
@@ -806,7 +810,8 @@ TEST_F(ConnectedVpnManagerTest, CallsFromHandlerDuringFinalization) {
     test_mock::g_client.on_finalize_disconnect = nullptr;
 
     ASSERT_TRUE(handler_called);
-    ASSERT_TRUE(loop_obtained);
+    ASSERT_TRUE(loop_is_null);
+    ASSERT_TRUE(packets_rejected);
     ASSERT_TRUE(task_finalized) << "the task queued into the stopped event loop must be finalized";
 }
 

@@ -2,6 +2,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -421,4 +422,68 @@ TEST_F(EventLoopTest, TaskChainDoesNotStarveTheLoop) {
 
     EXPECT_TRUE(fired) << "a scheduled task was starved by a continuous task chain";
     EXPECT_TRUE(stopped) << "vpn_event_loop_stop() was starved by a continuous task chain";
+}
+
+// Check that scheduling a task without a finalizer while the loop is finalizing does not crash
+TEST_F(EventLoopTest, ScheduleWithoutFinalizerDuringFinalization) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        TaskId id = 0;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // The loop is finalizing: scheduling a task without a finalizer must not crash
+                                ctx->id = vpn_event_loop_schedule(
+                                        ctx->loop, {.arg = nullptr, .action = nullptr, .finalize = nullptr}, Millis{1});
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_EQ(ctx.id, -1);
+}
+
+// Check that the unlocked synchronous dispatch does not block on a loop that has already stopped
+TEST_F(EventLoopTest, DispatchSyncUnlockedOnStoppedLoopReturnsFalse) {
+    run_event_loop();
+    ASSERT_TRUE(event_loop::dispatch_sync(m_ev_loop.get(), [] {}));
+
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct State {
+        std::mutex mutex;
+        std::unique_lock<std::mutex> lock{mutex};
+        std::atomic<bool> returned{false};
+        bool result = true;
+    };
+    auto state = std::make_shared<State>();
+    std::thread caller([loop = m_ev_loop.get(), state]() {
+        state->result = event_loop::dispatch_sync(loop, state->lock, [] {});
+        state->returned.store(true);
+    });
+
+    bool finished = false;
+    for (int i = 0; i < 500 && !finished; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        finished = state->returned.load();
+    }
+    if (!finished) {
+        // The caller is blocked in `dispatch_sync()`. Abandon it so that the test reports a failure instead of
+        // hanging: the loop is stopped, so it will not be woken up by the loop itself.
+        caller.detach();
+        FAIL() << "dispatch_sync() blocked on a stopped event loop";
+        return;
+    }
+    caller.join();
+
+    EXPECT_FALSE(state->result);
 }
