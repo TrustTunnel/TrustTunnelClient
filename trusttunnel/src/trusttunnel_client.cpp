@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -20,6 +21,7 @@
 #include "common/socket_address.h"
 #include "net/network_manager.h"
 #include "net/tls.h"
+#include "trusttunnel_deeplink.h"
 #include "utils.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
@@ -63,6 +65,7 @@ static bool g_svc_running = false;
 #endif
 
 int run_client(const cxxopts::ParseResult &cli_args);
+static int export_deeplink(const std::string &config_path, std::string_view name);
 
 static void stop_trusttunnel_client() {
     keep_running = false;
@@ -158,6 +161,8 @@ int main(int argc, char **argv) {
             ("c,config", "Config file name.", cxxopts::value<std::string>()->default_value(std::string(DEFAULT_CONFIG_FILE)))
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
             ("refresh", "Refresh the endpoint parameters from the subscription URL and exit")
+            ("n,name", "Human-readable server display name for the deep-link. Overrides the configuration value.", cxxopts::value<std::string>()->default_value(""))
+            ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage");
 #ifdef _WIN32
     args.add_options()
@@ -184,6 +189,21 @@ int main(int argc, char **argv) {
         return ag::run_subscription_refresh(result["config"].as<std::string>());
     }
 
+    if (result.count("name") > 0 && !result["export-deeplink"].as<bool>()) {
+        warnlog(g_logger, "--name is only used together with --export-deeplink and is ignored");
+    }
+
+    if (result["export-deeplink"].as<bool>()) {
+        // The export path reads no `loglevel` from the configuration, so apply the command line one.
+        auto loglevel = TrustTunnelCliUtils::parse_loglevel(result["loglevel"].as<std::string>());
+        if (!loglevel) {
+            errlog(g_logger, "Unexpected log level: {}", result["loglevel"].as<std::string>());
+            return 1;
+        }
+        ag::Logger::set_log_level(*loglevel);
+        return export_deeplink(result["config"].as<std::string>(), result["name"].as<std::string>());
+    }
+
 #ifdef _WIN32
     if (result.count("service-install") && result.count("service-uninstall")) {
         errlog(g_logger, "--service-install and --service-uninstall are mutually exclusive");
@@ -201,6 +221,35 @@ int main(int argc, char **argv) {
 #endif
 
     return run_client(result);
+}
+
+static int export_deeplink(const std::string &config_path, std::string_view name) {
+    toml::parse_result parse_result = toml::parse_file(config_path);
+    if (!parse_result) {
+        errlog(g_logger, "Failed parsing configuration: {}", parse_result.error().description());
+        return 1;
+    }
+
+    std::optional export_table = TrustTunnelConfig::build_deeplink_export_table(parse_result.table(), name);
+    if (!export_table) {
+        return 1;
+    }
+
+    std::ostringstream stream;
+    stream << *export_table;
+
+    DeepLinkError *error = nullptr;
+    char *uri = trusttunnel_deeplink_encode(stream.str().c_str(), &error);
+    if (uri == nullptr) {
+        const char *message = error != nullptr ? trusttunnel_deeplink_error_message(error) : "unknown error";
+        errlog(g_logger, "Failed to export deep-link: {}", message);
+        trusttunnel_deeplink_error_free(error);
+        return 1;
+    }
+
+    std::cout << uri << '\n';
+    trusttunnel_deeplink_string_free(uri);
+    return 0;
 }
 
 // Run the client with `config` until the app stops or a config is reloaded
@@ -241,7 +290,7 @@ static int run_session(TrustTunnelConfig config) {
             errlog(g_logger, "{}", res->str());
             return 1;
         }
-        res = client->connect(TrustTunnelClient::AutoSetup{});
+        res = client->connect(TrustTunnelClient::AutoSetup{}, TrustTunnelClient::ConnectOptions{});
         if (res) {
             errlog(g_logger, "{}", res->str());
             return 1;

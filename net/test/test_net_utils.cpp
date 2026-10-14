@@ -77,6 +77,7 @@ TEST(NetUtils, JA4TlsProfiles) {
     };
     const Case cases[] = {
             {ag::tls::TlsClientProfile::CHROME, "Chrome", "t13d1516h2_8daaf6152771_806a8c22fdea", true},
+            {ag::tls::TlsClientProfile::CHROME_CANARY, "Canary", "t13d1517h2_8daaf6152771_c4845d6bf6c5", true},
             {ag::tls::TlsClientProfile::SAFARI, "Safari", "t13d2013h2_a09f3c656075_7f0f34a4126d", true},
             {ag::tls::TlsClientProfile::FIREFOX, "Firefox", "t13d1717h2_5b57614c22b0_3cbfd9057e0d", true},
             {ag::tls::TlsClientProfile::OKHTTP, "OkHttp", "t13d1613h2_46e7e9700bed_eca864cca44a", true},
@@ -89,6 +90,17 @@ TEST(NetUtils, JA4TlsProfiles) {
         fprintf(stderr, "[JA4 %-8s] %s\n", c.name, fingerprint.c_str());
         EXPECT_EQ(c.expected, fingerprint) << c.name;
     }
+}
+
+TEST(NetUtils, ToTlsClientProfile) {
+    EXPECT_EQ(ag::tls::TlsClientProfile::CHROME, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_CHROME));
+    EXPECT_EQ(ag::tls::TlsClientProfile::CHROME_CANARY, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_CHROME_CANARY));
+    EXPECT_EQ(ag::tls::TlsClientProfile::SAFARI, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_SAFARI));
+    EXPECT_EQ(ag::tls::TlsClientProfile::FIREFOX, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_FIREFOX));
+    EXPECT_EQ(ag::tls::TlsClientProfile::OKHTTP, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OKHTTP));
+    EXPECT_EQ(
+            ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
+    EXPECT_EQ(ag::tls::TlsClientProfile::DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_DEFAULT));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks
@@ -153,7 +165,7 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     ag::vpn_post_quantum_group_set_enabled(true);
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
     auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, "example.org", ag::MSPT_NGTCP2, {}, {}, {},
-            ag::tls::TlsClientProfile::CHROME);
+            {}, ag::tls::TlsClientProfile::CHROME);
     ASSERT_TRUE(std::holds_alternative<ag::SslPtr>(r)) << "make_ssl(MSPT_NGTCP2) failed";
     auto &ssl = std::get<ag::SslPtr>(r);
 
@@ -177,7 +189,7 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
 std::vector<uint8_t> prepare_client_hello(const char *sni, ag::tls::TlsClientProfile profile, bool with_alpn) {
     static constexpr uint8_t HTTP2_ALPN[] = {2, 'h', '2'};
     ag::U8View alpn = with_alpn ? ag::U8View{HTTP2_ALPN, std::size(HTTP2_ALPN)} : ag::U8View{};
-    auto r = ag::make_ssl(nullptr, nullptr, alpn, sni, ag::MSPT_TLS, {}, {}, {}, profile);
+    auto r = ag::make_ssl(nullptr, nullptr, alpn, sni, ag::MSPT_TLS, {}, {}, {}, {}, profile);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));
     SSL_set0_wbio(ssl.get(), BIO_new(BIO_s_mem()));
@@ -198,7 +210,7 @@ struct Ngtcp2TestCtx {
 
 std::list<std::vector<uint8_t>> prepare_quic_initials_ngtcp2(const char *sni) {
     static constexpr uint8_t H3_ALPN[] = {2, 'h', '3'};
-    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {},
+    auto r = ag::make_ssl(nullptr, nullptr, {H3_ALPN, std::size(H3_ALPN)}, sni, ag::MSPT_NGTCP2, {}, {}, {}, {},
             ag::tls::TlsClientProfile::CHROME);
     assert(std::holds_alternative<ag::SslPtr>(r));
     ag::SslPtr ssl = std::move(std::get<ag::SslPtr>(r));

@@ -98,6 +98,8 @@ password = ""
 {}
 client_random = ""
 {}
+client_random_auth_key = ""
+{}
 skip_verification = false
 {}
 certificate = ""
@@ -107,6 +109,8 @@ upstream_protocol = "{}"
 tls_profile = "{}"
 {}
 anti_dpi = false
+{}
+name = ""
 
 {}
 dns_upstreams = []
@@ -120,6 +124,7 @@ dns_upstreams = []
         Endpoint::doc_username().to_toml_comment(),
         Endpoint::doc_password().to_toml_comment(),
         Endpoint::doc_client_random().to_toml_comment(),
+        Endpoint::doc_client_random_auth_key().to_toml_comment(),
         Endpoint::doc_skip_verification().to_toml_comment(),
         Endpoint::doc_certificate().to_toml_comment(),
         Endpoint::doc_upstream_protocol().to_toml_comment(),
@@ -127,6 +132,7 @@ dns_upstreams = []
         Endpoint::doc_tls_profile().to_toml_comment(),
         Endpoint::default_tls_profile(),
         Endpoint::doc_anti_dpi().to_toml_comment(),
+        Endpoint::doc_name().to_toml_comment(),
         Endpoint::doc_dns_upstreams().to_toml_comment(),
     )
 });

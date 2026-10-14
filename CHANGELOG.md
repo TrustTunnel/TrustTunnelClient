@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - Support `subscription_url` in the setup wizard, fetching the new configuration on toml/deeplink/subscription-only export
     - Refresh the endpoint parameters from the stored subscription URL with `trusttunnel_client --refresh`
     - Add `[endpoint.subscription]` to the config, holding the subscription URL and the time of the last successful fetch
+- Added `client_random_auth_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
+- Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
+- Added the `chrome_canary` value for the `[endpoint].tls_profile` setting, which mimics the Chrome Canary TLS ClientHello.
+- Added an option to fall into recovery in case of a failed initial connection for `TrustTunnelClient` and platform adapters.
 
 ### Changed
 
@@ -42,6 +46,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Fixed a crash in the location pinger when an in-progress HTTP/3 ping connection is torn down while the network is unavailable.
+
+## [1.1.11] - 2026-10-07
+
+### Added
+
+- A way for the application to communicate the reason for certificate verification failure
+  and a new VPN error code for "endpoint certificate is not yet valid". The intention is to
+  help the application to identify and warn the user of a possibly incorrectly set wall clock.
+    - See `ag::VpnVerifyCertificateResult`, `ag::VpnErrorCode::VPN_EC_CERTIFICATE_NOT_YET_VALID`.
 
 ## [1.1.5] - 2026-09-02
 

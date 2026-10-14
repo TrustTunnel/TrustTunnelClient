@@ -20,7 +20,7 @@ static void vpn_handler(void *, vpn_client::Event what, void *) {
 }
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, CertVerifyCtx & /*ctx*/, void * /*arg*/) {
     return 1;
 }
 

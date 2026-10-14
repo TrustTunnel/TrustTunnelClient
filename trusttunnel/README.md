@@ -125,13 +125,14 @@ The configuration file uses TOML format. Below are all available settings.
 | `username` | string | *required* | Authorization username |
 | `password` | string | *required* | Authorization password |
 | `client_random` | string | `""` | TLS client random prefix and mask (hex, format: `prefix[/mask]`) |
+| `client_random_auth_key` | string | `""` | TLS client random auth key (hex). When set, part of `client_random` is derived from this key, the SNI, and other random bytes via HKDF+AES. Takes priority over `client_random`; only one should be set. |
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
-| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `safari`, `firefox`, `okhttp`, `openssl`, or `default` (no mimicry) |
+| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl`, or `default` (no mimicry) |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
+| `name` | string | `null` | Human-readable server display name. Written on server creation; included in the deep-link when exporting with `--export-deeplink` |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN. If empty, AdGuard DNS unfiltered is used |
-| `name` | string | `null` | Human-readable server name. Written on server creation only |
 | `subscription.url` | string | `null` | HTTPS URL of the subscription document, optionally with embedded HTTP Basic Auth credentials (`https://user:pass@host/path`). Fresh endpoint parameters are pulled from it on `--refresh` |
 | `subscription.last_fetched_at` | string | `null` | Time of the last successful fetch (RFC 3339 UTC). Absent until the first successful refresh |
 
@@ -205,12 +206,14 @@ has_ipv6 = true
 username = "myuser"
 password = "mypassword"
 client_random = ""
+client_random_auth_key = ""
 skip_verification = false
 certificate = ""
 dns_upstreams = ["tls://1.1.1.1"]
 upstream_protocol = "http2"
 tls_profile = "chrome"
 anti_dpi = false
+name = "Example VPN"
 
 [listener.tun]
 bound_if = ""
@@ -270,6 +273,36 @@ the running client afterwards. Example cron entry:
 ```shell
 /opt/trusttunnel_client/trusttunnel_client --refresh --config /opt/trusttunnel_client/trusttunnel_client.toml && kill -HUP $(pidof trusttunnel_client)
 ```
+
+---
+
+## Exporting a Deep-Link
+
+To transfer the endpoint configured in the CLI client to another TrustTunnel
+client (for example, the desktop app), export it as a `tt://` deep-link:
+
+```shell
+./trusttunnel_client --export-deeplink --config <path/to/configuration/file.toml> [--name <server-name>]
+```
+
+The command prints the deep-link to the standard output and exits, leaving the
+configuration untouched. The link includes the server name and the DNS
+upstreams from the configuration. The server name can be overridden with the
+optional `--name` option, which is useful when the configuration has no name.
+
+The certificate is embedded only when it is needed by the importing client,
+that is, it is omitted when the chain can be verified with the system
+certificate store.
+
+If `hostname` uses the `sni|remote_id` syntax, it is split into `hostname`
+(the `remote_id` part) and `custom_sni` (the `sni` part), so that the
+importing client resolves the SNI and the certificate verification name the
+same way the CLI client does.
+
+The deep-link format carries only a client random prefix, not a mask, so a
+`client_random` value in `prefix/mask` form is exported as its prefix only.
+It has no `auto` upstream protocol either, so `auto` is exported as `http2`.
+Both cases are reported as a warning.
 
 ---
 

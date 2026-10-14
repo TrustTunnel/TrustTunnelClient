@@ -46,6 +46,7 @@ typedef enum {
     VPN_TLS_PROFILE_OKHTTP,          // OkHttp (Android) client
     VPN_TLS_PROFILE_OPENSSL_DEFAULT, // OpenSSL default ClientHello
     VPN_TLS_PROFILE_DEFAULT,         // No mimicry — library defaults
+    VPN_TLS_PROFILE_CHROME_CANARY,   // Chrome Canary-like ClientHello
 } VpnTlsProfile;
 
 struct VpnConnectionStats {

@@ -253,6 +253,9 @@ fn build_endpoint_manually(
         client_random: opt_field!(template, client_random)
             .cloned()
             .unwrap_or_default(),
+        client_random_auth_key: opt_field!(template, client_random_auth_key)
+            .cloned()
+            .unwrap_or_default(),
         skip_verification: opt_field!(template, skip_verification)
             .cloned()
             .unwrap_or_else(Endpoint::default_skip_verification),
@@ -466,6 +469,8 @@ pub struct EndpointConfig {
     #[serde(default, alias = "client_random_prefix")]
     client_random: String,
     #[serde(default)]
+    client_random_auth_key: String,
+    #[serde(default)]
     skip_verification: bool,
     #[serde(default)]
     certificate: String,
@@ -494,6 +499,7 @@ fn candidate_from_endpoint_config(config: &EndpointConfig) -> Endpoint {
         username: config.username.clone(),
         password: config.password.clone(),
         client_random: config.client_random.clone(),
+        client_random_auth_key: config.client_random_auth_key.clone(),
         skip_verification: config.skip_verification,
         certificate: empty_to_none(config.certificate.clone()),
         upstream_protocol: config.upstream_protocol.clone(),
@@ -609,6 +615,11 @@ impl fmt::Display for EndpointSummary<'_> {
         } else {
             &ep.client_random
         };
+        let client_random_auth_key = if ep.client_random_auth_key.is_empty() {
+            "(none)"
+        } else {
+            "(set)" // The auth key is a secret credential, do not print its value
+        };
 
         let cert_display = if self.cert_infos.is_empty() {
             if ep.certificate.is_some() {
@@ -641,6 +652,7 @@ impl fmt::Display for EndpointSummary<'_> {
   Username:          {}
   Password:          ******
   Client random:     {}
+  CR auth key:        {}
   Skip verification: {}
   Certificate:       {}
   Protocol:          {}
@@ -654,6 +666,7 @@ impl fmt::Display for EndpointSummary<'_> {
             if ep.has_ipv6 { "yes" } else { "no" },
             ep.username,
             client_random,
+            client_random_auth_key,
             if ep.skip_verification { "yes" } else { "no" },
             cert_display,
             ep.upstream_protocol,
@@ -741,6 +754,7 @@ mod tests {
             username: Some("user1".to_string()),
             password: Some("pass1".to_string()),
             client_random_prefix: Some("aabb".to_string()),
+            client_random_auth_key: Some("aabbccdd".to_string()),
             custom_sni: Some("sni.host".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -760,6 +774,7 @@ mod tests {
         assert_eq!(decoded.username.as_deref(), Some("user1"));
         assert_eq!(decoded.password.as_deref(), Some("pass1"));
         assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
+        assert_eq!(decoded.client_random_auth_key, Some("aabbccdd".to_string()));
         assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);

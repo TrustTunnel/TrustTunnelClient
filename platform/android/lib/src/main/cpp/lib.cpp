@@ -184,14 +184,18 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_adguard_trusttunnel_VpnClient_create
 }
 
 extern "C" JNIEXPORT jboolean JNICALL Java_com_adguard_trusttunnel_VpnClient_startNative(
-        JNIEnv *env, jobject thiz, jlong native_ptr, jint tun_fd) {
+        JNIEnv *env, jobject thiz, jlong native_ptr, jint tun_fd, jboolean fall_into_recovery) {
     if (!native_ptr) {
         errlog(g_logger, "Nothing to start, create VpnClient first");
         return (jboolean) false;
     }
     auto ctx = (VpnCtx *) native_ptr;
 
-    auto error = ctx->get_native_client().connect(ag::TrustTunnelClient::UseTunnelFd{ag::AutoFd::adopt_fd(tun_fd)});
+    ag::TrustTunnelClient::ConnectOptions options{
+            .fall_into_recovery = fall_into_recovery != JNI_FALSE,
+    };
+    auto error =
+            ctx->get_native_client().connect(ag::TrustTunnelClient::UseTunnelFd{ag::AutoFd::adopt_fd(tun_fd)}, options);
     if (error) {
         errlog(g_logger, "Failed to connect: {}", error->pretty_str());
         return (jboolean) false;

@@ -104,6 +104,7 @@ fn fill_endpoint_table(mut doc: Document, endpoint: &Endpoint) -> Result<Documen
     table["username"] = value(&endpoint.username);
     table["password"] = value(&endpoint.password);
     table["client_random"] = value(&endpoint.client_random);
+    table["client_random_auth_key"] = value(&endpoint.client_random_auth_key);
     table["skip_verification"] = value(endpoint.skip_verification);
     table["anti_dpi"] = value(endpoint.anti_dpi);
     table["certificate"] = value(endpoint.certificate.as_deref().unwrap_or_default());
@@ -254,6 +255,18 @@ mod tests {
         let doc = compose_document(None, &settings).unwrap();
         let parsed: toml::Value = doc.to_string().parse().unwrap();
         assert_eq!(parsed["endpoint"]["tls_profile"].as_str(), Some("firefox"));
+    }
+
+    #[test]
+    fn compose_writes_client_random_auth_key() {
+        let mut settings = test_settings(vec![]);
+        settings.endpoint.client_random_auth_key = "aabbccdd".into();
+        let doc = compose_document(None, &settings).unwrap();
+        let parsed: toml::Value = doc.to_string().parse().unwrap();
+        assert_eq!(
+            parsed["endpoint"]["client_random_auth_key"].as_str(),
+            Some("aabbccdd")
+        );
     }
 
     #[test]

@@ -40,11 +40,13 @@ struct CertVerifyCtx {
     STACK_OF(X509) *chain = nullptr;
     SSL *ssl = nullptr;
     VpnCertVerificationType verification_type = VT_DEFAULT;
+    // On output, the value of `ag::VpnVerifyCertificateEvent::result` set by the application.
+    int handler_result = 0;
 };
 
 struct CertVerifyHandler {
     // server certificate verify callback
-    int (*func)(const char *host_name, const sockaddr *host_ip, const CertVerifyCtx &ctx, void *arg);
+    int (*func)(const char *host_name, const sockaddr *host_ip, CertVerifyCtx &ctx, void *arg);
     void *arg; // will be set to SSL object as app data (like `SSL_set_app_data(ssl, cert_verify_arg)`)
 };
 
@@ -52,22 +54,24 @@ struct VpnEndpoint {
     SocketAddressStorage address; // endpoint address
     const char *name;             // endpoint host name (used, for example, for TLS handshake)
     const char *remote_id; // if not NULL or empty, used for server TLS certificate verification instead of `name`
-    AG_ARRAY_OF(uint8_t) additional_data;        // additional data about the endpoint
-    AG_ARRAY_OF(uint8_t) tls_client_random;      // custom client random
-    AG_ARRAY_OF(uint8_t) tls_client_random_mask; // mask for custom client random
-    bool has_ipv6;                               // Whether IPv6 traffic can be routed through the endpoint
-    VpnUpstreamProtocol preferred_protocol;      // Protocol to use for the endpoint connection.
-                                                 // @see `VpnUpstreamConfig.main_protocol` for full description.
-    VpnTlsProfile tls_profile;                   // TLS ClientHello fingerprint profile for this endpoint.
+    AG_ARRAY_OF(uint8_t) additional_data;            // additional data about the endpoint
+    AG_ARRAY_OF(uint8_t) tls_client_random;          // custom client random
+    AG_ARRAY_OF(uint8_t) tls_client_random_mask;     // mask for custom client random
+    AG_ARRAY_OF(uint8_t) tls_client_random_auth_key; // auth key for custom client random derivation
+    bool has_ipv6;                                   // Whether IPv6 traffic can be routed through the endpoint
+    VpnUpstreamProtocol preferred_protocol;          // Protocol to use for the endpoint connection.
+                                                     // @see `VpnUpstreamConfig.main_protocol` for full description.
+    VpnTlsProfile tls_profile;                       // TLS ClientHello fingerprint profile for this endpoint.
 };
 
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
 
 struct VpnRelay {
-    SocketAddressStorage address;                // relay address
-    AG_ARRAY_OF(uint8_t) additional_data;        // additional data about the relay
-    AG_ARRAY_OF(uint8_t) tls_client_random;      // custom client random
-    AG_ARRAY_OF(uint8_t) tls_client_random_mask; // mask for custom client random
+    SocketAddressStorage address;                    // relay address
+    AG_ARRAY_OF(uint8_t) additional_data;            // additional data about the relay
+    AG_ARRAY_OF(uint8_t) tls_client_random;          // custom client random
+    AG_ARRAY_OF(uint8_t) tls_client_random_mask;     // mask for custom client random
+    AG_ARRAY_OF(uint8_t) tls_client_random_auth_key; // auth key for custom client random derivation
 };
 
 typedef AG_ARRAY_OF(VpnRelay) VpnRelays;
@@ -266,6 +270,7 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},
         ag::Uint8View tls_client_random = ag::U8View{}, ag::Uint8View tls_client_random_mask = ag::U8View{},
+        ag::Uint8View tls_client_random_auth_key = ag::U8View{},
         ag::tls::TlsClientProfile profile = ag::tls::TlsClientProfile::CHROME);
 
 /**

@@ -15,7 +15,7 @@ typedef void (^ConnectionInfoHandler)(NSString *state);
          connectionInfoHandler:(ConnectionInfoHandler)connectionInfoHandler
             stateChangeHandler:(StateChangeHandler)stateChangeHandler;
 - (instancetype)init NS_UNAVAILABLE;
-- (bool)start:(NEPacketTunnelFlow *)tunnelFlow;
+- (bool)start:(NEPacketTunnelFlow *)tunnelFlow fallIntoRecovery:(BOOL)fallIntoRecovery;
 - (bool)stop;
 - (void)notify_sleep;
 - (void)notify_wake;
