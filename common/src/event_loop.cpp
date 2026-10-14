@@ -279,6 +279,11 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
         }
     }
 
+    // Destroy the moved-out tasks before publishing the finalization: a deferred task owns a timer event associated
+    // with the event base, and a waiter may restart or destroy the loop as soon as it returns.
+    tasks.clear();
+    deferred_tasks.clear();
+
     {
         std::scoped_lock l(loop->guard);
         loop->state = ELS_STOPPED;
