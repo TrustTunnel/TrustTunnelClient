@@ -19,10 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fixed deadlocks and leaks around the VPN event loop: event handlers may call functions that only schedule work on
-  the loop without acquiring the VPN lock, functions that cannot run on the event loop thread (`vpn_listen()`,
-  `vpn_connect()`, `vpn_stop()`, `vpn_close()`) reject such calls before taking the lock, and task finalizers are
-  called without the loop lock and before the loop is destroyed.
+- Fixed deadlocks, leaks and task-queue starvation around the VPN event loop: event handlers may call functions that
+  only schedule work on the loop without acquiring the VPN lock, functions that cannot run on the event loop thread
+  (`vpn_listen()`, `vpn_connect()`, `vpn_stop()`, `vpn_close()`) reject such calls before taking the lock, task
+  finalizers are called without the loop lock and before the loop is destroyed, and a task batch no longer keeps the
+  loop from polling I/O, timers and a pending stop request.
 
 ### Security
 
