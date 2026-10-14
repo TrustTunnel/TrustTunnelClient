@@ -424,6 +424,34 @@ TEST_F(EventLoopTest, TaskChainDoesNotStarveTheLoop) {
     EXPECT_TRUE(stopped) << "vpn_event_loop_stop() was starved by a continuous task chain";
 }
 
+// Check that a finalize callback may re-enter the loop API without deadlocking
+TEST_F(EventLoopTest, FinalizeCallbackMayReenterStop) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool reentered = false;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // The loop is already being finalized by this thread: re-entering must not deadlock
+                                vpn_event_loop_stop(ctx->loop);
+                                ctx->reentered = true;
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_TRUE(ctx.reentered);
+}
+
 // Check that scheduling a task without a finalizer while the loop is finalizing does not crash
 TEST_F(EventLoopTest, ScheduleWithoutFinalizerDuringFinalization) {
     run_event_loop();

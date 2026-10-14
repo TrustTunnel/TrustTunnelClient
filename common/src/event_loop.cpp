@@ -78,11 +78,12 @@ struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
-    /**
-     * Serializes `vpn_event_loop_finalize_exit()` calls: only one thread may swap the queues and change the state
-     * at a time, otherwise a second caller could mark the loop stopped while the first one is still finalizing.
-     */
-    std::mutex finalize_guard;
+    /** Whether the loop is being finalized by `finalize_thread`; guarded by `guard` */
+    bool finalizing = false;
+    /** The thread finalizing the loop; guarded by `guard` */
+    std::thread::id finalize_thread{};
+    /** Notified when the finalization above finishes */
+    std::condition_variable finalize_barrier;
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
     std::list<DeferredTaskInfo> deferred_task_queue;
@@ -230,17 +231,28 @@ void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout) {
 void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     log_loop(loop, dbg, "...");
 
-    // Only one thread may finalize the loop at a time: otherwise a second caller could set the state to `ELS_STOPPED`
-    // while the first one is still running the finalize callbacks, and a task submitted in between would be queued
-    // forever instead of being finalized.
-    std::scoped_lock finalize_lock(loop->finalize_guard);
-
     std::list<TaskInfo> tasks;
     std::list<DeferredTaskInfo> deferred_tasks;
     {
         std::unique_lock l(loop->guard);
-        log_loop(loop, dbg, "Waiting until run finished (current state={})", magic_enum::enum_name(loop->state));
+        if (loop->finalizing) {
+            if (loop->finalize_thread == std::this_thread::get_id()) {
+                // A finalize callback has re-entered the loop API: this thread is already finalizing the loop, so
+                // there is nothing left to do
+                log_loop(loop, dbg, "Already finalizing the loop on this thread");
+                return;
+            }
+            // Another thread is finalizing the loop: wait for it to finish. The loop is stopped when it does.
+            loop->finalize_barrier.wait(l, [loop]() -> bool {
+                return !loop->finalizing;
+            });
+            log_loop(loop, dbg, "Done");
+            return;
+        }
+        loop->finalizing = true;
+        loop->finalize_thread = std::this_thread::get_id();
         loop->stopping_externally = true;
+        log_loop(loop, dbg, "Waiting until run finished (current state={})", magic_enum::enum_name(loop->state));
         loop->stop_barrier.wait(l, [loop]() -> bool {
             return loop->state != ELS_RUNNING;
         });
@@ -271,7 +283,10 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
         std::scoped_lock l(loop->guard);
         loop->state = ELS_STOPPED;
         loop->stopping_externally = false;
+        loop->finalizing = false;
+        loop->finalize_thread = {};
     }
+    loop->finalize_barrier.notify_all();
 
     log_loop(loop, dbg, "Done");
 }

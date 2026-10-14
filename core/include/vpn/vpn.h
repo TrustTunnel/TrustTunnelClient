@@ -486,8 +486,9 @@ typedef struct {
     /**
      * A function, together with its argument, that gets called to notify the application of an event.
      * The handler is called on the VPN event loop thread, except:
-     *   - while the client is being stopped (`vpn_stop()`): such calls are made on the thread that called
-     *     `vpn_stop()`;
+     *   - while the client is being stopped (`vpn_stop()`): handlers raised before the event loop stops are called on
+     *     the event loop thread, and handlers raised afterwards (during client finalization) are called on the
+     *     thread that called `vpn_stop()`;
      *   - if the event loop is not running: such calls (e.g. an error reported by
      *     `vpn_request_endpoint_connection_stats()`) are made on the calling thread;
      *   - `VPN_EVENT_VERIFY_CERTIFICATE` for a DNS upstream is raised on an internal DNS proxy thread.
