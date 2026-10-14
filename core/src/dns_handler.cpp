@@ -625,6 +625,12 @@ bool ag::DnsHandler::start_dns_proxy() {
                     .socks_listener_username = m_parameters.dns_proxy_listener_username,
                     .socks_listener_password = m_parameters.dns_proxy_listener_password,
                     .cert_verify_handler = m_parameters.cert_verify_handler,
+#if defined(__APPLE__)
+                    .check_local_network_permission =
+                            [this] {
+                                this->raise_check_local_network_permission();
+                            },
+#endif // __APPLE__
 #if defined(__APPLE__) && TARGET_OS_IPHONE
                     .qos_settings = {.qos_class = ServerUpstream::vpn->parameters.qos_settings.qos_class,
                             .relative_priority = ServerUpstream::vpn->parameters.qos_settings.relative_priority}
@@ -730,6 +736,12 @@ bool ag::DnsHandler::start_system_dns_proxy() {
                 .fallbacks = std::move(servers->fallback),
                 .bootstraps = std::move(servers->bootstrap),
                 .cert_verify_handler = m_parameters.cert_verify_handler,
+#if defined(__APPLE__)
+                .check_local_network_permission =
+                        [this] {
+                            this->raise_check_local_network_permission();
+                        },
+#endif // __APPLE__
 #if defined(__APPLE__) && TARGET_OS_IPHONE
                 .qos_settings = {.qos_class = ServerUpstream::vpn->parameters.qos_settings.qos_class,
                         .relative_priority = ServerUpstream::vpn->parameters.qos_settings.relative_priority}
@@ -813,6 +825,13 @@ void ag::DnsHandler::on_dns_change(void *arg) {
     log_handler(self, info, "Restarting system DNS proxy");
     self->start_system_dns_proxy();
 }
+
+#ifdef __APPLE__
+void ag::DnsHandler::raise_check_local_network_permission() {
+    ServerUpstream::vpn->parameters.handler.func(
+            ServerUpstream::vpn->parameters.handler.arg, vpn_client::EVENT_CHECK_LOCAL_NETWORK_PERMISSION, nullptr);
+}
+#endif // __APPLE__
 
 void ag::DnsHandler::on_network_change() {
     // System proxy has to be restarted with a new `outbound_interface`.

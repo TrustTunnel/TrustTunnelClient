@@ -256,6 +256,10 @@ static void vpn_handler(void *arg, VpnEvent what, void *data) {
     case VPN_EVENT_TUNNEL_CONNECTION_CLOSED:
     case VPN_EVENT_CONNECTION_INFO:
         break;
+#ifdef __APPLE__
+    case VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION:
+        break;
+#endif // __APPLE__
     }
 }
 
