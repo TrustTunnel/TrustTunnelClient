@@ -266,7 +266,12 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     log_loop(loop, dbg, "Done");
 }
 
-TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
+/**
+ * Queue a task for execution, checking the loop state and queueing the task in one critical section.
+ * @param require_running if `true`, do not queue the task when the loop is not running
+ * @return the task id, or -1 if the task was not queued (the caller must not wait for it to be executed)
+ */
+static TaskId submit_impl(VpnEventLoop *loop, VpnEventLoopTask task, bool require_running) {
     loop->guard.lock();
 
     TaskId task_id = g_next_task_id++;
@@ -274,15 +279,19 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
     switch (loop->state) {
     case ELS_BASE_EXITED:
     case ELS_FINALIZING:
+        // The task cannot be executed: it is finalized immediately by the caller
+        log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
         loop->guard.unlock();
-        if (task.finalize != nullptr) {
-            log_task(loop, task_id, trace, "Finalizing immediately as loop is exited");
-            task.finalize(task.arg);
-        }
         return -1;
     case ELS_STOPPED:
     case ELS_RUNNING:
-        // handled below
+        if (require_running && loop->state != ELS_RUNNING) {
+            // The task would be queued for a possible future run and never finalized, so a caller that needs the
+            // action to run now must not wait for it
+            log_loop(loop, err, "Not queueing a task: the event loop is not running");
+            loop->guard.unlock();
+            return -1;
+        }
         break;
     }
 
@@ -298,6 +307,14 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
         loop->guard.unlock();
     }
 
+    return task_id;
+}
+
+TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
+    TaskId task_id = submit_impl(loop, task, false);
+    if (task_id < 0 && task.finalize != nullptr) {
+        task.finalize(task.arg);
+    }
     return task_id;
 }
 
@@ -346,19 +363,6 @@ static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> 
         assert(0);
         return false;
     }
-    if (require_running) {
-        // A task submitted to a loop that is not running is queued for a possible future run and is not finalized
-        // until the loop is run or finalized, so waiting for it could block forever. A caller that requires the
-        // action to run now must not wait in this case.
-        // Note: the loop can still stop between this check and the submission; in that case the task is finalized
-        // when the loop is finalized.
-        std::scoped_lock l(loop->guard);
-        if (loop->state != ELS_RUNNING) {
-            log_loop(loop, err, "dispatch_sync() cannot run the task: the event loop is not running");
-            return false;
-        }
-    }
-
     struct DispatchContext {
         void (*action)(void *);
         void *arg;
@@ -368,7 +372,9 @@ static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> 
         bool finalized = false;
     };
     DispatchContext ctx{.action = action, .arg = arg};
-    vpn_event_loop_submit(loop,
+    // The state check and the queueing are done in one critical section: otherwise the loop could be finalized in
+    // between, leaving the task queued for a possible future run and this call waiting forever.
+    TaskId task_id = submit_impl(loop,
             {
                     .arg = &ctx,
                     .action =
@@ -389,7 +395,12 @@ static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> 
                                 ctx->finalized = true;
                                 ctx->cv.notify_all();
                             },
-            });
+            },
+            require_running);
+    if (task_id < 0) {
+        // The task was not queued: it cannot be executed
+        return false;
+    }
 
     if (caller_lock != nullptr) {
         // Release the caller's lock while waiting, so that the submitted action and any event handlers it invokes
