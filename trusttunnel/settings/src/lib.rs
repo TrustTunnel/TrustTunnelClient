@@ -104,7 +104,7 @@ impl Endpoint {
     }
 
     pub fn doc_tls_profile() -> &'static str {
-        "TLS ClientHello fingerprint to mimic [chrome, safari, firefox, okhttp, openssl, default]"
+        "TLS ClientHello fingerprint to mimic [chrome, chrome_canary, safari, firefox, okhttp, openssl, default]"
     }
 
     pub fn doc_anti_dpi() -> &'static str {

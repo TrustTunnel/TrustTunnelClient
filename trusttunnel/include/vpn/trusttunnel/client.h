@@ -67,15 +67,22 @@ public:
 
     using ListenerSettings = std::variant<AutoSetup, UseTunnelFd, UseProcessPackets>;
 
+    struct ConnectOptions {
+        /// If true, failures during initial connection establishment enter the recovery algorithm
+        /// (`VPN_CRP_FALL_INTO_RECOVERY`) instead of retrying a fixed number of times
+        /// (`VPN_CRP_SEVERAL_ATTEMPTS`).
+        bool fall_into_recovery = false;
+    };
+
     /**
      * Establish VPN connection
-     * @param timeout Timeout for endpoint connection establishment
      * @param listener_settings If set to `AutoSetup`, automatically create a tunnel or socks based on config.
      *                          If set to `UseTunnelFd`, use provided fd for packet processing.
      *                          If set to `UseProcessPackets`, use `processClientPackets` and `VPN_EVENT_CLIENT_OUTPUT`
      *                              to process packets.
+     * @param options Connection options.
      */
-    Error<ConnectResultError> connect(ListenerSettings listener_settings);
+    Error<ConnectResultError> connect(ListenerSettings listener_settings, ConnectOptions options);
     Error<ConnectResultError> set_system_dns();
 
     int disconnect();
@@ -90,9 +97,9 @@ public:
     ~TrustTunnelClient();
 
 private:
-    Error<ConnectResultError> connect_impl(ListenerSettings listener_settings);
-    Error<ConnectResultError> vpn_runner(ListenerSettings listener_settings);
-    Error<ConnectResultError> connect_to_server();
+    Error<ConnectResultError> connect_impl(ListenerSettings listener_settings, ConnectOptions options);
+    Error<ConnectResultError> vpn_runner(ListenerSettings listener_settings, ConnectOptions options);
+    Error<ConnectResultError> connect_to_server(ConnectOptions options);
 
     VpnListener *make_tun_listener(ListenerSettings listener_settings);
     VpnListener *make_socks_listener(ListenerSettings listener_settings);

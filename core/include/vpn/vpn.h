@@ -45,7 +45,6 @@ static const float VPN_DEFAULT_RECOVERY_BACKOFF_RATE = 1.3f;
 // Chosen so that together with default backoff rate and default initial delay,
 // the client will spend <= 60 seconds trying to recover.
 static const uint32_t VPN_DEFAULT_RECOVERY_ATTEMPTS = 30;
-static const int VPN_SKIP_VERIFICATION_FLAG = 100;
 
 typedef enum {
     VPN_EC_NOERROR, // Depending on context may mean successful operation status (if returned from `vpn_connect`)
@@ -58,6 +57,7 @@ typedef enum {
     VPN_EC_AUTH_REQUIRED,                   // Authorization error (in case user credentials are invalid or expired)
     VPN_EC_LOCATION_UNAVAILABLE,            // None of the endpoints in a location are available
     VPN_EC_CERTIFICATE_VERIFICATION_FAILED, // Endpoint certificate verification failed
+    VPN_EC_CERTIFICATE_NOT_YET_VALID,       // Endpoint certificate is not yet valid (check wall clock)
     // Unrecoverable runtime errors. Client should NOT reconnect automatically.
     VPN_EC_EVENT_LOOP_FAILURE,       // Failed to start the IO event loop, or it unexpectedly terminated
     VPN_EC_INITIAL_CONNECT_FAILED,   // No connection attempts left after initial connect() call
@@ -285,13 +285,20 @@ typedef enum {
                                             `VpnConnectionInfoEvent`) */
 } VpnEvent;
 
+typedef enum {
+    VPN_VCR_SKIP_HOSTNAME_VERIFICATION = 100,
+    VPN_VCR_CERT_NOT_YET_VALID,
+} VpnVerifyCertificateResult;
+
 typedef struct {
     X509 *cert;                                // Certificate to verify
     STACK_OF(X509) * chain;                    // Untrusted chain
     VpnCertVerificationType verification_type; // Determines verification policy
     /**
-     * SET BY HANDLER: Outcome of the operation (0 if successful, `VPN_SKIP_VERIFICATION_FLAG` to indicate that
-     * hostname verification should be skipped)
+     * SET BY HANDLER: Outcome of the operation (0 if successful,
+     * `VPN_VCR_SKIP_HOSTNAME_VERIFICATION` to indicate success and skip hostname verification,
+     * a value of `VpnVerifyCertificateResult` to indicate a specific failure reason,
+     * any other non-zero value indicates verification failure).
      */
     int result;
 } VpnVerifyCertificateEvent;

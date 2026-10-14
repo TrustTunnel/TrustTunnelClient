@@ -153,7 +153,7 @@ int32_t NativeVpnImpl::attach_service() {
 }
 
 int32_t NativeVpnImpl::start_service(const std::string &config) {
-    return trusttunnel_service_start(config.c_str());
+    return trusttunnel_service_start(config.c_str(), false);
 }
 
 std::optional<FlutterError> NativeVpnImpl::Start(const std::string &config) {

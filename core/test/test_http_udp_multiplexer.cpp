@@ -11,7 +11,7 @@
 #include "vpn/internal/vpn_client.h"
 
 static int cert_verify_handler(
-        const char * /*host_name*/, const sockaddr * /*host_ip*/, const ag::CertVerifyCtx & /*ctx*/, void * /*arg*/) {
+        const char * /*host_name*/, const sockaddr * /*host_ip*/, ag::CertVerifyCtx & /*ctx*/, void * /*arg*/) {
     return 1;
 }
 

@@ -130,9 +130,10 @@ bool DnsProxyAccessor::start() {
                             sk_X509_push(chain, d2i_X509(nullptr, (const unsigned char **) &d, (long) c.size()));
                         }
 
+                        CertVerifyCtx ctx{cert.get(), chain};
                         int verify_result = m_parameters.cert_verify_handler.func(
                                 // server name and ip are already verified by the DNS proxy
-                                nullptr, nullptr, {cert.get(), chain}, m_parameters.cert_verify_handler.arg);
+                                nullptr, nullptr, ctx, m_parameters.cert_verify_handler.arg);
 
                         sk_X509_pop_free(chain, &X509_free);
                         return (verify_result > 0) ? std::nullopt : std::make_optional("Verification failed");
