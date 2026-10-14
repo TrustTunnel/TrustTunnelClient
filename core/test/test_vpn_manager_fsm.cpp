@@ -615,10 +615,14 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
     });
 
     // Wait until `vpn_stop()` has acquired the VPN lock: from this point it holds the lock until the loop exits.
+    // The lock must be released while waiting, otherwise this poll would starve `vpn_stop()`.
     bool stop_took_lock = false;
-    for (size_t i = 0; i < 5000 && !stop_took_lock; ++i) {
-        std::unique_lock lock(this->vpn->stop_guard, std::try_to_lock);
-        stop_took_lock = !lock.owns_lock();
+    auto stop_lock_deadline = std::chrono::steady_clock::now() + Secs{5};
+    while (!stop_took_lock && std::chrono::steady_clock::now() < stop_lock_deadline) {
+        {
+            std::unique_lock lock(this->vpn->stop_guard, std::try_to_lock);
+            stop_took_lock = !lock.owns_lock();
+        }
         if (!stop_took_lock) {
             std::this_thread::sleep_for(milliseconds(1));
         }
