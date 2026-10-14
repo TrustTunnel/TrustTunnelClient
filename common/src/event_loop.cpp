@@ -76,11 +76,6 @@ enum EventLoopState {
 
 struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
-    /**
-     * Persistent event that wakes the loop up to run the task queue. Declared after `ev_base` so that it is
-     * destroyed before the base it is assigned to.
-     */
-    DeclPtr<event, &event_free> queue_event;
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
     bool task_queue_scheduled = false;
@@ -94,14 +89,6 @@ struct VpnEventLoop {
     /** Identifier of the thread running the event loop, if it is running */
     std::atomic<std::thread::id> thread_id{};
 };
-
-/**
- * Wake the loop up to run the task queue.
- * Safe to call from any thread; activating an already active event does nothing.
- */
-static void activate_task_queue(VpnEventLoop *loop) {
-    event_active(loop->queue_event.get(), EV_TIMEOUT, 1);
-}
 
 extern "C" struct evthread_lock_callbacks *evthread_get_lock_callbacks(void);
 
@@ -155,13 +142,6 @@ VpnEventLoop *vpn_event_loop_create() {
     std::unique_ptr<VpnEventLoop> loop{new VpnEventLoop{}};
     if (loop->ev_base == nullptr) {
         log_loop(loop, err, "Failed to create event base");
-        return nullptr;
-    }
-    // `event_active()` on this event replaces `event_base_once()`, which allocates an event for every batch and
-    // adds it to the base's `once_events` list.
-    loop->queue_event.reset(evtimer_new(loop->ev_base.get(), &run_task_queue, loop.get()));
-    if (loop->queue_event == nullptr) {
-        log_loop(loop, err, "Failed to create task queue event");
         return nullptr;
     }
     return loop.release();
@@ -313,7 +293,7 @@ TaskId vpn_event_loop_submit(VpnEventLoop *loop, VpnEventLoopTask task) {
         loop->task_queue_scheduled = true;
         loop->guard.unlock();
 
-        activate_task_queue(loop);
+        event_base_once(loop->ev_base.get(), -1, EV_TIMEOUT, &run_task_queue, loop, nullptr);
     } else {
         loop->guard.unlock();
     }
@@ -621,7 +601,7 @@ static void run_task_queue(evutil_socket_t, short, void *arg) {
                 // `event_base_loopexit()` is noticed. `event_base_loopcontinue()` ends the pass after this callback,
                 // so sockets, timers and the exit request get their turn between batches.
                 event_base_loopcontinue(loop->ev_base.get());
-                activate_task_queue(loop);
+                event_base_once(loop->ev_base.get(), -1, EV_TIMEOUT, &run_task_queue, loop, nullptr);
                 break;
             }
             info = loop->task_queue.front();
