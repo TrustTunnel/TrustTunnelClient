@@ -1,4 +1,7 @@
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <thread>
 
@@ -370,4 +373,52 @@ TEST_F(EventLoopTest, SubmitDuringFinalizationIsFinalizedImmediately) {
 
     vpn_event_loop_stop(m_ev_loop.get());
     EXPECT_TRUE(ctx.nested_finalized);
+}
+
+// Check that a continuous chain of tasks does not starve the event loop: timers and a pending stop request must
+// still be processed between batches
+TEST_F(EventLoopTest, TaskChainDoesNotStarveTheLoop) {
+    run_event_loop();
+
+    std::atomic<bool> keep_submitting{true};
+    std::atomic<bool> timer_fired{false};
+    std::function<void()> chain;
+    chain = [&]() {
+        if (keep_submitting.load()) {
+            event_loop::submit(m_ev_loop.get(), chain).release();
+        }
+    };
+    event_loop::submit(m_ev_loop.get(), chain).release();
+    auto timer = event_loop::schedule(
+            m_ev_loop.get(),
+            [&]() {
+                timer_fired.store(true);
+            },
+            Millis{10});
+
+    // The timer must fire while the chain keeps resubmitting itself
+    bool fired = false;
+    for (int i = 0; i < 300 && !fired; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        fired = timer_fired.load();
+    }
+
+    // `vpn_event_loop_stop()` must return while the chain keeps resubmitting itself
+    std::atomic<bool> stop_returned{false};
+    std::thread stop_thread([&]() {
+        vpn_event_loop_stop(m_ev_loop.get());
+        stop_returned.store(true);
+    });
+    bool stopped = false;
+    for (int i = 0; i < 300 && !stopped; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        stopped = stop_returned.load();
+    }
+
+    // Let the loop drain so that the test can finish even if the checks below fail
+    keep_submitting.store(false);
+    stop_thread.join();
+
+    EXPECT_TRUE(fired) << "a scheduled task was starved by a continuous task chain";
+    EXPECT_TRUE(stopped) << "vpn_event_loop_stop() was starved by a continuous task chain";
 }

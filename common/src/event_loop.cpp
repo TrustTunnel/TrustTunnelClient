@@ -595,6 +595,12 @@ static void run_task_queue(evutil_socket_t, short, void *arg) {
                 break;
             }
             if (loop->task_queue.front().id > task_queue_last_id || i == TASK_QUEUE_BUDGET) {
+                // The batch is over, but tasks remain. Re-arming the callback alone does not yield: `event_base_once()`
+                // with a zero timeout activates the event, and libevent drains the active queue in the current pass,
+                // so the next batch would run before any socket is polled, any timer is processed or a pending
+                // `event_base_loopexit()` is noticed. `event_base_loopcontinue()` ends the pass after this callback,
+                // so sockets, timers and the exit request get their turn between batches.
+                event_base_loopcontinue(loop->ev_base.get());
                 event_base_once(loop->ev_base.get(), -1, EV_TIMEOUT, &run_task_queue, loop, nullptr);
                 break;
             }
