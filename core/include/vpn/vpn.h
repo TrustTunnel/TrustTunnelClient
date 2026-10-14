@@ -803,7 +803,8 @@ WIN_EXPORT void vpn_request_endpoint_connection_stats(Vpn *vpn);
  * Notify the instance that the system is going to sleep.
  * The completion handler will be called when the instance is ready for sleeping.
  * The completion handler will always be called, even if the the instance is destroyed
- * after receiving the notification.
+ * after receiving the notification. It may be called on the thread executing `vpn_stop()`, so it must not call
+ * library functions other than the ones that may be called from an event handler (see `VpnHandler`).
  * @param vpn VPN client
  * @param completion_handler ready callback, must NOT be NULL
  * @param arg ready callback argument
