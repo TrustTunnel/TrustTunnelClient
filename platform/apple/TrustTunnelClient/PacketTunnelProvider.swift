@@ -26,6 +26,9 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
 
     open override func startTunnel(options: [String : NSObject]? = nil, completionHandler: @escaping ((any Error)?) -> Void) {
         self.startProcessed = false
+        // The app may request the recovery retry policy for this particular start; a system-initiated
+        // start (on-demand, killswitch) uses the default policy.
+        let fallIntoRecovery = (options?["fallIntoRecovery"] as? NSNumber)?.boolValue ?? false
         var config: String?
         if let configuration = protocolConfiguration as? NETunnelProviderProtocol {
             if let conf = configuration.providerConfiguration?["config"] as? String {
@@ -146,7 +149,7 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                     completionHandler(TunnelError.create_failed)
                     return
                 }
-                if (!self.vpnClient!.start(self.packetFlow)) {
+                if (!self.vpnClient!.start(self.packetFlow, fallIntoRecovery: fallIntoRecovery)) {
                     completionHandler(TunnelError.start_failed)
                     return
                 }
