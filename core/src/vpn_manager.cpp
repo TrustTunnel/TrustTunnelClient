@@ -890,6 +890,11 @@ static void client_handler(void *arg, vpn_client::Event what, void *data) {
     case vpn_client::EVENT_CONNECTION_INFO:
         vpn->handler.func(vpn->handler.arg, VPN_EVENT_CONNECTION_INFO, data);
         break;
+#ifdef __APPLE__
+    case vpn_client::EVENT_CHECK_LOCAL_NETWORK_PERMISSION:
+        vpn->handler.func(vpn->handler.arg, VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION, data);
+        break;
+#endif // __APPLE__
     }
 }
 

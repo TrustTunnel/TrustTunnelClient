@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
 - Added the `chrome_canary` value for the `[endpoint].tls_profile` setting, which mimics the Chrome Canary TLS ClientHello.
 - Added an option to fall into recovery in case of a failed initial connection for `TrustTunnelClient` and platform adapters.
+- New Apple-only `VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION` event, raised when the process may be missing the Local
+  Network permission. This is required if we need to query a DNS resolver on the local network: either because it was
+  configured by the user, or because it was determined as the "system" resolver, and we need to resolve an exclusion
+  host. The application should guide the user through the permission process.
 
 ### Changed
 

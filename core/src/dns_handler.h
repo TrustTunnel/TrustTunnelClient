@@ -282,6 +282,14 @@ private:
 
     static void on_dns_change(void *arg);
 
+#ifdef __APPLE__
+    /**
+     * Raise `VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION` when a DNS query fails in a way that may
+     * indicate that the application is missing the Local Network permission.
+     */
+    void raise_check_local_network_permission();
+#endif // __APPLE__
+
     void on_upstream_connection_closed(uint64_t upstream_conn_id) override;
 
     void send_request(bool system_proxy, bool ipv6, bool tcp, uint64_t upstream_conn_id, U8View message);

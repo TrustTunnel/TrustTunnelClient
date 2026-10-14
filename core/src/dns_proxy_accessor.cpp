@@ -138,6 +138,18 @@ bool DnsProxyAccessor::start() {
                         sk_X509_pop_free(chain, &X509_free);
                         return (verify_result > 0) ? std::nullopt : std::make_optional("Verification failed");
                     },
+#if defined(__APPLE__)
+                    .check_local_network_permission =
+                            [this](const dns::CheckLocalNetworkPermissionEvent &event) {
+                                log_accessor(this, info,
+                                        "DNS query failed, possibly due to the missing Local Network permission: "
+                                        "upstream {}, bootstrap failed: {}",
+                                        event.upstream_id, event.bootstrap_failed);
+                                if (m_parameters.check_local_network_permission) {
+                                    m_parameters.check_local_network_permission();
+                                }
+                            },
+#endif // __APPLE__
             });
 
     if (!ok) {
