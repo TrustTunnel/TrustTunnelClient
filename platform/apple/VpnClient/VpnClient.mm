@@ -253,7 +253,7 @@ static void NSData_VpnPacket_destructor(void *arg, uint8_t *) {
     __weak typeof(self) weakSelf = self;
 
     ag::TrustTunnelClient::ConnectOptions options{
-        .fall_into_recovery = fallIntoRecovery,
+        .fall_into_recovery = static_cast<bool>(fallIntoRecovery),
     };
     auto error = _native_client->connect(ag::TrustTunnelClient::UseProcessPackets{}, options);
     if (error) {
