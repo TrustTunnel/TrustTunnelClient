@@ -1,0 +1,20 @@
+[Unit]
+Description=TrustTunnel VPN Daemon
+After=network.target dbus.service
+
+[Service]
+Type=dbus
+BusName=com.adguard.TrustTunnel
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/trusttunneld --system
+Restart=on-failure
+RestartSec=3s
+
+# Sandboxing and capabilities: only network admin permissions needed
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

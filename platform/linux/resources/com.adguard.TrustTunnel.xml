@@ -1,0 +1,27 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="com.adguard.TrustTunnel.Vpn1">
+    <!-- Methods -->
+    <method name="Start">
+      <arg name="toml_config" type="s" direction="in"/>
+      <arg name="error_code" type="u" direction="out"/>
+    </method>
+    <method name="Stop">
+      <arg name="error_code" type="u" direction="out"/>
+    </method>
+    <method name="GetState">
+      <arg name="state" type="i" direction="out"/>
+    </method>
+    <method name="ClearLogs">
+    </method>
+
+    <!-- Signals -->
+    <signal name="StateChanged">
+      <arg name="state" type="i"/>
+    </signal>
+    <signal name="ConnectionInfo">
+      <arg name="json" type="s"/>
+    </signal>
+  </interface>
+</node>
