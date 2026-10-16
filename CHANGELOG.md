@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added the `platform/linux` adapter with a clean, lightweight systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`) for direct communication with the Flutter client.
+
 ### Changed
 
 ### Deprecated
