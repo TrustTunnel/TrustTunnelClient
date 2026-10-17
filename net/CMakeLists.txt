@@ -124,3 +124,6 @@ add_unit_test(test_tls_serialize "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRU
 add_unit_test(test_net_utils "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_tls_client_random_auth_key "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 add_unit_test(test_network_manager "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+if (CMAKE_SYSTEM_NAME STREQUAL Linux)
+    add_unit_test(test_os_tunnel_linux "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+endif ()
