@@ -72,15 +72,26 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
     init_settings(settings);
     m_netns = netns.value_or("");
     bool managed_routing = m_settings->included_routes.size > 0;
-    infolog(logger, "TUN mode: {}{}{}", m_settings->use_existing ? "attach" : "create",
+    infolog(logger, "TUN mode: {}{}{}{}", m_settings->use_existing ? "attach" : "create",
             (m_settings->device_name && m_settings->device_name[0] != '\0')
                     ? AG_FMT(" name={}", m_settings->device_name)
                     : "",
-            managed_routing ? "" : " (routes unmanaged)");
+            (managed_routing || !m_settings->managed) ? "" : " (routes unmanaged)",
+            m_settings->managed ? "" : " (network unmanaged)");
+    if (!m_settings->managed && m_settings->included_routes.size > 0) {
+        // Mirrors the configuration-layer validation: routing cannot be both
+        // unmanaged and requested via included_routes.
+        errlog(logger, "Unmanaged mode requires included_routes to be empty");
+        return {-1, "Unmanaged mode requires included_routes to be empty"};
+    }
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }
-    setup_if();
+    if (m_settings->managed) {
+        setup_if();
+    } else {
+        infolog(logger, "Unmanaged mode: leaving interface configuration to the platform");
+    }
     mark_tunnel_active();
 
     if (managed_routing) {
@@ -299,7 +310,7 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
 
 void ag::VpnLinuxTunnel::setup_dns() {
     m_system_dns_setup_success = false;
-    if (m_settings->dns_servers.size == 0) {
+    if (m_settings->dns_servers.size == 0 || !m_settings->managed) {
         m_system_dns_setup_success = true;
         return;
     }
