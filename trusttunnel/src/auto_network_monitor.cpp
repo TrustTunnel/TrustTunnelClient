@@ -55,8 +55,16 @@ bool AutoNetworkMonitor::start() {
 
     m_network_monitor = ag::utils::create_network_monitor(
             [this, is_bound_if_override](const std::string &if_name, bool is_connected) {
-                if (!is_bound_if_override) {
-                    update_interface(if_name);
+                // Do not trust the interface from the event itself: it may be the TUN
+                // device the VPN just created. Moreover, while the tunnel is active the
+                // default route may legally move to the TUN device (platform-managed
+                // mode) - binding upstream sockets to it would route them back into
+                // the tunnel. Keep the re-resolved default only while no tunnel is up.
+                if (!is_bound_if_override && !vpn_network_manager_get_tunnel_active()) {
+                    std::string default_if = m_network_monitor->get_default_interface();
+                    if (!default_if.empty()) {
+                        update_interface(default_if);
+                    }
                 }
                 m_client->notify_network_change(is_connected ? ag::VPN_NS_CONNECTED : ag::VPN_NS_NOT_CONNECTED);
             });
