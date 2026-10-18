@@ -174,7 +174,9 @@ int main(int argc, char **argv) {
         sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_CONNECTION_INFO, "s", info_json.c_str());
     };
     callbacks.on_network_ready = [](const ag::VpnNetworkInfo &info) {
-        // sd-bus takes a NULL-terminated array of non-const strings for the "as" type
+        // sd-bus takes a NULL-terminated array of non-const strings for `append_strv`;
+        // the composite "as" array type cannot be appended through the varargs interface
+        // of `sd_bus_message_append` (that form expects an element count + elements)
         std::vector<std::string> dns(info.dns_servers.begin(), info.dns_servers.end());
         std::vector<char *> dns_strv;
         dns_strv.reserve(dns.size() + 1);
@@ -184,9 +186,22 @@ int main(int argc, char **argv) {
         dns_strv.push_back(nullptr);
 
         std::cout << "[trusttunneld] Network ready: iface=" << info.iface_name << " mtu=" << info.mtu << '\n';
-        sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_NETWORK_READY, "ssusuuas",
-                info.iface_name.c_str(), info.ipv4_address.c_str(), info.ipv4_prefix, info.ipv6_address.c_str(),
-                info.ipv6_prefix, info.mtu, dns_strv.data());
+        sd_bus_message *message = nullptr;
+        int r = sd_bus_message_new_signal(g_ctx.bus, &message, OBJECT_PATH, INTERFACE_NAME, SIGNAL_NETWORK_READY);
+        if (r >= 0) {
+            r = sd_bus_message_append(message, "ssusuu", info.iface_name.c_str(), info.ipv4_address.c_str(),
+                    info.ipv4_prefix, info.ipv6_address.c_str(), info.ipv6_prefix, info.mtu);
+        }
+        if (r >= 0) {
+            r = sd_bus_message_append_strv(message, dns_strv.data());
+        }
+        if (r >= 0) {
+            r = sd_bus_send(g_ctx.bus, message, nullptr);
+        }
+        if (r < 0) {
+            std::cerr << "[trusttunneld] Failed to emit NetworkReady: " << strerror(-r) << '\n';
+        }
+        sd_bus_message_unref(message);
     };
 
     g_ctx.controller = std::make_unique<VpnController>(std::move(callbacks));
