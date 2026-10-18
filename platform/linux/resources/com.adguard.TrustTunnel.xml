@@ -23,5 +23,14 @@
     <signal name="ConnectionInfo">
       <arg name="json" type="s"/>
     </signal>
+    <signal name="NetworkReady">
+      <arg name="iface" type="s"/>
+      <arg name="ipv4_address" type="s"/>
+      <arg name="ipv4_prefix" type="u"/>
+      <arg name="ipv6_address" type="s"/>
+      <arg name="ipv6_prefix" type="u"/>
+      <arg name="mtu" type="u"/>
+      <arg name="dns_servers" type="as"/>
+    </signal>
   </interface>
 </node>
