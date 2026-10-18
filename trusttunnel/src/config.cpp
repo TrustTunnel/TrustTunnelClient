@@ -372,6 +372,7 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
             .bound_if = std::move(bound_if),
             .change_system_dns = (*tun_config)["change_system_dns"].value_or<bool>(true),
             .use_existing = use_existing,
+            .managed = (*tun_config)["managed"].value_or<bool>(true),
             .netns = (*tun_config)["netns"].value<std::string>(),
     };
 
@@ -391,6 +392,11 @@ static std::optional<TrustTunnelConfig::TunListener> parse_tun_listener_config(c
                 tun.excluded_routes.emplace_back(addr.value());
             }
         }
+    }
+
+    if (!tun.managed && !tun.included_routes.empty()) {
+        errlog(g_logger, "listener.tun: managed = false requires included_routes to be empty");
+        return std::nullopt;
     }
 
     return tun;
