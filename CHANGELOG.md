@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Added the `platform/linux` adapter with a clean, lightweight systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`) for direct communication with the Flutter client.
+- Added the `platform/linux` adapter with a systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`) that drives `ag::TrustTunnelClient` on a dedicated thread and forwards state transitions, connection telemetry, and network session parameters (`NetworkReady`) to D-Bus.
 - Added the `listener.tun.managed` setting and the `network_ready_handler` callback. When `managed = false` (Linux, requires `included_routes = []`), the core only creates the TUN device and leaves interface addresses, routes, MTU and DNS configuration to the platform; the actual session parameters (interface name, addresses with prefix lengths, MTU, DNS servers) are reported through the new callback right after the tunnel is initialized.
 
 ### Changed

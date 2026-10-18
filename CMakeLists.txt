@@ -41,4 +41,8 @@ endif()
 add_subdirectory(core)
 add_subdirectory(trusttunnel)
 
+if (CMAKE_SYSTEM_NAME STREQUAL Linux)
+    add_subdirectory(platform/linux)
+endif ()
+
 enable_testing()

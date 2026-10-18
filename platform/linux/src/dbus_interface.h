@@ -18,8 +18,10 @@ inline constexpr const char *METHOD_CLEAR_LOGS = "ClearLogs";
 // D-Bus signal names
 inline constexpr const char *SIGNAL_STATE_CHANGED = "StateChanged";
 inline constexpr const char *SIGNAL_CONNECTION_INFO = "ConnectionInfo";
+inline constexpr const char *SIGNAL_NETWORK_READY = "NetworkReady";
 
-// VPN session state matching standard TrustTunnel enum
+// VPN session state. The values mirror `ag::VpnSessionState` 1:1, so the mapping
+// to/from the library enum is a plain static_cast.
 enum class VpnState : int32_t {
     DISCONNECTED = 0,
     CONNECTING = 1,
