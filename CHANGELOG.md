@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   waiting for new client data, which previously made clients reuse zombie connections and lose
   requests written into them
 - Fixed a deadlock between `vpn_listen()`/`vpn_get_socks_listener_address()` and VPN event handlers: synchronous dispatch now releases the caller's lock while waiting.
+- Fixed event loop finalization: task finalizers are no longer called while holding the loop lock, tasks submitted during finalization are finalized immediately, and deferred tasks are destroyed before finalization is published.
 
 ### Security
 
