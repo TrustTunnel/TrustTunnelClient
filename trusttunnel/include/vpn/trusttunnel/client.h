@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <memory>
-#include <thread>
 
 #include "common/autofd.h"
 #include "common/logger.h"
@@ -111,8 +110,6 @@ private:
     const ag::Logger m_logger{"TRUSTTUNNEL_CLIENT"};
     std::atomic<Vpn *> m_vpn = nullptr;
     TrustTunnelConfig m_config;
-    std::thread m_loop_thread;
-    DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> m_extra_loop = nullptr;
     std::unique_ptr<ag::VpnOsTunnel> m_tunnel = nullptr;
     std::optional<FileHandler> m_logfile_handler;
     std::optional<Logger::LogToFile> m_logtofile;

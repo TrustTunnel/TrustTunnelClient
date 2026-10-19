@@ -19,7 +19,6 @@ namespace ag {
 
 TrustTunnelClient::TrustTunnelClient(TrustTunnelConfig &&config, VpnCallbacks &&callbacks)
         : m_config(std::move(config))
-        , m_extra_loop(vpn_event_loop_create())
         , m_callbacks(std::move(callbacks)) {
     if (!m_config.log_file_path.empty()) {
         m_logfile_handler.emplace(m_config.log_file_path);
@@ -27,17 +26,9 @@ TrustTunnelClient::TrustTunnelClient(TrustTunnelConfig &&config, VpnCallbacks &&
         ag::Logger::set_callback(m_logtofile.value());
     }
     ag::Logger::set_log_level(m_config.loglevel);
-    m_loop_thread = std::thread([loop = m_extra_loop.get()]() {
-        vpn_event_loop_run(loop);
-    });
 };
 
-TrustTunnelClient::~TrustTunnelClient() {
-    vpn_event_loop_stop(m_extra_loop.get());
-    if (m_loop_thread.joinable()) {
-        m_loop_thread.join();
-    }
-}
+TrustTunnelClient::~TrustTunnelClient() = default;
 
 Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect(
         ListenerSettings listener_settings, ConnectOptions options) {
@@ -47,11 +38,6 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect(
 int TrustTunnelClient::disconnect() {
     if (Vpn *vpn = m_vpn.exchange(nullptr)) {
         vpn_stop(vpn);
-        // `_dispatch_sync` on a stopped loop blocks forever.
-        // Call `_dispatch_sync` before `vpn_close` so handlers can observe a valid vpn pointer.
-        if (vpn_event_loop_is_active(m_extra_loop.get())) {
-            vpn_event_loop_dispatch_sync(m_extra_loop.get(), nullptr, nullptr);
-        }
         vpn_close(vpn);
     }
 
@@ -513,38 +499,18 @@ void TrustTunnelClient::vpn_handler(void *, VpnEvent what, void *data) {
         break;
     }
     case VPN_EVENT_CONNECT_REQUEST: {
-        // The task below carries a raw `Vpn *` captured now and dereferenced later, on another
-        // thread. `disconnect()` drains this loop before `vpn_close`, which is what keeps that
-        // pointer from outliving the VPN.
-        struct TaskContext {
-            VpnConnectionInfo *info;
-            Vpn *vpn;
+        const auto *event = (VpnConnectRequestEvent *) data;
+        VpnConnectionInfo info = {
+                .id = event->id,
+                .action = VPN_CA_DEFAULT,
+                .appname = safe_to_string_view(event->app_name).empty() ? "trusttunnel_client" : event->app_name,
+                .uid = 0,
         };
-        auto *task_context = new TaskContext;
-        const VpnConnectRequestEvent *event = (VpnConnectRequestEvent *) data;
-        auto *info = new VpnConnectionInfo{event->id};
-        info->action = VPN_CA_DEFAULT;
-        info->appname = safe_to_string_view(event->app_name).empty() ? "trusttunnel_client" : event->app_name;
-        task_context->info = info;
-        task_context->vpn = m_vpn;
-        vpn_event_loop_submit(m_extra_loop.get(),
-                {
-                        .arg = (void *) task_context,
-                        .action =
-                                [](void *arg, TaskId) {
-                                    auto *context = (TaskContext *) arg;
-                                    auto *info = context->info;
-                                    if (context->vpn) {
-                                        vpn_complete_connect_request(context->vpn, info);
-                                    }
-                                },
-                        .finalize =
-                                [](void *arg) {
-                                    auto *context = (TaskContext *) arg;
-                                    delete (VpnConnectionInfo *) context->info;
-                                    delete (TaskContext *) context;
-                                },
-                });
+        // `vpn_complete_connect_request()` only schedules work on the event loop, so it is safe to call directly
+        // from the handler.
+        if (Vpn *vpn = m_vpn.load(); vpn != nullptr) {
+            vpn_complete_connect_request(vpn, &info);
+        }
         break;
     }
 #ifdef __APPLE__

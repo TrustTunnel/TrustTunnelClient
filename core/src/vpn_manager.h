@@ -96,8 +96,13 @@ struct Vpn {
 
     Fsm fsm;
     std::optional<VpnError> pending_error;
+
+    /** The only thread running the single-threaded core; started by `vpn_connect()`, joined by `vpn_stop()`. */
     std::thread executor_thread;
+
+    /** The VPN event loop; created in `vpn_open()`, run by `vpn_connect()`, stopped/reset by `vpn_stop()`. */
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
+
     vpn_manager::RecoveryInfo recovery = {};
     VpnHandler handler = {};
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
@@ -126,9 +131,20 @@ struct Vpn {
     // If it expires before recovery is done, all postponed connect requests are bypassed.
     DeclPtr<event, &event_free> postponement_window_timer;
 
+    /**
+     * Serializes control operations and protects `executor_thread`/`ev_loop`. Must not be held while waiting for the
+     * event loop or calling a user handler.
+     */
     mutable std::mutex stop_guard;
 
-    event_loop::AutoTaskId update_exclusions_task; // Guarded by stop_guard
+    /** Set while `vpn_stop()` is tearing the instance down; post-only calls drop their work. */
+    std::atomic<bool> stopping{false};
+
+    /** Bumped when a session starts/stops; detects a stop that happened while a lock was released. */
+    uint64_t session_generation = 0; // Guarded by stop_guard
+
+    /** Cancels the previous pending exclusions update; guarded by `stop_guard`. */
+    event_loop::AutoTaskId update_exclusions_task;
 
     ag::Logger log{vpn_manager::LOG_NAME};
     int id;

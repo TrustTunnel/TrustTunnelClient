@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed deadlocks between synchronous control operations and VPN event handlers: `stop_guard` is no longer held while waiting for the event loop, synchronous dispatch releases the caller's lock while waiting, and post-only API functions are now safe to call directly from a `VpnHandler`. The `TrustTunnelClient` no longer needs its auxiliary event loop/thread for `vpn_complete_connect_request()`.
+
 ### Security
 
 ## [1.3.0-rc.1] - 2026-10-15

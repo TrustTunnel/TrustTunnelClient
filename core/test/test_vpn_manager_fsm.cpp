@@ -1,4 +1,8 @@
+#include <atomic>
 #include <condition_variable>
+#include <functional>
+#include <string_view>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -67,6 +71,8 @@ protected:
     int raised_events = 0;
     VpnError vpn_error{};
     FsmState vpn_state = 0;
+    /** Called from the event handler before it takes the test lock; used by tests to block the event loop. */
+    std::function<void(VpnEvent)> handler_hook;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -75,6 +81,7 @@ protected:
 
         raised_events = 0;
         vpn_error = {};
+        handler_hook = nullptr;
 
         upstream = {};
         upstream.username = "test";
@@ -92,6 +99,11 @@ protected:
         infolog(log, "\n\n{}(): ...\n\n", __func__);
 
         if (vpn != nullptr) {
+            {
+                std::scoped_lock l(this->guard);
+                handler_hook = nullptr;
+            }
+            test_mock::g_client.on_finalize_disconnect = nullptr;
             vpn_stop(vpn);
             vpn_close(vpn);
         }
@@ -223,6 +235,16 @@ protected:
 
 static void vpn_handler(void *arg, VpnEvent what, void *data) {
     VpnManagerTest *test = (VpnManagerTest *) arg;
+
+    std::function<void(VpnEvent)> hook;
+    {
+        std::scoped_lock l(test->guard);
+        hook = test->handler_hook;
+    }
+    if (hook) {
+        hook(what);
+    }
+
     std::unique_lock l(test->guard);
     test->raised_events |= 1 << what;
     test->vpn_state = test->vpn->fsm.get_state();
@@ -540,4 +562,98 @@ TEST_F(AbandonEndpoint, AllOfFamily) {
 
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
     ASSERT_EQ(vpn_error.code, VPN_EC_LOCATION_UNAVAILABLE);
+}
+
+// Check that an event handler can call `vpn_get_event_loop()` while `vpn_stop()` is waiting for the loop
+TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileStopping) {
+    std::mutex hook_guard;
+    std::condition_variable hook_cv;
+    bool handler_entered = false;
+    bool handler_proceed = false;
+    bool handler_finished = false;
+    bool loop_is_null = false;
+
+    {
+        std::scoped_lock l(this->guard);
+        this->handler_hook = [&](VpnEvent what) {
+            if (what != VPN_EVENT_ENDPOINT_CONNECTION_STATS) {
+                return;
+            }
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_entered = true;
+                hook_cv.notify_all();
+                hook_cv.wait(l, [&]() {
+                    return handler_proceed;
+                });
+            }
+
+            // `vpn_stop()` has set `stopping` and released `stop_guard`; this call must not deadlock.
+            loop_is_null = vpn_get_event_loop(this->vpn) == nullptr;
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_finished = true;
+                hook_cv.notify_all();
+            }
+        };
+    }
+
+    vpn_request_endpoint_connection_stats(this->vpn);
+    {
+        std::unique_lock l(hook_guard);
+        ASSERT_TRUE(hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_entered;
+        }));
+    }
+
+    std::thread stop_thread([vpn = this->vpn]() {
+        vpn_stop(vpn);
+    });
+
+    bool stopping = false;
+    for (int i = 0; i < 5000 && !stopping; ++i) {
+        stopping = this->vpn->stopping.load();
+        if (!stopping) {
+            std::this_thread::sleep_for(milliseconds(1));
+        }
+    }
+    ASSERT_TRUE(stopping) << "vpn_stop() did not start";
+
+    {
+        std::unique_lock l(hook_guard);
+        handler_proceed = true;
+        hook_cv.notify_all();
+    }
+    {
+        std::unique_lock l(hook_guard);
+        ASSERT_TRUE(hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_finished;
+        }));
+    }
+
+    stop_thread.join();
+    ASSERT_TRUE(loop_is_null);
+}
+
+// Check that a handler fired on the stopping thread can call post-only functions without deadlocking
+TEST_F(VpnManagerTest, CallsFromHandlerDuringFinalization) {
+    bool handler_called = false;
+    bool loop_is_null = false;
+    bool packets_rejected = false;
+
+    test_mock::g_client.on_finalize_disconnect = [&]() {
+        handler_called = true;
+        loop_is_null = vpn_get_event_loop(this->vpn) == nullptr;
+        packets_rejected = !vpn_process_client_packets(this->vpn, {});
+        vpn_force_disconnect(this->vpn, false);
+    };
+
+    vpn_stop(this->vpn);
+    test_mock::g_client.on_finalize_disconnect = nullptr;
+
+    ASSERT_TRUE(handler_called);
+    ASSERT_TRUE(loop_is_null);
+    ASSERT_TRUE(packets_rejected);
 }

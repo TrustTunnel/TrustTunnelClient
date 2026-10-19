@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -39,6 +40,8 @@ struct MockedVpnClient {
     std::vector<uint64_t> rejected_connect_requests;
     std::vector<uint64_t> reset_connections;
     bool is_dropping_non_app_initiated_dns_queries = false;
+    /** Called from `VpnClient::finalize_disconnect()`; used to simulate a handler fired on the stopping thread. */
+    std::function<void()> on_finalize_disconnect;
 
     bool wait_called(ClientMethodId method, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
         std::unique_lock l(this->guard);
@@ -61,6 +64,7 @@ struct MockedVpnClient {
         this->completed_connect_requests.clear();
         this->rejected_connect_requests.clear();
         this->reset_connections.clear();
+        this->on_finalize_disconnect = nullptr;
     }
 };
 

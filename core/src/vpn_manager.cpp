@@ -175,6 +175,8 @@ bool Vpn::run_event_loop() {
         }
     });
 
+    // Safe to wait under `stop_guard`: no handlers can run before the loop starts and the first connect task is
+    // submitted.
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
         vpn_event_loop_stop(this->ev_loop.get());
@@ -201,6 +203,14 @@ void Vpn::submit(ag::MoveOnlyFunction<void()> func, std::optional<Millis> defer)
                 delete (ag::MoveOnlyFunction<void()> *) arg;
             },
     };
+
+    // The loop may be stopped/destroyed while the client is finalizing; finalize the task instead of queueing it.
+    if (this->stopping.load() || this->ev_loop == nullptr) {
+        if (task.finalize != nullptr) {
+            task.finalize(task.arg);
+        }
+        return;
+    }
 
     if (!defer.has_value()) {
         vpn_event_loop_submit(this->ev_loop.get(), task);
@@ -290,6 +300,12 @@ VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
 
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->stopping.load()) {
+        VpnError error = {VPN_EC_ERROR, "VPN client is stopping"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+
     VpnError error = validate_upstream_config(vpn, &parameters->upstream_config);
     if (error.code != VPN_EC_NOERROR) {
         log_vpn(vpn, err, "Upstream configuration validation failed: {}", error.text);
@@ -307,6 +323,8 @@ VpnError vpn_connect(Vpn *vpn, const VpnConnectParameters *parameters) {
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
+
+    ++vpn->session_generation;
 
     vpn_manager::ConnectRetryInfo retry_info;
     switch (parameters->retry_info.policy) {
@@ -346,6 +364,11 @@ void vpn_force_reconnect(Vpn *vpn) {
 
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't force reconnect since the client is stopping");
+        return;
+    }
+
     vpn->submit([vpn]() {
         vpn->fsm.perform_transition(vpn_fsm::CE_DO_RECOVERY, nullptr);
     });
@@ -357,6 +380,11 @@ void vpn_force_disconnect(Vpn *vpn, bool fatal_connectivity_error) {
     log_vpn(vpn, info, "...");
 
     std::unique_lock l(vpn->stop_guard);
+
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't force disconnect since the client is stopping");
+        return;
+    }
 
     vpn->submit([vpn, fatal_connectivity_error]() {
         if (fatal_connectivity_error) {
@@ -382,16 +410,35 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (!vpn->executor_thread.joinable()) {
+    if (vpn->stopping.load()) {
+        VpnError error = {VPN_EC_ERROR, "VPN client is stopping"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+
+    if (!vpn->executor_thread.joinable() || vpn->ev_loop == nullptr) {
         VpnError error = {VPN_EC_ERROR, "VPN client worker is not running"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
 
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    uint64_t generation = vpn->session_generation;
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    // It is re-acquired on return, but the VPN may have been stopped while it was released.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         StartListeningArgs args{.listener = std::move(listener), .config = config};
         vpn->fsm.perform_transition(vpn_fsm::CE_START_LISTENING, &args);
     });
+    if (vpn->stopping.load() || vpn->session_generation != generation) {
+        VpnError error = {VPN_EC_ERROR, "VPN client was stopped"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+    if (!executed) {
+        VpnError error = {VPN_EC_ERROR, "VPN client event loop is not running"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
 
     log_vpn(vpn, info, "Done");
 
@@ -401,14 +448,40 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 void vpn_stop(Vpn *vpn) {
     log_vpn(vpn, info, "...");
 
-    std::unique_lock l(vpn->stop_guard);
+    if (vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
+        log_vpn(vpn, err, "vpn_stop() must not be called from the event loop thread");
+        assert(0);
+        return;
+    }
 
-    if (vpn->ev_loop != nullptr) {
-        vpn->submit([vpn]() {
-            shutdown_cb(vpn);
-        });
+    VpnEventLoop *loop = nullptr;
+    {
+        std::unique_lock l(vpn->stop_guard);
+        if (vpn->stopping.load()) {
+            return;
+        }
+        vpn->stopping.store(true);
+        ++vpn->session_generation;
+        loop = vpn->ev_loop.get();
+        if (loop != nullptr) {
+            // Submit the shutdown task directly: `Vpn::submit()` drops tasks while `stopping` is set.
+            vpn_event_loop_submit(loop,
+                    {
+                            .arg = vpn,
+                            .action =
+                                    [](void *arg, TaskId) {
+                                        shutdown_cb((Vpn *) arg);
+                                    },
+                            .finalize = nullptr,
+                    });
+        }
+    }
+
+    // Release `stop_guard` while waiting: handlers fired on this thread may call post-only functions, which take it
+    // and drop their work because `stopping` is set.
+    if (loop != nullptr) {
         log_vpn(vpn, info, "Stopping event loop...");
-        vpn_event_loop_stop(vpn->ev_loop.get());
+        vpn_event_loop_stop(loop);
         log_vpn(vpn, info, "Event loop has been stopped");
     }
 
@@ -423,15 +496,21 @@ void vpn_stop(Vpn *vpn) {
     socket_manager_complete_all(vpn->network_manager->socket);
     vpn->stop_pinging();
     vpn->postponement_window_timer.reset();
-    vpn->ev_loop.reset();
 
-    vpn->recovery = {};
-    vpn->selected_endpoint.reset();
+    {
+        std::unique_lock l(vpn->stop_guard);
+        vpn->ev_loop.reset();
 
-    vpn->update_exclusions_task.release(); // The event loop is stopped, no need to reset()
+        vpn->recovery = {};
+        vpn->selected_endpoint.reset();
 
-    vpn->postponed_requests.clear();
-    vpn->bypassed_connection_ids.clear();
+        vpn->update_exclusions_task.release(); // The event loop is stopped, no need to reset()
+
+        vpn->postponed_requests.clear();
+        vpn->bypassed_connection_ids.clear();
+
+        vpn->stopping.store(false);
+    }
 
     log_vpn(vpn, info, "Done");
 }
@@ -442,6 +521,18 @@ void vpn_close(Vpn *vpn) {
     }
 
     log_vpn(vpn, info, "...");
+
+    if (vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
+        log_vpn(vpn, err, "vpn_close() must not be called from the event loop thread");
+        assert(0);
+        return;
+    }
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, err, "vpn_close() must not be called while the client is stopping");
+        assert(0);
+        return;
+    }
+
     vpn->client.deinit();
 
     if (vpn->handler.func == &profiling_vpn_handler) {
@@ -454,7 +545,26 @@ void vpn_close(Vpn *vpn) {
 
 VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
     std::unique_lock l(vpn->stop_guard);
-    return vpn_listener_config_clone(&vpn->client.listener_config);
+    if (vpn->stopping.load() || vpn->ev_loop == nullptr) {
+        return {};
+    }
+
+    if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
+        // The loop is not running, so nobody can be writing the listener config concurrently.
+        return vpn_listener_config_clone(&vpn->client.listener_config);
+    }
+
+    uint64_t generation = vpn->session_generation;
+    VpnListenerConfig ret{};
+    // Read on the loop: `vpn_listen()` releases `stop_guard` while waiting, so a direct read could race.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() {
+        ret = vpn_listener_config_clone(&vpn->client.listener_config);
+    });
+    if (!executed || vpn->stopping.load() || vpn->session_generation != generation) {
+        vpn_listener_config_destroy(&ret);
+        return {};
+    }
+    return ret;
 }
 
 VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {
@@ -489,6 +599,11 @@ static void vpn_complete_connect_request_task(Vpn *vpn, ConnectRequestResult res
 void vpn_complete_connect_request(Vpn *vpn, const VpnConnectionInfo *info) {
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't complete request {} since the client is stopping", info->id);
+        return;
+    }
+
     if (vpn->ev_loop.get() == nullptr) {
         log_vpn(vpn, warn, "Can't complete request {} since event loop is not active", info->id);
         return;
@@ -510,6 +625,11 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
     log_vpn(vpn, info, "...");
 
     std::unique_lock l(vpn->stop_guard);
+
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't update exclusions since the client is stopping");
+        return;
+    }
 
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't update exclusions since event loop is not active");
@@ -534,7 +654,8 @@ void vpn_update_exclusions(Vpn *vpn, VpnMode mode, VpnStr exclusions) {
                     .action =
                             [](void *arg, TaskId) {
                                 auto *ctx = (Ctx *) arg;
-                                ctx->vpn->update_exclusions_task.release();
+                                // `update_exclusions_task` is guarded by `stop_guard`, which is not held here.
+                                // Cancelling a completed task on the next update is a no-op.
                                 ctx->vpn->client.reset_connections(-1);
                                 ctx->vpn->client.update_exclusions(ctx->mode, ctx->exclusions);
                             },
@@ -552,6 +673,11 @@ void vpn_reset_connections(Vpn *vpn, int uid) {
 
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't reset connections since the client is stopping");
+        return;
+    }
+
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't reset connections since event loop is not active");
         return;
@@ -568,6 +694,11 @@ void vpn_notify_network_change(Vpn *vpn, VpnNetworkState state) {
     log_vpn(vpn, info, "state={}", magic_enum::enum_name(state));
 
     std::unique_lock l(vpn->stop_guard);
+
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't notify network change since the client is stopping");
+        return;
+    }
 
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't notify network change since event loop is not active");
@@ -588,7 +719,11 @@ void vpn_request_endpoint_connection_stats(Vpn *vpn) {
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
+    if (vpn->stopping.load() || !vpn_event_loop_is_active(vpn->ev_loop.get())) {
+        if (l.owns_lock()) {
+            l.unlock();
+        }
+        // The handler must not be called with `stop_guard` held: it may call library functions that acquire it.
         VpnEndpointConnectionStatsEvent event = {{VPN_EC_ERROR, "Event loop is stopped"}};
         vpn->handler.func(vpn->handler.arg, VPN_EVENT_ENDPOINT_CONNECTION_STATS, &event);
         return;
@@ -616,6 +751,16 @@ void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
 
     std::unique_lock l(vpn->stop_guard);
 
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't notify sleep since the client is stopping");
+        if (l.owns_lock()) {
+            l.unlock();
+        }
+        // The completion handler must be called even if the notification is dropped.
+        completion_handler(arg);
+        return;
+    }
+
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't notify sleep since event loop is not active");
         return;
@@ -638,6 +783,11 @@ void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
 void vpn_notify_wake(Vpn *vpn) {
     log_vpn(vpn, info, "System has woken up");
     std::unique_lock l(vpn->stop_guard);
+
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't notify wake since the client is stopping");
+        return;
+    }
 
     if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
         log_vpn(vpn, warn, "Can't notify wake since event loop is not active");
@@ -685,7 +835,7 @@ bool vpn_process_client_packets(Vpn *vpn, VpnPackets packets) {
 
     auto packets_holder = VpnPacketsHolder{packets};
 
-    if (!vpn->ev_loop) {
+    if (vpn->stopping.load() || !vpn->ev_loop) {
         return false;
     }
 
@@ -800,6 +950,9 @@ static const char *check_address(const SocketAddress &addr) {
 
 VpnEventLoop *vpn_get_event_loop(Vpn *vpn) {
     std::unique_lock l(vpn->stop_guard);
+    if (vpn->stopping.load()) {
+        return nullptr;
+    }
     return vpn->ev_loop.get();
 }
 
@@ -807,6 +960,11 @@ void vpn_abandon_endpoint(Vpn *vpn, const VpnEndpoint *endpoint) {
     log_vpn(vpn, info, "{}", *endpoint);
 
     std::unique_lock l(vpn->stop_guard);
+
+    if (vpn->stopping.load()) {
+        log_vpn(vpn, warn, "Can't abandon endpoint since the client is stopping");
+        return;
+    }
 
     vpn->submit([vpn, endpoint = std::make_shared<AutoVpnEndpoint>(vpn_endpoint_clone(endpoint))]() mutable {
         bool is_selected_endpoint = vpn->selected_endpoint.has_value()
@@ -868,10 +1026,25 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 
 SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     SocketAddressStorage ret{};
-    std::scoped_lock l(vpn->stop_guard);
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+
+    std::unique_lock l(vpn->stop_guard);
+    if (vpn->stopping.load() || vpn->ev_loop == nullptr) {
+        return ret;
+    }
+
+    uint64_t generation = vpn->session_generation;
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         ret = *vpn->client.socks_listener_address.c_storage();
     });
+    if (vpn->stopping.load() || vpn->session_generation != generation) {
+        log_vpn(vpn, warn, "VPN client was stopped while getting the SOCKS listener address");
+        return {};
+    }
+    if (!executed) {
+        log_vpn(vpn, warn, "Can't get the SOCKS listener address: the event loop is not running");
+        return {};
+    }
     return ret;
 }
 

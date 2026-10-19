@@ -485,9 +485,18 @@ typedef enum {
 typedef struct {
     /**
      * A function, together with its argument, that gets called to notify the application of an event.
+     * The handler runs on the VPN event loop thread, except when the loop is not running: such calls (for example,
+     * an error reported by `vpn_request_endpoint_connection_stats()`) are made on the calling thread.
      *
-     * NOTE: VPN library functions should NOT be called from this function directly: doing so may lead to a deadlock.
-     * Schedule a call from another thread instead.
+     * The following functions only schedule work on the event loop and may be called directly from the handler:
+     * `vpn_get_event_loop`, `vpn_abandon_endpoint`, `vpn_force_reconnect`, `vpn_force_disconnect`,
+     * `vpn_complete_connect_request`, `vpn_update_exclusions`, `vpn_reset_connections`, `vpn_notify_network_change`,
+     * `vpn_request_endpoint_connection_stats`, `vpn_notify_sleep`, `vpn_notify_wake` and
+     * `vpn_process_client_packets`.
+     *
+     * Control functions (`vpn_connect`, `vpn_listen`, `vpn_stop`, `vpn_close`, `vpn_get_socks_listener_address` and
+     * `vpn_get_listener_config`) must be called from a control thread, not from this handler: they wait for the event
+     * loop or change the client lifetime, so calling them from the loop thread would wait for the caller itself.
      */
     VpnHandler handler;
     /** The VPN mode (see `VpnMode`) */
@@ -705,7 +714,9 @@ WIN_EXPORT ag::VpnError vpn_listen(Vpn *vpn, VpnListener *listener, const VpnLis
 WIN_EXPORT void vpn_stop(Vpn *vpn);
 
 /**
- * Close VPN client
+ * Close VPN client.
+ * Must not be called concurrently with any other function or from an event handler. `vpn_stop()` must be called
+ * before this function.
  * @param vpn VPN client
  */
 WIN_EXPORT void vpn_close(Vpn *vpn);
