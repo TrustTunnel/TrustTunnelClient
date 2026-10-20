@@ -75,7 +75,10 @@ enum EventLoopState {
 struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
 
-    /** Protects the loop state and both task queues. Never held while calling task actions. */
+    /**
+     * Protects the loop state and both task queues. Never held while calling task actions.
+     * Task finalizers are currently called under this lock; this is fixed separately in #147.
+     */
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
 
@@ -375,7 +378,11 @@ static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> 
     struct DispatchContext {
         void (*action)(void *);
         void *arg;
-        /** Protects `executed`/`finalized` and is used by the condition variable. */
+        /**
+         * Protects `executed`/`finalized` and backs the condition variable. A mutex (not atomics) is required: the
+         * task may be finalized before the caller starts waiting, and wait/notify must share the same mutex to avoid
+         * a lost wakeup.
+         */
         std::mutex mutex;
         std::condition_variable cv;
         bool executed = false;

@@ -468,12 +468,10 @@ void vpn_close(Vpn *vpn) {
 
 VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
     std::unique_lock l(vpn->stop_guard);
-    if (vpn->ev_loop == nullptr) {
-        return {};
-    }
-
-    if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
-        // The loop is not running, so nobody can be writing the listener config concurrently.
+    // No loop, no writer: return the last known config, including after `vpn_stop()` (the config is destroyed only
+    // with `VpnClient`). The same holds when called from the loop thread itself.
+    if (vpn->ev_loop == nullptr || !vpn_event_loop_is_active(vpn->ev_loop.get())
+            || vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
         return vpn_listener_config_clone(&vpn->client.listener_config);
     }
 
@@ -482,9 +480,10 @@ VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
     bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() {
         ret = vpn_listener_config_clone(&vpn->client.listener_config);
     });
-    if (vpn->ev_loop == nullptr || !executed) {
+    if (!executed) {
+        // The loop stopped before the action ran; no writer is left, so read the last known config directly.
         vpn_listener_config_destroy(&ret);
-        return {};
+        return vpn_listener_config_clone(&vpn->client.listener_config);
     }
     return ret;
 }

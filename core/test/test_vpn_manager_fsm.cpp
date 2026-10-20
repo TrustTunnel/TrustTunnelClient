@@ -1,5 +1,6 @@
 #include <atomic>
 #include <condition_variable>
+#include <cstdlib>
 #include <functional>
 #include <thread>
 
@@ -612,8 +613,18 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
             return handler_entered;
         });
         if (!entered) {
-            ASSERT_TRUE(entered) << "handler was not entered";
-            return;
+            // Release a handler that may enter later, then abort: CTest runs each test in its own process, and
+            // continuing with a handler that references the test frame would be unsafe.
+            handler_proceed = true;
+            hook_cv.notify_all();
+            l.unlock();
+            {
+                std::scoped_lock guard_lock(this->guard);
+                this->handler_hook = nullptr;
+            }
+            this->skip_stop_in_teardown = true;
+            ADD_FAILURE() << "handler was not entered";
+            std::abort();
         }
     }
 
@@ -658,16 +669,15 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
         });
     }
     if (!finished) {
-        // The handler is deadlocked on `stop_guard` held by `vpn_listen()`. Abandon the threads so that the test
-        // reports a failure instead of hanging or terminating.
-        listen_thread.detach();
+        // The handler is deadlocked on `stop_guard` held by `vpn_listen()`. Abort instead of detaching a thread
+        // that captures the test frame by reference.
         this->skip_stop_in_teardown = true;
         {
             std::scoped_lock l(this->guard);
             this->handler_hook = nullptr;
         }
-        FAIL() << "event handler deadlocked on the VPN lock held by vpn_listen()";
-        return;
+        ADD_FAILURE() << "event handler deadlocked on the VPN lock held by vpn_listen()";
+        std::abort();
     }
 
     listen_thread.join();
