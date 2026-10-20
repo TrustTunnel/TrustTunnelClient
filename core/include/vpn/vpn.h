@@ -709,17 +709,21 @@ WIN_EXPORT ag::VpnError vpn_listen(Vpn *vpn, VpnListener *listener, const VpnLis
  * Stop VPN client.
  * MUST be called if either `vpn_connect` or `vpn_listen` was called previously.
  * Concurrent calls wait for the in-progress stop to finish.
- * MUST NOT be called from an event handler: a call from the event loop thread or from a handler fired on the stopping
- * thread will deadlock. Call it from a control thread.
+ * MUST NOT be called from an event handler. A call from the event loop thread is rejected with an assertion (and
+ * returns in release builds); a call from a handler fired on the stopping thread will deadlock. Call it from a
+ * control thread.
  * @param vpn VPN client
  */
 WIN_EXPORT void vpn_stop(Vpn *vpn);
 
 /**
  * Close VPN client.
- * Must be called after `vpn_stop()`. May be called concurrently with an in-progress `vpn_stop()`: it waits for the
- * stop to finish. Must not be called concurrently with any other function or from an event handler; a call from the
- * event loop thread or from a handler fired on the stopping thread will deadlock.
+ * Must be called after `vpn_stop()` has completed.
+ * Must not be called concurrently with any other function, including `vpn_stop()`: the caller must ensure that the
+ * stop has completed. As a safety net, if a stop is already in progress, this function waits for it to finish; this is
+ * not a supported synchronization mechanism.
+ * Must not be called from an event handler. A call from the event loop thread is rejected with an assertion (and
+ * returns in release builds); a call from a handler fired on the stopping thread will deadlock.
  * @param vpn VPN client
  */
 WIN_EXPORT void vpn_close(Vpn *vpn);
