@@ -106,6 +106,7 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized.
+ * Must not be called from the event loop thread: it would deadlock.
  * If the loop is running, the task is executed or finalized before the function returns. If the loop is not running,
  * the task is queued for a possible future run and this call may block until that run (or `vpn_event_loop_stop()`)
  * finalizes it. If the loop has already exited, the action is not executed and the function returns `false`.
@@ -122,6 +123,7 @@ bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *arg),
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized, releasing `lock` while
  * waiting for the task to be executed.
+ * Must not be called from the event loop thread: it would deadlock.
  * Requires the event loop to be running: if it is not, the action is not submitted and the function returns `false`.
  * The lock is re-acquired before the function returns, but the state it guards may have changed while it was
  * released, so the caller must re-check it after the call.

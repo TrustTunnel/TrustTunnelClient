@@ -73,7 +73,13 @@ enum EventLoopState {
 
 struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
+
+    /**
+     * Protects the loop state and both task queues. Never held while calling task actions.
+     * Task finalizers are currently called under this lock; fixed separately in #147.
+     */
     mutable std::mutex guard;
+
     std::condition_variable stop_barrier;
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
