@@ -298,6 +298,9 @@ TEST_F(EventLoopTest, DispatchSyncUnlocksCallerLock) {
 
 TEST_F(EventLoopTest, DispatchSyncUnlockedOnStoppedLoopReturnsFalse) {
     run_event_loop();
+    // Wait for the loop thread to enter the loop before stopping it. Without this handshake the stop may run while
+    // the loop is still stopped, leaving the exit request pending and the test hanging.
+    ASSERT_TRUE(event_loop::dispatch_sync(m_ev_loop.get(), [] {}));
     vpn_event_loop_stop(m_ev_loop.get());
 
     std::mutex guard;
