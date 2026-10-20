@@ -812,3 +812,82 @@ TEST_F(VpnManagerTest, CallsFromHandlerDuringFinalization) {
     ASSERT_TRUE(loop_is_null);
     ASSERT_TRUE(packets_rejected);
 }
+
+// Check that the sleep notification calls its completion handler even when the event loop is not running
+TEST_F(VpnManagerTest, NotifySleepWithoutEventLoopCallsCompletion) {
+    bool completed = false;
+    vpn_notify_sleep(
+            this->vpn,
+            [](void *arg) {
+                *(bool *) arg = true;
+            },
+            &completed);
+    EXPECT_TRUE(completed);
+}
+
+// Check that a concurrent `vpn_stop()` waits for the first stop to complete
+TEST_F(VpnManagerTest, ConcurrentStopWaitsForCompletion) {
+    std::mutex hook_guard;
+    std::condition_variable hook_cv;
+    bool finalizing = false;
+    bool proceed = false;
+
+    test_mock::g_client.on_finalize_disconnect = [&]() {
+        std::unique_lock l(hook_guard);
+        finalizing = true;
+        hook_cv.notify_all();
+        hook_cv.wait(l, [&]() {
+            return proceed;
+        });
+    };
+
+    std::thread first_stop([vpn = this->vpn]() {
+        vpn_stop(vpn);
+    });
+
+    bool entered = false;
+    {
+        std::unique_lock l(hook_guard);
+        entered = hook_cv.wait_for(l, Secs(5), [&]() {
+            return finalizing;
+        });
+    }
+    if (!entered) {
+        {
+            std::unique_lock l(hook_guard);
+            proceed = true;
+            hook_cv.notify_all();
+        }
+        first_stop.join();
+        test_mock::g_client.on_finalize_disconnect = nullptr;
+        FAIL() << "the first vpn_stop() did not reach finalization";
+        return;
+    }
+
+    std::atomic<bool> second_started{false};
+    std::atomic<bool> second_returned{false};
+    std::thread second_stop([&, vpn = this->vpn]() {
+        second_started.store(true);
+        vpn_stop(vpn);
+        second_returned.store(true);
+    });
+
+    for (int i = 0; i < 5000 && !second_started.load(); ++i) {
+        std::this_thread::sleep_for(milliseconds(1));
+    }
+    std::this_thread::sleep_for(milliseconds(50));
+    bool returned_early = second_returned.load();
+
+    {
+        std::unique_lock l(hook_guard);
+        proceed = true;
+        hook_cv.notify_all();
+    }
+
+    first_stop.join();
+    second_stop.join();
+    test_mock::g_client.on_finalize_disconnect = nullptr;
+
+    EXPECT_FALSE(returned_early) << "concurrent vpn_stop() returned before the first stop completed";
+    EXPECT_TRUE(second_returned.load());
+}

@@ -729,7 +729,7 @@ void vpn_request_endpoint_connection_stats(Vpn *vpn) {
             l.unlock();
         }
         // The handler must not be called with `stop_guard` held: it may call library functions that acquire it.
-        VpnEndpointConnectionStatsEvent event = {{VPN_EC_ERROR, "Event loop is stopped"}};
+        VpnEndpointConnectionStatsEvent event = {{VPN_EC_ERROR, "Event loop is stopped or the client is stopping"}};
         vpn->handler.func(vpn->handler.arg, VPN_EVENT_ENDPOINT_CONNECTION_STATS, &event);
         return;
     }
@@ -756,18 +756,13 @@ void vpn_notify_sleep(Vpn *vpn, void (*completion_handler)(void *), void *arg) {
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (vpn->stopping.load()) {
-        log_vpn(vpn, warn, "Can't notify sleep since the client is stopping");
+    if (vpn->stopping.load() || !vpn_event_loop_is_active(vpn->ev_loop.get())) {
+        log_vpn(vpn, warn, "Can't notify sleep since the client is stopping or event loop is not active");
         if (l.owns_lock()) {
             l.unlock();
         }
         // The completion handler must be called even if the notification is dropped.
         completion_handler(arg);
-        return;
-    }
-
-    if (!vpn_event_loop_is_active(vpn->ev_loop.get())) {
-        log_vpn(vpn, warn, "Can't notify sleep since event loop is not active");
         return;
     }
 
