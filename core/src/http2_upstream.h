@@ -32,6 +32,9 @@ public:
     Http2Upstream &operator=(Http2Upstream &&) = delete;
 
 private:
+    // `test_http2_upstream.cpp` injects a socket and drives socket events.
+    friend class Http2UpstreamTest;
+
     struct TcpConnection {
         enum Flag : int;
 

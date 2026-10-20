@@ -380,7 +380,7 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
     case TCP_SOCKET_EVENT_READABLE: {
         constexpr size_t READ_BUDGET = 64;
         TcpSocket *socket = upstream->m_socket.get();
-        for (size_t i = 0; i < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++i) {
+        for (size_t i = 0; i < READ_BUDGET; ++i) {
             tcp_socket::PeekResult result = tcp_socket_peek(socket);
             if (std::holds_alternative<tcp_socket::NoData>(result)) {
                 break;
@@ -389,6 +389,12 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
             if (std::holds_alternative<tcp_socket::Eof>(result)) {
                 log_upstream(upstream, dbg, "Got EOF from endpoint");
                 upstream->close_session_inner(std::nullopt);
+                break;
+            }
+
+            // A pending EOF is handled above: reads may be disabled with nothing guaranteed
+            // to re-enable them, so the EOF must not be gated on that.
+            if (!tcp_socket_is_read_enabled(socket)) {
                 break;
             }
 

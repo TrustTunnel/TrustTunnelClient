@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Propagate destination closes of idle SOCKS5 connections to the client immediately instead of
+  waiting for new client data, which previously made clients reuse zombie connections and lose
+  requests written into them
+
 ### Security
 
 ## [1.3.0-rc.1] - 2026-10-15
