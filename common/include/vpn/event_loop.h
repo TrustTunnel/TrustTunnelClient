@@ -66,14 +66,6 @@ void vpn_event_loop_destroy(VpnEventLoop *loop);
 int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings = {});
 
 /**
- * Wait until `vpn_event_loop_run()` has started (or failed to start).
- * Must be called after starting the loop thread on a loop that has not been run yet.
- * @param loop the event loop
- * @return whether the loop is running
- */
-bool vpn_event_loop_wait_started(VpnEventLoop *loop);
-
-/**
  * Stop an event loop.
  * Basically calls `vpn_event_loop_exit` and `vpn_event_loop_finalize_exit`.
  */
@@ -114,13 +106,11 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized.
- * Must not be called from the event loop thread: it would block the loop waiting for itself.
  * If the loop is running, the task is executed or finalized before the function returns. If the loop is not running,
  * the task is queued for a possible future run and this call may block until that run (or `vpn_event_loop_stop()`)
  * finalizes it. If the loop has already exited, the action is not executed and the function returns `false`.
- * Callers that must not block on a possible future run must use
- * `vpn_event_loop_dispatch_sync_unlocked()`, which returns `false` instead of queueing; it does not guarantee that
- * the action runs (the task may be finalized without execution). Do not rely on a separate
+ * Callers that must not block on a possible future run must use `vpn_event_loop_dispatch_sync_unlocked()`, which
+ * returns `false` instead of queueing; it does not guarantee that the action runs. Do not rely on a separate
  * `vpn_event_loop_is_active()` check: it races with the loop stopping.
  * @param loop the event loop
  * @param action the action to be executed
@@ -132,7 +122,6 @@ bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *arg),
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized, releasing `lock` while
  * waiting for the task to be executed.
- * Must not be called from the event loop thread: it would block the loop waiting for itself.
  * Requires the event loop to be running: if it is not, the action is not submitted and the function returns `false`.
  * The lock is re-acquired before the function returns, but the state it guards may have changed while it was
  * released, so the caller must re-check it after the call.
@@ -163,14 +152,6 @@ struct event_base *vpn_event_loop_get_base(const VpnEventLoop *loop);
  * Check if event loop is running
  */
 bool vpn_event_loop_is_active(const VpnEventLoop *loop);
-
-/**
- * Check whether the calling thread is the one running the event loop.
- * Used by `dispatch_sync` to reject self-dispatch.
- * @param loop the event loop
- * @return whether the calling thread is the event loop thread
- */
-bool vpn_event_loop_is_current_thread(const VpnEventLoop *loop);
 
 /**
  * Ask the loop to exit as soon as possible without cancelling any pending tasks and wait for it to exit.

@@ -73,8 +73,6 @@ protected:
     FsmState vpn_state = 0;
     /** Called from the event handler before it takes the test lock; used by tests to block the event loop. */
     std::function<void(VpnEvent)> handler_hook;
-    /** Set by a failed test that leaves the client deadlocked, so that TearDown does not hang on it. */
-    bool skip_stop_in_teardown = false;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -84,7 +82,6 @@ protected:
         raised_events = 0;
         vpn_error = {};
         handler_hook = nullptr;
-        skip_stop_in_teardown = false;
 
         upstream = {};
         upstream.username = "test";
@@ -106,13 +103,8 @@ protected:
                 std::scoped_lock l(this->guard);
                 handler_hook = nullptr;
             }
-            if (skip_stop_in_teardown) {
-                // The client is deadlocked by a failed test: leaking it is preferable to hanging here.
-                vpn = nullptr;
-            } else {
-                vpn_stop(vpn);
-                vpn_close(vpn);
-            }
+            vpn_stop(vpn);
+            vpn_close(vpn);
         }
 
         MockedTest::TearDown();
@@ -622,7 +614,6 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
                 std::scoped_lock guard_lock(this->guard);
                 this->handler_hook = nullptr;
             }
-            this->skip_stop_in_teardown = true;
             ADD_FAILURE() << "handler was not entered";
             std::abort();
         }
@@ -671,7 +662,6 @@ TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
     if (!finished) {
         // The handler is deadlocked on `stop_guard` held by `vpn_listen()`. Abort instead of detaching a thread
         // that captures the test frame by reference.
-        this->skip_stop_in_teardown = true;
         {
             std::scoped_lock l(this->guard);
             this->handler_hook = nullptr;

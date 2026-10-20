@@ -175,15 +175,12 @@ bool Vpn::run_event_loop() {
         }
     });
 
-    if (!vpn_event_loop_wait_started(this->ev_loop.get())) {
+    if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
-        // TODO: this cleanup runs under `stop_guard`; if the loop thread calls a function that needs the lock during
-        // shutdown, it can deadlock. The startup-failure path is rare; handle it together with a broader stop rework.
         vpn_event_loop_stop(this->ev_loop.get());
         if (this->executor_thread.joinable()) {
             this->executor_thread.join();
         }
-        this->ev_loop.reset();
         assert(0);
         return false;
     }
@@ -466,26 +463,13 @@ void vpn_close(Vpn *vpn) {
     delete vpn;
 }
 
+/**
+ * Not part of the public C API. Must not be called concurrently with `vpn_listen()`: the latter writes the listener
+ * config on the event loop while this function reads it from the calling thread.
+ */
 VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
     std::unique_lock l(vpn->stop_guard);
-    // No loop, no writer: return the last known config, including after `vpn_stop()` (the config is destroyed only
-    // with `VpnClient`). The same holds when called from the loop thread itself.
-    if (vpn->ev_loop == nullptr || !vpn_event_loop_is_active(vpn->ev_loop.get())
-            || vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
-        return vpn_listener_config_clone(&vpn->client.listener_config);
-    }
-
-    VpnListenerConfig ret{};
-    // Read on the loop: `vpn_listen()` releases `stop_guard` while waiting, so a direct read could race.
-    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() {
-        ret = vpn_listener_config_clone(&vpn->client.listener_config);
-    });
-    if (!executed) {
-        // The loop stopped before the action ran; no writer is left, so read the last known config directly.
-        vpn_listener_config_destroy(&ret);
-        return vpn_listener_config_clone(&vpn->client.listener_config);
-    }
-    return ret;
+    return vpn_listener_config_clone(&vpn->client.listener_config);
 }
 
 VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {

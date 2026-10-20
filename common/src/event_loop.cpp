@@ -6,7 +6,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
 
 #include <event2/bufferevent.h>
 #include <event2/event.h>
@@ -74,19 +73,8 @@ enum EventLoopState {
 
 struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
-
-    /**
-     * Protects the loop state and both task queues. Never held while calling task actions.
-     * Task finalizers are currently called under this lock; this is fixed separately in #147.
-     */
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
-
-    /** Signalled when `vpn_event_loop_run()` has started or failed to start. */
-    std::condition_variable start_barrier;
-    /** Whether a run attempt has been made; guarded by `guard`. */
-    bool start_attempted = false;
-
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
     std::list<DeferredTaskInfo> deferred_task_queue;
@@ -95,9 +83,6 @@ struct VpnEventLoop {
     ag::Logger log{"EVLOOP"};
     int id = g_next_loop_id++;
     std::shared_ptr<bool> shutdown_guard = std::make_shared<bool>(true);
-
-    /** Identifier of the thread currently running the loop; used to detect self-dispatch. */
-    std::atomic<std::thread::id> thread_id{};
 };
 
 extern "C" struct evthread_lock_callbacks *evthread_get_lock_callbacks(void);
@@ -188,17 +173,9 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 #endif // __MACH__
 
     loop->guard.lock();
-    loop->start_attempted = true;
-    if (loop->state != ELS_STOPPED) {
-        log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
-        loop->guard.unlock();
-        loop->start_barrier.notify_all();
-        return -1;
-    }
+    assert(loop->state == ELS_STOPPED);
     loop->state = ELS_RUNNING;
-    loop->thread_id.store(std::this_thread::get_id());
     loop->guard.unlock();
-    loop->start_barrier.notify_all();
 
     log_loop(loop, dbg, "Running event base...");
     int r = event_base_loop(loop->ev_base.get(), EVLOOP_NO_EXIT_ON_EMPTY);
@@ -209,8 +186,6 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 
     loop->guard.lock();
     loop->state = (loop->stopping_externally) ? ELS_BASE_EXITED : ELS_STOPPED;
-    // The thread id of a finished thread may be reused: do not let another thread be mistaken for the loop thread.
-    loop->thread_id.store(std::thread::id{});
     loop->guard.unlock();
     loop->stop_barrier.notify_one();
 
@@ -222,14 +197,6 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
     log_loop(loop, dbg, "Done");
 
     return r;
-}
-
-bool vpn_event_loop_wait_started(VpnEventLoop *loop) {
-    std::unique_lock l(loop->guard);
-    loop->start_barrier.wait(l, [loop]() -> bool {
-        return loop->start_attempted;
-    });
-    return loop->state == ELS_RUNNING;
 }
 
 void vpn_event_loop_stop(VpnEventLoop *loop) {
@@ -368,12 +335,6 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> *caller_lock, void (*action)(void *),
         void *arg, bool require_running) {
     assert(caller_lock == nullptr || caller_lock->owns_lock());
-    if (vpn_event_loop_is_current_thread(loop)) {
-        // The event loop cannot execute the submitted task while its own thread is blocked here.
-        log_loop(loop, err, "dispatch_sync() must not be called from the event loop thread");
-        assert(0);
-        return false;
-    }
 
     struct DispatchContext {
         void (*action)(void *);
@@ -496,10 +457,6 @@ bool vpn_event_loop_is_active(const VpnEventLoop *loop) {
     std::scoped_lock l(loop->guard);
     return loop->state == ELS_RUNNING && !event_base_got_exit(loop->ev_base.get())
             && !event_base_got_break(loop->ev_base.get());
-}
-
-bool vpn_event_loop_is_current_thread(const VpnEventLoop *loop) {
-    return loop != nullptr && loop->thread_id.load() == std::this_thread::get_id();
 }
 
 void vpn_event_loop_hijack(VpnEventLoop *loop) {

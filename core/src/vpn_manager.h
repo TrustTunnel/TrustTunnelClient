@@ -100,7 +100,7 @@ struct Vpn {
     /** The only thread running the single-threaded core; started by `vpn_connect()`, joined by `vpn_stop()`. */
     std::thread executor_thread;
 
-    /** The VPN event loop; created in `vpn_open()`, run by `vpn_connect()`, stopped/reset by `vpn_stop()`. */
+    /** The VPN event loop; created in `vpn_open()` and re-created by `vpn_connect()` after `vpn_stop()`. */
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
 
     vpn_manager::RecoveryInfo recovery = {};

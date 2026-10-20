@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Propagate destination closes of idle SOCKS5 connections to the client immediately instead of
   waiting for new client data, which previously made clients reuse zombie connections and lose
   requests written into them
-- Fixed a deadlock between `vpn_listen()`/`vpn_get_socks_listener_address()` and VPN event handlers: synchronous dispatch now releases the caller's lock while waiting, and the event loop startup no longer dispatches under the VPN lock.
+- Fixed a deadlock between `vpn_listen()`/`vpn_get_socks_listener_address()` and VPN event handlers: synchronous dispatch now releases the caller's lock while waiting.
 
 ### Security
 
