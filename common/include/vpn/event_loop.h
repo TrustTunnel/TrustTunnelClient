@@ -66,6 +66,14 @@ void vpn_event_loop_destroy(VpnEventLoop *loop);
 int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings = {});
 
 /**
+ * Wait until `vpn_event_loop_run()` has started (or failed to start).
+ * Must be called after starting the loop thread on a loop that has not been run yet.
+ * @param loop the event loop
+ * @return whether the loop is running
+ */
+bool vpn_event_loop_wait_started(VpnEventLoop *loop);
+
+/**
  * Stop an event loop.
  * Basically calls `vpn_event_loop_exit` and `vpn_event_loop_finalize_exit`.
  */

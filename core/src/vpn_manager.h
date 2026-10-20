@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -100,6 +102,9 @@ struct Vpn {
     /** The only thread running the single-threaded core; started by `vpn_connect()`, joined by `vpn_stop()`. */
     std::thread executor_thread;
 
+    /** Identifier of `executor_thread` while it runs; used to reject `vpn_stop()`/`vpn_close()` from that thread. */
+    std::atomic<std::thread::id> executor_thread_id{};
+
     /** The VPN event loop; created in `vpn_open()`, run by `vpn_connect()`, stopped/reset by `vpn_stop()`. */
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
 
@@ -140,8 +145,8 @@ struct Vpn {
     /** Set while `vpn_stop()` is tearing the instance down; post-only calls drop their work. */
     std::atomic<bool> stopping{false};
 
-    /** Bumped when a session starts/stops; detects a stop that happened while a lock was released. */
-    uint64_t session_generation = 0; // Guarded by stop_guard
+    /** Notified when `vpn_stop()` finishes; concurrent `vpn_stop()`/`vpn_close()` wait on it. */
+    std::condition_variable stop_finished;
 
     /** Cancels the previous pending exclusions update; guarded by `stop_guard`. */
     event_loop::AutoTaskId update_exclusions_task;

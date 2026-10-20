@@ -78,6 +78,12 @@ struct VpnEventLoop {
     /** Protects the loop state and both task queues. Never held while calling task actions. */
     mutable std::mutex guard;
     std::condition_variable stop_barrier;
+
+    /** Signalled when `vpn_event_loop_run()` has started or failed to start. */
+    std::condition_variable start_barrier;
+    /** Whether a run attempt has been made; guarded by `guard`. */
+    bool start_attempted = false;
+
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
     std::list<DeferredTaskInfo> deferred_task_queue;
@@ -179,10 +185,17 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 #endif // __MACH__
 
     loop->guard.lock();
-    assert(loop->state == ELS_STOPPED);
+    loop->start_attempted = true;
+    if (loop->state != ELS_STOPPED) {
+        log_loop(loop, err, "Can't run the event loop in state {}", magic_enum::enum_name(loop->state));
+        loop->guard.unlock();
+        loop->start_barrier.notify_all();
+        return -1;
+    }
     loop->state = ELS_RUNNING;
     loop->thread_id.store(std::this_thread::get_id());
     loop->guard.unlock();
+    loop->start_barrier.notify_all();
 
     log_loop(loop, dbg, "Running event base...");
     int r = event_base_loop(loop->ev_base.get(), EVLOOP_NO_EXIT_ON_EMPTY);
@@ -206,6 +219,14 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
     log_loop(loop, dbg, "Done");
 
     return r;
+}
+
+bool vpn_event_loop_wait_started(VpnEventLoop *loop) {
+    std::unique_lock l(loop->guard);
+    loop->start_barrier.wait(l, [loop]() -> bool {
+        return loop->start_attempted;
+    });
+    return loop->state == ELS_RUNNING;
 }
 
 void vpn_event_loop_stop(VpnEventLoop *loop) {
