@@ -66,6 +66,14 @@ void vpn_event_loop_destroy(VpnEventLoop *loop);
 int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings = {});
 
 /**
+ * Wait until `vpn_event_loop_run()` has started (or failed to start).
+ * Must be called after starting the loop thread on a loop that has not been run yet.
+ * @param loop the event loop
+ * @return whether the loop is running
+ */
+bool vpn_event_loop_wait_started(VpnEventLoop *loop);
+
+/**
  * Stop an event loop.
  * Basically calls `vpn_event_loop_exit` and `vpn_event_loop_finalize_exit`.
  */
@@ -106,14 +114,35 @@ TaskId vpn_event_loop_schedule(VpnEventLoop *loop, VpnEventLoopTask task, Millis
 
 /**
  * Submit a task that runs `action` to the event loop and block until it is finalized.
- * Note that the task may not be executed in some circumstances (e.g. if the event
- * loop is stopped before it has the chance to execute it), but it is always finalized.
+ * Must not be called from the event loop thread: it would block the loop waiting for itself.
+ * If the loop is running, the task is executed or finalized before the function returns. If the loop is not running,
+ * the task is queued for a possible future run and this call may block until that run (or `vpn_event_loop_stop()`)
+ * finalizes it. Callers that need the action to run now must check `vpn_event_loop_is_active()` first or use
+ * `vpn_event_loop_dispatch_sync_unlocked()`.
  * @param loop the event loop
  * @param action the action to be executed
  * @param arg the argument for the action
  * @return whether the action has been executed
  */
 bool vpn_event_loop_dispatch_sync(VpnEventLoop *loop, void (*action)(void *arg), void *arg);
+
+/**
+ * Submit a task that runs `action` to the event loop and block until it is finalized, releasing `lock` while
+ * waiting for the task to be executed.
+ * Must not be called from the event loop thread: it would block the loop waiting for itself.
+ * Requires the event loop to be running: if it is not, the action is not submitted and the function returns `false`.
+ * The lock is re-acquired before the function returns, but the state it guards may have changed while it was
+ * released, so the caller must re-check it after the call.
+ * Note that a submitted task may not be executed in some circumstances (e.g. if the event loop is stopped before it
+ * has the chance to execute it), but it is always finalized.
+ * @param loop the event loop
+ * @param lock the lock to release while waiting
+ * @param action the action to be executed
+ * @param arg the argument for the action
+ * @return whether the action has been executed
+ */
+bool vpn_event_loop_dispatch_sync_unlocked(
+        VpnEventLoop *loop, std::unique_lock<std::mutex> &lock, void (*action)(void *arg), void *arg);
 
 /**
  * Cancel a task execution
@@ -131,6 +160,14 @@ struct event_base *vpn_event_loop_get_base(const VpnEventLoop *loop);
  * Check if event loop is running
  */
 bool vpn_event_loop_is_active(const VpnEventLoop *loop);
+
+/**
+ * Check whether the calling thread is the one running the event loop.
+ * Used by `dispatch_sync` to reject self-dispatch.
+ * @param loop the event loop
+ * @return whether the calling thread is the event loop thread
+ */
+bool vpn_event_loop_is_current_thread(const VpnEventLoop *loop);
 
 /**
  * Ask the loop to exit as soon as possible without cancelling any pending tasks and wait for it to exit.
@@ -204,6 +241,19 @@ template <typename Func>
 bool dispatch_sync(VpnEventLoop *loop, Func &&func) {
     return vpn_event_loop_dispatch_sync(
             loop,
+            [](void *arg) {
+                (*(decltype(std::addressof(func))) arg)();
+            },
+            std::addressof(func));
+}
+
+/**
+ * Just like `vpn_event_loop_dispatch_sync_unlocked` but more convenient for C++
+ */
+template <typename Func>
+bool dispatch_sync(VpnEventLoop *loop, std::unique_lock<std::mutex> &lock, Func &&func) {
+    return vpn_event_loop_dispatch_sync_unlocked(
+            loop, lock,
             [](void *arg) {
                 (*(decltype(std::addressof(func))) arg)();
             },

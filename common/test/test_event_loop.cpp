@@ -276,3 +276,44 @@ TEST_F(EventLoopTest, StopSubmitRun) {
     ASSERT_TRUE(ctx.ran);
     ASSERT_TRUE(ctx.finalized);
 }
+
+TEST_F(EventLoopTest, DispatchSyncUnlocksCallerLock) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+
+    std::mutex guard;
+    bool action_ran = false;
+    {
+        std::unique_lock l(guard);
+        bool executed = event_loop::dispatch_sync(m_ev_loop.get(), l, [&] {
+            // The event loop thread must be able to acquire the guard: the caller releases it while waiting.
+            std::unique_lock guard_l(guard);
+            action_ran = true;
+        });
+        EXPECT_TRUE(executed);
+        EXPECT_TRUE(l.owns_lock());
+    }
+    EXPECT_TRUE(action_ran);
+}
+
+TEST_F(EventLoopTest, DispatchSyncUnlockedOnStoppedLoopReturnsFalse) {
+    run_event_loop();
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    std::mutex guard;
+    std::unique_lock l(guard);
+    EXPECT_FALSE(event_loop::dispatch_sync(m_ev_loop.get(), l, [] {}));
+    EXPECT_TRUE(l.owns_lock());
+}
+
+TEST_F(EventLoopTest, IsCurrentThread) {
+    EXPECT_FALSE(vpn_event_loop_is_current_thread(m_ev_loop.get()));
+
+    run_event_loop();
+    bool called_from_loop = false;
+    event_loop::dispatch_sync(m_ev_loop.get(), [&] {
+        called_from_loop = vpn_event_loop_is_current_thread(m_ev_loop.get());
+    });
+    EXPECT_TRUE(called_from_loop);
+    EXPECT_FALSE(vpn_event_loop_is_current_thread(m_ev_loop.get()));
+}
