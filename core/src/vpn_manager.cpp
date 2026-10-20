@@ -161,7 +161,6 @@ bool Vpn::run_event_loop() {
     }
 
     this->executor_thread = std::thread([this]() {
-        this->executor_thread_id.store(std::this_thread::get_id());
         int ret = vpn_event_loop_run(this->ev_loop.get(),
                 {
 #if defined(__APPLE__) && TARGET_OS_IPHONE
@@ -174,11 +173,12 @@ bool Vpn::run_event_loop() {
             this->pending_error = {.code = VPN_EC_EVENT_LOOP_FAILURE, .text = "Event loop run error"};
             shutdown_cb(this);
         }
-        this->executor_thread_id.store(std::thread::id{});
     });
 
     if (!vpn_event_loop_wait_started(this->ev_loop.get())) {
         log_vpn(this, err, "Event loop did not start");
+        // TODO: this cleanup runs under `stop_guard`; if the loop thread calls a function that needs the lock during
+        // shutdown, it can deadlock. The startup-failure path is rare; handle it together with a broader stop rework.
         vpn_event_loop_stop(this->ev_loop.get());
         if (this->executor_thread.joinable()) {
             this->executor_thread.join();
@@ -445,15 +445,14 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 void vpn_stop(Vpn *vpn) {
     log_vpn(vpn, info, "...");
 
-    if (vpn->executor_thread_id.load() == std::this_thread::get_id()) {
-        log_vpn(vpn, err, "vpn_stop() must not be called from the event loop thread");
-        assert(0);
-        return;
-    }
-
     VpnEventLoop *loop = nullptr;
     {
         std::unique_lock l(vpn->stop_guard);
+        if (vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
+            log_vpn(vpn, err, "vpn_stop() must not be called from the event loop thread");
+            assert(0);
+            return;
+        }
         if (vpn->stopping.load()) {
             // Another thread is already stopping the client. Wait until it finishes, so that a following
             // `vpn_close()` does not run concurrently with the teardown.
@@ -511,10 +510,10 @@ void vpn_stop(Vpn *vpn) {
         vpn->bypassed_connection_ids.clear();
 
         vpn->stopping.store(false);
+        log_vpn(vpn, info, "Done");
+        // Notify under the lock: a waiter may delete the object as soon as the lock is released.
+        vpn->stop_finished.notify_all();
     }
-    vpn->stop_finished.notify_all();
-
-    log_vpn(vpn, info, "Done");
 }
 
 void vpn_close(Vpn *vpn) {
@@ -524,13 +523,13 @@ void vpn_close(Vpn *vpn) {
 
     log_vpn(vpn, info, "...");
 
-    if (vpn->executor_thread_id.load() == std::this_thread::get_id()) {
-        log_vpn(vpn, err, "vpn_close() must not be called from the event loop thread");
-        assert(0);
-        return;
-    }
     {
         std::unique_lock l(vpn->stop_guard);
+        if (vpn_event_loop_is_current_thread(vpn->ev_loop.get())) {
+            log_vpn(vpn, err, "vpn_close() must not be called from the event loop thread");
+            assert(0);
+            return;
+        }
         if (vpn->stopping.load()) {
             // Wait for an in-progress stop instead of racing with it.
             vpn->stop_finished.wait(l, [vpn]() -> bool {

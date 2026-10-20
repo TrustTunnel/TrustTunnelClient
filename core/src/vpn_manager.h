@@ -102,9 +102,6 @@ struct Vpn {
     /** The only thread running the single-threaded core; started by `vpn_connect()`, joined by `vpn_stop()`. */
     std::thread executor_thread;
 
-    /** Identifier of `executor_thread` while it runs; used to reject `vpn_stop()`/`vpn_close()` from that thread. */
-    std::atomic<std::thread::id> executor_thread_id{};
-
     /** The VPN event loop; created in `vpn_open()`, run by `vpn_connect()`, stopped/reset by `vpn_stop()`. */
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
 

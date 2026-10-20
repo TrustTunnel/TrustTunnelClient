@@ -241,11 +241,6 @@ void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout) {
     log_loop(loop, dbg, "Done");
 }
 
-/**
- * Audit note: task finalizers are currently called while `loop->guard` is held. A finalizer that re-enters the loop
- * API (for example `AutoTaskId::reset()` -> `vpn_event_loop_cancel()`) would self-deadlock. This is a separate issue
- * from the `stop_guard` fix; do not add new work under the lock here.
- */
 void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     log_loop(loop, dbg, "...");
 
