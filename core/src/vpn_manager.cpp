@@ -175,8 +175,8 @@ bool Vpn::run_event_loop() {
         }
     });
 
-    // The startup barrier still dispatches under `stop_guard`. It only waits for tasks queued before
-    // `vpn_connect()`; they do not raise state-change events in `VPN_SS_DISCONNECTED`, so no deadlock is observed here.
+    // The startup wait still dispatches under `stop_guard`. It only waits for tasks queued before `vpn_connect()`;
+    // they do not raise state-change events in `VPN_SS_DISCONNECTED`, so no deadlock has been observed here.
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
         vpn_event_loop_stop(this->ev_loop.get());
