@@ -56,6 +56,9 @@ struct VpnOsTunnelSettings {
      *  instead of creating a new one. Requires `device_name` to be
      *  non-empty. Linux only. */
     bool use_existing;
+    /** If false, only create the TUN device and leave interface addresses,
+     *  routes, MTU and DNS configuration to the platform. Linux only. */
+    bool managed;
 };
 
 #ifdef _WIN32
