@@ -229,9 +229,18 @@ public:
     ~VpnLinuxTunnel() override = default;
 
 private:
+    /** System DNS configuration mechanism used by the current session. */
+    enum class DnsBackend : uint8_t {
+        NONE,
+        SYSTEMD_RESOLVED,
+        RESOLVCONF,
+        RESOLV_CONF_FILE,
+    };
+
     evutil_socket_t tun_open();
     void setup_if();
     void setup_dns();
+    void teardown_dns();
     bool check_sport_rule_support();
     bool setup_routes(int16_t table_id);
     void teardown_routes(int16_t table_id);
@@ -240,6 +249,7 @@ private:
     std::string m_tun_name{};
     bool m_sport_supported{false};
     std::string m_netns{};
+    DnsBackend m_dns_backend{DnsBackend::NONE};
 };
 #elif __APPLE__ && !TARGET_OS_IPHONE
 class VpnMacTunnel : public VpnOsTunnel {
@@ -304,6 +314,13 @@ void get_setup_routes(std::vector<ag::CidrRange> &ipv4_routes, std::vector<ag::C
         ag::VpnAddressArray &included_routes, ag::VpnAddressArray &excluded_routes);
 void split_default_route(std::vector<ag::CidrRange> &routes, ag::CidrRange route);
 ag::CidrRange get_address_for_index(const char *address, uint32_t index);
+
+#if defined(__linux__) && !defined(ANDROID)
+/** Build shell commands for the Linux system DNS fallback chain. */
+std::string make_resolvectl_dns_cmd(std::string_view iface, const VpnAddressArray &servers);
+std::string make_resolvconf_register_cmd(std::string_view exe, std::string_view iface, const VpnAddressArray &servers);
+std::string make_resolv_conf_write_cmd(std::string_view path, const VpnAddressArray &servers);
+#endif
 } // namespace tunnel_utils
 
 template <>
