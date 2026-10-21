@@ -3,7 +3,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 /**
- * Provides deep-link decoding for TrustTunnel endpoint configurations.
+ * Provides deep-link decoding and encoding for TrustTunnel endpoint
+ * configurations.
  */
 @interface TrustTunnelDeepLink : NSObject
 
@@ -16,6 +17,16 @@ NS_ASSUME_NONNULL_BEGIN
  *         the full client configuration, or nil on error.
  */
 + (nullable NSString *)decodeDeeplink:(NSString *)uri error:(NSError *_Nullable *_Nullable)error;
+
+/**
+ * Encode an `[endpoint]` TOML section string into a `tt://` deep-link URI.
+ *
+ * @param endpointToml A TOML string beginning with `[endpoint]`, in the same
+ *                     layout that `decodeDeeplink:error:` produces.
+ * @param error        On failure, populated with a descriptive error.
+ * @return The `tt://...` deep-link URI, or nil on error.
+ */
++ (nullable NSString *)encodeDeeplink:(NSString *)endpointToml error:(NSError *_Nullable *_Nullable)error;
 
 @end
 

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added deep-link encoding to the platform adapters: Android `DeepLink.encode`, Apple
+  `TrustTunnelDeepLink.encodeDeeplink:error:`, and Windows `trusttunnel_encode_deeplink`
+  now wrap `trusttunnel_deeplink_encode`, converting an `[endpoint]` TOML section into a
+  `tt://` deep-link URI.
+
 ### Changed
 
 ### Deprecated

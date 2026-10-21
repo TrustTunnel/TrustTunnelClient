@@ -53,7 +53,7 @@ Note: packages built locally are **unsigned**.
 
 ```text
 trusttunnel-client-windows-1.1.3-x86_64/
-├── include/trusttunnel/  # trusttunnel.h, trusttunnel_service.h
+├── include/trusttunnel/  # trusttunnel.h, trusttunnel_service.h, trusttunnel_deeplink.h
 ├── include/vpn/          # platform.h
 ├── lib/                  # trusttunnel.lib + CMake config
 ├── bin/                  # trusttunnel.dll, trusttunnel_service.exe, trusttunnel_service_installer.exe, wintun.dll
