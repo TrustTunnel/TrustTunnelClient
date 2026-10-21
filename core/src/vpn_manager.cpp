@@ -465,15 +465,6 @@ void vpn_close(Vpn *vpn) {
     delete vpn;
 }
 
-/**
- * Not part of the public C API. Must not be called concurrently with `vpn_listen()`: the latter writes the listener
- * config on the event loop while this function reads it from the calling thread.
- */
-VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
-    std::unique_lock l(vpn->stop_guard);
-    return vpn_listener_config_clone(&vpn->client.listener_config);
-}
-
 VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {
     VpnListenerConfig out = *config;
 
