@@ -132,8 +132,10 @@ struct Vpn {
     DeclPtr<event, &event_free> postponement_window_timer;
 
     /**
-     * Serializes control operations and protects `executor_thread`/`ev_loop`. `vpn_stop()` holds it for the whole
-     * teardown, so handlers must not call functions that take it while the client is stopping.
+     * Protects `executor_thread`/`ev_loop` and serializes control operations, except that `vpn_listen()` and
+     * `vpn_get_socks_listener_address()` release it while waiting for the event loop. Callers must re-check state
+     * after that wait. `vpn_stop()` holds it for the whole teardown, so handlers must not call functions that take it
+     * while the client is stopping.
      */
     mutable std::mutex stop_guard;
 

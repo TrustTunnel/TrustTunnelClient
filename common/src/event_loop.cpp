@@ -374,8 +374,8 @@ static bool dispatch_sync_impl(VpnEventLoop *loop, std::unique_lock<std::mutex> 
                     .finalize =
                             [](void *arg) {
                                 auto *ctx = (DispatchContext *) arg;
-                                // Hold the lock during `notify_all()` since `ctx` might be deleted after releasing
-                                // `ctx->mutex`
+                                // Hold the lock during `notify_all()`: the waiter destroys `ctx` as soon as it
+                                // returns, so the finalizer must not touch it after releasing `ctx->mutex`.
                                 std::scoped_lock l(ctx->mutex);
                                 ctx->finalized = true;
                                 ctx->cv.notify_all();
