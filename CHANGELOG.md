@@ -16,12 +16,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+### Security
+
+## [1.3.0-rc.2] - 2026-10-21
+
+### Added
+
+- Added deep-link encoding to the platform adapters: Android `DeepLink.encode`, Apple
+  `TrustTunnelDeepLink.encodeDeeplink:error:`, and Windows `trusttunnel_encode_deeplink`
+  now wrap `trusttunnel_deeplink_encode`, converting an `[endpoint]` TOML section into a
+  `tt://` deep-link URI.
+
+### Fixed
+
 - Propagate destination closes of idle SOCKS5 connections to the client immediately instead of
   waiting for new client data, which previously made clients reuse zombie connections and lose
   requests written into them
 - Fixed a deadlock between `vpn_listen()`/`vpn_get_socks_listener_address()` and VPN event handlers: synchronous dispatch now releases the caller's lock while waiting.
-
-### Security
 
 ## [1.3.0-rc.1] - 2026-10-15
 
@@ -482,7 +493,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...HEAD
+[1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
 [1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
 [1.3.0-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.3.0-beta.1
 [1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
