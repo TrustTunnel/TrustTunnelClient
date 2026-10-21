@@ -6,7 +6,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
 
 #include <event2/bufferevent.h>
 #include <event2/event.h>
@@ -75,20 +74,10 @@ enum EventLoopState {
 struct VpnEventLoop {
     DeclPtr<event_base, &event_base_free> ev_base{make_event_base()};
 
-    /**
-     * Protects the loop state and both task queues. Never held while calling task actions.
-     * Task finalizers are currently called under this lock; fixed separately in #147.
-     */
+    /** Protects the loop state and both task queues. Never held while calling task actions or finalizers. */
     mutable std::mutex guard;
 
     std::condition_variable stop_barrier;
-
-    /** Whether `vpn_event_loop_finalize_exit()` is currently running; guarded by `guard`. */
-    bool finalizing = false;
-    /** The thread executing finalization; guarded by `guard`. */
-    std::thread::id finalize_thread{};
-    /** Notified when the finalization above finishes; used with `guard`. */
-    std::condition_variable finalize_barrier;
 
     bool task_queue_scheduled = false;
     std::list<TaskInfo> task_queue;
@@ -209,15 +198,14 @@ int vpn_event_loop_run(VpnEventLoop *loop, VpnEventLoopSettings settings [[maybe
 
     loop->guard.lock();
     loop->state = (loop->stopping_externally) ? ELS_BASE_EXITED : ELS_STOPPED;
-    loop->guard.unlock();
+    log_loop(loop, dbg, "Done");
     loop->stop_barrier.notify_one();
+    loop->guard.unlock();
 
 #if defined(EVTHREAD_USE_PTHREADS_IMPLEMENTED) && !defined(__MACH__)
     // Restore SIGPIPE state
     pthread_sigmask(SIG_SETMASK, &oldset, nullptr);
 #endif
-
-    log_loop(loop, dbg, "Done");
 
     return r;
 }
@@ -241,22 +229,6 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
     std::list<DeferredTaskInfo> deferred_tasks;
     {
         std::unique_lock l(loop->guard);
-        if (loop->finalizing) {
-            if (loop->finalize_thread == std::this_thread::get_id()) {
-                // A finalize callback has re-entered the loop API: this thread is already finalizing the loop.
-                log_loop(loop, dbg, "Already finalizing the loop on this thread");
-                return;
-            }
-            // Another thread is finalizing the loop: wait until it finishes. The loop is stopped when it does.
-            loop->finalize_barrier.wait(l, [loop]() -> bool {
-                return !loop->finalizing;
-            });
-            log_loop(loop, dbg, "Done");
-            return;
-        }
-
-        loop->finalizing = true;
-        loop->finalize_thread = std::this_thread::get_id();
         loop->stopping_externally = true;
         log_loop(loop, dbg, "Waiting until run finished (current state={})", magic_enum::enum_name(loop->state));
         loop->stop_barrier.wait(l, [loop]() -> bool {
@@ -288,8 +260,8 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
         }
     }
 
-    // Destroy the moved-out tasks before publishing the finalization: a deferred task owns a timer event associated
-    // with the event base, and a waiter may restart or destroy the loop as soon as it returns.
+    // Destroy the moved-out tasks before returning: a deferred task owns a timer event associated with the event
+    // base. The caller may destroy the loop after the run thread is joined.
     tasks.clear();
     deferred_tasks.clear();
 
@@ -297,10 +269,7 @@ void vpn_event_loop_finalize_exit(VpnEventLoop *loop) {
         std::scoped_lock l(loop->guard);
         loop->state = ELS_STOPPED;
         loop->stopping_externally = false;
-        loop->finalizing = false;
-        loop->finalize_thread = {};
-        log_loop(loop, dbg, "Done"); // last touch of `loop`: a waiter may destroy it after the lock is released
-        loop->finalize_barrier.notify_all();
+        log_loop(loop, dbg, "Done");
     }
 }
 

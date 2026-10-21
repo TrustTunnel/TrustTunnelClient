@@ -339,33 +339,6 @@ TEST_F(EventLoopTest, FinalizeExitCallsFinalizeWithoutLock) {
     EXPECT_TRUE(ctx.finalized);
 }
 
-TEST_F(EventLoopTest, FinalizeCallbackMayReenterStop) {
-    run_event_loop();
-    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
-    vpn_event_loop_stop(m_ev_loop.get());
-
-    struct Ctx {
-        VpnEventLoop *loop;
-        bool reentered = false;
-    };
-    Ctx ctx{.loop = m_ev_loop.get()};
-    vpn_event_loop_submit(m_ev_loop.get(),
-            {
-                    .arg = &ctx,
-                    .action = [](void *, TaskId) {},
-                    .finalize =
-                            [](void *arg) {
-                                auto *ctx = (Ctx *) arg;
-                                // The loop is already being finalized by this thread: re-entering must not deadlock.
-                                vpn_event_loop_stop(ctx->loop);
-                                ctx->reentered = true;
-                            },
-            });
-
-    vpn_event_loop_stop(m_ev_loop.get());
-    EXPECT_TRUE(ctx.reentered);
-}
-
 TEST_F(EventLoopTest, SubmitDuringFinalizationIsFinalizedImmediately) {
     run_event_loop();
     event_loop::dispatch_sync(m_ev_loop.get(), [] {});
@@ -428,80 +401,39 @@ TEST_F(EventLoopTest, ScheduleWithoutFinalizerDuringFinalization) {
     EXPECT_EQ(ctx.id, -1);
 }
 
-// Check that a concurrent finalize_exit waits for the finalization already in progress
-TEST_F(EventLoopTest, FinalizeExitWaitsForConcurrentFinalization) {
+// Check that stopping a running loop finalizes a scheduled task and that running the loop afterwards fails
+TEST_F(EventLoopTest, StopFinalizesScheduledTaskWhileLoopRunning) {
     run_event_loop();
     event_loop::dispatch_sync(m_ev_loop.get(), [] {});
-    vpn_event_loop_stop(m_ev_loop.get());
-
-    std::mutex guard;
-    std::condition_variable cv;
-    bool finalizer_entered = false;
-    bool finalizer_proceed = false;
 
     struct Ctx {
-        std::mutex *guard;
-        std::condition_variable *cv;
-        bool *entered;
-        bool *proceed;
+        VpnEventLoop *loop;
+        bool finalized = false;
+        int run_result = 0;
     };
-    Ctx ctx{&guard, &cv, &finalizer_entered, &finalizer_proceed};
-    vpn_event_loop_submit(m_ev_loop.get(),
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_schedule(m_ev_loop.get(),
             {
                     .arg = &ctx,
-                    .action = [](void *, TaskId) {},
+                    .action =
+                            [](void *, TaskId) {
+                                ADD_FAILURE() << "scheduled task must not run";
+                            },
                     .finalize =
                             [](void *arg) {
                                 auto *ctx = (Ctx *) arg;
-                                std::unique_lock l(*ctx->guard);
-                                *ctx->entered = true;
-                                ctx->cv->notify_all();
-                                ctx->cv->wait(l, [&]() {
-                                    return *ctx->proceed;
-                                });
+                                // Re-entering the loop API from a finalizer must not deadlock.
+                                vpn_event_loop_cancel(ctx->loop, -1);
+                                // The loop is finalizing, so run must reject this call and not block.
+                                ctx->run_result = vpn_event_loop_run(ctx->loop);
+                                ctx->finalized = true;
                             },
-            });
+            },
+            Millis{3600 * 1000});
 
-    std::thread first([loop = m_ev_loop.get()]() {
-        vpn_event_loop_stop(loop);
-    });
+    // The loop is running here; stop must finalize the scheduled task.
+    vpn_event_loop_stop(m_ev_loop.get());
 
-    bool entered = false;
-    {
-        std::unique_lock l(guard);
-        entered = cv.wait_for(l, std::chrono::seconds(5), [&]() {
-            return finalizer_entered;
-        });
-    }
-    if (!entered) {
-        {
-            std::unique_lock l(guard);
-            finalizer_proceed = true;
-            cv.notify_all();
-        }
-        first.join();
-        FAIL() << "finalizer was not entered";
-        return;
-    }
-
-    std::atomic<bool> second_returned{false};
-    std::thread second([loop = m_ev_loop.get(), &second_returned]() {
-        vpn_event_loop_stop(loop);
-        second_returned.store(true);
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    bool returned_early = second_returned.load();
-
-    {
-        std::unique_lock l(guard);
-        finalizer_proceed = true;
-        cv.notify_all();
-    }
-
-    first.join();
-    second.join();
-
-    EXPECT_FALSE(returned_early) << "concurrent finalize_exit returned before the first one finished";
-    EXPECT_TRUE(second_returned.load());
+    EXPECT_TRUE(ctx.finalized);
+    EXPECT_EQ(ctx.run_result, -1);
 }
