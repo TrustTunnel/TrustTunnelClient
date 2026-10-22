@@ -203,14 +203,16 @@ void ag::VpnLinuxTunnel::setup_if() {
             return;
         }
 
-        auto result = sys_cmd_with_output_netns(m_netns,
-                AG_FMT("ip -6 addr add {} dev {}",
-                        tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(),
-                        m_tun_name));
-        if (result.has_error()) {
-            warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
-        } else {
-            m_ipv6_available = true;
+        if (m_settings->ipv6_address != nullptr && m_settings->ipv6_address[0] != '\0') {
+            auto result = sys_cmd_with_output_netns(m_netns,
+                    AG_FMT("ip -6 addr add {} dev {}",
+                            tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(),
+                            m_tun_name));
+            if (result.has_error()) {
+                warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
+            } else {
+                m_ipv6_available = true;
+            }
         }
     } else {
         // In attach mode the operator owns the interface addresses; just
