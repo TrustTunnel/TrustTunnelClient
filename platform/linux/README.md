@@ -69,7 +69,28 @@ or by building the `trusttunneld` target in the root build directory directly. A
 
 ## Quick Testing with `busctl`
 
-You can test the daemon directly without needing root privileges by running on the user/session bus:
+Two ways to drive the daemon manually, depending on what you want to check:
+
+### D-Bus wiring only (no TUN)
+
+Run unprivileged on the session bus — `Start()` accepts the config but fails at
+TUN creation, because a regular user lacks `CAP_NET_ADMIN`. Useful to verify
+methods, signals and state transitions only.
+
+### Full run (TUN + routes): root on the system bus
+
+A root process cannot connect to a *user* session bus (dbus-broker refuses
+connections from a foreign UID), so `sudo ... --session` does not work. To
+exercise the real path — TUN, routing, DNS — stop the installed service and
+run the fresh binary on the system bus instead:
+
+```bash
+sudo systemctl stop trusttunneld
+./cmake-build-clang-relwithdebinfo/platform/linux/trusttunneld --system
+```
+
+Drive it with `busctl --system` (see below), then restore the service with
+`sudo systemctl start trusttunneld` when done.
 
 ### Terminal 1: Run Daemon
 
@@ -81,11 +102,15 @@ You can test the daemon directly without needing root privileges by running on t
 
 ```bash
 busctl --user monitor --match "interface='com.adguard.TrustTunnel.Vpn1'"
+# ...or, for the system-bus run:
+# busctl --system monitor --match "interface='com.adguard.TrustTunnel.Vpn1'"
 ```
 
 ### Terminal 3: Call Methods
 
 ```bash
+# Substitute "--system" for "--user" when driving the system-bus run.
+
 # Check initial state (returns 0 -> Disconnected)
 busctl --user call com.adguard.TrustTunnel /com/adguard/TrustTunnel com.adguard.TrustTunnel.Vpn1 GetState
 
