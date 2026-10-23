@@ -380,14 +380,16 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
     }
 
     const VpnOsTunnelSettings *defaults = vpn_os_tunnel_settings_defaults();
+    const bool has_ipv6 = m_config.location.has_ipv6;
     VpnOsTunnelSettings tunnel_settings = {.ipv4_address = defaults->ipv4_address,
-            .ipv6_address = defaults->ipv6_address,
+            .ipv6_address = has_ipv6 ? defaults->ipv6_address : nullptr,
             .included_routes = {.data = included_routes.data(), .size = uint32_t(included_routes.size())},
             .excluded_routes = {.data = excluded_routes.data(), .size = uint32_t(excluded_routes.size())},
             .mtu = int(config.mtu_size),
             .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{},
             .device_name = !config.device_name.empty() ? config.device_name.c_str() : defaults->device_name,
-            .use_existing = config.use_existing};
+            .use_existing = config.use_existing,
+            .managed = config.managed};
 
     m_tunnel = ag::make_vpn_tunnel();
     if (m_tunnel == nullptr) {
@@ -426,6 +428,19 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         errlog(m_logger, "Failed to initialize tunnel: {}", res.text);
         std::exchange(m_tunnel, nullptr)->deinit();
         return nullptr;
+    }
+
+    if (m_callbacks.network_ready_handler) {
+        // In unmanaged mode the platform owns DNS, so it must not receive the
+        // daemon's internal resolvers. In managed mode the defaults are used
+        // even when change_system_dns is false: the platform still needs the
+        // actual server list to decide what to configure.
+        const VpnAddressArray dns_servers = config.managed ? defaults->dns_servers : VpnAddressArray{};
+        const char *ipv4 = tunnel_settings.ipv4_address != nullptr ? tunnel_settings.ipv4_address : "";
+        const char *ipv6 = tunnel_settings.ipv6_address != nullptr ? tunnel_settings.ipv6_address : "";
+        VpnNetworkInfo info = build_network_info(
+                m_tunnel->get_name(), ipv4, ipv6, uint32_t(tunnel_settings.mtu), dns_servers);
+        m_callbacks.network_ready_handler(&info);
     }
 
     VpnTunListenerConfig listener_config = {
