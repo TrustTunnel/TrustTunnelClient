@@ -80,8 +80,9 @@ jobs:
           python3 -m venv venv
           source ./venv/bin/activate
           pip install conan
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
+          if ! conan remote list | grep -q '^art:'; then
+            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
+          fi
       # The build resolves the version via git describe. A manual `version`
       # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
       # var), which also drives the artifact name below.
@@ -144,6 +145,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-linux
+          if-no-files-found: error
           path: artifacts/trusttunnel_client-*.tar.gz
 
       - name: Upload to Conan and cleanup
@@ -155,9 +157,8 @@ jobs:
         run: |
           set -x
           source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
-
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
   build-macos:
     name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -193,8 +194,9 @@ jobs:
           python3 -m venv venv
           source ./venv/bin/activate
           pip install conan
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
+          if ! conan remote list | grep -q '^art:'; then
+            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
+          fi
       # The build resolves the version via git describe. A manual `version`
       # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
       # var), which also drives the artifact name below.
@@ -305,6 +307,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-macos
+          if-no-files-found: error
           path: build_universal/trusttunnel_client-*.tar.gz
 
       - name: Upload to Conan and cleanup
@@ -315,9 +318,8 @@ jobs:
         run: |
           set -x
           source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
-
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
   build-windows:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -396,14 +398,23 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-exe-unsigned
+          if-no-files-found: error
           path: unsigned/
 
       - name: Upload to Conan and cleanup
         if: always()
         run: |
           $ErrorActionPreference = 'Continue'
+          # The dependency cache is optional: a failed login or upload must not
+          # fail the build, but it must be visible in the log.
           & conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '::warning::Conan remote login failed; the dependency cache will not be uploaded'
+          }
           & conan upload -r art -c "*" 2>&1 | Select-String "Uploading" -SimpleMatch
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '::warning::Conan cache upload failed; continuing without the warmed cache'
+          }
         shell: powershell
 
   sign-windows:
@@ -484,6 +495,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-windows
+          if-no-files-found: error
           path: artifacts/trusttunnel_client-*.zip
 
 # =============================================================================

@@ -45,7 +45,17 @@ cp "$BUILD_DIR/trusttunnel/trusttunnel_client" "$OUTPUT_DIR/"
 # Copy any additional test scripts if they exist
 if [ -d "$SOURCE_DIR/integrated-tests/client" ]; then
     echo "Copying client test scripts..."
-    cp -r "$SOURCE_DIR/integrated-tests/client"/* "$OUTPUT_DIR/" 2>/dev/null || true
+    # The directory may be empty: without nullglob the glob stays literal and
+    # cp fails on a missing file, so expand it explicitly instead of hiding the
+    # failure with '|| true'.
+    shopt -s nullglob
+    client_scripts=("$SOURCE_DIR"/integrated-tests/client/*)
+    shopt -u nullglob
+    if [ ${#client_scripts[@]} -gt 0 ]; then
+        cp -r "${client_scripts[@]}" "$OUTPUT_DIR/"
+    else
+        echo "No client test scripts to copy"
+    fi
 fi
 
 echo "Client build completed successfully!"

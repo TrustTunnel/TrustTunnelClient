@@ -54,12 +54,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: trusttunnel_client
+          if-no-files-found: error
           path: output/trusttunnel_client
 
       - name: Upload endpoint binary
         uses: actions/upload-artifact@v7
         with:
           name: trusttunnel_endpoint
+          if-no-files-found: error
           path: output/trusttunnel_endpoint
 
   run-tests:
@@ -119,6 +121,8 @@ jobs:
         if: always()
         with:
           name: live-integration-test-logs-${{ matrix.transport }}-${{ matrix.mode }}
+          # Diagnostics only: this step runs even when the test failed and the logs may be absent.
+          if-no-files-found: warn
           path: |
             output/*.log
             output/*.txt

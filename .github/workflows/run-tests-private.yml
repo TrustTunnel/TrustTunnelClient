@@ -69,7 +69,11 @@ jobs:
                   --mount=type=secret,id=artifactory_api_key,required=true <<END
               set -eux
 
-              conan remote add --index 0 art "$(cat /run/secrets/conan_repo_url)" || true
+              if ! conan remote list | grep -q '^art:'; then
+
+                conan remote add --index 0 art "$(cat /run/secrets/conan_repo_url)"
+
+              fi
               mkdir -p /src/results
               # The store was restored into .sccache and copied here by COPY . .;
               # CMAKE_LAUNCHER makes cmake use sccache for C/C++ compilations.
@@ -94,11 +98,11 @@ jobs:
               sccache --show-stats --stats-format=json > /src/results/sccache-stats.json 2>/dev/null || true
 
               conan remote login art "$(cat /run/secrets/artifactory_user)" \
-                  --password "$(cat /run/secrets/artifactory_api_key)" || true
-              conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
-              conan remove -c "*" || true
-              conan cache clean || true
-
+                  --password "$(cat /run/secrets/artifactory_api_key)" \
+                  || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
+              conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
+              conan remove -c "*" || echo "::warning::conan remove failed (non-fatal cleanup)" >&2
+              conan cache clean || echo "::warning::conan cache clean failed (non-fatal cleanup)" >&2
               exit 0
               END
 
@@ -144,8 +148,9 @@ jobs:
               source ./venv/bin/activate
 
               python3 -m pip install conan
-              conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
+              if ! conan remote list | grep -q '^art:'; then
+                conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
+              fi
               # Ensure Rust is available (rust-toolchain.toml picks the version)
               export PATH="$HOME/.cargo/bin:$PATH"
               if ! command -v cargo &>/dev/null; then
@@ -162,11 +167,11 @@ jobs:
               # created by the test-command (conan lives there).
               source ./venv/bin/activate
 
-              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-              conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
+              conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
+              conan upload -r art -c "*" 2>&1 | grep "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
               echo "conan upload finished"
-              conan remove -c "*" || true
-              conan cache clean || true
+              conan remove -c "*" || echo "::warning::conan remove failed (non-fatal cleanup)" >&2
+              conan cache clean || echo "::warning::conan cache clean failed (non-fatal cleanup)" >&2
     uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/junit-tests.yml@feat/AG-57806-use-sccache-for-tests
     secrets:
       test-env: |
@@ -240,6 +245,8 @@ jobs:
         if: always()
         with:
           name: test-results-windows-private
+          # Diagnostics only: this step runs even when the tests failed and the report may be absent.
+          if-no-files-found: warn
           path: cmake-build-msvc-relwithdebinfo/junit.xml
 
       - name: Upload to Conan and cleanup
@@ -277,8 +284,9 @@ jobs:
         run: |
           set -e
           set -x
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
+          if ! conan remote list | grep -q '^art:'; then
+            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
+          fi
       - name: Run clangd-tidy
         run: |
           set -e

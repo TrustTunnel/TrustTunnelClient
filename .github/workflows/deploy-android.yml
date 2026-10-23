@@ -53,8 +53,9 @@ jobs:
       - name: Configure Conan
         run: |
           python3 -m pip install conan --upgrade
-          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-
+          if ! conan remote list | grep -q '^art:'; then
+            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
+          fi
       # The version is resolved by the Gradle build via git describe (see
       # build.gradle.kts). A manual `version` input forces an override.
       - name: Set version override
@@ -86,5 +87,5 @@ jobs:
           ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
         run: |
           set -x
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
