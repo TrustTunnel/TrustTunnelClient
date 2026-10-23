@@ -51,9 +51,7 @@ jobs:
           python3 -m venv venv
           source ./venv/bin/activate
           pip install conan
-          if ! conan remote list | grep -q '^art:'; then
-            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
-          fi
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
           bundle config --local path '.bundle/vendor'
           bundle install
 
@@ -114,5 +112,5 @@ jobs:
         run: |
           set -x
           source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true

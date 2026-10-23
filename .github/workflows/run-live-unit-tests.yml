@@ -39,16 +39,15 @@ jobs:
           set -x -e
 
           python3 -m pip install conan --upgrade
-          if ! conan remote list | grep -q '^art:'; then
-            conan remote add --index 0 art ${CONAN_REPO_URL}
-          fi
+          conan remote add --index 0 art ${CONAN_REPO_URL} || true
+
           make test-live
 
       - name: Upload to Conan and cleanup
         if: always()
         run: |
-          conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
-          conan upload -r art -c "*" 2>&1 | grep "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
+          conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}" || true
+          conan upload -r art -c "*" 2>&1 | grep "Uploading" || true
           echo "conan upload finished"
-          conan remove -c "*" || echo "::warning::conan remove failed (non-fatal cleanup)" >&2
-          conan cache clean || echo "::warning::conan cache clean failed (non-fatal cleanup)" >&2
+          conan remove -c "*" || true
+          conan cache clean || true

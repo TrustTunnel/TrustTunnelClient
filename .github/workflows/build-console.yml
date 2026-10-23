@@ -1,5 +1,9 @@
 name: Build console apps
 
+# Conan cache warm-up (remote add/login, upload, cleanup) is best-effort:
+# a failure there does not affect the build, so those commands keep
+# `|| true` on purpose (AG-59158, explicitly accepted).
+
 # Reusable workflow that builds the trusttunnel_client and setup_wizard console
 # apps for Linux, macOS and Windows, signs/notarizes them, and collects every
 # platform archive into a single `release-artifacts` artifact for the caller to
@@ -80,9 +84,8 @@ jobs:
           python3 -m venv venv
           source ./venv/bin/activate
           pip install conan
-          if ! conan remote list | grep -q '^art:'; then
-            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
-          fi
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
       # The build resolves the version via git describe. A manual `version`
       # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
       # var), which also drives the artifact name below.
@@ -157,8 +160,9 @@ jobs:
         run: |
           set -x
           source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
   build-macos:
     name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -194,9 +198,8 @@ jobs:
           python3 -m venv venv
           source ./venv/bin/activate
           pip install conan
-          if ! conan remote list | grep -q '^art:'; then
-            conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
-          fi
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
       # The build resolves the version via git describe. A manual `version`
       # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
       # var), which also drives the artifact name below.
@@ -318,8 +321,9 @@ jobs:
         run: |
           set -x
           source ./venv/bin/activate
-          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || echo "::warning::Conan remote login failed; the dependency cache will not be uploaded" >&2
-          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || echo "::warning::Conan cache upload failed; continuing without the warmed cache" >&2
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
   build-windows:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
@@ -405,16 +409,8 @@ jobs:
         if: always()
         run: |
           $ErrorActionPreference = 'Continue'
-          # The dependency cache is optional: a failed login or upload must not
-          # fail the build, but it must be visible in the log.
           & conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '::warning::Conan remote login failed; the dependency cache will not be uploaded'
-          }
           & conan upload -r art -c "*" 2>&1 | Select-String "Uploading" -SimpleMatch
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '::warning::Conan cache upload failed; continuing without the warmed cache'
-          }
         shell: powershell
 
   sign-windows:
