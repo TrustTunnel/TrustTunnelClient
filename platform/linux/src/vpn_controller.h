@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "common/autofd.h"
-#include "src/dbus_interface.h"
+#include "src/vpn_types.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
 

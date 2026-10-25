@@ -12,17 +12,16 @@
 #include <utility>
 #include <vector>
 
-#include "src/dbus_interface.h"
-#include "src/vpn_controller.h"
-#include "vpn/trusttunnel/network_info.h"
+#include "daemon/dbus_interface.h"
+#include "trusttunnel/trusttunnel.h"
 
 namespace ag::trusttunnel_linux {
 
-// Daemon context holding bus, event loop and vpn controller
+// Daemon context holding bus, event loop and vpn client instance
 struct DaemonContext {
     sd_bus *bus = nullptr;
     sd_event *event = nullptr;
-    std::unique_ptr<VpnController> controller;
+    trusttunnel_t *vpn = nullptr;
 };
 
 static DaemonContext g_ctx;
@@ -39,18 +38,18 @@ static int method_start(sd_bus_message *m, void *, sd_bus_error *ret_error) {
     }
 
     std::cout << "[trusttunneld] Start requested" << '\n';
-    VpnError err = g_ctx.controller->start(config != nullptr ? config : "");
+    trusttunnel_vpn_error_t err = trusttunnel_start(g_ctx.vpn, config != nullptr ? config : "");
     return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(err));
 }
 
 static int method_stop(sd_bus_message *m, void *, sd_bus_error *) {
     std::cout << "[trusttunneld] Stop requested" << '\n';
-    VpnError err = g_ctx.controller->stop();
+    trusttunnel_vpn_error_t err = trusttunnel_stop(g_ctx.vpn);
     return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(err));
 }
 
 static int method_get_state(sd_bus_message *m, void *, sd_bus_error *) {
-    VpnState state = g_ctx.controller->state();
+    trusttunnel_vpn_state_t state = trusttunnel_get_state(g_ctx.vpn);
     return sd_bus_reply_method_return(m, "i", static_cast<int32_t>(state));
 }
 
@@ -76,25 +75,74 @@ static const sd_bus_vtable vpn_vtable[] = {
 };
 
 // ---------------------------------------------------------------------------
-// Controller -> event loop bridge
+// Client -> event loop bridge
 // ---------------------------------------------------------------------------
 
-// The controller callbacks are invoked from the client's threads, so they only enqueue
-// messages; this io handler on the eventfd drains the queue on the loop thread, where
-// emitting D-Bus signals is safe.
-static int on_controller_events(sd_event_source *, int, uint32_t, void *) {
-    g_ctx.controller->drain();
+// The client callbacks are invoked from the library's threads, so they only emit
+// here on the loop thread after the queue has been drained (see on_client_events).
+// The emission helpers below are therefore always called on the loop thread.
+
+static void emit_state_changed(trusttunnel_vpn_state_t new_state) {
+    std::cout << "[trusttunneld] State -> " << static_cast<int32_t>(new_state) << '\n';
+    sd_bus_emit_signal(
+            g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_STATE_CHANGED, "i", static_cast<int32_t>(new_state));
+}
+
+static void emit_connection_info(const char *info_json) {
+    sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_CONNECTION_INFO, "s", info_json);
+}
+
+static void emit_network_ready(const trusttunnel_network_info_t *info) {
+    // sd-bus takes a NULL-terminated array of non-const strings for `append_strv`;
+    // the composite "as" array type cannot be appended through the varargs interface
+    // of `sd_bus_message_append` (that form expects an element count + elements)
+    std::vector<std::string> dns_servers;
+    dns_servers.reserve(info->dns_servers_count);
+    for (size_t i = 0; i < info->dns_servers_count; ++i) {
+        dns_servers.emplace_back(info->dns_servers[i]);
+    }
+    std::vector<char *> dns_strv;
+    dns_strv.reserve(dns_servers.size() + 1);
+    for (std::string &server : dns_servers) {
+        dns_strv.push_back(server.data());
+    }
+    dns_strv.push_back(nullptr);
+
+    std::cout << "[trusttunneld] Network ready: iface=" << info->iface_name << " mtu=" << info->mtu << '\n';
+    sd_bus_message *message = nullptr;
+    int r = sd_bus_message_new_signal(g_ctx.bus, &message, OBJECT_PATH, INTERFACE_NAME, SIGNAL_NETWORK_READY);
+    if (r >= 0) {
+        r = sd_bus_message_append(message, "ssusuu", info->iface_name, info->ipv4_address, info->ipv4_prefix,
+                info->ipv6_address, info->ipv6_prefix, info->mtu);
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append_strv(message, dns_strv.data());
+    }
+    if (r >= 0) {
+        r = sd_bus_send(g_ctx.bus, message, nullptr);
+    }
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to emit NetworkReady: " << strerror(-r) << '\n';
+    }
+    sd_bus_message_unref(message);
+}
+
+// This io handler on the client event fd drains the queue on the loop thread,
+// where emitting D-Bus signals is safe.
+static int on_client_events(sd_event_source *, int, uint32_t, void *) {
+    trusttunnel_drain(g_ctx.vpn);
     return 0;
 }
 
 // Signal callback to gracefully exit the event loop
 static int on_signal(sd_event_source *, const struct signalfd_siginfo *, void *userdata) {
     auto *event = static_cast<sd_event *>(userdata);
-    // Request the controller stop while the bus is still usable: exiting the event loop
-    // disconnects the buses attached to it, so anything queued after sd_event_exit() is lost.
-    // The stop is asynchronous (the client thread performs a blocking disconnect), so the final
-    // StateChanged(DISCONNECTED) may not make it to the bus - acceptable for systemd shutdown.
-    g_ctx.controller->stop();
+    // Request the client stop while the bus is still usable: exiting the event loop
+    // disconnects the buses attached to it, so anything queued after sd_event_exit() is
+    // lost. The stop is asynchronous (the library thread performs a blocking disconnect),
+    // so the final StateChanged(DISCONNECTED) may not make it to the bus - acceptable for
+    // systemd shutdown.
+    trusttunnel_stop(g_ctx.vpn);
     sd_bus_flush(g_ctx.bus);
     sd_event_exit(event, 0);
     return 0;
@@ -162,54 +210,39 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // Setup callbacks for VpnController: they run on the event loop thread
-    // (invoked from VpnController::drain), so emitting signals is safe here
-    VpnController::Callbacks callbacks;
-    callbacks.on_state_changed = [](VpnState new_state) {
-        std::cout << "[trusttunneld] State -> " << static_cast<int32_t>(new_state) << '\n';
-        sd_bus_emit_signal(
-                g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_STATE_CHANGED, "i", static_cast<int32_t>(new_state));
+    // Setup client callbacks: they run on the event loop thread (invoked from
+    // trusttunnel_drain), so emitting D-Bus signals is safe here
+    trusttunnel_callbacks_t callbacks{};
+    callbacks.state_changed_arg = nullptr;
+    callbacks.on_state_changed = [](void *, trusttunnel_vpn_state_t new_state) {
+        emit_state_changed(new_state);
     };
-    callbacks.on_connection_info = [](const std::string &info_json) {
-        sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_CONNECTION_INFO, "s", info_json.c_str());
+    callbacks.connection_info_arg = nullptr;
+    callbacks.on_connection_info = [](void *, const char *info_json) {
+        emit_connection_info(info_json);
     };
-    callbacks.on_network_ready = [](const ag::VpnNetworkInfo &info) {
-        // sd-bus takes a NULL-terminated array of non-const strings for `append_strv`;
-        // the composite "as" array type cannot be appended through the varargs interface
-        // of `sd_bus_message_append` (that form expects an element count + elements)
-        std::vector<std::string> dns(info.dns_servers.begin(), info.dns_servers.end());
-        std::vector<char *> dns_strv;
-        dns_strv.reserve(dns.size() + 1);
-        for (std::string &server : dns) {
-            dns_strv.push_back(server.data());
-        }
-        dns_strv.push_back(nullptr);
-
-        std::cout << "[trusttunneld] Network ready: iface=" << info.iface_name << " mtu=" << info.mtu << '\n';
-        sd_bus_message *message = nullptr;
-        int r = sd_bus_message_new_signal(g_ctx.bus, &message, OBJECT_PATH, INTERFACE_NAME, SIGNAL_NETWORK_READY);
-        if (r >= 0) {
-            r = sd_bus_message_append(message, "ssusuu", info.iface_name.c_str(), info.ipv4_address.c_str(),
-                    info.ipv4_prefix, info.ipv6_address.c_str(), info.ipv6_prefix, info.mtu);
-        }
-        if (r >= 0) {
-            r = sd_bus_message_append_strv(message, dns_strv.data());
-        }
-        if (r >= 0) {
-            r = sd_bus_send(g_ctx.bus, message, nullptr);
-        }
-        if (r < 0) {
-            std::cerr << "[trusttunneld] Failed to emit NetworkReady: " << strerror(-r) << '\n';
-        }
-        sd_bus_message_unref(message);
+    callbacks.network_ready_arg = nullptr;
+    callbacks.on_network_ready = [](void *, const trusttunnel_network_info_t *info) {
+        emit_network_ready(info);
     };
 
-    g_ctx.controller = std::make_unique<VpnController>(std::move(callbacks));
+    g_ctx.vpn = trusttunnel_create(&callbacks);
+    if (g_ctx.vpn == nullptr) {
+        std::cerr << "Failed to create the VPN client instance" << '\n';
+        sd_bus_close(g_ctx.bus);
+        sd_bus_unref(g_ctx.bus);
+        sd_event_unref(g_ctx.event);
+        return 1;
+    }
 
-    // Wake up the event loop whenever the controller queues a message
-    r = sd_event_add_io(g_ctx.event, nullptr, g_ctx.controller->event_fd(), EPOLLIN, on_controller_events, nullptr);
+    // Wake up the event loop whenever the client queues a message
+    r = sd_event_add_io(g_ctx.event, nullptr, trusttunnel_event_fd(g_ctx.vpn), EPOLLIN, on_client_events, nullptr);
     if (r < 0) {
-        std::cerr << "Failed to subscribe to controller eventfd: " << strerror(-r) << '\n';
+        std::cerr << "Failed to subscribe to the client event fd: " << strerror(-r) << '\n';
+        trusttunnel_destroy(g_ctx.vpn);
+        sd_bus_close(g_ctx.bus);
+        sd_bus_unref(g_ctx.bus);
+        sd_event_unref(g_ctx.event);
         return 1;
     }
 
@@ -217,6 +250,7 @@ int main(int argc, char **argv) {
     r = sd_bus_add_object_vtable(g_ctx.bus, nullptr, OBJECT_PATH, INTERFACE_NAME, vpn_vtable, nullptr);
     if (r < 0) {
         std::cerr << "Failed to register object vtable: " << strerror(-r) << '\n';
+        trusttunnel_destroy(g_ctx.vpn);
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -227,6 +261,7 @@ int main(int argc, char **argv) {
     r = sd_bus_request_name(g_ctx.bus, BUS_NAME, 0);
     if (r < 0) {
         std::cerr << "Failed to acquire bus name '" << BUS_NAME << "': " << strerror(-r) << '\n';
+        trusttunnel_destroy(g_ctx.vpn);
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -262,9 +297,10 @@ int main(int argc, char **argv) {
 
     sd_notify(0, "STOPPING=1");
 
-    // Destroying the controller joins the client thread (blocking disconnect, no bus involved),
-    // so it must happen while the bus is still referenced.
-    g_ctx.controller.reset();
+    // Destroying the instance joins the client thread (blocking disconnect, no bus
+    // involved), so it must happen while the bus is still referenced.
+    trusttunnel_destroy(g_ctx.vpn);
+    g_ctx.vpn = nullptr;
     sd_bus_flush_close_unref(g_ctx.bus);
     g_ctx.bus = nullptr;
     sd_event_unref(g_ctx.event);

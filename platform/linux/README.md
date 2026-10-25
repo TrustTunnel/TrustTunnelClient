@@ -14,6 +14,22 @@ Unlike the Windows adapter (which relies on named pipes, helper installers, and 
 - VPN Core: `ag::TrustTunnelClient` from `trusttunnel/`, driven on a dedicated thread
   (`AutoNetworkMonitor` + `set_system_dns()` + `connect()`), modelled after the CLI client.
 
+The adapter is split into a client library and a thin daemon, following the same
+methodology as the Windows adapter (library + service):
+
+- `include/trusttunnel/trusttunnel.h` — the public C API of the client library
+  (`trusttunnel_create` / `trusttunnel_start` / `trusttunnel_stop` / `trusttunnel_get_state`,
+  an event fd + `trusttunnel_drain()` for event-loop integration, and event callbacks).
+- `src/` — the static library (`trusttunnel_linux_a`, installed as `libtrusttunnel.a`):
+  `VpnController` (owns the client lifecycle and bridges it to a single-threaded event
+  loop) plus the thin C wrapper.
+- `daemon/` — the `trusttunneld` executable: only sd-bus/sd-event glue mapping D-Bus
+  methods to the library API and library callbacks to D-Bus signals.
+  The D-Bus contract (`com.adguard.TrustTunnel.Vpn1`) is described in
+  `daemon/resources/com.adguard.TrustTunnel.xml`.
+
+The daemon needs `libsystemd`; the library itself does not.
+
 ### Threading model
 
 `sd-bus` is not thread-safe, and the core invokes its callbacks from its own threads.
@@ -53,6 +69,39 @@ An XML introspection file is provided at `resources/com.adguard.TrustTunnel.xml`
 
 ---
 
+## Release artifacts
+
+The archive contract for GUI clients (mirrors the Windows
+`trusttunnel-client-windows-<version>-<arch>.zip`):
+
+```text
+trusttunnel-client-linux-<version>-<arch>/
+├── bin/trusttunneld
+├── lib/libtrusttunnel.a
+├── lib/libtrusttunnel_deeplink_ffi.a
+├── include/trusttunnel/trusttunnel.h
+├── include/trusttunnel/trusttunnel_deeplink.h
+├── lib/cmake/TrustTunnelClientLinux/TrustTunnelClientLinuxConfig.cmake
+└── LICENSE
+```
+
+Both libraries are static (`-fPIC`, so they can be linked into shared objects), the
+deeplink one carries its Rust standard-library system dependencies
+(`pthread;dl;m`) through the imported `trusttunnel::deeplink` target.
+
+Local assembly of the archive (the CI workflow calls the same scripts):
+
+```bash
+platform/linux/scripts/build.sh --version 1.3.0 [--arch x86_64|aarch64]
+platform/linux/scripts/package.sh --staging-dir platform/linux/staging/trusttunnel-client-linux-<version>-<arch>
+# -> platform/linux/artifacts/trusttunnel-client-linux-<version>-<arch>.zip
+```
+
+`build.sh` configures `platform/linux/` as a standalone project (the root is pulled in
+automatically), so it works outside the root build too.
+
+---
+
 ## Building
 
 Prerequisites: `libsystemd-dev` (or `systemd-devel` on Fedora/RHEL). The daemon is built from the
@@ -63,7 +112,8 @@ make build_linux_adapter
 ```
 
 or by building the `trusttunneld` target in the root build directory directly. A standalone
-`cmake -S platform/linux` configure fails on purpose.
+`cmake -S platform/linux` configure works too (it pulls in the repository root, see the
+release artifacts section above).
 
 ---
 
