@@ -438,8 +438,8 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         const VpnAddressArray dns_servers = config.managed ? defaults->dns_servers : VpnAddressArray{};
         const char *ipv4 = tunnel_settings.ipv4_address != nullptr ? tunnel_settings.ipv4_address : "";
         const char *ipv6 = tunnel_settings.ipv6_address != nullptr ? tunnel_settings.ipv6_address : "";
-        VpnNetworkInfo info = build_network_info(
-                m_tunnel->get_name(), ipv4, ipv6, uint32_t(tunnel_settings.mtu), dns_servers);
+        VpnNetworkInfo info =
+                build_network_info(m_tunnel->get_name(), ipv4, ipv6, uint32_t(tunnel_settings.mtu), dns_servers);
         m_callbacks.network_ready_handler(&info);
     }
 
