@@ -152,6 +152,9 @@ and `vpn-cli`):
 - Use `libc++` (not `libstdc++`)
 - Use static storage duration instead of anonymous namespaces for internal linkage where possible
     - (e.g. `static const int VALUE = 42;` instead of putting it in an anonymous namespace)
+- `VpnError.text` outlives the function that creates the error: it is copied into deferred error slots and read
+  later from event-loop tasks. Point it only to string literals or `static` strings; never to `c_str()` of a
+  local or temporary `std::string`. Put the details into the log instead.
 - Function descriptions are written in imperative language
     - e.g. "Calculate the sum of two numbers" instead of "Calculates the sum of two numbers"
 

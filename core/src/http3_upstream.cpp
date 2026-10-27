@@ -22,6 +22,11 @@
 #define log_stream(ups_, sid_, lvl_, fmt_, ...)                                                                        \
     lvl_##log((ups_)->m_log, "[{}] [SID:{}] " fmt_, (ups_)->id, (uint64_t) (sid_), ##__VA_ARGS__)
 
+// `VpnError.text` must stay valid after the raising function returns, so it can only point to a static string.
+// The details (QUIC error code, `input()` error) are logged where they are known.
+static constexpr char QUIC_CONNECTION_CLOSED_MSG[] = "QUIC connection closed with error";
+static constexpr char H3_INPUT_ERROR_MSG[] = "Failed to process incoming QUIC data";
+
 using namespace std::chrono;
 using namespace ag;
 
@@ -599,7 +604,7 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
             upstream->close_session_inner(std::exchange(upstream->m_pending_session_error, std::nullopt));
         } else if (!input_error.empty()) {
             // `input()` only reports the error, so nothing else tears down the dead QUIC connection.
-            upstream->close_session_inner(VpnError{VPN_EC_ERROR, input_error.c_str()});
+            upstream->close_session_inner(VpnError{VPN_EC_ERROR, H3_INPUT_ERROR_MSG});
         } else if (upstream->m_h3_client) {
             upstream->m_h3_client->flush();
             // Schedule post-receive work (retry_connect_requests, poll_connections)
@@ -802,13 +807,11 @@ void Http3Upstream::on_close(void *arg, uint64_t error_code) {
     log_upstream(self, dbg, "Connection closed, error_code={}", error_code);
 
     std::optional<VpnError> error;
-    std::string err_str;
     if (error_code != 0) {
         if (error_code == HTTP_ERROR_AUTH_REQUIRED) {
             error = VpnError{VPN_EC_AUTH_REQUIRED, HTTP_AUTH_REQUIRED_MSG};
         } else {
-            err_str = AG_FMT("QUIC connection closed with error {}", error_code);
-            error = VpnError{VPN_EC_ERROR, err_str.c_str()};
+            error = VpnError{VPN_EC_ERROR, QUIC_CONNECTION_CLOSED_MSG};
         }
     }
     self->close_session_inner(error);
