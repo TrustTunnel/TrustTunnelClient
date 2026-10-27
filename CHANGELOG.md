@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed the HTTP/3 upstream storing pointers to already destroyed strings in
+  `VpnError`, which made the reported disconnect error text point to freed
+  memory; the QUIC error code and the `input()` error are now logged at `INFO`
+  instead of being reported in the error text.
+
 ### Security
 
 ## [1.3.0-rc.2] - 2026-10-21

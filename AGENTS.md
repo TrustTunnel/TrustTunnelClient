@@ -152,6 +152,11 @@ and `vpn-cli`):
 - Use `libc++` (not `libstdc++`)
 - Use static storage duration instead of anonymous namespaces for internal linkage where possible
     - (e.g. `static const int VALUE = 42;` instead of putting it in an anonymous namespace)
+- `VpnError.text` may outlive the function that creates the error: only the pointer is copied into deferred error
+  slots, and it is read later from event-loop tasks and from the C API (`VpnStateChangedEvent`). Point it only to
+  storage with static or thread-local lifetime (string literals, `static`/`thread_local` buffers, or
+  helper-returned buffers such as `evutil_socket_error_to_string()`); never to `c_str()` of a local or temporary
+  `std::string`. Put the details into the log instead.
 - Function descriptions are written in imperative language
     - e.g. "Calculate the sum of two numbers" instead of "Calculates the sum of two numbers"
 
