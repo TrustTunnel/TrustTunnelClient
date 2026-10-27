@@ -12,12 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - Support `subscription_url` in the setup wizard, fetching the new configuration on toml/deeplink/subscription-only export
     - Refresh the endpoint parameters from the stored subscription URL with `trusttunnel_client --refresh`
     - Add `[endpoint.subscription]` to the config, holding the subscription URL and the time of the last successful fetch
-- Added `client_random_auth_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
-- Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
-- Added the `chrome_canary` value for the `[endpoint].tls_profile` setting, which mimics the Chrome Canary TLS ClientHello.
-- Added an option to fall into recovery in case of a failed initial connection for `TrustTunnelClient` and platform adapters.
 
 ### Changed
+
+- On MIPS and MIPSel, the client now uses the mimalloc allocator.
 
 ### Deprecated
 
@@ -26,6 +24,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.3.0-rc.2] - 2026-10-21
+
+### Added
+
+- Added deep-link encoding to the platform adapters: Android `DeepLink.encode`, Apple
+  `TrustTunnelDeepLink.encodeDeeplink:error:`, and Windows `trusttunnel_encode_deeplink`
+  now wrap `trusttunnel_deeplink_encode`, converting an `[endpoint]` TOML section into a
+  `tt://` deep-link URI.
+
+### Fixed
+
+- Propagate destination closes of idle SOCKS5 connections to the client immediately instead of
+  waiting for new client data, which previously made clients reuse zombie connections and lose
+  requests written into them
+
+## [1.3.0-rc.1] - 2026-10-15
+
+### Added
+
+- Added `client_random_auth_key` configuration parameter. When set, part of the TLS `client_random` is derived from this key, the SNI, and other random bytes using the HKDF-SHA256 + AES-128 algorithm, and fed to `SSL_set_custom_client_random`. This allows TLS authentication via key-derived `client_random`.
+- Added the `--export-deeplink` option to the CLI client. It prints the configured endpoint as a `tt://` deep-link, including the server name and DNS upstreams, so the endpoint can be imported into other TrustTunnel clients. The server name can be overridden with `--name`. The certificate is embedded only when it cannot be verified with the system certificate store. The endpoint `name` is now preserved by the setup wizard as well.
+- Added the `chrome_canary` value for the `[endpoint].tls_profile` setting, which mimics the Chrome Canary TLS ClientHello.
+- Added an option to fall into recovery in case of a failed initial connection for `TrustTunnelClient` and platform adapters.
+- New Apple-only `VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION` event, raised when the process may be missing the Local
+  Network permission. This is required if we need to query a DNS resolver on the local network: either because it was
+  configured by the user, or because it was determined as the "system" resolver, and we need to resolve an exclusion
+  host. The application should guide the user through the permission process.
+
+### Fixed
+
+- A TUN device that fails unrecoverably (for example `EBADFD` after the
+  descriptor is lost) no longer spins the event loop: the read event is removed
+  instead of being left armed on a descriptor that reports itself readable
+  forever, which produced one error log line per iteration at roughly 20 MB/s.
 
 ## [1.3.0-beta.1] - 2026-09-29
 
@@ -466,7 +499,9 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...HEAD
+[1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
+[1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
 [1.3.0-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.3.0-beta.1
 [1.1.5]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.3...v1.1.4

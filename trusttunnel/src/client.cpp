@@ -551,6 +551,11 @@ void TrustTunnelClient::vpn_handler(void *, VpnEvent what, void *data) {
                 });
         break;
     }
+#ifdef __APPLE__
+    case VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION:
+        // do nothing
+        break;
+#endif // __APPLE__
     case VPN_EVENT_CONNECTION_INFO:
         auto *info = (VpnConnectionInfoEvent *) data;
         if (m_callbacks.connection_info_handler) {

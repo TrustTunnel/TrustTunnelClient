@@ -32,7 +32,7 @@ class VpnLibsConan(ConanFile):
     exports_sources = patch_files
 
     def requirements(self):
-        self.requires("dns-libs/2.10.2-6-gc68d7dde@adguard/oss", transitive_headers=True)
+        self.requires("dns-libs/2.10.2-9-ge27180de@adguard/oss", transitive_headers=True)
         self.requires("native_libs_common/8.1.54@adguard/oss", transitive_headers=True)
 
         self.requires("brotli/1.1.0", transitive_headers=True)
@@ -51,6 +51,7 @@ class VpnLibsConan(ConanFile):
             self.requires("openssl/boring-2026-05-08@adguard/oss", transitive_headers=True, force=True)
         else:
             self.requires("openssl/4.0.2@adguard/oss", transitive_headers=True, force=True)
+            self.requires("mimalloc/3.5.1")
 
     def build_requirements(self):
         self.test_requires("gtest/1.14.0")
@@ -61,6 +62,8 @@ class VpnLibsConan(ConanFile):
         # Resolve conflict between pcre2 required from dns-libs and pcre2 required form native_libs_common
         self.options["pcre2"].build_pcre2grep = False
         self.options["dns-libs"].tcpip = False
+        if "mips" in str(self.settings.arch):
+            self.options["mimalloc"].override = True
 
     def export(self):
         # The exported sources carry no .git, so the build's git describe would

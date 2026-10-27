@@ -50,14 +50,16 @@ add_library(trusttunnel_windows_a STATIC
     src/trusttunnel_start_request.cpp
     src/client_authenticator.cpp
     src/process_info.cpp
-    src/pipe_name_registry.cpp)
+    src/pipe_name_registry.cpp
+    src/trusttunnel_deeplink.cpp)
 target_include_directories(trusttunnel_windows_a PUBLIC include)
-target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel)
+target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel trusttunnel_deeplink_ffi)
 
-# Crypto for client signature auth, and the OS RNG for pipe name generation
-target_link_libraries(trusttunnel_windows_a wintrust crypt32 bcrypt)
+# Crypto for client signature auth, the OS RNG for pipe name generation, and the system
+# libraries required by the Rust standard library linked in through trusttunnel_deeplink_ffi.
+target_link_libraries(trusttunnel_windows_a wintrust crypt32 bcrypt userenv ws2_32 ntdll)
 
-add_library(trusttunnel_windows SHARED src/trusttunnel.cpp)
+add_library(trusttunnel_windows SHARED src/trusttunnel.cpp src/trusttunnel_deeplink.cpp)
 target_link_libraries(trusttunnel_windows trusttunnel_windows_a)
 set_target_properties(trusttunnel_windows PROPERTIES OUTPUT_NAME trusttunnel)
 
@@ -94,6 +96,7 @@ add_unit_test(trusttunnel_pipe_name_registry_test "${TEST_DIR}" "${CMAKE_CURRENT
 add_unit_test(trusttunnel_attach_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_ring_buffer_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 add_unit_test(trusttunnel_log_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
+add_unit_test(trusttunnel_deeplink_test "${TEST_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src" TRUE TRUE)
 
 # Install the shared library (DLL + import lib).  The shared library contains
 # all transitive static dependencies linked in — no third-party .lib files

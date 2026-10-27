@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,13 @@ public:
         std::string socks_listener_password;
         /// Certificate verification handler
         CertVerifyHandler cert_verify_handler = {};
+#if defined(__APPLE__)
+        /**
+         * Local Network permission check handler. Called when a DNS query fails in a way that may
+         * indicate that the application is missing the Local Network permission.
+         */
+        std::function<void()> check_local_network_permission;
+#endif // __APPLE__
 #if defined(__APPLE__) && TARGET_OS_IPHONE
         /// QoS class and relative priority for threads on iOS platform
         VpnQosSettings qos_settings;

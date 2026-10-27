@@ -283,6 +283,10 @@ typedef enum {
                                             `VpnTunnelConnectionClosedEvent`) */
     VPN_EVENT_CONNECTION_INFO,           /** Notifies that connection info is ready (raised with
                                             `VpnConnectionInfoEvent`) */
+#ifdef __APPLE__
+    VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION, /** Raised when we detect that the process is probably missing the Local
+                                                  Network permission (raised with null) */
+#endif
 } VpnEvent;
 
 typedef enum {

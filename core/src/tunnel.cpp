@@ -1820,6 +1820,9 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 size_t server_can_send = upstream->available_to_send(conn->server_id);
                 log_conn(this, conn, trace, "Can send to server side: {} bytes", server_can_send);
                 listener->turn_read(conn->client_id, server_can_send > 0);
+                // Refresh the upstream read state like `send_buffered_data` does, so that a
+                // pending destination EOF is processed when the client sends data.
+                upstream->update_flow_control(conn->server_id, listener->flow_control_info(conn->client_id));
             } else if (event->result == 0) {
                 listener->turn_read(conn->client_id, false);
             } else if (event->result < 0) {

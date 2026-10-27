@@ -111,6 +111,10 @@ struct ConnectingVpnManagerTest : MockedTest {
         case VPN_EVENT_TUNNEL_CONNECTION_CLOSED:
         case VPN_EVENT_CONNECTION_INFO:
             break;
+#ifdef __APPLE__
+        case VPN_EVENT_CHECK_LOCAL_NETWORK_PERMISSION:
+            break;
+#endif // __APPLE__
         case VPN_EVENT_STATE_CHANGED: {
             auto *event = (VpnStateChangedEvent *) data;
             self->session_state = event->state;

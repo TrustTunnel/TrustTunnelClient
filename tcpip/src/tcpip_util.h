@@ -13,6 +13,23 @@
 
 namespace ag {
 
+enum TunReadStatus {
+    TRS_OK,    // data was read from tun device and sent to netif driver
+    TRS_DROP,  // read data was malformed, so another read is required
+    TRS_STOP,  // no more data can be read from tun device for now
+    TRS_FATAL, // tun device failed in a way that will not clear by itself
+};
+
+/**
+ * Classify the outcome of a read from the tun device
+ *
+ * @param bytes_read return value of `read`/`readv`
+ * @param err `errno` as of that call
+ *
+ * @return see TunReadStatus fields description
+ */
+TunReadStatus tun_read_status(ptrdiff_t bytes_read, int err);
+
 /**
  * Convert ip_addr_t and port to `SocketAddress`
  *

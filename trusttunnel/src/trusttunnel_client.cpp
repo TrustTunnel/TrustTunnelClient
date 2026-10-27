@@ -29,6 +29,10 @@
 #include "vpn/trusttunnel/subscription_refresh.h"
 #include "vpn/trusttunnel/version.h"
 
+#ifdef __mips__
+#include <mimalloc.h>
+#endif
+
 #ifdef __APPLE__
 #include "AppleSleepNotifier.h"
 #endif
@@ -151,6 +155,11 @@ static void setup_sighandler() {
 }
 
 int main(int argc, char **argv) {
+#ifdef __mips__
+    // Explicit mimalloc invocation
+    mi_version();
+#endif
+
     setup_sighandler();
 
     cxxopts::Options args("trusttunnel_client", "TrustTunnel console client");

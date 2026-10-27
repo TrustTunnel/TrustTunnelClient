@@ -107,7 +107,7 @@ void DirectUpstream::tcp_socket_handler(void *arg, TcpSocketEvent what, void *da
         TcpSocket *socket = conn_iter->second.socket.get();
 
         constexpr size_t READ_BUDGET = 64;
-        for (size_t i = 0; i < READ_BUDGET && tcp_socket_is_read_enabled(socket); ++i) {
+        for (size_t i = 0; i < READ_BUDGET; ++i) {
             tcp_socket::PeekResult result = tcp_socket_peek(socket);
             if (std::holds_alternative<tcp_socket::NoData>(result)) {
                 break;
@@ -117,6 +117,12 @@ void DirectUpstream::tcp_socket_handler(void *arg, TcpSocketEvent what, void *da
                 log_conn(upstream, conn_id, dbg, "Got EOF from remote host");
                 upstream->handler.func(upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED, &conn_id);
                 upstream->m_tcp_connections.erase(conn_iter);
+                break;
+            }
+
+            // A pending EOF is handled above: reads may be disabled with nothing guaranteed
+            // to re-enable them, so the EOF must not be gated on that.
+            if (!tcp_socket_is_read_enabled(socket)) {
                 break;
             }
 
