@@ -147,7 +147,7 @@ jobs:
       id-token: write
     uses: AdGuardSoftwareLimited/actions/.github/workflows/sign-by-signer.yml@master
     with:
-      team: corelibs
+      team: libs
       artifact-name: windows-adapter-unsigned
       files: |
         **/trusttunnel.dll

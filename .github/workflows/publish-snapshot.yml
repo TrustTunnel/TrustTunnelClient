@@ -36,7 +36,7 @@ jobs:
     needs: mirror
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     environment: conan-artifactory-dev
-    runs-on: [team-corelibs]
+    runs-on: [team-libs]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

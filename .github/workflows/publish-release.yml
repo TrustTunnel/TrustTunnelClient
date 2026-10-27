@@ -37,7 +37,7 @@ jobs:
   tag:
     uses: AdGuardSoftwareLimited/actions/.github/workflows/tag-from-changelog.yml@master
     with:
-      team: corelibs
+      team: libs
       ref: ${{ inputs.ref || github.event.pull_request.merge_commit_sha || '' }}
 
   # 2a. Build the console apps for Linux, macOS and Windows.
@@ -93,7 +93,7 @@ jobs:
     needs: [tag, mirror]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     environment: conan-artifactory
-    runs-on: [team-corelibs]
+    runs-on: [team-libs]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -118,7 +118,7 @@ jobs:
     needs: [tag, build-console, deploy-android, deploy-apple, deploy-windows]
     uses: AdGuardSoftwareLimited/actions/.github/workflows/create-gh-release.yml@master
     with:
-      team: corelibs
+      team: libs
       target_repo: TrustTunnel/TrustTunnelClient
       tag_name: ${{ needs.tag.outputs.tag }}
       body: ${{ needs.tag.outputs.changelog }}
