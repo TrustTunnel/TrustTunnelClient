@@ -387,7 +387,8 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
             .mtu = int(config.mtu_size),
             .dns_servers = config.change_system_dns ? defaults->dns_servers : VpnAddressArray{},
             .device_name = !config.device_name.empty() ? config.device_name.c_str() : defaults->device_name,
-            .use_existing = config.use_existing};
+            .use_existing = config.use_existing,
+            .managed = config.managed};
 
     m_tunnel = ag::make_vpn_tunnel();
     if (m_tunnel == nullptr) {
@@ -426,6 +427,17 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
         errlog(m_logger, "Failed to initialize tunnel: {}", res.text);
         std::exchange(m_tunnel, nullptr)->deinit();
         return nullptr;
+    }
+
+    if (m_callbacks.network_ready_handler) {
+        // Use the tunnel DNS servers from the defaults, not from the settings:
+        // the latter are already emptied when change_system_dns is false, while
+        // the platform still needs the actual server list.
+        const char *ipv4 = tunnel_settings.ipv4_address != nullptr ? tunnel_settings.ipv4_address : "";
+        const char *ipv6 = tunnel_settings.ipv6_address != nullptr ? tunnel_settings.ipv6_address : "";
+        VpnNetworkInfo info = build_network_info(
+                m_tunnel->get_name(), ipv4, ipv6, uint32_t(tunnel_settings.mtu), defaults->dns_servers);
+        m_callbacks.network_ready_handler(&info);
     }
 
     VpnTunListenerConfig listener_config = {

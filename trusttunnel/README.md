@@ -143,6 +143,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `change_system_dns` | bool | `true` | Allow changing system DNS servers |
 | `device_name` | string | `""` | On Linux, the TUN interface name (empty = kernel-assigned). On Windows, the Wintun adapter name (empty = auto-generated from hostname). On macOS, request a specific `utun<N>` unit (empty = kernel-assigned). |
 | `use_existing` | bool | `false` | Attach to a pre-existing TUN device named `device_name` instead of creating one. Requires `device_name`. Linux only. |
+| `managed` | bool | `true` | If `false`, the core only creates the TUN device and leaves interface addresses, routes, MTU and DNS to the platform (intended for NetworkManager integration). Requires `included_routes = []`. Linux only. |
 
 To disable route management on any supported platform, set `included_routes = []`.
 On Linux this also suppresses cleanup of table `880` and the associated `ip rule`
