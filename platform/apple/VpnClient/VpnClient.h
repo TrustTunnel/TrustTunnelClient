@@ -1,6 +1,7 @@
 #import "DeepLink.h"
 #import "Logger.h"
 #import "PersistentRingBuffer.h"
+#import "Subscription.h"
 #import <Foundation/Foundation.h>
 #import <NetworkExtension/NetworkExtension.h>
 

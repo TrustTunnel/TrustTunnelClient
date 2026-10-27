@@ -15,6 +15,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     native_logger.cpp
     jni_utils.cpp
     deeplink.cpp
+    subscription.cpp
     persistent_ring_buffer.cpp)
 
 

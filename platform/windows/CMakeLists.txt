@@ -51,7 +51,8 @@ add_library(trusttunnel_windows_a STATIC
     src/client_authenticator.cpp
     src/process_info.cpp
     src/pipe_name_registry.cpp
-    src/trusttunnel_deeplink.cpp)
+    src/trusttunnel_deeplink.cpp
+    src/trusttunnel_subscription.cpp)
 target_include_directories(trusttunnel_windows_a PUBLIC include)
 target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel trusttunnel_deeplink_ffi)
 
@@ -59,7 +60,7 @@ target_link_libraries(trusttunnel_windows_a vpnlibs_trusttunnel trusttunnel_deep
 # libraries required by the Rust standard library linked in through trusttunnel_deeplink_ffi.
 target_link_libraries(trusttunnel_windows_a wintrust crypt32 bcrypt userenv ws2_32 ntdll)
 
-add_library(trusttunnel_windows SHARED src/trusttunnel.cpp src/trusttunnel_deeplink.cpp)
+add_library(trusttunnel_windows SHARED src/trusttunnel.cpp src/trusttunnel_deeplink.cpp src/trusttunnel_subscription.cpp)
 target_link_libraries(trusttunnel_windows trusttunnel_windows_a)
 set_target_properties(trusttunnel_windows PROPERTIES OUTPUT_NAME trusttunnel)
 

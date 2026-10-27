@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - Support `subscription_url` in the setup wizard, fetching the new configuration on toml/deeplink/subscription-only export
     - Refresh the endpoint parameters from the stored subscription URL with `trusttunnel_client --refresh`
     - Add `[endpoint.subscription]` to the config, holding the subscription URL and the time of the last successful fetch
+    - Expose the subscription fetch to the platform adapters
 
 ### Changed
 

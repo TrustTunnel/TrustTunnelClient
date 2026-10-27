@@ -47,6 +47,8 @@ add_library(${PROJECT_NAME} SHARED
     PersistentRingBuffer.mm
     DeepLink.h
     DeepLink.mm
+    Subscription.h
+    Subscription.mm
     module.modulemap
 )
 
@@ -56,7 +58,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     # Resolved by cmake/version.cmake (included via the add_subdirectory above).
     # The Mach-O VERSION must be numeric, so use the core X.Y.Z.
     VERSION ${TT_CLIENT_VERSION_CORE}
-    PUBLIC_HEADER "VpnClient.h;Logger.h;DeepLink.h;PersistentRingBuffer.h"
+    PUBLIC_HEADER "VpnClient.h;Logger.h;DeepLink.h;Subscription.h;PersistentRingBuffer.h"
     MACOSX_FRAMEWORK_INFO_PLIST "${INFOPLIST_FILE}"
     MACOSX_FRAMEWORK_IDENTIFIER com.adguard.TrustTunnel.VpnClientFramework
     INSTALL_NAME_DIR "@rpath"
