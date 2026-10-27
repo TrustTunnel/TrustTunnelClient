@@ -35,7 +35,7 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["team-corelibs"]'
+            runs-on: '["team-libs"]'
             ephemeral: false
             container-image: ''
             artifact-name: test-results-linux-private
