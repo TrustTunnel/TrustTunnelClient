@@ -1,0 +1,21 @@
+platform :osx, '15.8'
+
+target 'TrustTunnel CLI System Extension Manager' do
+  use_frameworks!
+  pod 'TrustTunnelClient', :path => '../apple/'
+end
+
+target 'SystemExtension' do
+  use_frameworks!
+  pod 'TrustTunnelClient', :path => '../apple/'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      # The vendored podspec declares an older minimum; raise it to the lowest
+      # version supported by the current toolchain.
+      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '12.0'
+    end
+  end
+end

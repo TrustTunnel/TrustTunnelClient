@@ -4,4 +4,7 @@
    <FileRef
       location = "container:TrustTunnel CLI System Extension Manager.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:Pods/Pods.xcodeproj">
+   </FileRef>
 </Workspace>

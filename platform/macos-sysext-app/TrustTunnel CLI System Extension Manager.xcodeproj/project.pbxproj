@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3A32701240791464383615DD /* Pods_SystemExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 38E1518DA5F93FBC4C8135CF /* Pods_SystemExtension.framework */; };
+		50987F94D91EA3CD154D0F50 /* Pods_TrustTunnel_CLI_System_Extension_Manager.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F10511773EAAF1A387AC8DE /* Pods_TrustTunnel_CLI_System_Extension_Manager.framework */; };
 		A54D07E9309229C0002DDA18 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A54D07D330922991002DDA18 /* NetworkExtension.framework */; };
 		A54D07F3309229C0002DDA18 /* com.adguard.TrustTunnel.SystemExtension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = A54D07E8309229C0002DDA18 /* com.adguard.TrustTunnel.SystemExtension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -36,9 +38,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0F10511773EAAF1A387AC8DE /* Pods_TrustTunnel_CLI_System_Extension_Manager.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_TrustTunnel_CLI_System_Extension_Manager.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		38E1518DA5F93FBC4C8135CF /* Pods_SystemExtension.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_SystemExtension.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		6B15CB316BE86643106FEF22 /* Pods-TrustTunnel CLI System Extension Manager.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TrustTunnel CLI System Extension Manager.debug.xcconfig"; path = "Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager.debug.xcconfig"; sourceTree = "<group>"; };
+		A1141A6EA95A2314A5B9F3C8 /* Pods-SystemExtension.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SystemExtension.release.xcconfig"; path = "Target Support Files/Pods-SystemExtension/Pods-SystemExtension.release.xcconfig"; sourceTree = "<group>"; };
 		A54D07BE30922930002DDA18 /* TrustTunnel CLI System Extension Manager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TrustTunnel CLI System Extension Manager.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A54D07D330922991002DDA18 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 		A54D07E8309229C0002DDA18 /* com.adguard.TrustTunnel.SystemExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.adguard.TrustTunnel.SystemExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC6B5972C642859CC59004F1 /* Pods-SystemExtension.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SystemExtension.debug.xcconfig"; path = "Target Support Files/Pods-SystemExtension/Pods-SystemExtension.debug.xcconfig"; sourceTree = "<group>"; };
+		E4D33ADECFD8BC8C1587FEEA /* Pods-TrustTunnel CLI System Extension Manager.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TrustTunnel CLI System Extension Manager.release.xcconfig"; path = "Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -54,6 +62,8 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A54D07C030922930002DDA18 /* TrustTunnel CLI System Extension Manager */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "TrustTunnel CLI System Extension Manager";
 			sourceTree = "<group>";
 		};
@@ -72,6 +82,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				50987F94D91EA3CD154D0F50 /* Pods_TrustTunnel_CLI_System_Extension_Manager.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,12 +91,25 @@
 			buildActionMask = 2147483647;
 			files = (
 				A54D07E9309229C0002DDA18 /* NetworkExtension.framework in Frameworks */,
+				3A32701240791464383615DD /* Pods_SystemExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		19EF48389185A101EF494926 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				CC6B5972C642859CC59004F1 /* Pods-SystemExtension.debug.xcconfig */,
+				A1141A6EA95A2314A5B9F3C8 /* Pods-SystemExtension.release.xcconfig */,
+				6B15CB316BE86643106FEF22 /* Pods-TrustTunnel CLI System Extension Manager.debug.xcconfig */,
+				E4D33ADECFD8BC8C1587FEEA /* Pods-TrustTunnel CLI System Extension Manager.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
 		A54D07B530922930002DDA18 = {
 			isa = PBXGroup;
 			children = (
@@ -93,6 +117,7 @@
 				A54D07EA309229C0002DDA18 /* SystemExtension */,
 				A54D07D230922991002DDA18 /* Frameworks */,
 				A54D07BF30922930002DDA18 /* Products */,
+				19EF48389185A101EF494926 /* Pods */,
 			);
 			sourceTree = "<group>";
 		};
@@ -109,6 +134,8 @@
 			isa = PBXGroup;
 			children = (
 				A54D07D330922991002DDA18 /* NetworkExtension.framework */,
+				38E1518DA5F93FBC4C8135CF /* Pods_SystemExtension.framework */,
+				0F10511773EAAF1A387AC8DE /* Pods_TrustTunnel_CLI_System_Extension_Manager.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -120,10 +147,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A54D07C930922931002DDA18 /* Build configuration list for PBXNativeTarget "TrustTunnel CLI System Extension Manager" */;
 			buildPhases = (
+				567C9588F4E0FE3C9C44C2D6 /* [CP] Check Pods Manifest.lock */,
 				A54D07BA30922930002DDA18 /* Sources */,
 				A54D07BB30922930002DDA18 /* Frameworks */,
 				A54D07BC30922930002DDA18 /* Resources */,
 				A54D07E330922992002DDA18 /* Embed System Extensions */,
+				56175914E11FE6232E957E04 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -134,8 +163,6 @@
 				A54D07C030922930002DDA18 /* TrustTunnel CLI System Extension Manager */,
 			);
 			name = "TrustTunnel CLI System Extension Manager";
-			packageProductDependencies = (
-			);
 			productName = "TrustTunnel CLI System Extension Manager";
 			productReference = A54D07BE30922930002DDA18 /* TrustTunnel CLI System Extension Manager.app */;
 			productType = "com.apple.product-type.application";
@@ -144,6 +171,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A54D07F5309229C0002DDA18 /* Build configuration list for PBXNativeTarget "SystemExtension" */;
 			buildPhases = (
+				4A637A1D3148E2CD936429B9 /* [CP] Check Pods Manifest.lock */,
 				A54D07E4309229C0002DDA18 /* Sources */,
 				A54D07E5309229C0002DDA18 /* Frameworks */,
 				A54D07E6309229C0002DDA18 /* Resources */,
@@ -156,8 +184,6 @@
 				A54D07EA309229C0002DDA18 /* SystemExtension */,
 			);
 			name = SystemExtension;
-			packageProductDependencies = (
-			);
 			productName = SystemExtension;
 			productReference = A54D07E8309229C0002DDA18 /* com.adguard.TrustTunnel.SystemExtension.systemextension */;
 			productType = "com.apple.product-type.system-extension";
@@ -216,6 +242,70 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4A637A1D3148E2CD936429B9 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-SystemExtension-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		56175914E11FE6232E957E04 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		567C9588F4E0FE3C9C44C2D6 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-TrustTunnel CLI System Extension Manager-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A54D07BA30922930002DDA18 /* Sources */ = {
@@ -281,7 +371,7 @@
 				DEVELOPMENT_TEAM = TC3Q7MAJXF;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -343,7 +433,7 @@
 				DEVELOPMENT_TEAM = TC3Q7MAJXF;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -361,6 +451,7 @@
 		};
 		A54D07CA30922931002DDA18 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6B15CB316BE86643106FEF22 /* Pods-TrustTunnel CLI System Extension Manager.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -394,8 +485,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.8;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtensionManager;
@@ -416,6 +507,7 @@
 		};
 		A54D07CB30922931002DDA18 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = E4D33ADECFD8BC8C1587FEEA /* Pods-TrustTunnel CLI System Extension Manager.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -449,8 +541,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.8;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtensionManager;
@@ -471,6 +563,7 @@
 		};
 		A54D07F6309229C0002DDA18 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = CC6B5972C642859CC59004F1 /* Pods-SystemExtension.debug.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SystemExtension/SystemExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -515,6 +608,7 @@
 		};
 		A54D07F7309229C0002DDA18 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1141A6EA95A2314A5B9F3C8 /* Pods-SystemExtension.release.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SystemExtension/SystemExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
