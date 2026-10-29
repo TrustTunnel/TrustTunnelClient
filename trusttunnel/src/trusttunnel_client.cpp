@@ -24,6 +24,7 @@
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
+#include "vpn/trusttunnel/sysext.h"
 #include "vpn/trusttunnel/version.h"
 
 #ifdef __mips__
@@ -135,7 +136,11 @@ int main(int argc, char **argv) {
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
             ("n,name", "Human-readable server display name for the deep-link. Overrides the configuration value.", cxxopts::value<std::string>()->default_value(""))
             ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
+            ("sysext", "Run in macOS system extension mode. Requires a subcommand: install, start, stop, status, uninstall.", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage");
+    args.add_options("sysext")
+            ("command", "--sysext subcommand", cxxopts::value<std::string>());
+    args.parse_positional({"command"});
 #ifdef _WIN32
     args.add_options()
             ("service-install", "Install as Windows service", cxxopts::value<bool>()->default_value("false"))
@@ -170,6 +175,26 @@ int main(int argc, char **argv) {
         }
         ag::Logger::set_log_level(*loglevel);
         return export_deeplink(result["config"].as<std::string>(), result["name"].as<std::string>());
+    }
+
+    if (!result.unmatched().empty()) {
+        errlog(g_logger, "Unexpected argument '{}'", result.unmatched().front());
+        return 1;
+    }
+
+    if (result.count("command") > 0 && !result["sysext"].as<bool>()) {
+        errlog(g_logger, "Unexpected positional argument '{}': --sysext subcommands require the --sysext flag",
+                result["command"].as<std::string>());
+        return 1;
+    }
+
+    if (result["sysext"].as<bool>()) {
+#ifdef __APPLE__
+        return ag::sysext::run_sysext(result);
+#else
+        errlog(g_logger, "--sysext is only supported on macOS");
+        return 1;
+#endif
     }
 
 #ifdef _WIN32
