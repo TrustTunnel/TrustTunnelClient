@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added an opt-in macOS system extension mode to the CLI: `--sysext
+  install|start|stop|status|uninstall` stages a host app into `/Applications`
+  and drives a `NEPacketTunnelProvider`-based system extension running the
+  TrustTunnel core, instead of a locally owned `utun` device.
+
 ### Changed
 
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.

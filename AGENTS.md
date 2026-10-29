@@ -39,6 +39,7 @@ See [README.md](README.md) for full product details and
 | `platform/apple/` | Apple adapter (Swift/ObjC, CocoaPods, XCFramework) |
 | `platform/windows/` | Windows adapter (C++/CMake) |
 | `platform/testapp/` | Flutter test application for platform adapters |
+| `platform/macos-sysext-app/` | macOS host app + system extension for the CLI `--sysext` mode (installs and drives a packet-tunnel system extension) |
 | `third-party/` | Vendored dependencies: lwip, pcap_savefile, wintun |
 | `scripts/` | Build helpers, Conan export, version increment, git hooks |
 | `cmake/` | CMake modules: unit test helper, Conan bootstrapping/provider |
