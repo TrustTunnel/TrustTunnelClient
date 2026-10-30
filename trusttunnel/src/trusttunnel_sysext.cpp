@@ -61,6 +61,8 @@ bool TrustTunnelSysextController::run(std::string_view command, const std::strin
 
     std::vector<std::string> arguments{std::string(command)};
     if (!config_path.empty()) {
+        // TODO: config path is passed as is, however this works only because sandboxing for app is disabled.
+        // If the app will be decided to be sandboxed - copy the config into the app container folder.
         arguments.emplace_back("--config");
         arguments.push_back(config_path);
     }

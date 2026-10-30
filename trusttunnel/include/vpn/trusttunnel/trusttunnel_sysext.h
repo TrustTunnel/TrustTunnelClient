@@ -46,6 +46,7 @@ public:
     /// forwarded to the installed host app as is. The config path is forwarded to the host
     /// app when it is non-empty. Returns true on success, false otherwise (the reason is
     /// logged).
+    // TODO: config_path is used only for `start` and no-op for everything else
     bool run(std::string_view command, const std::string &config_path);
 
 private:
