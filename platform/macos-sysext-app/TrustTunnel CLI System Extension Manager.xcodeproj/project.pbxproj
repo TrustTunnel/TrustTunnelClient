@@ -175,6 +175,7 @@
 				A54D07E4309229C0002DDA18 /* Sources */,
 				A54D07E5309229C0002DDA18 /* Frameworks */,
 				A54D07E6309229C0002DDA18 /* Resources */,
+				3319CE608ABF4ACBB1FD365F /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -281,6 +282,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-TrustTunnel CLI System Extension Manager/Pods-TrustTunnel CLI System Extension Manager-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		3319CE608ABF4ACBB1FD365F /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/TrustTunnelClient/TrustTunnelClient.framework",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/TrustTunnelClient/VpnClientFramework.framework",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/TrustTunnelClient.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/VpnClientFramework.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-SystemExtension/Pods-SystemExtension-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		567C9588F4E0FE3C9C44C2D6 /* [CP] Check Pods Manifest.lock */ = {
