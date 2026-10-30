@@ -1,6 +1,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -9,6 +10,10 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 
 #include <cxxopts.hpp>
 #include <magic_enum/magic_enum.hpp>
@@ -24,7 +29,9 @@
 #include "vpn/trusttunnel/auto_network_monitor.h"
 #include "vpn/trusttunnel/client.h"
 #include "vpn/trusttunnel/config.h"
-#include "vpn/trusttunnel/sysext.h"
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+#include "vpn/trusttunnel/trusttunnel_sysext.h"
+#endif
 #include "vpn/trusttunnel/version.h"
 
 #ifdef __mips__
@@ -136,11 +143,15 @@ int main(int argc, char **argv) {
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
             ("n,name", "Human-readable server display name for the deep-link. Overrides the configuration value.", cxxopts::value<std::string>()->default_value(""))
             ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
             ("sysext", "Run in macOS system extension mode. Requires a subcommand: install, start, stop, status, uninstall.", cxxopts::value<bool>()->default_value("false"))
+#endif
             ("h,help", "Print usage");
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     args.add_options("sysext")
             ("command", "--sysext subcommand", cxxopts::value<std::string>());
     args.parse_positional({"command"});
+#endif
 #ifdef _WIN32
     args.add_options()
             ("service-install", "Install as Windows service", cxxopts::value<bool>()->default_value("false"))
@@ -182,6 +193,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     if (result.count("command") > 0 && !result["sysext"].as<bool>()) {
         errlog(g_logger, "Unexpected positional argument '{}': --sysext subcommands require the --sysext flag",
                 result["command"].as<std::string>());
@@ -189,13 +201,22 @@ int main(int argc, char **argv) {
     }
 
     if (result["sysext"].as<bool>()) {
-#ifdef __APPLE__
-        return ag::sysext::run_sysext(result);
-#else
-        errlog(g_logger, "--sysext is only supported on macOS");
-        return 1;
-#endif
+        // Apply the command line log level like the --export-deeplink mode does: the
+        // configuration is not parsed in this mode.
+        auto loglevel = TrustTunnelCliUtils::parse_loglevel(result["loglevel"].as<std::string>());
+        if (!loglevel) {
+            errlog(g_logger, "Unexpected log level: {}", result["loglevel"].as<std::string>());
+            return 1;
+        }
+        ag::Logger::set_log_level(*loglevel);
+        std::string command;
+        if (result.count("command") > 0) {
+            command = result["command"].as<std::string>();
+        }
+        const bool success = TrustTunnelSysextController{}.run(command, result["config"].as<std::string>());
+        return success ? 0 : -1;
     }
+#endif
 
 #ifdef _WIN32
     if (result.count("service-install") && result.count("service-uninstall")) {

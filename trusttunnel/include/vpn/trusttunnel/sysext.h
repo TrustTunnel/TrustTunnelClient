@@ -1,91 +1,84 @@
 #pragma once
 
-#include <cstddef>
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <cxxopts.hpp>
+namespace ag {
 
-namespace ag::sysext {
+/// Directory macOS requires a system extension host app to be installed in.
+static constexpr std::string_view SYSEXT_HOST_APP_INSTALL_DIR = "/Applications";
 
-/// Name of the host app bundle staged into `/Applications`.
-inline constexpr std::string_view APP_BUNDLE_NAME = "TrustTunnel CLI System Extension Manager.app";
-/// Name of the host app executable inside the bundle (contains spaces - never pass through a shell).
-inline constexpr std::string_view APP_BINARY_NAME = "TrustTunnel CLI System Extension Manager";
-/// Default directory the host app bundle is staged into.
-inline constexpr std::string_view DEFAULT_APPLICATIONS_DIR = "/Applications";
-/// App group shared between the host app and the system extension.
-inline constexpr std::string_view APP_GROUP_ID = "group.com.adguard.TrustTunnel";
-/// Environment variable overriding the location of the host app bundle (development builds).
-inline constexpr std::string_view APP_PATH_ENV_VAR = "TRUSTTUNNEL_SYSEXT_APP_PATH";
+/// Return the directory of the running executable, empty when it cannot be determined.
+std::filesystem::path executable_dir();
 
-/// Subcommands accepted by the CLI in `--sysext` mode.
-enum class Command {
-    install,
-    start,
-    stop,
-    status,
-    uninstall,
+/// The host app the controller drives.
+struct SysextApp {
+    /// Bundle distributed with the CLI and installed at `install_location`; may be absent.
+    std::filesystem::path shipped_bundle;
+    /// Location the controller installs the host app bundle at; macOS activates the
+    /// system extension from the installed copy.
+    std::filesystem::path install_location;
+    /// Name of the executable inside the bundle's `Contents/MacOS`; can contain spaces
+    /// and must never be passed through a shell.
+    std::string binary_name;
 };
 
-/// Parse a `--sysext` subcommand name. Returns `std::nullopt` for unknown names.
-std::optional<Command> parse_command(std::string_view name);
+/// Runs a process and relays its result. An injectable spawn mechanism;
+/// `SpawnProcessRunner` is the production implementation.
+class ProcessRunner {
+public:
+    virtual ~ProcessRunner() = default;
 
-/// Get the name of a `--sysext` subcommand.
-std::string_view command_name(Command command);
+    /// Run the given executable with the given arguments, relaying its standard streams.
+    /// `argv[0]` is the executable path. Returns the exit status of the process, or
+    /// `std::nullopt` when it could not be spawned (the reason is logged).
+    virtual std::optional<int> run(const std::vector<std::string> &argv) = 0;
+};
 
-/// Return the path of the config copy inside the app group container of the given home directory.
-std::string container_config_path(std::string_view home_dir);
+/// Production process runner backed by `posix_spawn`.
+class SpawnProcessRunner final : public ProcessRunner {
+public:
+    std::optional<int> run(const std::vector<std::string> &argv) override;
+};
 
-/// Return the logs directory inside the app group container of the given home directory.
-std::string logs_directory(std::string_view home_dir);
+/**
+ * Mechanics of driving a macOS app bundle: staging the shipped copy into the install
+ * location, running the installed copy, and bundle removal.
+ */
+class SysextController {
+public:
+    /// Wire the controller with the app to drive and the process runner.
+    SysextController(SysextApp app, std::unique_ptr<ProcessRunner> runner);
 
-/// Return the path of the host app bundle inside the given applications directory.
-std::string installed_bundle_path(std::string_view applications_dir = DEFAULT_APPLICATIONS_DIR);
+    /// Copy the shipped host app bundle into the install location, replacing any existing
+    /// copy. Returns false on failure (the reason is logged).
+    bool stage_host_app() const;
 
-/// Resolve the host app bundle to run: development environment override, then the release
-/// layout next to the CLI binary, then the installed copy in the applications directory.
-/// Returns an empty string when no candidate exists.
-std::string resolve_app_bundle(std::optional<std::string_view> env_override, std::string_view binary_dir,
-        std::string_view applications_dir = DEFAULT_APPLICATIONS_DIR);
+    /// Run the installed host app with the given arguments. Returns false when the app is
+    /// not installed, cannot be spawned, or exits with a non-zero status (the reason is
+    /// logged).
+    bool run_app(std::vector<std::string> arguments) const;
 
-/// Return the directory containing the running CLI executable, or an empty string on failure.
-std::string binary_dir();
+    /// Remove the host app bundle from the install location. Returns `true` when the
+    /// bundle is gone or was absent, `false` when the removal failed (the reason is
+    /// logged).
+    bool remove_install_location_bundle() const;
 
-/// Read the bundle's `CFBundleShortVersionString`. Returns an empty string when the bundle
-/// does not exist or carries no version.
-std::string bundle_version(std::string_view bundle_path);
+private:
+    SysextApp m_app;
+    std::unique_ptr<ProcessRunner> m_runner;
+};
 
-/// Copy the source bundle into the applications directory unless a copy with the same
-/// version is already installed there. Returns the path of the staged bundle on success,
-/// `std::nullopt` on failure with `error` set to the reason.
-std::optional<std::string> stage_app_bundle(
-        std::string_view source_bundle, std::string_view applications_dir, std::string &error);
+} // namespace ag
 
-/// Build the argument list for the host app binary of the given bundle. The config path is
-/// passed only to `start`, which reads the config copy from the app group container.
-std::vector<std::string> app_spawn_arguments(
-        std::string_view bundle_path, Command command, std::string_view config_path);
-
-/// Run the host app with the given arguments, relaying its standard streams. Returns the
-/// exit status of the app process, or -1 when it could not be spawned (the reason is logged).
-int spawn_app(const std::vector<std::string> &arguments);
-
-/// Print the tails of the host app and extension log files from the app group container.
-/// The file names must stay in sync with `FileLogger.appBaseName`/`extensionBaseName`
-/// in `platform/apple/TrustTunnelClient/FileLogger.swift`.
-void print_log_tails(std::string_view home_dir, std::size_t max_lines);
-
-/// Validate that the configuration can be used in `--sysext` mode: the `[listener.tun]`
-/// table must be present, since the system extension runs a TUN listener. Returns true when
-/// the configuration is usable, logging the reason otherwise.
-bool validate_sysext_config(std::string_view config_path);
-
-/// Entry point of the CLI `--sysext` mode: validates the configuration (for `start`),
-/// stages the host app bundle, spawns the app with the subcommand and relays its result.
-/// Returns the process exit status.
-int run_sysext(const cxxopts::ParseResult &cli_args);
-
-} // namespace ag::sysext
+#endif // defined(__APPLE__) && !TARGET_OS_IPHONE
