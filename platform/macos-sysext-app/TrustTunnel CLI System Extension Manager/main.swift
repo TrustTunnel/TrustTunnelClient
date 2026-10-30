@@ -21,12 +21,16 @@ func value(for flag: String, in tokens: [String]) -> String? {
     return tokens[index + 1]
 }
 
-if let command = ConsoleService.Command(rawValue: tokens.first ?? "") {
+if tokens.isEmpty {
+    TrustTunnel_CLI_System_Extension_ManagerApp.main()
+} else if let command = ConsoleService.Command(rawValue: tokens[0]) {
     // Headless runs show no window and must not bounce the Dock icon.
     NSApplication.shared.setActivationPolicy(.accessory)
     ConsoleService.run(command, configPath: value(for: "--config", in: tokens)) { exit($0) }
     // Run the loop instead of dispatchMain because otherwise the app icon keeps bouncing.
     RunLoop.current.run()
 } else {
-    TrustTunnel_CLI_System_Extension_ManagerApp.main()
+    let supported = ConsoleService.Command.allCases.map(\.rawValue).joined(separator: ", ")
+    FileHandle.standardError.write(Data("Unknown command '\(tokens[0])', expected one of: \(supported)\n".utf8))
+    exit(EXIT_FAILURE)
 }
