@@ -415,7 +415,7 @@ jobs:
       id-token: write
     uses: AdGuardSoftwareLimited/actions/.github/workflows/sign-by-signer.yml@master
     with:
-      team: corelibs
+      team: libs
       artifact-name: windows-exe-unsigned
       files: '**/*.exe'
       signed-artifact-name: windows-exe-signed
@@ -424,7 +424,7 @@ jobs:
     name: Package Windows release
     needs: sign-windows
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on: [team-corelibs]
+    runs-on: [team-libs]
     permissions:
       contents: read
     steps:
@@ -494,7 +494,7 @@ jobs:
     name: Collect release artifacts
     needs: [build-linux, build-macos, package-windows]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    runs-on: [team-corelibs]
+    runs-on: [team-libs]
     permissions:
       contents: read
     steps:
