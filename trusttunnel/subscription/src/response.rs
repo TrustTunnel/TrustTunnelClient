@@ -25,6 +25,8 @@ pub struct SubscriptionResponse {
     #[serde(default)]
     pub client_random_prefix: Option<String>,
     #[serde(default)]
+    pub client_random_auth_key: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub dns_upstreams: Option<Vec<String>>,
@@ -55,6 +57,7 @@ impl SubscriptionResponse {
         endpoint.certificate = self.certificate.clone();
         endpoint.custom_sni = self.custom_sni.clone().unwrap_or_default();
         endpoint.client_random = self.client_random_prefix.clone().unwrap_or_default();
+        endpoint.client_random_auth_key = self.client_random_auth_key.clone().unwrap_or_default();
     }
 
     fn validate(&self) -> Result<(), SubscriptionError> {
@@ -112,6 +115,8 @@ mod tests {
         assert_eq!(response.hostname, "vpn.example.com");
         assert_eq!(response.address, "1.2.3.4:443");
         assert!(response.certificate.is_none());
+        assert!(response.client_random_prefix.is_none());
+        assert!(response.client_random_auth_key.is_none());
         assert!(response.name.is_none());
         assert!(response.dns_upstreams.is_none());
     }
@@ -190,6 +195,12 @@ mod tests {
         .unwrap()
     }
 
+    fn auth_key_response() -> SubscriptionResponse {
+        let mut doc = valid_document();
+        doc["client_random_auth_key"] = serde_json::json!("00112233445566778899aabbccddeeff");
+        SubscriptionResponse::from_json(&doc.to_string()).unwrap()
+    }
+
     fn endpoint() -> Endpoint {
         Endpoint {
             hostname: "old.example.com".to_string(),
@@ -203,6 +214,7 @@ mod tests {
     #[test]
     fn overlays_all_live_fields() {
         let mut ep = endpoint();
+        ep.client_random_auth_key = "deadbeef".to_string();
         response().apply_to(&mut ep);
         assert_eq!(ep.hostname, "new.example.com");
         assert_eq!(ep.addresses, vec!["5.6.7.8:443".to_string()]);
@@ -218,6 +230,19 @@ mod tests {
         );
         assert_eq!(ep.custom_sni, "sni.example.com");
         assert_eq!(ep.client_random, "aabb/16");
+        assert_eq!(ep.client_random_auth_key, "");
+    }
+
+    #[test]
+    fn applies_auth_key_and_clears_prefix() {
+        let mut ep = endpoint();
+        ep.client_random = "ff/8".to_string();
+        auth_key_response().apply_to(&mut ep);
+        assert_eq!(ep.client_random, "");
+        assert_eq!(
+            ep.client_random_auth_key,
+            "00112233445566778899aabbccddeeff"
+        );
     }
 
     #[test]
@@ -254,11 +279,13 @@ mod tests {
             certificate: Some("pinned".to_string()),
             custom_sni: "old-sni".to_string(),
             client_random: "ff/8".to_string(),
+            client_random_auth_key: "deadbeef".to_string(),
             ..endpoint()
         };
         response.apply_to(&mut ep);
         assert!(ep.certificate.is_none(), "stale pin must be dropped");
         assert_eq!(ep.custom_sni, "");
         assert_eq!(ep.client_random, "");
+        assert_eq!(ep.client_random_auth_key, "");
     }
 }

@@ -110,6 +110,19 @@ url = "https://u:p@old.example.com/subscription"
     }
 
     #[test]
+    fn apply_installs_the_client_random_auth_key() {
+        let mut body: serde_json::Value = serde_json::from_str(&body()).unwrap();
+        body["client_random_auth_key"] = serde_json::json!("00112233445566778899aabbccddeeff");
+        let outcome = apply_endpoint_at(ENDPOINT, &body.to_string(), &fixed_now).unwrap();
+        let doc: toml_edit::Document = outcome.parse().unwrap();
+        assert_eq!(
+            doc["endpoint"]["client_random_auth_key"].as_str(),
+            Some("00112233445566778899aabbccddeeff")
+        );
+        assert_eq!(doc["endpoint"]["client_random"].as_str(), Some(""));
+    }
+
+    #[test]
     fn apply_keeps_the_endpoint_scope() {
         let outcome = apply_endpoint_at(ENDPOINT, &body(), &fixed_now).unwrap();
         assert!(!outcome.contains("loglevel"), "unexpected: {outcome}");
