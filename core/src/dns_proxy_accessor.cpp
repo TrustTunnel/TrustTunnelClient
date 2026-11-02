@@ -33,22 +33,15 @@ static dns::DnsProxySettings make_dns_proxy_settings(const DnsProxyAccessor::Par
 
     std::transform(parameters.upstreams.begin(), parameters.upstreams.end(), std::back_inserter(settings.upstreams),
             [id = 0, outbound_interface, &bootstrap_dns](const DnsProxyAccessor::Upstream &upstream) mutable {
-                IpAddress resolved_host;
+                std::vector<IpAddress> resolved_hosts;
                 if (upstream.resolved_host.has_value()) {
-                    uint8_t *data = nullptr;
-                    if (upstream.resolved_host->is_ipv4()) {
-                        data = resolved_host.emplace<Ipv4Address>().data();
-                    } else {
-                        data = resolved_host.emplace<Ipv6Address>().data();
-                    }
-                    auto ip = upstream.resolved_host->addr();
-                    std::copy(ip.data(), ip.data() + ip.size(), data);
+                    resolved_hosts.emplace_back(upstream.resolved_host->addr_variant());
                 }
 
                 return dns::UpstreamOptions{
                         .address = upstream.address,
                         .bootstrap = bootstrap_dns,
-                        .resolved_server_ip = resolved_host,
+                        .resolved_server_ips = std::move(resolved_hosts),
                         .id = id++,
                         .outbound_interface =
                                 (outbound_interface != 0) ? IfIdVariant(outbound_interface) : std::monostate{},
