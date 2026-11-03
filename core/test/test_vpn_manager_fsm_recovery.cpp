@@ -495,6 +495,8 @@ TEST_F(ConnectedVpnManagerTest, RecoveryStateResetAfterFatalDisconnect) {
     VpnError error = {.code = VPN_EC_AUTH_REQUIRED, .text = "fatal"};
     raise_client_event(vpn_client::EVENT_ERROR, &error);
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+    ASSERT_EQ(VPN_EC_AUTH_REQUIRED, vpn_error.code);
+    ASSERT_STREQ("fatal", vpn_error.text);
 
     // The recovery state must be clean: zero attempts and no pending recovery task.
     ASSERT_EQ(0u, vpn->recovery.attempts);
