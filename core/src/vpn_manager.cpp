@@ -175,6 +175,8 @@ bool Vpn::run_event_loop() {
         }
     });
 
+    // The startup wait still dispatches under `stop_guard`. It only waits for tasks queued before `vpn_connect()`;
+    // they do not raise state-change events in `VPN_SS_DISCONNECTED`, so no deadlock has been observed here.
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
         vpn_event_loop_stop(this->ev_loop.get());
@@ -382,16 +384,27 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (!vpn->executor_thread.joinable()) {
+    if (!vpn->executor_thread.joinable() || vpn->ev_loop == nullptr) {
         VpnError error = {VPN_EC_ERROR, "VPN client worker is not running"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
 
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         StartListeningArgs args{.listener = std::move(listener), .config = config};
         vpn->fsm.perform_transition(vpn_fsm::CE_START_LISTENING, &args);
     });
+    if (vpn->ev_loop == nullptr || !vpn->executor_thread.joinable()) {
+        VpnError error = {VPN_EC_ERROR, "VPN client was stopped"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+    if (!executed) {
+        VpnError error = {VPN_EC_ERROR, "VPN client event loop is not running"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
 
     log_vpn(vpn, info, "Done");
 
@@ -450,11 +463,6 @@ void vpn_close(Vpn *vpn) {
 
     log_vpn(vpn, info, "Done");
     delete vpn;
-}
-
-VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
-    std::unique_lock l(vpn->stop_guard);
-    return vpn_listener_config_clone(&vpn->client.listener_config);
 }
 
 VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {
@@ -868,10 +876,18 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 
 SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     SocketAddressStorage ret{};
-    std::scoped_lock l(vpn->stop_guard);
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    std::unique_lock l(vpn->stop_guard);
+    if (vpn->ev_loop == nullptr) {
+        return ret;
+    }
+
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         ret = *vpn->client.socks_listener_address.c_storage();
     });
+    if (vpn->ev_loop == nullptr || !executed) {
+        return {};
+    }
     return ret;
 }
 
