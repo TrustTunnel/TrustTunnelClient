@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `VpnError`, which made the reported disconnect error text point to freed
   memory; the QUIC error code and the `input()` error are now logged at `INFO`
   instead of being reported in the error text.
+- Fixed event loop finalization: task finalizers are no longer called while holding the loop lock, tasks submitted during finalization are finalized immediately, and deferred tasks are destroyed before finalization is published.
 
 ### Security
 

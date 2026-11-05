@@ -85,6 +85,12 @@ void vpn_event_loop_exit(VpnEventLoop *loop, Millis timeout);
  * Blocks until the loop is actually stopped and calls `VpnEventLoopTask#finalize`
  * for each task.
  * Must be called after `vpn_event_loop_exit`.
+ * May be called again on an already stopped loop: it finalizes the tasks queued after the loop has stopped.
+ * Must not be called concurrently from multiple threads or from a finalize callback: the loop is finalized by the
+ * thread that stopped it.
+ * While finalization is in progress, `vpn_event_loop_submit()` and `vpn_event_loop_schedule()` do not queue the
+ * task: they call its `finalize` on the calling thread and return `-1`.
+ * Finalize callbacks must not call `vpn_event_loop_stop()` or `vpn_event_loop_finalize_exit()`.
  */
 void vpn_event_loop_finalize_exit(VpnEventLoop *loop);
 
