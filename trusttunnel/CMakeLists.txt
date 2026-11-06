@@ -27,6 +27,7 @@ set(SOURCE_FILES
         src/client.cpp
         src/utils.cpp
         src/connection_info.cpp
+        src/network_info.cpp
         src/auto_network_monitor.cpp
         src/persistent_ring_buffer.cpp
         )
@@ -323,3 +324,4 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
 add_unit_test(test_persistent_ring_buffer "${TEST_DIR}" "" TRUE TRUE)
 add_unit_test(test_trusttunnel_config "${TEST_DIR}" "" TRUE TRUE)
+add_unit_test(test_network_info "${TEST_DIR}" "" TRUE TRUE)

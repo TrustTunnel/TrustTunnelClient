@@ -158,6 +158,11 @@ build_trusttunnel_client: setup_cmake
 build_wizard: setup_cmake
 	cmake --build $(BUILD_DIR) --target setup_wizard -j$(NPROC)
 
+.PHONY: build_linux_adapter
+## Build the Linux platform adapter daemon (trusttunneld)
+build_linux_adapter: setup_cmake
+	cmake --build $(BUILD_DIR) --target trusttunneld -j$(NPROC)
+
 .PHONY: build_and_export_bin
 ## Build and copy all binaries in the specified directory
 build_and_export_bin: build_trusttunnel_client build_wizard

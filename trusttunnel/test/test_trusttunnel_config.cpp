@@ -390,3 +390,65 @@ client_random_auth_key = "aabbccdd"
     ASSERT_NE(endpoint, nullptr);
     EXPECT_EQ((*endpoint)["client_random_auth_key"].value_or(std::string{}), "aabbccdd");
 }
+
+/// Parse `config` with `TrustTunnelConfig::build_config`.
+static std::optional<TrustTunnelConfig> build_config_from(std::string_view config) {
+    toml::parse_result parsed = toml::parse(config);
+    EXPECT_TRUE(parsed) << "the test configuration must be valid TOML";
+    if (!parsed) {
+        return std::nullopt;
+    }
+    return TrustTunnelConfig::build_config(parsed.table());
+}
+
+static constexpr std::string_view TUN_BASE_CONFIG = R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+upstream_protocol = "auto"
+
+[listener.tun]
+)";
+
+/// Parse the base tun configuration with extra `[listener.tun]` options appended.
+static std::optional<TrustTunnelConfig> build_config_with_tun(std::string_view tun_options = {}) {
+    return build_config_from(std::string{TUN_BASE_CONFIG} + std::string{tun_options});
+}
+
+static const TrustTunnelConfig::TunListener *tun_listener(const std::optional<TrustTunnelConfig> &config) {
+    return config.has_value() ? std::get_if<TrustTunnelConfig::TunListener>(&config->listener) : nullptr;
+}
+
+TEST(TrustTunnelConfigTest, TunManagedDefaultsToTrue) {
+    std::optional result = build_config_with_tun();
+    ASSERT_TRUE(result.has_value());
+    const auto *tun = tun_listener(result);
+    ASSERT_NE(tun, nullptr);
+    EXPECT_TRUE(tun->managed);
+}
+
+TEST(TrustTunnelConfigTest, TunManagedFalseIsParsed) {
+    std::optional result = build_config_with_tun("managed = false\n");
+    ASSERT_TRUE(result.has_value());
+    const auto *tun = tun_listener(result);
+    ASSERT_NE(tun, nullptr);
+    EXPECT_FALSE(tun->managed);
+}
+
+TEST(TrustTunnelConfigTest, TunManagedFalseWithIncludedRoutesIsRejected) {
+    EXPECT_FALSE(build_config_with_tun("managed = false\nincluded_routes = [\"0.0.0.0/0\"]\n").has_value());
+}
+
+TEST(TrustTunnelConfigTest, TunManagedTrueWithIncludedRoutesIsAccepted) {
+    std::optional result = build_config_with_tun("included_routes = [\"0.0.0.0/0\"]\n");
+    ASSERT_TRUE(result.has_value());
+    const auto *tun = tun_listener(result);
+    ASSERT_NE(tun, nullptr);
+    EXPECT_TRUE(tun->managed);
+    ASSERT_EQ(tun->included_routes.size(), 1u);
+    EXPECT_EQ(tun->included_routes[0], "0.0.0.0/0");
+}

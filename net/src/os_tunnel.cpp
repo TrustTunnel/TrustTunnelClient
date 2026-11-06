@@ -190,6 +190,7 @@ ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_clone(const ag::VpnOsTunnelS
     }
     dst->device_name = safe_strdup(settings->device_name);
     dst->use_existing = settings->use_existing;
+    dst->managed = settings->managed;
     return dst;
 }
 
@@ -234,6 +235,7 @@ const ag::VpnOsTunnelSettings *ag::vpn_os_tunnel_settings_defaults() {
             .device_name = "",
 #endif
             .use_existing = false,
+            .managed = true,
     };
     return &settings;
 }

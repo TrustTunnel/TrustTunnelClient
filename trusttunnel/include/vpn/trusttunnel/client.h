@@ -9,6 +9,7 @@
 #include "config.h"
 #include "net/os_tunnel.h"
 #include "net/utils.h"
+#include "network_info.h"
 #include "vpn/vpn.h"
 
 #ifdef __APPLE__
@@ -27,6 +28,9 @@ struct VpnCallbacks {
     std::function<void(VpnStateChangedEvent *)> state_changed_handler;
     std::function<void(VpnClientOutputEvent *)> client_output_handler;
     std::function<void(VpnConnectionInfoEvent *)> connection_info_handler;
+    /// Called synchronously once the TUN device is created and its network
+    /// parameters are final. Do not call the client's methods from inside.
+    std::function<void(const VpnNetworkInfo *)> network_ready_handler;
 };
 
 class TrustTunnelClient {

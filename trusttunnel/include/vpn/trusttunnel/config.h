@@ -52,6 +52,9 @@ struct TrustTunnelConfig {
         std::string bound_if;
         bool change_system_dns = true;
         bool use_existing = false;
+        /// If false, the core creates the TUN device but leaves interface
+        /// addresses, routes, MTU and DNS to the platform (Linux only)
+        bool managed = true;
         std::optional<std::string> netns;
     };
 
