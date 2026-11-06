@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Report a fatal `VPN_EC_AUTH_REQUIRED`,
+  `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, or
+  `VPN_EC_CERTIFICATE_NOT_YET_VALID` error in `VPN_EVENT_STATE_CHANGED`
+  when it aborts a session after the initial connect. Previously such
+  errors were lost for the `CONNECTED`, `WAITING_RECOVERY`,
+  `RECOVERING`, and `WAITING_FOR_NETWORK` states, and applications
+  received `VPN_SS_DISCONNECTED` with an empty `VpnError`.
 - Fixed the HTTP/3 upstream storing pointers to already destroyed strings in
   `VpnError`, which made the reported disconnect error text point to freed
   memory; the QUIC error code and the `input()` error are now logged at `INFO`
