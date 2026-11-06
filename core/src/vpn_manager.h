@@ -96,8 +96,13 @@ struct Vpn {
 
     Fsm fsm;
     std::optional<VpnError> pending_error;
+
+    /** The only thread running the single-threaded core; started by `vpn_connect()`, joined by `vpn_stop()`. */
     std::thread executor_thread;
+
+    /** The VPN event loop; created in `vpn_open()` and re-created by `vpn_connect()` after `vpn_stop()`. */
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
+
     vpn_manager::RecoveryInfo recovery = {};
     VpnHandler handler = {};
     DeclPtr<VpnNetworkManager, &vpn_network_manager_destroy> network_manager{vpn_network_manager_get()};
@@ -126,6 +131,12 @@ struct Vpn {
     // If it expires before recovery is done, all postponed connect requests are bypassed.
     DeclPtr<event, &event_free> postponement_window_timer;
 
+    /**
+     * Protects `executor_thread`/`ev_loop` and serializes control operations, except that `vpn_listen()` and
+     * `vpn_get_socks_listener_address()` release it while waiting for the event loop. Callers must re-check state
+     * after that wait. `vpn_stop()` holds it for the whole teardown, so handlers must not call functions that take it
+     * while the client is stopping.
+     */
     mutable std::mutex stop_guard;
 
     event_loop::AutoTaskId update_exclusions_task; // Guarded by stop_guard

@@ -1,4 +1,8 @@
+#include <atomic>
 #include <condition_variable>
+#include <cstdlib>
+#include <functional>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -67,6 +71,8 @@ protected:
     int raised_events = 0;
     VpnError vpn_error{};
     FsmState vpn_state = 0;
+    /** Called from the event handler before it takes the test lock; used by tests to block the event loop. */
+    std::function<void(VpnEvent)> handler_hook;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -75,6 +81,7 @@ protected:
 
         raised_events = 0;
         vpn_error = {};
+        handler_hook = nullptr;
 
         upstream = {};
         upstream.username = "test";
@@ -92,6 +99,10 @@ protected:
         infolog(log, "\n\n{}(): ...\n\n", __func__);
 
         if (vpn != nullptr) {
+            {
+                std::scoped_lock l(this->guard);
+                handler_hook = nullptr;
+            }
             vpn_stop(vpn);
             vpn_close(vpn);
         }
@@ -223,6 +234,16 @@ protected:
 
 static void vpn_handler(void *arg, VpnEvent what, void *data) {
     VpnManagerTest *test = (VpnManagerTest *) arg;
+
+    std::function<void(VpnEvent)> hook;
+    {
+        std::scoped_lock l(test->guard);
+        hook = test->handler_hook;
+    }
+    if (hook) {
+        hook(what);
+    }
+
     std::unique_lock l(test->guard);
     test->raised_events |= 1 << what;
     test->vpn_state = test->vpn->fsm.get_state();
@@ -549,4 +570,111 @@ TEST_F(AbandonEndpoint, AllOfFamily) {
 
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
     ASSERT_EQ(vpn_error.code, VPN_EC_LOCATION_UNAVAILABLE);
+}
+// Check that an event handler can call `vpn_get_event_loop()` while `vpn_listen()` is waiting for the loop
+TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
+    std::mutex hook_guard;
+    std::condition_variable hook_cv;
+    bool handler_entered = false;
+    bool handler_proceed = false;
+    bool handler_finished = false;
+    std::atomic<bool> loop_seen{false};
+
+    {
+        std::scoped_lock l(this->guard);
+        this->handler_hook = [&](VpnEvent what) {
+            if (what != VPN_EVENT_ENDPOINT_CONNECTION_STATS) {
+                return;
+            }
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_entered = true;
+                hook_cv.notify_all();
+                hook_cv.wait(l, [&]() {
+                    return handler_proceed;
+                });
+            }
+
+            // `vpn_listen()` has released `stop_guard` while waiting; this call must not deadlock.
+            loop_seen.store(vpn_get_event_loop(this->vpn) != nullptr);
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_finished = true;
+                hook_cv.notify_all();
+            }
+        };
+    }
+
+    vpn_request_endpoint_connection_stats(this->vpn);
+    {
+        std::unique_lock l(hook_guard);
+        bool entered = hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_entered;
+        });
+        if (!entered) {
+            // Release a handler that may enter later, then abort: CTest runs each test in its own process, and
+            // continuing with a handler that references the test frame would be unsafe.
+            handler_proceed = true;
+            hook_cv.notify_all();
+            l.unlock();
+            {
+                std::scoped_lock guard_lock(this->guard);
+                this->handler_hook = nullptr;
+            }
+            ADD_FAILURE() << "handler was not entered";
+            std::abort();
+        }
+    }
+
+    VpnSocksListenerConfig socks_config{};
+    VpnListener *listener = vpn_create_socks_listener(this->vpn, &socks_config);
+    ASSERT_NE(listener, nullptr);
+
+    VpnListenerConfig listener_config{};
+    VpnError listen_error{};
+    std::atomic<bool> listen_started{false};
+    std::thread listen_thread([&]() {
+        listen_started.store(true);
+        listen_error = vpn_listen(this->vpn, listener, &listener_config);
+    });
+
+    // Give the listen thread time to reach `dispatch_sync()` and release `stop_guard`.
+    while (!listen_started.load()) {
+        std::this_thread::sleep_for(milliseconds(1));
+    }
+    std::this_thread::sleep_for(milliseconds(50));
+
+    {
+        std::unique_lock l(hook_guard);
+        handler_proceed = true;
+        hook_cv.notify_all();
+    }
+
+    bool finished = false;
+    {
+        std::unique_lock l(hook_guard);
+        finished = hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_finished;
+        });
+    }
+    if (!finished) {
+        // The handler is deadlocked on `stop_guard` held by `vpn_listen()`. Abort instead of detaching a thread
+        // that captures the test frame by reference.
+        {
+            std::scoped_lock l(this->guard);
+            this->handler_hook = nullptr;
+        }
+        ADD_FAILURE() << "event handler deadlocked on the VPN lock held by vpn_listen()";
+        std::abort();
+    }
+
+    listen_thread.join();
+    {
+        std::scoped_lock l(this->guard);
+        this->handler_hook = nullptr;
+    }
+    EXPECT_TRUE(loop_seen.load());
+    EXPECT_EQ(listen_error.code, VPN_EC_NOERROR);
 }
