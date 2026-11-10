@@ -20,6 +20,10 @@ The built executable will be available in the
 The TrustTunnel CLI Client accepts a TOML-formatted configuration file.
 You can use the setup wizard tool to generate a basic configuration file.
 
+> Note: The old `setup_wizard` name is deprecated. Release archives and the
+> installer keep a compatibility entry point for existing scripts. Use
+> `trusttunnel_client_setup_wizard`.
+
 ### Setup Wizard Tool
 
 #### Usage
