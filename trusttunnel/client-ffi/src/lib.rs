@@ -54,6 +54,8 @@ pub unsafe extern "C" fn trusttunnel_client_run_setup_wizard(
         return 2;
     }
 
+    // SAFETY: `args` is non-null and points to `args_len` readable bytes when
+    // `args_len` is nonzero, as required by the function contract.
     let bytes = unsafe { std::slice::from_raw_parts(args.cast::<u8>(), args_len) };
     let serialized = match std::str::from_utf8(bytes) {
         Ok(serialized) => serialized,

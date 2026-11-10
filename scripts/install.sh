@@ -628,6 +628,10 @@ handle_existing
 
 unpack
 
+if [ -f "${output_dir}/setup_wizard" ] || [ -f "${output_dir}/trusttunnel_client_setup_wizard" ]; then
+  error_exit "The archive contains a standalone setup wizard. Use the installer from the matching release."
+fi
+
 report_success
 
 verify_hint

@@ -232,7 +232,7 @@ lint-md:
 .PHONY: lint-rust
 lint-rust:
 	cargo clippy --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -- -D warnings
-	cargo clippy --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -p trusttunnel-client-ffi --no-deps -- -D warnings
+	cargo clippy --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -p trusttunnel-client-ffi -- -D warnings
 	cargo fmt --all --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -- --check
 
 ## Fix linter issues that are auto-fixable.
