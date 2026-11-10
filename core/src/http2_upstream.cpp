@@ -367,7 +367,8 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
             break;
         }
 
-        log_upstream(upstream, dbg, "Established TCP connection to endpoint successfully");
+        log_upstream(upstream, dbg, "Established TCP connection to endpoint successfully. TLS profile: {}",
+                tls_profile_description(upstream->vpn->upstream_config.endpoint->tls_profile));
         if (upstream->establish_http_session()) {
             tcp_socket_set_read_enabled(upstream->m_socket.get(), true);
             upstream->handler.func(upstream->handler.arg, SERVER_EVENT_SESSION_OPENED, nullptr);
@@ -431,14 +432,18 @@ void Http2Upstream::net_handler(void *arg, TcpSocketEvent what, void *data) {
         const VpnError *sock_event = (VpnError *) data;
 
         if (upstream->m_cert_verify_error) {
-            log_upstream(upstream, warn, "Error on HTTP session socket (certificate verification failed): {} ({})",
-                    sock_event->text, sock_event->code);
+            log_upstream(upstream, warn,
+                    "Error on HTTP session socket (certificate verification failed) with TLS profile {}: {} ({})",
+                    tls_profile_description(upstream->vpn->upstream_config.endpoint->tls_profile), sock_event->text,
+                    sock_event->code);
             int errc = (upstream->m_cert_verify_error == VPN_VCR_CERT_NOT_YET_VALID)
                     ? VPN_EC_CERTIFICATE_NOT_YET_VALID
                     : VPN_EC_CERTIFICATE_VERIFICATION_FAILED;
             upstream->close_session_inner(VpnError{errc, sock_event->text});
         } else {
-            log_upstream(upstream, dbg, "Error on HTTP session socket: {} ({})", sock_event->text, sock_event->code);
+            log_upstream(upstream, dbg, "Error on HTTP session socket with TLS profile {}: {} ({})",
+                    tls_profile_description(upstream->vpn->upstream_config.endpoint->tls_profile), sock_event->text,
+                    sock_event->code);
             upstream->close_session_inner(VpnError{VPN_EC_ERROR, sock_event->text});
         }
 
@@ -485,7 +490,6 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     m_cert_verify_error.reset();
 
     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
-    log_upstream(this, dbg, "TLS profile: {}", tls_profile_description(config->endpoint->tls_profile));
 
     TcpSocketParameters sock_params = {
             this->vpn->parameters.ev_loop,
@@ -534,7 +538,8 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
             std::holds_alternative<SslPtr>(r)) {
         ssl = std::move(std::get<SslPtr>(r));
     } else {
-        log_upstream(this, err, "{}", std::get<std::string>(r));
+        log_upstream(this, err, "Failed to create an SSL object for profile {}: {}",
+                tls_profile_description(config->endpoint->tls_profile), std::get<std::string>(r));
         return false;
     }
 

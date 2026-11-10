@@ -275,12 +275,6 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
 std::optional<VpnTlsProfile> tls_profile_from_name(std::string_view name);
 
 /**
- * Check whether this build applies the configured TLS ClientHello profile.
- * @return true when the profile changes the ClientHello
- */
-bool tls_profile_mimicry_available();
-
-/**
  * Return the TLS ClientHello profile name with a note when this build cannot apply it.
  * @param profile TLS profile
  */

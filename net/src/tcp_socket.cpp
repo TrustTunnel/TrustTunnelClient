@@ -307,17 +307,7 @@ static void on_read(struct bufferevent *bev, void *ctx) {
 
         // Handshake finished, report "connected".
         tcp_socket_set_read_enabled(socket, false);
-
-        const uint8_t *out = nullptr;
-        uint32_t out_len = 0;
-        SSL_get0_alpn_selected(socket->ssl.get(), &out, &out_len);
-        socket->alpn = out != nullptr ? std::string_view{(const char *) out, out_len} : std::string_view{};
-        socket->kex_group_nid = SSL_get_negotiated_group(socket->ssl.get());
-
-        const SSL_CIPHER *cipher = SSL_get_current_cipher(socket->ssl.get());
-        log_sock(socket, dbg, "TLS handshake complete. Version: {}, cipher: {}, ALPN: {}, session reused: {}",
-                SSL_get_version(socket->ssl.get()), cipher != nullptr ? SSL_CIPHER_get_name(cipher) : "-", socket->alpn,
-                SSL_session_reused(socket->ssl.get()));
+        log_sock(socket, dbg, "TLS handshake complete. Session reused: {}", SSL_session_reused(socket->ssl.get()));
 
         for (;;) {
             SslBuf &buf = socket->ssl_pending.emplace_back();
@@ -334,6 +324,13 @@ static void on_read(struct bufferevent *bev, void *ctx) {
             }
             buf.size = ret;
         }
+
+        const uint8_t *out = nullptr;
+        uint32_t out_len;
+        SSL_get0_alpn_selected(socket->ssl.get(), &out, &out_len);
+        socket->alpn = {(const char *) out, out_len};
+
+        socket->kex_group_nid = SSL_get_negotiated_group(socket->ssl.get());
 
         bufferevent *bev_ssl =
                 bufferevent_openssl_filter_new(vpn_event_loop_get_base(socket->parameters.ev_loop), socket->bev,

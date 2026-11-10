@@ -225,7 +225,7 @@ static void do_connect(void *arg, bool shortcut) {
 
     auto conn = pending.begin();
 
-    log_conn(self, conn, dbg, "Connecting");
+    log_conn(self, conn, dbg, "Connecting with TLS profile: {}", tls_profile_description(conn->endpoint->tls_profile));
 
     VpnError error{};
     SocketAddress dest = conn->relay->address.sa_family ? SocketAddress(conn->relay->address)
@@ -723,14 +723,14 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
         client_random_mask = array_of_view(endpoint.tls_client_random_mask);
         client_random_auth_key = array_of_view(endpoint.tls_client_random_auth_key);
     }
-    log_conn(ping, conn, dbg, "TLS profile: {}", tls_profile_description(conn->endpoint->tls_profile));
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
             conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
             client_random_auth_key, to_tls_client_profile(conn->endpoint->tls_profile));
 
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));
-        log_conn(ping, conn, dbg, "Failed to create an SSL object: {}", std::get<std::string>(ssl_result));
+        log_conn(ping, conn, dbg, "Failed to create an SSL object for profile {}: {}",
+                tls_profile_description(conn->endpoint->tls_profile), std::get<std::string>(ssl_result));
         return false;
     }
     conn->ssl = std::move(std::get<SslPtr>(ssl_result));

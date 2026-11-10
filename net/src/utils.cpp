@@ -939,7 +939,7 @@ std::optional<VpnTlsProfile> tls_profile_from_name(std::string_view name) {
     return std::nullopt;
 }
 
-bool tls_profile_mimicry_available() {
+static bool tls_profile_mimicry_available() {
 #ifdef OPENSSL_IS_BORINGSSL
     return true;
 #else
