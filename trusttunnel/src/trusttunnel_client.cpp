@@ -127,7 +127,12 @@ int main(int argc, char **argv) {
 #endif
 
     if (argc > 1 && std::strcmp(argv[1], "--setup-wizard") == 0) {
-        return trusttunnel_client_run_setup_wizard(argc - 2, argv + 2);
+        std::string setup_args;
+        for (int i = 2; i < argc; ++i) {
+            setup_args.append(argv[i]);
+            setup_args.push_back('\0');
+        }
+        return trusttunnel_client_run_setup_wizard(setup_args.data(), setup_args.size());
     }
 
     setup_sighandler();
