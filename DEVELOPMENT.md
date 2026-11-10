@@ -137,10 +137,10 @@ To build the trusttunnel client application, run:
 cmake --build . --target trusttunnel_client
 ```
 
-To build the setup wizard tool, run:
+The setup wizard is part of the client binary. Launch it with:
 
 ```shell
-cmake --build . --target setup_wizard
+./trusttunnel_client --setup-wizard
 ```
 
 For more information, refer to the [client's README](./trusttunnel/README.md) file.
@@ -160,7 +160,7 @@ running with elevated privileges):
 
     ```shell
     docker-compose -f .devcontainer/docker-compose.yml exec trusttunnel-debug \
-        bash -c "cd /workspace && SKIP_VENV=1 BUILD_TYPE=debug make build_trusttunnel_client build_wizard"
+        bash -c "cd /workspace && SKIP_VENV=1 BUILD_TYPE=debug make build_trusttunnel_client"
     ```
 
 3. **Generate configuration:**
@@ -169,7 +169,7 @@ running with elevated privileges):
 
     ```shell
     docker-compose -f .devcontainer/docker-compose.yml exec -w /workspace/build trusttunnel-debug \
-        /workspace/build/trusttunnel/trusttunnel_client_setup_wizard
+        /workspace/build/trusttunnel/trusttunnel_client --setup-wizard
     ```
 
 4. **Debug via LLDB:**

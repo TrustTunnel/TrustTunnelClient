@@ -1,9 +1,9 @@
 name: Build console apps
 
-# Reusable workflow that builds the trusttunnel_client and
-# trusttunnel_client_setup_wizard console apps for Linux, macOS and Windows,
-# signs/notarizes them, and collects every platform archive into a single
-# `release-artifacts` artifact for the caller to attach to a GitHub Release.
+# Reusable workflow that builds the trusttunnel_client console app for Linux,
+# macOS and Windows, signs/notarizes it, and collects every platform archive
+# into a single `release-artifacts` artifact for the caller to attach to a
+# GitHub Release.
 
 on:
   workflow_dispatch:
@@ -125,22 +125,12 @@ jobs:
             NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
             pushd ${BUILD_DIR}/trusttunnel
               llvm-strip trusttunnel_client
-              llvm-strip trusttunnel_client_setup_wizard
-              ln -sf trusttunnel_client_setup_wizard setup_wizard
               gpg --default-key "${GPG_KEY}" --detach-sig \
                   --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
                   trusttunnel_client
-              gpg --default-key "${GPG_KEY}" --detach-sig \
-                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                  trusttunnel_client_setup_wizard
-              gpg --default-key "${GPG_KEY}" --detach-sig \
-                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                  setup_wizard
               cp ../../LICENSE .
               tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," \
-                trusttunnel_client trusttunnel_client.sig \
-                trusttunnel_client_setup_wizard trusttunnel_client_setup_wizard.sig \
-                setup_wizard setup_wizard.sig LICENSE
+                trusttunnel_client trusttunnel_client.sig LICENSE
               mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
             popd
           done
@@ -253,37 +243,23 @@ jobs:
               ../build_arm64/trusttunnel/trusttunnel_client \
               ../build_x86_64/trusttunnel/trusttunnel_client
             strip trusttunnel_client
-            lipo -create -output trusttunnel_client_setup_wizard \
-              ../build_arm64/trusttunnel/trusttunnel_client_setup_wizard \
-              ../build_x86_64/trusttunnel/trusttunnel_client_setup_wizard
-            strip trusttunnel_client_setup_wizard
-            ln -sf trusttunnel_client_setup_wizard setup_wizard
           popd
 
-      - name: Code sign binaries
+      - name: Code sign binary
         env:
           CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
           CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
-          CODESIGN_IDENTIFIER_WIZARD: "com.adguard.trusttunnel.client.wizard"
           KEYCHAIN_PATH: ${{ runner.temp }}/trusttunnel-signing.keychain-db
         run: |
           set -x -e
           security unlock-keychain -p "" "${KEYCHAIN_PATH}"
           codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" \
             --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client
-          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER_WIZARD}" \
-            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client_setup_wizard
 
       - name: Notarize trusttunnel_client
         uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
         with:
           bundle_path: ${{ github.workspace }}/build_universal/trusttunnel_client
-          vault_url: ${{ vars.VAULT_URL }}
-
-      - name: Notarize trusttunnel_client_setup_wizard
-        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
-        with:
-          bundle_path: ${{ github.workspace }}/build_universal/trusttunnel_client_setup_wizard
           vault_url: ${{ vars.VAULT_URL }}
 
       - name: GPG sign and package
@@ -296,19 +272,11 @@ jobs:
             gpg --default-key "${GPG_KEY}" --detach-sig \
                 --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
                 trusttunnel_client
-            gpg --default-key "${GPG_KEY}" --detach-sig \
-                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                trusttunnel_client_setup_wizard
-            gpg --default-key "${GPG_KEY}" --detach-sig \
-                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                setup_wizard
             cp ../LICENSE .
 
             NAME=trusttunnel_client-v${VERSION}-macos-universal
             tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," \
-              trusttunnel_client trusttunnel_client.sig \
-              trusttunnel_client_setup_wizard trusttunnel_client_setup_wizard.sig \
-              setup_wizard setup_wizard.sig LICENSE
+              trusttunnel_client trusttunnel_client.sig LICENSE
           popd
 
       - name: Upload artifacts
@@ -386,7 +354,7 @@ jobs:
               # configured into its own directory.
               & cmake --preset msvc-relwithdebinfo -B $BuildDir
               if (!$?) { exit 1 }
-              & cmake --build $BuildDir --target trusttunnel_client setup_wizard
+              & cmake --build $BuildDir --target trusttunnel_client
               if (!$?) { exit 1 }
             }
 
@@ -394,8 +362,6 @@ jobs:
             # sign-by-signer.yml workflow (sign-windows job) and packaged by package-windows.
             New-Item -ItemType Directory -Force -Path "unsigned\$ArchName" | Out-Null
             Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client.exe" "unsigned\$ArchName\trusttunnel_client.exe"
-            Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client_setup_wizard.exe" "unsigned\$ArchName\trusttunnel_client_setup_wizard.exe"
-            Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client_setup_wizard.exe" "unsigned\$ArchName\setup_wizard.exe"
           }
 
           Build "build64" $vcvars64 "x86_64"
@@ -478,14 +444,12 @@ jobs:
             local stage="stage/${arch}"
             mkdir -p "${stage}"
             cp "signed/${arch}/trusttunnel_client.exe" "${stage}/trusttunnel_client.exe"
-            cp "signed/${arch}/trusttunnel_client_setup_wizard.exe"       "${stage}/trusttunnel_client_setup_wizard.exe"
-            cp "signed/${arch}/setup_wizard.exe"       "${stage}/setup_wizard.exe"
             cp LICENSE                                 "${stage}/LICENSE.txt"
             cp "wintun/wintun/bin/${wintun_subdir}/wintun.dll" "${stage}/wintun.dll"
             cp "wintun/wintun/LICENSE.txt"             "${stage}/WINTUN_LICENSE.txt"
             # Flat zip (files at the archive root), matching the previous layout.
             ( cd "${stage}" && zip -q -X "${GITHUB_WORKSPACE}/artifacts/${name}.zip" \
-                trusttunnel_client.exe trusttunnel_client_setup_wizard.exe setup_wizard.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
+                trusttunnel_client.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
           }
 
           package x86_64 amd64

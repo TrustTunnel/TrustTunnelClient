@@ -77,41 +77,184 @@ pub fn get_predefined_params() -> MutexGuard<'static, PredefinedParameters> {
     PREDEFINED_PARAMS.lock().unwrap()
 }
 
-fn main() {
-    let mut command = clap::Command::new("TrustTunnel CLI Client Setup Wizard")
+pub fn run_from_args(program: &str, args: Vec<String>) -> i32 {
+    *MODE.lock().unwrap() = Mode::Interactive;
+    *PREDEFINED_PARAMS.lock().unwrap() = PredefinedParameters::default();
+
+    let mut command = command(program);
+    let args = match command
+        .clone()
+        .try_get_matches_from(std::iter::once(program.to_string()).chain(args))
+    {
+        Ok(args) => args,
+        Err(error) => {
+            let exit_code = error.exit_code();
+            let _ = error.print();
+            return exit_code;
+        }
+    };
+
+    *MODE.lock().unwrap() = match args
+        .get_one::<String>(MODE_PARAM_NAME)
+        .map(String::as_str)
+        .unwrap_or(MODE_INTERACTIVE)
+    {
+        MODE_NON_INTERACTIVE => Mode::NonInteractive,
+        MODE_INTERACTIVE => Mode::Interactive,
+        _ => unreachable!(),
+    };
+
+    if get_mode() == Mode::Interactive && !std::io::stdin().is_terminal() {
+        eprintln!("Error: Interactive mode requires a terminal (TTY).");
+        eprintln!("Please run {program} from a terminal, or use non-interactive mode:");
+        eprintln!("  {program} --help");
+        return 1;
+    }
+
+    if get_mode() == Mode::NonInteractive
+        && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME)
+            || args.contains_id(HOSTNAME_PARAM_NAME)
+            || args.contains_id(DEEPLINK_PARAM_NAME))
+    {
+        let error = command.error(
+            clap::error::ErrorKind::MissingRequiredArgument,
+            r#"Additional arguments required for non-interactive mode
+
+Must be provided either:
+1. All required options separately:
+   --address <address> --hostname <host> --creds <username>:<password>
+
+OR
+2. A configuration file generated on endpoint:
+   --endpoint_config <endpoint_config>
+
+OR
+3. A deep-link URI:
+   --deeplink "tt://..."
+
+Note: Cannot mix these variants"#,
+        );
+        let _ = error.print();
+        return 2;
+    }
+
+    *PREDEFINED_PARAMS.lock().unwrap() = PredefinedParameters::new(&args);
+
+    (get_mode() == Mode::Interactive).then(|| println!("Welcome to the setup wizard"));
+
+    let settings_path = {
+        #[allow(clippy::large_enum_variant)]
+        enum Action {
+            UseExisting { path: String },
+            ModifyAndOverwrite { path: String, settings: Settings },
+            MakeFromScratch,
+        }
+
+        let action = if let Some((path, settings)) = get_mode()
+            .eq(&Mode::NonInteractive)
+            .not()
+            .then(|| find_existent_settings::<Settings>("."))
+            .flatten()
+        {
+            let selection = select_index(
+                format!("Found existing settings: {path}."),
+                &["Use it", "Modify and overwrite", "Make new from scratch"],
+                Some(0),
+            );
+            match selection {
+                0 => Action::UseExisting { path },
+                1 => Action::ModifyAndOverwrite { path, settings },
+                2 => Action::MakeFromScratch,
+                _ => unreachable!("{:?}", selection),
+            }
+        } else {
+            Action::MakeFromScratch
+        };
+        match action {
+            Action::UseExisting { path } => path,
+            Action::ModifyAndOverwrite { path, settings } => {
+                (get_mode() == Mode::Interactive).then(|| println!("Let's build the settings"));
+                let Some(settings) = settings::build(Some(&settings)) else {
+                    return 1;
+                };
+                println!("The settings are successfully built");
+
+                let doc = composer::compose_document(Some(&path), &settings);
+                fs::write(&path, doc.to_string()).expect("Couldn't write the settings to a file");
+
+                path
+            }
+            Action::MakeFromScratch => {
+                (get_mode() == Mode::Interactive).then(|| println!("Let's build the settings"));
+                let Some(settings) = settings::build(None) else {
+                    return 1;
+                };
+                println!("The settings are successfully built");
+
+                let path = ask_for_input::<String>(
+                    "Path to a file to store the settings",
+                    get_predefined_params()
+                        .settings_file
+                        .clone()
+                        .or(Some("trusttunnel_client.toml".into())),
+                );
+                if checked_overwrite(&path, "Overwrite the existing settings file?") {
+                    let doc = composer::compose_document(None, &settings);
+                    fs::write(&path, doc.to_string())
+                        .expect("Couldn't write the settings to a file");
+                } else {
+                    println!("Config file was not saved.");
+                    return 0;
+                }
+                path
+            }
+        }
+    };
+
+    print_completion_message(&settings_path, program);
+    0
+}
+
+fn command(program: &str) -> clap::Command {
+    clap::Command::new("TrustTunnel CLI Client Setup Wizard")
+        .bin_name(program.to_string())
         .version(version::VERSION)
         .about("Generate configuration files for TrustTunnel CLI Client")
-        .long_about(r#"Generate configuration files for TrustTunnel CLI Client.
+        .long_about(format!(
+            r#"Generate configuration files for TrustTunnel CLI Client.
 
 TYPICAL WORKFLOW:
 1. Get the endpoint config file from your TrustTunnel endpoint server
    (generated via: ./trusttunnel_endpoint vpn.toml hosts.toml -c <user> -a <ip> -f toml)
-2. Run: ./trusttunnel_client_setup_wizard --mode non-interactive --endpoint_config <config> --settings trusttunnel_client.toml
+2. Run: {program} --mode non-interactive --endpoint_config <config> --settings trusttunnel_client.toml
 3. Start client: ./trusttunnel_client -c trusttunnel_client.toml
 
 Alternatively, import from a deep-link URI:
-  ./trusttunnel_client_setup_wizard --mode non-interactive --deeplink "tt://..." --settings trusttunnel_client.toml
+  {program} --mode non-interactive --deeplink "tt://..." --settings trusttunnel_client.toml
 
 For advanced settings (vpn_mode, killswitch, DNS upstreams, exclusions),
-edit the generated TOML file directly. See README.md for all options."#)
-        .after_help(r#"EXAMPLES:
+edit the generated TOML file directly. See README.md for all options."#
+        ))
+        .after_help(format!(
+            r#"EXAMPLES:
     # Interactive mode (guided setup):
-    ./trusttunnel_client_setup_wizard
+    {program}
 
     # Non-interactive with endpoint config:
-    ./trusttunnel_client_setup_wizard -m non-interactive -e endpoint_config.toml --settings client.toml
+    {program} -m non-interactive -e endpoint_config.toml --settings client.toml
 
     # Non-interactive with deep-link URI:
-    ./trusttunnel_client_setup_wizard -m non-interactive -d "tt://..." --settings client.toml
+    {program} -m non-interactive -d "tt://..." --settings client.toml
 
     # Non-interactive with manual parameters:
-    ./trusttunnel_client_setup_wizard -m non-interactive \
+    {program} -m non-interactive \
         -a 192.168.1.100:443 \
         -n vpn.example.com \
         -c myuser:mypassword \
         --cert server.pem \
         --settings client.toml
-"#)
+"#
+        ))
         .args(&[
             clap::Arg::new(MODE_PARAM_NAME)
                 .short('m')
@@ -180,126 +323,10 @@ Required in non-interactive mode."#),
                 .args([HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME, CERTIFICATE_FILE_PARAM_NAME])
                 .multiple(true)
                 .requires_all([HOSTNAME_PARAM_NAME, CREDENTIALS_PARAM_NAME, ENDPOINT_ADDRESS_PARAM_NAME])
-        );
-    let args = command.clone().get_matches();
-
-    *MODE.lock().unwrap() = match args
-        .get_one::<String>(MODE_PARAM_NAME)
-        .map(String::as_str)
-        .unwrap_or(MODE_INTERACTIVE)
-    {
-        MODE_NON_INTERACTIVE => Mode::NonInteractive,
-        MODE_INTERACTIVE => Mode::Interactive,
-        _ => unreachable!(),
-    };
-
-    if get_mode() == Mode::Interactive && !std::io::stdin().is_terminal() {
-        eprintln!("Error: Interactive mode requires a terminal (TTY).");
-        eprintln!("Please run trusttunnel_client_setup_wizard from a terminal, or use non-interactive mode:");
-        eprintln!("  {} --help", std::env::args().next().unwrap_or_default());
-        std::process::exit(1);
-    }
-
-    if get_mode() == Mode::NonInteractive
-        && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME)
-            || args.contains_id(HOSTNAME_PARAM_NAME)
-            || args.contains_id(DEEPLINK_PARAM_NAME))
-    {
-        command
-            .error(
-                clap::error::ErrorKind::MissingRequiredArgument,
-                r#"Additional arguments required for non-interactive mode
-
-Must be provided either:
-1. All required options separately:
-   --address <address> --hostname <host> --creds <username>:<password>
-
-OR
-2. A configuration file generated on endpoint:
-   --endpoint_config <endpoint_config>
-
-OR
-3. A deep-link URI:
-   --deeplink "tt://..."
-
-Note: Cannot mix these variants"#,
-            )
-            .exit();
-    }
-
-    *PREDEFINED_PARAMS.lock().unwrap() = PredefinedParameters::new(&args);
-
-    (get_mode() == Mode::Interactive).then(|| println!("Welcome to the setup wizard"));
-
-    let settings_path = {
-        #[allow(clippy::large_enum_variant)]
-        enum Action {
-            UseExisting { path: String },
-            ModifyAndOverwrite { path: String, settings: Settings },
-            MakeFromScratch,
-        }
-
-        let action = if let Some((path, settings)) = get_mode()
-            .eq(&Mode::NonInteractive)
-            .not()
-            .then(|| find_existent_settings::<Settings>("."))
-            .flatten()
-        {
-            let selection = select_index(
-                format!("Found existing settings: {path}."),
-                &["Use it", "Modify and overwrite", "Make new from scratch"],
-                Some(0),
-            );
-            match selection {
-                0 => Action::UseExisting { path },
-                1 => Action::ModifyAndOverwrite { path, settings },
-                2 => Action::MakeFromScratch,
-                _ => unreachable!("{:?}", selection),
-            }
-        } else {
-            Action::MakeFromScratch
-        };
-        match action {
-            Action::UseExisting { path } => path,
-            Action::ModifyAndOverwrite { path, settings } => {
-                (get_mode() == Mode::Interactive).then(|| println!("Let's build the settings"));
-                let settings = settings::build(Some(&settings));
-                println!("The settings are successfully built");
-
-                let doc = composer::compose_document(Some(&path), &settings);
-                fs::write(&path, doc.to_string()).expect("Couldn't write the settings to a file");
-
-                path
-            }
-            Action::MakeFromScratch => {
-                (get_mode() == Mode::Interactive).then(|| println!("Let's build the settings"));
-                let settings = settings::build(None);
-                println!("The settings are successfully built");
-
-                let path = ask_for_input::<String>(
-                    "Path to a file to store the settings",
-                    get_predefined_params()
-                        .settings_file
-                        .clone()
-                        .or(Some("trusttunnel_client.toml".into())),
-                );
-                if checked_overwrite(&path, "Overwrite the existing settings file?") {
-                    let doc = composer::compose_document(None, &settings);
-                    fs::write(&path, doc.to_string())
-                        .expect("Couldn't write the settings to a file");
-                } else {
-                    println!("Config file was not saved.");
-                    return;
-                }
-                path
-            }
-        }
-    };
-
-    print_completion_message(&settings_path);
+        )
 }
 
-fn print_completion_message(settings_path: &str) {
+fn print_completion_message(settings_path: &str, program: &str) {
     println!();
     println!("═══════════════════════════════════════════════════════════════");
     println!("                    Setup Complete!");
@@ -327,7 +354,7 @@ fn print_completion_message(settings_path: &str) {
     println!();
     println!("See https://github.com/TrustTunnel/TrustTunnelClient/blob/master/README.md for documentation.");
     println!();
-    println!("Run `trusttunnel_client -h` for all available options.");
+    println!("Run `{program} -h` for all available options.");
 }
 
 fn find_existent_settings<T: serde::de::DeserializeOwned>(path: &str) -> Option<(String, T)> {
@@ -343,4 +370,27 @@ fn find_existent_settings<T: serde::de::DeserializeOwned>(path: &str) -> Option<
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter_map(|fname| fs::read_to_string(&fname).ok().zip(Some(fname)))
         .find_map(|(content, fname)| Some(fname).zip(toml::from_str::<T>(&content).ok()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_exits_successfully() {
+        let code = run_from_args(
+            "trusttunnel_client --setup-wizard",
+            vec!["--help".to_string()],
+        );
+        assert_eq!(code, 0);
+    }
+
+    #[test]
+    fn invalid_mode_returns_nonzero() {
+        let code = run_from_args(
+            "trusttunnel_client --setup-wizard",
+            vec!["--mode".to_string(), "invalid".to_string()],
+        );
+        assert_ne!(code, 0);
+    }
 }

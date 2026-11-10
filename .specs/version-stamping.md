@@ -32,8 +32,7 @@ builds from a clean tree.
 |---|---|---|
 | C++ `--version` | `trusttunnel/include/vpn/trusttunnel/version.h.in` → generated `version.h` | `cmake/version.cmake` + `configure_file` into `${build}/gen` (git-ignored), that dir added `BEFORE` the source include |
 | Windows `trusttunnel_client` | `trusttunnel/trusttunnel_client.rc.in` → generated `.rc` | `configure_file` in `trusttunnel/CMakeLists.txt` (`@TT_CLIENT_VERSION_COMMAS@` / `_FULL@`) |
-| Rust `trusttunnel_client_setup_wizard` `--version` | `trusttunnel/setup_wizard/src/version.rs` (`env!`) | `build.rs` resolves the version and emits `cargo:rustc-env=TT_CLIENT_VERSION` |
-| Windows `trusttunnel_client_setup_wizard` | `trusttunnel/setup_wizard/resources/setup_wizard.rc.in` → OUT_DIR `.rc` | `build.rs` renders the template and `windres`-compiles it |
+| Rust setup wizard `--version` | `trusttunnel/setup_wizard/src/version.rs` (`env!`) | `build.rs` resolves the version and emits `cargo:rustc-env=TT_CLIENT_VERSION` |
 | Android Maven AAR | `platform/android/lib/build.gradle.kts` | `resolveTtClientVersion(project)` sets `version` and forwards `-DTT_CLIENT_VERSION` to the native build |
 | Apple framework (CMake path) | `platform/apple/VpnClient/CMakeLists.txt` | `VERSION ${TT_CLIENT_VERSION_CORE}` (numeric core) |
 | Apple xcframework (xcodebuild path) | `platform/apple/build_framework.sh` | resolves the version, exports `TT_CLIENT_VERSION`, passes `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`/`DYLIB_CURRENT_VERSION` build-setting overrides |
@@ -62,9 +61,9 @@ version, so nothing sets it from the changelog today.
 
 ## Generated (git-ignored) artifacts
 
-`trusttunnel/include/vpn/trusttunnel/version.h`, `trusttunnel/trusttunnel_client.rc`,
-`trusttunnel/setup_wizard/resources/setup_wizard.rc` — rendered from the
-committed `*.in` templates; never committed.
+`trusttunnel/include/vpn/trusttunnel/version.h` and
+`trusttunnel/trusttunnel_client.rc` — rendered from the committed `*.in`
+templates; never committed.
 
 ## Out of scope
 

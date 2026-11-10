@@ -375,16 +375,6 @@ unpack() {
   fi
 }
 
-# Function ensure_setup_wizard_compat keeps the deprecated setup_wizard name
-# working for existing scripts.
-ensure_setup_wizard_compat() {
-  if [ -x "${output_dir}/trusttunnel_client_setup_wizard" ]; then
-    ln -sf trusttunnel_client_setup_wizard "${output_dir}/setup_wizard"
-  elif [ -x "${output_dir}/setup_wizard" ]; then
-    ln -sf setup_wizard "${output_dir}/trusttunnel_client_setup_wizard"
-  fi
-}
-
 # Function unpack unpacks the passed archive depending on it's extension.
 check_package() {
   if [ "$uninstall" -eq '1' ]; then
@@ -608,7 +598,7 @@ report_success() {
   echo
   echo "TrustTunnel Client has been installed successfully!"
   echo
-  echo "You may want to configure the client first, see 'cd ${output_dir} && ./trusttunnel_client_setup_wizard -h'"
+  echo "You may want to configure the client first, see 'cd ${output_dir} && ./trusttunnel_client --setup-wizard -h'"
   echo "The client executable is located at '${output_dir}/trusttunnel_client'"
   echo
 }
@@ -637,8 +627,6 @@ check_package
 handle_existing
 
 unpack
-
-ensure_setup_wizard_compat
 
 report_success
 

@@ -78,8 +78,8 @@ help:
 		{doc = ""}' $(MAKEFILE_LIST)
 
 .PHONY: all
-## Build all binaries (client + wizard). Default target.
-all: build_trusttunnel_client build_wizard
+## Build the client binary. Default target.
+all: build_trusttunnel_client
 
 .PHONY: init
 ## Initialize the development environment (git hooks, etc.)
@@ -153,17 +153,11 @@ build_libs: setup_cmake
 build_trusttunnel_client: setup_cmake
 	cmake --build $(BUILD_DIR) --target trusttunnel_client -j$(NPROC)
 
-.PHONY: build_wizard
-## Build the setup wizard binary for the VPN client
-build_wizard: setup_cmake
-	cmake --build $(BUILD_DIR) --target setup_wizard -j$(NPROC)
-
 .PHONY: build_and_export_bin
-## Build and copy all binaries in the specified directory
-build_and_export_bin: build_trusttunnel_client build_wizard
+## Build and copy the client binary in the specified directory
+build_and_export_bin: build_trusttunnel_client
 	mkdir -p $(EXPORT_DIR)
 	cp $(BUILD_DIR)/trusttunnel/trusttunnel_client$(EXE_SUFFIX) \
-		$(BUILD_DIR)/trusttunnel/trusttunnel_client_setup_wizard$(EXE_SUFFIX) \
 		$(EXPORT_DIR)
 	@echo "Binaries are stored in $(EXPORT_DIR)"
 
@@ -238,6 +232,7 @@ lint-md:
 .PHONY: lint-rust
 lint-rust:
 	cargo clippy --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -- -D warnings
+	cargo clippy --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -p trusttunnel-client-ffi --no-deps -- -D warnings
 	cargo fmt --all --manifest-path $(SETUP_WIZARD_DIR)/Cargo.toml -- --check
 
 ## Fix linter issues that are auto-fixable.

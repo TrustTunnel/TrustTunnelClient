@@ -1,6 +1,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -19,6 +20,7 @@
 #include "common/socket_address.h"
 #include "net/network_manager.h"
 #include "net/tls.h"
+#include "trusttunnel_client_ffi.h"
 #include "trusttunnel_deeplink.h"
 #include "utils.h"
 #include "vpn/trusttunnel/auto_network_monitor.h"
@@ -124,6 +126,10 @@ int main(int argc, char **argv) {
     mi_version();
 #endif
 
+    if (argc > 1 && std::strcmp(argv[1], "--setup-wizard") == 0) {
+        return trusttunnel_client_run_setup_wizard(argc - 2, argv + 2);
+    }
+
     setup_sighandler();
 
     cxxopts::Options args("trusttunnel_client", "TrustTunnel console client");
@@ -135,6 +141,7 @@ int main(int argc, char **argv) {
             ("l,loglevel", "Logging level. Possible values: error, warn, info, debug, trace.", cxxopts::value<std::string>()->default_value("info"))
             ("n,name", "Human-readable server display name for the deep-link. Overrides the configuration value.", cxxopts::value<std::string>()->default_value(""))
             ("export-deeplink", "Print the configured endpoint as a tt:// deep-link and exit", cxxopts::value<bool>()->default_value("false"))
+            ("setup-wizard", "Run the setup wizard (must be the first argument)", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage");
 #ifdef _WIN32
     args.add_options()
@@ -154,6 +161,11 @@ int main(int argc, char **argv) {
     if (result.count("help")) {
         // `{""}` mean print only options from default options group
         std::cout << args.help({""}) << '\n';
+        return 1;
+    }
+
+    if (result["setup-wizard"].as<bool>()) {
+        errlog(g_logger, "--setup-wizard must be the first argument");
         return 1;
     }
 

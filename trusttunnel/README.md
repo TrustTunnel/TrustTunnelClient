@@ -20,10 +20,6 @@ The built executable will be available in the
 The TrustTunnel CLI Client accepts a TOML-formatted configuration file.
 You can use the setup wizard tool to generate a basic configuration file.
 
-> Note: The old `setup_wizard` name is deprecated. Release archives and the
-> installer keep a compatibility entry point for existing scripts. Use
-> `trusttunnel_client_setup_wizard`.
-
 ### Setup Wizard Tool
 
 #### Usage
@@ -32,12 +28,12 @@ For quick setup, please follow [Getting Started instructions](../README.md#getti
 
 For a more customized configuration experience, follow the steps below:
 
-1. [Build](../DEVELOPMENT.md#building) the setup wizard tool.
+1. [Build](../DEVELOPMENT.md#building) the client.
 
 2. Launch the setup wizard:
 
    ```shell
-   ./trusttunnel_client_setup_wizard
+   ./trusttunnel_client --setup-wizard
    ```
 
    The setup wizard will guide you through the configuration process,
@@ -50,7 +46,7 @@ For a more customized configuration experience, follow the steps below:
 #### Setup Wizard CLI Options
 
 ```text
-Usage: trusttunnel_client_setup_wizard [OPTIONS]
+Usage: trusttunnel_client --setup-wizard [OPTIONS]
 
 Options:
   -m, --mode <mode>           Wizard running mode [default: interactive]
@@ -71,13 +67,13 @@ Options:
 **Interactive mode** (guided setup):
 
 ```shell
-./trusttunnel_client_setup_wizard
+./trusttunnel_client --setup-wizard
 ```
 
 **Non-interactive with endpoint config** (recommended):
 
 ```shell
-./trusttunnel_client_setup_wizard --mode non-interactive \
+./trusttunnel_client --setup-wizard --mode non-interactive \
     --endpoint_config <endpoint_config.toml> \
     --settings trusttunnel_client.toml
 ```
@@ -85,7 +81,7 @@ Options:
 **Non-interactive with manual parameters**:
 
 ```shell
-./trusttunnel_client_setup_wizard --mode non-interactive \
+./trusttunnel_client --setup-wizard --mode non-interactive \
     --address 192.168.1.100:443 \
     --hostname vpn.example.com \
     --creds myuser:mypassword \

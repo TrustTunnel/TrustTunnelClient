@@ -119,12 +119,6 @@ if (WIN32)
     target_link_libraries(trusttunnel_client Advapi32)
 endif ()
 
-if (WIN32)
-    set(WIZARD_EXE_NAME trusttunnel_client_setup_wizard.exe)
-else (WIN32)
-    set(WIZARD_EXE_NAME trusttunnel_client_setup_wizard)
-endif (WIN32)
-
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(TARGET_SUBDIR debug)
 else ()
@@ -240,13 +234,15 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
             set(CARGO_ENV_CC_NO_DEFAULTS "CRATE_CC_NO_DEFAULTS=1")
         endif ()
     elseif (CMAKE_CROSSCOMPILING)
-        message(WARNING "Unexpected compiler, setup_wizard won't be cross-compiled")
+        message(WARNING "Unexpected compiler, the Rust client FFI won't be cross-compiled")
     endif ()
 endif ()
 
 message("Rust target triple: ${RUST_TARGET_TRIPLE}")
 
 set(DEEPLINK_FFI_LIBFILE "${RUST_WORKSPACE_TARGET_DIR}/${TARGET_SUBDIR}/${DEEPLINK_FFI_LIBNAME}")
+set(CLIENT_FFI_STATICLIB_NAME ${CMAKE_STATIC_LIBRARY_PREFIX}trusttunnel_client_ffi${CMAKE_STATIC_LIBRARY_SUFFIX})
+set(CLIENT_FFI_LIBFILE "${RUST_WORKSPACE_TARGET_DIR}/${TARGET_SUBDIR}/${CLIENT_FFI_STATICLIB_NAME}")
 
 if (ANDROID)
     ExternalProject_Add(trusttunnel_rust
@@ -266,7 +262,7 @@ if (ANDROID)
             )
     set(DEEPLINK_FFI_BUILD_TARGET trusttunnel_rust)
 else ()
-    ExternalProject_Add(setup_wizard
+    ExternalProject_Add(trusttunnel_rust
             SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
             BUILD_ALWAYS TRUE
             UPDATE_COMMAND ""
@@ -277,20 +273,10 @@ else ()
             --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
             --workspace
             TEST_COMMAND ""
-            INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${RUST_WORKSPACE_TARGET_DIR}/${TARGET_SUBDIR}/${WIZARD_EXE_NAME} ${CMAKE_CURRENT_BINARY_DIR}
-            BUILD_BYPRODUCTS ${DEEPLINK_FFI_LIBFILE}
+            INSTALL_COMMAND ""
+            BUILD_BYPRODUCTS ${DEEPLINK_FFI_LIBFILE} ${CLIENT_FFI_LIBFILE}
             )
-    set(DEEPLINK_FFI_BUILD_TARGET setup_wizard)
-
-    add_custom_target(run_setup_wizard)
-    add_custom_command(
-            TARGET run_setup_wizard
-            POST_BUILD
-            COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${WIZARD_EXE_NAME}
-            USES_TERMINAL TRUE
-            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    )
-    add_dependencies(run_setup_wizard setup_wizard)
+    set(DEEPLINK_FFI_BUILD_TARGET trusttunnel_rust)
 endif ()
 
 add_library(trusttunnel_deeplink_ffi STATIC IMPORTED GLOBAL)
@@ -300,7 +286,16 @@ set_target_properties(trusttunnel_deeplink_ffi PROPERTIES
 )
 add_dependencies(trusttunnel_deeplink_ffi ${DEEPLINK_FFI_BUILD_TARGET})
 
-target_link_libraries(trusttunnel_client trusttunnel_deeplink_ffi)
+if (NOT ANDROID)
+    add_library(trusttunnel_client_ffi STATIC IMPORTED GLOBAL)
+    set_target_properties(trusttunnel_client_ffi PROPERTIES
+        IMPORTED_LOCATION "${CLIENT_FFI_LIBFILE}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/client-ffi/include;${CMAKE_CURRENT_SOURCE_DIR}/deeplink-ffi/include"
+    )
+    add_dependencies(trusttunnel_client_ffi ${DEEPLINK_FFI_BUILD_TARGET})
+
+    target_link_libraries(trusttunnel_client trusttunnel_client_ffi)
+endif ()
 # System libraries required by the Rust standard library linked into the client.
 if (WIN32)
     target_link_libraries(trusttunnel_client bcrypt userenv ws2_32 ntdll)
@@ -313,8 +308,22 @@ if (NOT ANDROID)
     add_dependencies(tests
             trusttunnel_client
             vpnlibs_trusttunnel
-            setup_wizard
             )
+
+    add_test(NAME trusttunnel_client_setup_wizard_help
+            COMMAND $<TARGET_FILE:trusttunnel_client> --setup-wizard --help)
+    set_tests_properties(trusttunnel_client_setup_wizard_help PROPERTIES
+            PASS_REGULAR_EXPRESSION "Usage: trusttunnel_client --setup-wizard")
+
+    set(SETUP_WIZARD_TEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/setup_wizard_test")
+    file(MAKE_DIRECTORY "${SETUP_WIZARD_TEST_DIR}")
+    add_test(NAME trusttunnel_client_setup_wizard_noninteractive
+            COMMAND $<TARGET_FILE:trusttunnel_client> --setup-wizard -m non-interactive
+                    -a 127.0.0.1:443 -n vpn.example.com -c user:password
+                    --settings trusttunnel_client.toml)
+    set_tests_properties(trusttunnel_client_setup_wizard_noninteractive PROPERTIES
+            WORKING_DIRECTORY "${SETUP_WIZARD_TEST_DIR}"
+            PASS_REGULAR_EXPRESSION "Setup Complete!")
 endif ()
 
 link_libraries(vpnlibs_trusttunnel)

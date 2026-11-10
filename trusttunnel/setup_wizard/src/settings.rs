@@ -318,8 +318,8 @@ macro_rules! opt_field {
     };
 }
 
-pub fn build(template: Option<&Settings>) -> Settings {
-    Settings {
+pub fn build(template: Option<&Settings>) -> Option<Settings> {
+    Some(Settings {
         loglevel: opt_field!(template, loglevel)
             .cloned()
             .unwrap_or_else(Settings::default_loglevel),
@@ -358,12 +358,12 @@ pub fn build(template: Option<&Settings>) -> Settings {
         exclusions: opt_field!(template, exclusions)
             .cloned()
             .unwrap_or_default(),
-        endpoint: build_endpoint(opt_field!(template, endpoint)),
+        endpoint: build_endpoint(opt_field!(template, endpoint))?,
         listener: build_listener(opt_field!(template, listener)),
-    }
+    })
 }
 
-fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
+fn build_endpoint(template: Option<&Endpoint>) -> Option<Endpoint> {
     let predefined_params = crate::get_predefined_params().clone();
 
     // Deep-link import: if provided via CLI, decode and return immediately
@@ -618,7 +618,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             );
     }
 
-    x
+    Some(x)
 }
 
 fn build_listener(template: Option<&Listener>) -> Listener {
@@ -934,18 +934,20 @@ fn verify_deeplink_certificates(der_bytes: &[u8]) -> Vec<CertInfo> {
     cert_infos
 }
 
-fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) {
+fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) -> bool {
     println!("{}\n", EndpointSummary::new(endpoint, cert_infos));
 
     if crate::get_mode() == Mode::Interactive
         && !ask_for_agreement_with_default("Accept this configuration?", false)
     {
         eprintln!("Deep-link configuration declined by user.");
-        std::process::exit(1);
+        return false;
     }
+
+    true
 }
 
-pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
+pub fn endpoint_from_deeplink(uri: &str) -> Option<Endpoint> {
     let config = trusttunnel_deeplink::decode(uri)
         .unwrap_or_else(|e| panic!("Failed to decode deep-link URI: {}", e));
 
@@ -958,9 +960,7 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
     let endpoint = trusttunnel_settings::endpoint_from_deeplink_config(config)
         .unwrap_or_else(|e| panic!("Failed to convert deep-link config: {}", e));
 
-    display_and_confirm_endpoint(&endpoint, &cert_infos);
-
-    endpoint
+    display_and_confirm_endpoint(&endpoint, &cert_infos).then_some(endpoint)
 }
 
 #[cfg(test)]

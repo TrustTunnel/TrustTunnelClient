@@ -1,0 +1,12 @@
+[package]
+name = "trusttunnel-client-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "trusttunnel_client_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+setup_wizard = { path = "../setup_wizard" }
+trusttunnel-deeplink-ffi = { path = "../deeplink-ffi" }

@@ -5,9 +5,9 @@ name: Publish release
 #   1. Reads the released version from CHANGELOG.md and creates the v{version}
 #      tag (tag-from-changelog.yml). That workflow only proceeds for a merged
 #      release-bump PR, so it gates the whole run — no extra `if` is needed here.
-#   2. Builds the console apps (trusttunnel_client + trusttunnel_client_setup_wizard)
-#      and deploys the Android, Apple and Windows adapter libraries, all from the
-#      tagged commit. It also mirrors the tagged commit to the public repo and
+#   2. Builds the console app (trusttunnel_client) and deploys the Android,
+#      Apple and Windows adapter libraries, all from the tagged commit. It also
+#      mirrors the tagged commit to the public repo and
 #      exports/uploads the Conan recipe to Artifactory at the released version,
 #      so the release is installable from Conan (like publish-snapshot, but
 #      production, not -dev).
