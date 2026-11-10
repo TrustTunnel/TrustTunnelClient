@@ -906,6 +906,55 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
     return ag::tls::TlsClientProfile::CHROME;
 }
 
+struct TlsProfileEntry {
+    std::string_view name;
+    VpnTlsProfile profile;
+};
+
+static constexpr TlsProfileEntry TLS_PROFILES[] = {
+        {"chrome", VPN_TLS_PROFILE_CHROME},
+        {"chrome_canary", VPN_TLS_PROFILE_CHROME_CANARY},
+        {"safari", VPN_TLS_PROFILE_SAFARI},
+        {"firefox", VPN_TLS_PROFILE_FIREFOX},
+        {"okhttp", VPN_TLS_PROFILE_OKHTTP},
+        {"openssl", VPN_TLS_PROFILE_OPENSSL_DEFAULT},
+        {"default", VPN_TLS_PROFILE_DEFAULT},
+};
+
+static std::string_view tls_profile_name(VpnTlsProfile profile) {
+    for (const TlsProfileEntry &entry : TLS_PROFILES) {
+        if (entry.profile == profile) {
+            return entry.name;
+        }
+    }
+    return "chrome";
+}
+
+std::optional<VpnTlsProfile> tls_profile_from_name(std::string_view name) {
+    for (const TlsProfileEntry &entry : TLS_PROFILES) {
+        if (name == entry.name) {
+            return entry.profile;
+        }
+    }
+    return std::nullopt;
+}
+
+bool tls_profile_mimicry_available() {
+#ifdef OPENSSL_IS_BORINGSSL
+    return true;
+#else
+    return false;
+#endif
+}
+
+std::string tls_profile_description(VpnTlsProfile profile) {
+    std::string description{tls_profile_name(profile)};
+    if (!tls_profile_mimicry_available()) {
+        description += " (mimicry unavailable in this build)";
+    }
+    return description;
+}
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         U8View alpn_protos, const char *sni, MakeSslProtocolType type, U8View endpoint_data, U8View tls_client_random,
         U8View tls_client_random_mask, U8View tls_client_random_auth_key, ag::tls::TlsClientProfile profile) {

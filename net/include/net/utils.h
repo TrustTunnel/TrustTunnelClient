@@ -267,6 +267,25 @@ void load_session_cache(const std::string &path);
  */
 ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
 
+/**
+ * Parse a TLS ClientHello profile configuration name.
+ * @param name profile name
+ * @return the profile, or `std::nullopt` when the name is unknown
+ */
+std::optional<VpnTlsProfile> tls_profile_from_name(std::string_view name);
+
+/**
+ * Check whether this build applies the configured TLS ClientHello profile.
+ * @return true when the profile changes the ClientHello
+ */
+bool tls_profile_mimicry_available();
+
+/**
+ * Return the TLS ClientHello profile name with a note when this build cannot apply it.
+ * @param profile TLS profile
+ */
+std::string tls_profile_description(VpnTlsProfile profile);
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},
         ag::Uint8View tls_client_random = ag::U8View{}, ag::Uint8View tls_client_random_mask = ag::U8View{},
@@ -406,7 +425,8 @@ struct fmt::formatter<ag::VpnEndpoint> {
 
     template <typename FormatContext>
     auto format(const ag::VpnEndpoint &endpoint, FormatContext &ctx) const {
-        return fmt::format_to(ctx.out(), "name={}, address={}", endpoint.name, ag::SocketAddress(endpoint.address));
+        return fmt::format_to(ctx.out(), "name={}, address={}, tls_profile={}", endpoint.name,
+                ag::SocketAddress(endpoint.address), ag::tls_profile_description(endpoint.tls_profile));
     }
 };
 

@@ -485,6 +485,7 @@ bool Http2Upstream::open_session(std::optional<Millis> timeout) {
     m_cert_verify_error.reset();
 
     const vpn_client::EndpointConnectionConfig *config = &this->vpn->upstream_config;
+    log_upstream(this, dbg, "TLS profile: {}", tls_profile_description(config->endpoint->tls_profile));
 
     TcpSocketParameters sock_params = {
             this->vpn->parameters.ev_loop,

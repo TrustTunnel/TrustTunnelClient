@@ -13,6 +13,7 @@
 #include <openssl/pem.h>
 
 #include "net/tls.h"
+#include "net/utils.h"
 #include "utils.h"
 #include "vpn/trusttunnel/config.h"
 #include "vpn/utils.h"
@@ -31,16 +32,6 @@ static const std::unordered_map<std::string_view, VpnUpstreamProtocol> UPSTREAM_
         {"auto", VPN_UP_AUTO},
         {"http2", VPN_UP_HTTP2},
         {"http3", VPN_UP_HTTP3},
-};
-
-static const std::unordered_map<std::string_view, VpnTlsProfile> TLS_PROFILE_MAP = {
-        {"chrome", VPN_TLS_PROFILE_CHROME},
-        {"chrome_canary", VPN_TLS_PROFILE_CHROME_CANARY},
-        {"safari", VPN_TLS_PROFILE_SAFARI},
-        {"firefox", VPN_TLS_PROFILE_FIREFOX},
-        {"okhttp", VPN_TLS_PROFILE_OKHTTP},
-        {"openssl", VPN_TLS_PROFILE_OPENSSL_DEFAULT},
-        {"default", VPN_TLS_PROFILE_DEFAULT},
 };
 
 static const std::unordered_map<std::string_view, VpnMode> VPN_MODE_MAP = {
@@ -284,8 +275,8 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
 
     // TLS fingerprint profile is optional and defaults to Chrome.
     if (auto tls_profile = config["tls_profile"].value<std::string_view>(); tls_profile && !tls_profile->empty()) {
-        if (auto it = TLS_PROFILE_MAP.find(*tls_profile); it != TLS_PROFILE_MAP.end()) {
-            location.tls_profile = it->second;
+        if (auto parsed = tls_profile_from_name(*tls_profile); parsed.has_value()) {
+            location.tls_profile = parsed.value();
         } else {
             errlog(g_logger, "Unexpected endpoint tls_profile value: {}", streamable_to_string(config["tls_profile"]));
             return std::nullopt;

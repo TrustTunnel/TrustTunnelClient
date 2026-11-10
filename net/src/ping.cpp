@@ -723,6 +723,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
         client_random_mask = array_of_view(endpoint.tls_client_random_mask);
         client_random_auth_key = array_of_view(endpoint.tls_client_random_auth_key);
     }
+    log_conn(ping, conn, dbg, "TLS profile: {}", tls_profile_description(conn->endpoint->tls_profile));
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
             conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
             client_random_auth_key, to_tls_client_profile(conn->endpoint->tls_profile));

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <list>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -101,6 +102,43 @@ TEST(NetUtils, ToTlsClientProfile) {
     EXPECT_EQ(
             ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
     EXPECT_EQ(ag::tls::TlsClientProfile::DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_DEFAULT));
+}
+
+static constexpr std::pair<ag::VpnTlsProfile, std::string_view> TLS_PROFILE_CASES[] = {
+        {ag::VPN_TLS_PROFILE_CHROME, "chrome"},
+        {ag::VPN_TLS_PROFILE_CHROME_CANARY, "chrome_canary"},
+        {ag::VPN_TLS_PROFILE_SAFARI, "safari"},
+        {ag::VPN_TLS_PROFILE_FIREFOX, "firefox"},
+        {ag::VPN_TLS_PROFILE_OKHTTP, "okhttp"},
+        {ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT, "openssl"},
+        {ag::VPN_TLS_PROFILE_DEFAULT, "default"},
+};
+
+TEST(NetUtils, TlsProfileFromName) {
+    for (const auto &[profile, name] : TLS_PROFILE_CASES) {
+        EXPECT_EQ(std::optional<ag::VpnTlsProfile>{profile}, ag::tls_profile_from_name(name));
+    }
+    EXPECT_FALSE(ag::tls_profile_from_name("unknown").has_value());
+}
+
+TEST(NetUtils, TlsProfileDescription) {
+    for (const auto &[profile, name] : TLS_PROFILE_CASES) {
+        std::string expected{name};
+        if (!ag::tls_profile_mimicry_available()) {
+            expected += " (mimicry unavailable in this build)";
+        }
+        EXPECT_EQ(expected, ag::tls_profile_description(profile));
+    }
+}
+
+TEST(NetUtils, FormatVpnEndpointWithTlsProfile) {
+    ag::VpnEndpoint endpoint = {ag::sockaddr_from_str("1.1.1.1:443"), "example.org"};
+    endpoint.tls_profile = ag::VPN_TLS_PROFILE_FIREFOX;
+    std::string expected = "name=example.org, address=1.1.1.1:443, tls_profile=firefox";
+    if (!ag::tls_profile_mimicry_available()) {
+        expected += " (mimicry unavailable in this build)";
+    }
+    EXPECT_EQ(expected, fmt::format("{}", endpoint));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks

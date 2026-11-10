@@ -108,6 +108,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     m_cert_verify_error.reset();
 
     const vpn_client::EndpointConnectionConfig &upstream_config = this->vpn->upstream_config;
+    log_upstream(this, dbg, "TLS profile: {}", tls_profile_description(upstream_config.endpoint->tls_profile));
+
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const VpnHttp3UpstreamConfig &h3_config = this->PROTOCOL_CONFIG->http3;
 
@@ -688,10 +690,18 @@ void Http3Upstream::on_handshake_completed(void *arg) {
     auto *self = (Http3Upstream *) arg;
     log_upstream(self, dbg, "Handshake completed");
 
-    if (self->m_ssl_object) {
-        self->m_kex_group_nid = SSL_get_negotiated_group((SSL *) self->m_ssl_object);
+    if (self->m_ssl_object != nullptr) {
+        auto *ssl = (SSL *) self->m_ssl_object;
+        self->m_kex_group_nid = SSL_get_negotiated_group(ssl);
         if (self->m_log.is_enabled(LOG_LEVEL_DEBUG)) {
-            log_upstream(self, dbg, "Session reused: {}", SSL_session_reused((SSL *) self->m_ssl_object));
+            const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
+            const uint8_t *alpn = nullptr;
+            uint32_t alpn_len = 0;
+            SSL_get0_alpn_selected(ssl, &alpn, &alpn_len);
+            log_upstream(self, dbg, "TLS version: {}, cipher: {}, ALPN: {}, session reused: {}", SSL_get_version(ssl),
+                    cipher != nullptr ? SSL_CIPHER_get_name(cipher) : "-",
+                    alpn != nullptr ? std::string_view{(const char *) alpn, alpn_len} : std::string_view{},
+                    SSL_session_reused(ssl));
         }
     }
 
