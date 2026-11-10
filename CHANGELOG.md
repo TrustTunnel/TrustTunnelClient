@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.
+- Renamed the client setup wizard binary from `setup_wizard` to
+  `trusttunnel_client_setup_wizard` so it cannot collide with the endpoint
+  wizard or with other packages.
 
 ### Deprecated
 

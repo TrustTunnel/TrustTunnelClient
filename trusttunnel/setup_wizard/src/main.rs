@@ -86,26 +86,26 @@ fn main() {
 TYPICAL WORKFLOW:
 1. Get the endpoint config file from your TrustTunnel endpoint server
    (generated via: ./trusttunnel_endpoint vpn.toml hosts.toml -c <user> -a <ip> -f toml)
-2. Run: ./setup_wizard --mode non-interactive --endpoint_config <config> --settings trusttunnel_client.toml
+2. Run: ./trusttunnel_client_setup_wizard --mode non-interactive --endpoint_config <config> --settings trusttunnel_client.toml
 3. Start client: ./trusttunnel_client -c trusttunnel_client.toml
 
 Alternatively, import from a deep-link URI:
-  ./setup_wizard --mode non-interactive --deeplink "tt://..." --settings trusttunnel_client.toml
+  ./trusttunnel_client_setup_wizard --mode non-interactive --deeplink "tt://..." --settings trusttunnel_client.toml
 
 For advanced settings (vpn_mode, killswitch, DNS upstreams, exclusions),
 edit the generated TOML file directly. See README.md for all options."#)
         .after_help(r#"EXAMPLES:
     # Interactive mode (guided setup):
-    ./setup_wizard
+    ./trusttunnel_client_setup_wizard
 
     # Non-interactive with endpoint config:
-    ./setup_wizard -m non-interactive -e endpoint_config.toml --settings client.toml
+    ./trusttunnel_client_setup_wizard -m non-interactive -e endpoint_config.toml --settings client.toml
 
     # Non-interactive with deep-link URI:
-    ./setup_wizard -m non-interactive -d "tt://..." --settings client.toml
+    ./trusttunnel_client_setup_wizard -m non-interactive -d "tt://..." --settings client.toml
 
     # Non-interactive with manual parameters:
-    ./setup_wizard -m non-interactive \
+    ./trusttunnel_client_setup_wizard -m non-interactive \
         -a 192.168.1.100:443 \
         -n vpn.example.com \
         -c myuser:mypassword \
@@ -195,7 +195,7 @@ Required in non-interactive mode."#),
 
     if get_mode() == Mode::Interactive && !std::io::stdin().is_terminal() {
         eprintln!("Error: Interactive mode requires a terminal (TTY).");
-        eprintln!("Please run setup_wizard from a terminal, or use non-interactive mode:");
+        eprintln!("Please run trusttunnel_client_setup_wizard from a terminal, or use non-interactive mode:");
         eprintln!("  {} --help", std::env::args().next().unwrap_or_default());
         std::process::exit(1);
     }

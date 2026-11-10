@@ -120,9 +120,9 @@ if (WIN32)
 endif ()
 
 if (WIN32)
-    set(WIZARD_EXE_NAME setup_wizard.exe)
+    set(WIZARD_EXE_NAME trusttunnel_client_setup_wizard.exe)
 else (WIN32)
-    set(WIZARD_EXE_NAME setup_wizard)
+    set(WIZARD_EXE_NAME trusttunnel_client_setup_wizard)
 endif (WIN32)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")

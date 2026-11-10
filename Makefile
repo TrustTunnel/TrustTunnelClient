@@ -163,7 +163,7 @@ build_wizard: setup_cmake
 build_and_export_bin: build_trusttunnel_client build_wizard
 	mkdir -p $(EXPORT_DIR)
 	cp $(BUILD_DIR)/trusttunnel/trusttunnel_client$(EXE_SUFFIX) \
-		$(BUILD_DIR)/trusttunnel/setup_wizard$(EXE_SUFFIX) \
+		$(BUILD_DIR)/trusttunnel/trusttunnel_client_setup_wizard$(EXE_SUFFIX) \
 		$(EXPORT_DIR)
 	@echo "Binaries are stored in $(EXPORT_DIR)"
 

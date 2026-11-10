@@ -3,6 +3,10 @@ name = "setup_wizard"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "trusttunnel_client_setup_wizard"
+path = "src/main.rs"
+
 [dependencies]
 clap = "4.3.8"
 crossterm = "0.27"

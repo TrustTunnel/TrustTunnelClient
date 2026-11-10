@@ -22,14 +22,14 @@ Since TrustTunnelClient v0.99.104 we sign the executable files we build so that 
 3. Verify. On Unix:
 
    ```text
-   gpg --verify trusttunnel_client/setup_wizard.sig
+   gpg --verify trusttunnel_client/trusttunnel_client_setup_wizard.sig
    gpg --verify trusttunnel_client/trusttunnel_client.sig
    ```
 
    On Windows (you might need to install PGP):
 
    ```text
-   gpg --verify trusttunnel_client/setup_wizard.exe.sig
+   gpg --verify trusttunnel_client/trusttunnel_client_setup_wizard.exe.sig
    gpg --verify trusttunnel_client/trusttunnel_client.exe.sig
    ```
 

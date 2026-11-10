@@ -169,7 +169,7 @@ running with elevated privileges):
 
     ```shell
     docker-compose -f .devcontainer/docker-compose.yml exec -w /workspace/build trusttunnel-debug \
-        /workspace/build/trusttunnel/setup_wizard
+        /workspace/build/trusttunnel/trusttunnel_client_setup_wizard
     ```
 
 4. **Debug via LLDB:**

@@ -524,6 +524,8 @@ remove_existing() {
   log "'trusttunnel_client' has been removed from '${output_dir}'"
   rm -f "${output_dir}/setup_wizard"
   log "'setup_wizard' has been removed from '${output_dir}'"
+  rm -f "${output_dir}/trusttunnel_client_setup_wizard"
+  log "'trusttunnel_client_setup_wizard' has been removed from '${output_dir}'"
   rm -f "${output_dir}/LICENSE"
   log "'LICENSE' has been removed from '${output_dir}'"
 }
@@ -596,7 +598,7 @@ report_success() {
   echo
   echo "TrustTunnel Client has been installed successfully!"
   echo
-  echo "You may want to configure the client first, see 'cd ${output_dir} && ./setup_wizard -h'"
+  echo "You may want to configure the client first, see 'cd ${output_dir} && ./trusttunnel_client_setup_wizard -h'"
   echo "The client executable is located at '${output_dir}/trusttunnel_client'"
   echo
 }

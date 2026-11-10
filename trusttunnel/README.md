@@ -33,7 +33,7 @@ For a more customized configuration experience, follow the steps below:
 2. Launch the setup wizard:
 
    ```shell
-   ./setup_wizard
+   ./trusttunnel_client_setup_wizard
    ```
 
    The setup wizard will guide you through the configuration process,
@@ -46,7 +46,7 @@ For a more customized configuration experience, follow the steps below:
 #### Setup Wizard CLI Options
 
 ```text
-Usage: setup_wizard [OPTIONS]
+Usage: trusttunnel_client_setup_wizard [OPTIONS]
 
 Options:
   -m, --mode <mode>           Wizard running mode [default: interactive]
@@ -67,13 +67,13 @@ Options:
 **Interactive mode** (guided setup):
 
 ```shell
-./setup_wizard
+./trusttunnel_client_setup_wizard
 ```
 
 **Non-interactive with endpoint config** (recommended):
 
 ```shell
-./setup_wizard --mode non-interactive \
+./trusttunnel_client_setup_wizard --mode non-interactive \
     --endpoint_config <endpoint_config.toml> \
     --settings trusttunnel_client.toml
 ```
@@ -81,7 +81,7 @@ Options:
 **Non-interactive with manual parameters**:
 
 ```shell
-./setup_wizard --mode non-interactive \
+./trusttunnel_client_setup_wizard --mode non-interactive \
     --address 192.168.1.100:443 \
     --hostname vpn.example.com \
     --creds myuser:mypassword \
