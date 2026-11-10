@@ -6,20 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  resolve-images:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
-
   build-binaries:
     name: Build binaries
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     # Builds take ~6 minutes; the default limit for self-hosted runners is 24 hours.
     timeout-minutes: 45
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
@@ -64,14 +59,14 @@ jobs:
 
   run-tests:
     name: Run live integration tests
-    needs: [build-binaries, resolve-images]
+    needs: [build-binaries]
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
     # The checks take ~2 minutes; the timeout only catches a hung run.
     timeout-minutes: 30
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
