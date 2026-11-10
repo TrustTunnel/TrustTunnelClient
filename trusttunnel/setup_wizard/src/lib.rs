@@ -111,6 +111,10 @@ pub fn run_from_args(program: &str, args: Vec<String>) -> i32 {
         return 1;
     }
 
+    if get_mode() == Mode::Interactive {
+        user_interaction::install_interrupt_handler();
+    }
+
     if get_mode() == Mode::NonInteractive
         && !(args.contains_id(ENDPOINT_CONFIG_PARAM_NAME)
             || args.contains_id(HOSTNAME_PARAM_NAME)
