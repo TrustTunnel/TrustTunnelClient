@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 1.0.64
+
+- [Feature] Raise the minimum supported macOS version to 12.0 because Xcode 27 cannot build for older deployment
+            targets.
+
 ## 1.0.63
 
 - [Feature] Add `tcp_recv_buf_size` and `tcp_send_buf_size` options to `[listener.tun]` section.
