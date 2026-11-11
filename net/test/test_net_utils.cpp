@@ -152,6 +152,11 @@ TEST(NetUtils, TlsProfileDescriptionCoversEveryProfile) {
 }
 
 TEST(NetUtils, FormatVpnEndpointWithTlsProfile) {
+#ifdef _WIN32
+    WSADATA wsa_data = {};
+    ASSERT_EQ(0, WSAStartup(MAKEWORD(2, 2), &wsa_data));
+#endif
+
     ag::VpnEndpoint endpoint = {ag::sockaddr_from_str("1.1.1.1:443"), "example.org"};
     endpoint.tls_profile = ag::VPN_TLS_PROFILE_FIREFOX;
     std::string expected_profile = MIMICRY_AVAILABLE ? "firefox" : "firefox (mimicry unavailable in this build)";
