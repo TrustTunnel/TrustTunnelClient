@@ -38,9 +38,6 @@ jobs:
               python3 -m pip install conan --upgrade
               conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
 
-              # Export the AdGuard recipes only if the remote does not resolve them.
-              make bootstrap_deps SKIP_VENV=1
-
               make lint-cpp
 
               # This branch has no build presets, so configure the AddressSanitizer
@@ -89,9 +86,6 @@ jobs:
                 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
                 export PATH="$HOME/.cargo/bin:$PATH"
               fi
-
-              # Export the AdGuard recipes only if the remote does not resolve them.
-              make bootstrap_deps SKIP_VENV=1
 
               # This branch has no build presets, so configure the AddressSanitizer
               # build the same way as the public workflow.
@@ -153,13 +147,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           & conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
-
-          # Export the AdGuard recipes only if the remote does not resolve them.
-          & conan graph info . --profile:host=default *> $null
-          if (!$?) {
-            & python ./scripts/bootstrap_conan_deps.py
-            if (!$?) { exit 1 }
-          }
 
           # Save vcvars to switch between them
           $vcvars64 = cmd /c "vcvars64 & set"
