@@ -23,19 +23,14 @@ on:
         type: string
 
 jobs:
-  resolve-images:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
-
   deploy-apple:
     name: Deploy library / Apple
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     environment: apple-gh-packages
     runs-on:
       - ephemeral
       - ephemeral-mac
-      - ${{ needs.resolve-images.outputs.macos }}
+      - registry.int.agrd.dev/macos/tahoe-github-xcode27-26.11:@edge
     steps:
       - name: Checkout
         uses: actions/checkout@v6
