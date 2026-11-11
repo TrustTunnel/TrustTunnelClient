@@ -1,0 +1,25 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Proposed version (without leading v). Leave empty to increment the last component of the latest version (1.2.9 -> 1.2.10, 1.2.0-beta.9 -> 1.2.0-beta.10).'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Changelog patch, branch, commit, and PR (via Octopass) are all handled by
+  # the shared native-libs-common reusable workflow.
+  prepare-release:
+    if: github.repository_owner == 'AdGuardSoftwareLimited'
+    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/prepare-release.yml@master
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    with:
+      version: ${{ inputs.version }}

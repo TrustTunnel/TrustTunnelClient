@@ -30,24 +30,17 @@ fi
 echo "Setting up Conan repository: $CONAN_REPO_URL"
 conan remote add --index 0 art "$CONAN_REPO_URL"
 
-# Create build directory
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-
-echo "Configuring CMake..."
-export LDFLAGS=-fuse-ld=lld
-cmake ${VPN_LIBS_DIR} \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -G "Ninja" \
-    -DCMAKE_C_COMPILER="clang" \
-    -DCMAKE_CXX_COMPILER="clang++" \
-    -DCMAKE_CXX_FLAGS="-stdlib=libc++"
-
 echo "Building trusttunnel_client..."
-ninja trusttunnel_client
+# The build goes through the clang-relwithdebinfo CMake preset, into the
+# out-of-tree BUILD_DIR this container mounts.
+make -C "${VPN_LIBS_DIR}" \
+    PRESET=clang-relwithdebinfo \
+    BUILD_DIR="$BUILD_DIR" \
+    SKIP_BOOTSTRAP=1 \
+    build_trusttunnel_client
 
 echo "Copying built client to output directory..."
-cp ./trusttunnel/trusttunnel_client "$OUTPUT_DIR/"
+cp "$BUILD_DIR/trusttunnel/trusttunnel_client" "$OUTPUT_DIR/"
 
 # Copy any additional test scripts if they exist
 if [ -d "$SOURCE_DIR/integrated-tests/client" ]; then

@@ -16,11 +16,11 @@ Usage:
 """
 
 import os
+import re
 import shutil
 import stat
 import subprocess
 import sys
-import yaml
 
 work_dir = os.path.dirname(os.path.realpath(__file__))
 project_dir = os.path.dirname(work_dir)
@@ -51,6 +51,38 @@ def remove_dir_if_exists(dir_path):
         shutil.rmtree(dir_path, onerror=on_rm_tree_error)
 
 
+def revision_for_version(version):
+    """
+    Map a Conan package version to the git revision to check out.
+
+    Versions are produced by `git describe` and come in two shapes:
+      * a plain release tag, e.g. `8.1.39`      -> check out tag `v8.1.39`
+      * a snapshot `<tag>-<n>-g<rev>`, e.g.
+        `2.8.58-2-g2c375f1c`                     -> check out the commit `<rev>`
+
+    This mirrors how the dns-libs/native_libs_common recipes resolve their
+    source revision, so `git describe` in `export_conan.sh` reports exactly the
+    requested version.
+    """
+    described = re.search(r"-g([0-9a-f]+)$", version)
+    if described:
+        return described.group(1)
+    return "v" + version
+
+
+def export_conan(repo_dir, version):
+    """
+    Check out the revision matching `version` and export the package to the
+    local Conan cache. `export_conan.sh` derives the version from `git describe`
+    (it no longer accepts a version argument), so the checked-out revision is
+    what determines the exported version.
+    """
+    subprocess.run(["git", "-C", repo_dir, "checkout", revision_for_version(version)],
+                   check=True)
+    subprocess.run([os.path.join(repo_dir, "scripts", "export_conan.sh")],
+                   check=True, cwd=repo_dir)
+
+
 with open(os.path.join(project_dir, "conanfile.py"), "r") as file:
     for line in map(str.strip, file.readlines()):
         if line.startswith('self.requires("native_libs_common/') \
@@ -64,6 +96,8 @@ dns_libs_dir = os.path.join(work_dir, dns_libs_dir_name)
 remove_dir_if_exists(dns_libs_dir)
 try:
     subprocess.run(["git", "clone", dns_libs_url, dns_libs_dir], check=True)
+    subprocess.run(["git", "-C", dns_libs_dir, "checkout",
+                    revision_for_version(dns_libs_version)], check=True)
     os.chdir(dns_libs_dir)
     with open("conanfile.py", "r") as file:
         for line in map(str.strip, file.readlines()):
@@ -71,7 +105,7 @@ try:
                     and ('@adguard/oss"' in line):
                 nlc_versions.append(line.split('@')[0].split('/')[1])
 
-    subprocess.run(["python3", os.path.join("scripts", "export_conan.py"), dns_libs_version], check=True)
+    subprocess.run([os.path.join("scripts", "export_conan.sh")], check=True)
 finally:
     remove_dir_if_exists(dns_libs_dir)
 
@@ -80,24 +114,12 @@ nlc_dir = os.path.join(work_dir, nlc_dir_name)
 remove_dir_if_exists(nlc_dir)
 try:
     subprocess.run(["git", "clone", nlc_url, nlc_dir], check=True)
-    os.chdir(nlc_dir)
 
-    # Reduce the chances of missing a necessary dependency exported with NLC
-    # by exporting all recipes from all versions of NLC, starting with the minimum
-    # necessary.
-    min_nlc_version = min(nlc_versions)
-    with open("conandata.yml", "r") as file:
-        items = yaml.safe_load(file)["commit_hash"]
-
-    for v in nlc_versions: # [k for k in items.keys() if k >= min_nlc_version]:
-        subprocess.run(["git", "checkout", "master"], check=True)
-        try:
-            subprocess.run(["python3", os.path.join(nlc_dir, "scripts", "export_conan.py"), v], check=True)
-        except:
-            if v in nlc_versions:
-                raise
-            else:
-                # Some native_libs_common versions have broken Conan recipes: ignore them.
-                continue
+    seen = set()
+    for v in nlc_versions:
+        if v in seen:
+            continue
+        seen.add(v)
+        export_conan(nlc_dir, v)
 finally:
     remove_dir_if_exists(nlc_dir)

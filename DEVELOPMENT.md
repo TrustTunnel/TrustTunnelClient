@@ -295,13 +295,18 @@ To debug:
 To test local changes in the library when used as a Conan package dependency, follow these steps:
 
 1) If the default `vcs_url` in `<root>/conanfile.py` is not suitable, change it accordingly.
-2) Commit the changes you wish to test.
-3) Execute `./script/conan_export.py local`. This script will export the package, assigning the last commit hash as its version.
-4) In the project that depends on `vpn-libs`, update the version to `<commit_hash>` (where `<commit_hash>` is the hash of the target commit):
-   Replace `vpn-libs/1.0.0@adguard/oss` with `vpn-libs/<commit_hash>@adguard/oss`.
+2) Commit the changes you wish to test, and push the commit to the repository at `vcs_url`.
+3) Execute `./scripts/export_conan.sh`. This script exports the package at the
+   `git describe --tags --match 'v*'` version of the current commit, e.g.
+   `1.0.49-34-gc7932915`. When the package is built, the recipe checks out the
+   commit after `-g`.
+   To test uncommitted working-tree changes instead, run
+   `conan create . --user adguard --channel oss --version local`.
+4) In the project that depends on `vpn-libs`, update the version to the exported one:
+   Replace `vpn-libs/1.0.0@adguard/oss` with `vpn-libs/<version>@adguard/oss`.
 5) Re-run the cmake command.
    Note:
-    - If you have already exported the library in this way, the cached version must be purged: `conan remove -c vpn-libs/<commit_hash>`.
+    - If you have already exported the library in this way, the cached version must be purged: `conan remove -c vpn-libs/<version>`.
 
 ## Companion Endpoint Repository
 
