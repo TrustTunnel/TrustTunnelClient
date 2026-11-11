@@ -116,7 +116,7 @@ make PRESET=musl-cross-mips-relwithdebinfo build_and_export_bin
 | `CMAKE_ARGS` | Extra `cmake` flags, e.g. `-DIPV6_UNAVAILABLE=ON` |
 | `CTEST_ARGS` | Extra `ctest` flags, e.g. `-R <regex>` |
 | `ARCH` | macOS architecture(s), e.g. `arm64` or `'arm64;x86_64'` |
-| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `10.15` |
+| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `12.0` |
 | `SKIP_BOOTSTRAP` | `1` skips the Conan bootstrap (CI does its own) |
 | `SKIP_VENV` | `1` uses the tools on `PATH` instead of a local venv |
 
