@@ -1,4 +1,4 @@
-name: Run tests
+name: Run tests (public)
 
 env:
   CONAN_VER: 2.12
@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LLVM_MAJOR_VER: 21
-    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    if: github.repository == 'TrustTunnel/TrustTunnelClient' && !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -119,10 +119,10 @@ jobs:
 
   MacOS:
     runs-on: macos-latest
-    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    if: github.repository == 'TrustTunnel/TrustTunnelClient' && !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -213,10 +213,10 @@ jobs:
     env:
       MSVC_VER: 17
       MSVC_YEAR: 2022
-    if: "!startsWith(github.event.head_commit.message, 'skipci:')"
+    if: github.repository == 'TrustTunnel/TrustTunnelClient' && !startsWith(github.event.head_commit.message, 'skipci:')
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5

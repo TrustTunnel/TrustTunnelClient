@@ -171,7 +171,7 @@ Mac build:
               -DCMAKE_CXX_COMPILER=clang++ \
               -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
               -DCMAKE_OSX_ARCHITECTURES=${ARCH} \
-              -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
               -S ${REPO_ROOT} \
               -B build_${ARCH}
               cmake --build build_${ARCH} --target trusttunnel_client
