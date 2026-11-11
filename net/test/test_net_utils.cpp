@@ -43,14 +43,15 @@ struct TestDatum {
     std::vector<std::string> allowed_fingerprints;
 };
 
-// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome stable (captured November 2026), no session resumption, source: Wireshark.
 static const TestDatum TEST_DATA_TCP[] = {
-        {"example.org", {"t13d1516h2_8daaf6152771_d8a2da3f94cd"}},
+        {"example.org", {"t13d1517h2_8daaf6152771_cb7bf5808d99"}},
 };
 
-// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome 135.0.7049.85 (Official Build) (arm64), source: Wireshark,
+// plus the `trust_anchors` extension that the native_libs_common 8.2.0 Chrome profile also sends over QUIC.
 static const TestDatum TEST_DATA_QUIC[] = {
-        {"example.org", {"q13d0311h3_55b375c5d22e_653d80c3fe9d"}},
+        {"example.org", {"q13d0312h3_55b375c5d22e_178839b6cec1"}},
 };
 
 TEST(NetUtils, JA4Tcp) {
