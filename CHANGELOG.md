@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
+  build for older deployment targets.
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.
 
 ### Deprecated
