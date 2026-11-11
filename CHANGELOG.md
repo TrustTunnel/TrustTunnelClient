@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   build for older deployment targets.
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.
 - The `chrome` and `chrome_canary` TLS profiles now mimic the current Chrome ClientHello (November 2026): they send the `trust_anchors` extension and GREASE in `signature_algorithms`, and `chrome_canary` no longer sends `server_padding`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
+- The `[endpoint].tls_profile` setting now accepts `boringssl` for the profile that sends the linked TLS library's own ClientHello instead of impersonating a browser; `default` keeps working as a deprecated alias, and the `VpnTlsProfile` enumeration member `VPN_TLS_PROFILE_DEFAULT` is renamed to `VPN_TLS_PROFILE_BORINGSSL_DEFAULT`. The enumeration now also follows the order of `ag::tls::TlsClientProfile`, which renumbers its values.
 
 ### Deprecated
 

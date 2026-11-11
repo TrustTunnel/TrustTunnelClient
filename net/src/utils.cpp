@@ -886,8 +886,25 @@ std::string kex_group_name_by_nid(int kex_group_nid) {
     }
 }
 
+// `VpnTlsProfile` mirrors `ag::tls::TlsClientProfile` member for member and in the same order, so
+// that the two enums can be read side by side in `to_tls_client_profile()`. These assertions make
+// an out-of-order or one-sided addition fail the build instead of silently renumbering the C enum,
+// which external consumers compile against.
+static_assert(static_cast<int>(VPN_TLS_PROFILE_CHROME) == static_cast<int>(ag::tls::TlsClientProfile::CHROME));
+static_assert(
+        static_cast<int>(VPN_TLS_PROFILE_CHROME_CANARY) == static_cast<int>(ag::tls::TlsClientProfile::CHROME_CANARY));
+static_assert(static_cast<int>(VPN_TLS_PROFILE_SAFARI) == static_cast<int>(ag::tls::TlsClientProfile::SAFARI));
+static_assert(static_cast<int>(VPN_TLS_PROFILE_FIREFOX) == static_cast<int>(ag::tls::TlsClientProfile::FIREFOX));
+static_assert(static_cast<int>(VPN_TLS_PROFILE_OKHTTP) == static_cast<int>(ag::tls::TlsClientProfile::OKHTTP));
+static_assert(static_cast<int>(VPN_TLS_PROFILE_OPENSSL_DEFAULT)
+        == static_cast<int>(ag::tls::TlsClientProfile::OPENSSL_DEFAULT));
+static_assert(static_cast<int>(VPN_TLS_PROFILE_BORINGSSL_DEFAULT)
+        == static_cast<int>(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT));
+
 ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
     switch (profile) {
+    case VPN_TLS_PROFILE_CHROME_CANARY:
+        return ag::tls::TlsClientProfile::CHROME_CANARY;
     case VPN_TLS_PROFILE_SAFARI:
         return ag::tls::TlsClientProfile::SAFARI;
     case VPN_TLS_PROFILE_FIREFOX:
@@ -896,10 +913,8 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
         return ag::tls::TlsClientProfile::OKHTTP;
     case VPN_TLS_PROFILE_OPENSSL_DEFAULT:
         return ag::tls::TlsClientProfile::OPENSSL_DEFAULT;
-    case VPN_TLS_PROFILE_DEFAULT:
+    case VPN_TLS_PROFILE_BORINGSSL_DEFAULT:
         return ag::tls::TlsClientProfile::BORINGSSL_DEFAULT;
-    case VPN_TLS_PROFILE_CHROME_CANARY:
-        return ag::tls::TlsClientProfile::CHROME_CANARY;
     case VPN_TLS_PROFILE_CHROME:
         break;
     }

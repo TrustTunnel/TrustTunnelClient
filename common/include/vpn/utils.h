@@ -38,15 +38,17 @@ typedef enum {
  * TLS ClientHello fingerprint profile. Selects which client the outgoing TLS
  * ClientHello mimics (its JA4 fingerprint).
  * `VPN_TLS_PROFILE_CHROME` is the default behavior.
+ * Mirrors `ag::tls::TlsClientProfile` member for member, in the same order;
+ * `net/src/utils.cpp` static-asserts that the orders stay in sync.
  */
 typedef enum {
-    VPN_TLS_PROFILE_CHROME,          // Chrome-like ClientHello (default)
-    VPN_TLS_PROFILE_SAFARI,          // Safari-like ClientHello
-    VPN_TLS_PROFILE_FIREFOX,         // Firefox-like ClientHello
-    VPN_TLS_PROFILE_OKHTTP,          // OkHttp (Android) client
-    VPN_TLS_PROFILE_OPENSSL_DEFAULT, // OpenSSL default ClientHello
-    VPN_TLS_PROFILE_DEFAULT,         // No mimicry — library defaults
-    VPN_TLS_PROFILE_CHROME_CANARY,   // Chrome Canary-like ClientHello
+    VPN_TLS_PROFILE_CHROME,            // Chrome-like ClientHello (default)
+    VPN_TLS_PROFILE_CHROME_CANARY,     // Chrome Canary-like ClientHello
+    VPN_TLS_PROFILE_SAFARI,            // Safari-like ClientHello
+    VPN_TLS_PROFILE_FIREFOX,           // Firefox-like ClientHello
+    VPN_TLS_PROFILE_OKHTTP,            // OkHttp (Android) client
+    VPN_TLS_PROFILE_OPENSSL_DEFAULT,   // OpenSSL default ClientHello
+    VPN_TLS_PROFILE_BORINGSSL_DEFAULT, // No mimicry — the ClientHello of the linked TLS library (BoringSSL)
 } VpnTlsProfile;
 
 struct VpnConnectionStats {

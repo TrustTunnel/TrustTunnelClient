@@ -101,7 +101,8 @@ TEST(NetUtils, ToTlsClientProfile) {
     EXPECT_EQ(ag::tls::TlsClientProfile::OKHTTP, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OKHTTP));
     EXPECT_EQ(
             ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
-    EXPECT_EQ(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_DEFAULT));
+    EXPECT_EQ(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT,
+            ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_BORINGSSL_DEFAULT));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks
