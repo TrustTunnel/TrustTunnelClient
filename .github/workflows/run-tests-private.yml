@@ -37,8 +37,6 @@ jobs:
 
               python3 -m pip install conan --upgrade
               conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-              # A fresh runner has no default profile, and `make bootstrap_deps` needs it.
-              conan profile detect --exist-ok
 
               # Export the AdGuard recipes only if the remote does not resolve them.
               make bootstrap_deps SKIP_VENV=1
@@ -84,8 +82,6 @@ jobs:
 
               python3 -m pip install conan
               conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
-              # A fresh runner has no default profile, and `make bootstrap_deps` needs it.
-              conan profile detect --exist-ok
 
               # Ensure Rust is available (rust-toolchain.toml picks the version)
               export PATH="$HOME/.cargo/bin:$PATH"
@@ -157,8 +153,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           & conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }}
-          # A fresh runner has no default profile.
-          & conan profile detect --exist-ok
 
           # Export the AdGuard recipes only if the remote does not resolve them.
           & conan graph info . --profile:host=default *> $null
