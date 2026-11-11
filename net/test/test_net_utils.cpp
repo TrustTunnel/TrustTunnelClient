@@ -44,14 +44,15 @@ struct TestDatum {
     std::vector<std::string> allowed_fingerprints;
 };
 
-// Fingerprint: Chrome 150.0.7871.129 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome stable (captured November 2026), no session resumption, source: Wireshark.
 static const TestDatum TEST_DATA_TCP[] = {
-        {"example.org", {"t13d1516h2_8daaf6152771_806a8c22fdea"}},
+        {"example.org", {"t13d1517h2_8daaf6152771_cb7bf5808d99"}},
 };
 
-// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome 135.0.7049.85 (Official Build) (arm64), source: Wireshark,
+// plus the `trust_anchors` extension that the native_libs_common 8.2.0 Chrome profile also sends over QUIC.
 static const TestDatum TEST_DATA_QUIC[] = {
-        {"example.org", {"q13d0311h3_55b375c5d22e_653d80c3fe9d"}},
+        {"example.org", {"q13d0312h3_55b375c5d22e_178839b6cec1"}},
 };
 
 TEST(NetUtils, JA4Tcp) {
@@ -141,8 +142,8 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     ASSERT_FALSE(capture.initial_data.empty()) << "No TLS data was captured";
 
     auto fingerprint = ag::ja4::compute({capture.initial_data.data(), capture.initial_data.size()}, /*quic*/ true);
-    // Expected to match Chrome 135 QUIC fingerprint, same as JA4Quic test
-    EXPECT_EQ("q13d0311h3_55b375c5d22e_653d80c3fe9d", fingerprint) << "Ngtcp2 fingerprint mismatch";
+    // Expected to match the Chrome QUIC fingerprint, same as the JA4Ngtcp2Quic test
+    EXPECT_EQ("q13d0312h3_55b375c5d22e_178839b6cec1", fingerprint) << "Ngtcp2 fingerprint mismatch";
 }
 
 std::vector<uint8_t> prepare_client_hello(const char *sni) {
