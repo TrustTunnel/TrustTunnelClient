@@ -10,7 +10,7 @@ See [README.md](README.md) for full product details and
 ## Tech Stack
 
 - **C++20** (primary), **C11** — core libraries
-- **Rust 1.85** — `trusttunnel/setup_wizard/`, `trusttunnel/settings/`,
+- **Rust 1.95** — `trusttunnel/setup_wizard/`, `trusttunnel/settings/`,
   `trusttunnel/deeplink-ffi/`
 - **Kotlin** — Android platform adapter
 - **Swift / Objective-C** — Apple platform adapter
@@ -18,7 +18,13 @@ See [README.md](README.md) for full product details and
 - **CMake 3.24+** — build system
 - **Conan 2.0.5+** — C++ package manager
 - **Ninja** — build backend
-- **Clang / LLVM 17+** (LLVM 19 on macOS) — compiler and tooling
+- **Clang / LLVM 21+** — compiler and tooling
+  (Windows builds use MSVC `cl.exe`, not clang)
+- **clang-format 21+** — required by `make lint-cpp` / `make clang-format`
+- **Python 3** — `scripts/bootstrap_conan_deps.py`, Conan wrappers
+  (`requirements.txt`)
+- **Ruby / Fastlane** — iOS/Android release automation (`Gemfile`,
+  `fastlane/`)
 
 ## Directory Structure
 
@@ -36,8 +42,11 @@ See [README.md](README.md) for full product details and
 | `third-party/` | Vendored dependencies: lwip, pcap_savefile, wintun |
 | `scripts/` | Build helpers, Conan export, version increment, git hooks |
 | `cmake/` | CMake modules: unit test helper, Conan bootstrapping/provider |
-| `bamboo-specs/` | CI/CD pipeline definitions (Bamboo) |
 | `integration-tests/` | Docker-based integration test harness |
+| `conan/` | Conan user settings and build profiles |
+| `fastlane/` | iOS/Android release automation (Fastfile, Matchfile) |
+| `.devcontainer/` | Docker-based remote debugging environment (see below) |
+| `.github/` | GitHub Actions workflows and PR/issue templates |
 
 ### Module Dependency Flow
 
@@ -52,27 +61,76 @@ common ← tcpip ← core
 ## Build Commands
 
 Run `make init` once after cloning to set up git hooks.
+Running `make` with no arguments builds all binaries (the `all` target);
+`make help` lists every target with its description.
+
+Every build goes through a CMake preset from `CMakePresets.json` — never invoke
+`cmake` by hand, and never add a build flag to a CI script that is not also
+reachable from `make`. The same presets are used locally and by CI, so a green
+CI run means the same configuration built locally.
 
 | Command | What It Does |
 | --- | --- |
+| `make help` | List all targets with descriptions |
 | `make init` | Configure git hooks path to `./scripts/hooks` |
+| `make bootstrap_deps` | Export AdGuard Conan recipes to local cache (prerequisite of most build targets) |
+| `make setup_cmake` | CMake configure, skipped if the build dir is already configured (accepts `SKIP_BOOTSTRAP=1`) |
+| `make reconfigure` | Force a fresh CMake configure, e.g. after changing `CMAKE_ARGS` |
 | `make build_libs` | Bootstrap Conan deps → CMake configure → build `vpnlibs_core` |
 | `make build_trusttunnel_client` | Build the CLI client binary (depends on `build_libs`) |
 | `make build_wizard` | Build the setup wizard binary |
-| `make all` | Build all binaries (client + wizard) |
+| `make build_and_export_bin` | Build binaries and copy to `$(EXPORT_DIR)` (default `bin/`) |
+| `make all` | Build all binaries (client + wizard); the default target |
 | `make test` | Run all tests (`test-cpp` + `test-rust`) |
 | `make test-cpp` | Build libs → build test targets → run `ctest` |
 | `make test-rust` | `cargo test` on the setup_wizard workspace |
+| `make test-live` | Build and run the live (network-dependent) tests |
 | `make lint` | Run all linters (`lint-md` + `lint-rust` + `lint-cpp`) |
 | `make lint-cpp` | `clang-format` check + `clangd-tidy` |
+| `make clang-format` | Explicit `clang-format` check only |
+| `make clang-tidy` / `make clangd-tidy` | Run C++ static analysis only |
 | `make lint-rust` | `cargo clippy` + `cargo fmt --check` |
 | `make lint-md` | `markdownlint .` |
 | `make lint-fix` | Auto-fix all fixable linter issues |
+| `make lint-fix-cpp` / `lint-fix-rust` / `lint-fix-md` | Granular auto-fix targets |
+| `make list-deps-dirs` | List Conan package directories (for finding dep headers) |
 | `make compile_commands` | Generate `compile_commands.json` for IDE integration |
 | `make clean` | Clean build artifacts |
 
-Set `BUILD_TYPE=debug` for debug builds (default is `release` →
-`RelWithDebInfo`).
+### Selecting a build configuration
+
+The active preset comes from `COMPILER` (`clang`/`msvc`, defaulting to the
+host) and `BUILD_TYPE` (`release` → `RelWithDebInfo`, `debug` → `Debug`), or is
+named directly with `PRESET`:
+
+```sh
+make BUILD_TYPE=debug all
+make PRESET=clang-debug-sanitizer test
+make PRESET=musl-cross-mips-relwithdebinfo build_and_export_bin
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `PRESET` | Preset to configure with; overrides `COMPILER`/`BUILD_TYPE` |
+| `BUILD_DIR` | Build directory; defaults to `cmake-build-$(PRESET)` |
+| `CMAKE_ARGS` | Extra `cmake` flags, e.g. `-DIPV6_UNAVAILABLE=ON` |
+| `CTEST_ARGS` | Extra `ctest` flags, e.g. `-R <regex>` |
+| `ARCH` | macOS architecture(s), e.g. `arm64` or `'arm64;x86_64'` |
+| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `12.0` |
+| `SKIP_BOOTSTRAP` | `1` skips the Conan bootstrap (CI does its own) |
+| `SKIP_VENV` | `1` uses the tools on `PATH` instead of a local venv |
+
+Presets available in `CMakePresets.json` (kept in sync with `native-libs-common`
+and `vpn-cli`):
+
+- `clang-relwithdebinfo`, `clang-debug` — macOS/Linux builds with libc++
+- `clang-relwithdebinfo-sanitizer`, `clang-debug-sanitizer` — the above plus
+  AddressSanitizer; the RelWithDebInfo one is what CI runs unit tests with
+- `msvc-relwithdebinfo`, `msvc-debug` — Windows builds
+- `musl-cross-<arch>-relwithdebinfo`, `musl-cross-<arch>-debug` for `arch` in
+  `x86_64`, `aarch64`, `armv7`, `mips`, `mipsel` — statically linked Linux
+  release builds, cross-compiled with `zig cc`. These are the configurations the
+  released Linux binaries are built from.
 
 ## Code Style
 
@@ -92,6 +150,10 @@ Set `BUILD_TYPE=debug` for debug builds (default is `release` →
     - `UPPER_CASE`: constants, `constexpr` locals, static constants
     - Private/protected members prefixed with `m_`, globals with `g_`
 - Use `libc++` (not `libstdc++`)
+- Use static storage duration instead of anonymous namespaces for internal linkage where possible
+    - (e.g. `static const int VALUE = 42;` instead of putting it in an anonymous namespace)
+- Function descriptions are written in imperative language
+    - e.g. "Calculate the sum of two numbers" instead of "Calculates the sum of two numbers"
 
 ### Rust
 
@@ -119,6 +181,12 @@ Set `BUILD_TYPE=debug` for debug builds (default is `release` →
 - Prefer existing patterns over inventing new ones
 - Keep changes minimal and focused
 - Tests live in `test/` subdirectories alongside the module they cover
+- Logging guidelines:
+    - Use `DEBUG` level for verbose debug info, `INFO` for high-level events,
+      `WARN` for recoverable issues, and `ERROR` for critical (unrecoverable) errors
+    - Very frequent events (e.g. every packet) should be logged at `DEBUG` level, while important state changes (e.g. connection established, error occurred) should be at `INFO` or higher
+    - Include relevant context in log messages (e.g. connection ID, error code)
+    - Avoid logging sensitive information (e.g. IP addresses, payload data)
 
 ## Docker Debug Environment
 
@@ -141,10 +209,11 @@ Managed via Conan. Key libraries:
 - **libevent** — async event loop
 - **nghttp2** — HTTP/2
 - **quiche** — HTTP/3 / QUIC (disabled on MIPS)
-- **openssl** (BoringSSL) — TLS
+- **openssl** (BoringSSL; MIPS falls back to `openssl/3.1.5-quic1@adguard/oss`) — TLS
 - **nlohmann_json**, **tomlplusplus** — config parsing
 - **cxxopts** — CLI argument parsing
 - **magic_enum** — enum reflection
+- **gtest** — unit testing
 
 Local conan cache is populated by `make bootstrap_deps` which is dependency for many other make commands.
 
@@ -156,16 +225,21 @@ directories, then look in each directory's `include/` subdirectory.
 
 You MUST follow the following rules for EVERY task that you perform:
 
-- You MUST verify it with linter, formatter, and TypeScript compiler.
+- You MUST verify it with linter, formatter, and C++/Rust compilers.
 
   Use the following commands:
-    - `make` to check if code builds
+    - `make all` to check if code builds (bare `make` only runs `init`)
     - `make test` to build and run unit tests
     - `make lint` to run the linters
     - `make lint-fix` to fix linting issues that can be fixed automatically
     - `make clang-format` to check the formatting
 
 - You MUST update the unit tests for changed code.
+
+- When a change is user-visible, you MUST update `CHANGELOG.md` under
+  `## [Unreleased]` in the appropriate category. A required `CHANGELOG.md`
+  update MUST contain exactly ONE entry for the PR/change: summarize the whole
+  change in a single bullet, not one bullet per file or sub-change.
 
 - You MUST run tests with the `make test` script to verify that your changes do
   not break existing functionality.

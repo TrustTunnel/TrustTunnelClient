@@ -1,0 +1,84 @@
+name: Deploy Android library
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+
+jobs:
+  deploy-android:
+    name: Deploy library / Android
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: android-gh-packages
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+    container:
+      image: adguard/core-libs:2.15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so the Gradle build can resolve the version
+          # via git describe.
+          fetch-depth: 0
+
+      - name: Configure Conan
+        run: |
+          python3 -m pip install conan --upgrade
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      # The version is resolved by the Gradle build via git describe (see
+      # build.gradle.kts). A manual `version` input forces an override.
+      - name: Set version override
+        if: inputs.version != ''
+        run: echo "TT_CLIENT_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+
+      - name: Build Android library
+        run: |
+          cd platform/android
+          touch local.properties
+          CMAKE_DIR=$(dirname $(dirname $(which cmake)))
+          echo cmake.dir=$CMAKE_DIR >> local.properties
+          ./gradlew :lib:assembleRelease
+
+      - name: Publish to GitHub Packages
+        env:
+          USERNAME: github
+          TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+        run: |
+          cd platform/android
+          ./gradlew :lib:publishReleasePublicationToGitHubPackagesRepository
+
+      # Upload the Conan packages built above (including dependencies) so that
+      # subsequent builds download them instead of rebuilding from source.
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true

@@ -9,6 +9,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(VPN_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(VPN_CORE_DIR ${VPN_LIB_DIR}/core)
 
+# Resolve the version (TT_CLIENT_VERSION override -> git describe -> 0.0.0-git)
+# and render the version header into the build dir (git-ignored).
+include(${VPN_LIB_DIR}/cmake/version.cmake)
+configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/vpn/trusttunnel/version.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gen/vpn/trusttunnel/version.h
+        @ONLY)
+
 if (MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Zi /EHs-c- /W0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /EHs-c- /std:c++latest /W0")
@@ -24,6 +32,8 @@ set(SOURCE_FILES
 
 add_library(vpnlibs_trusttunnel EXCLUDE_FROM_ALL ${SOURCE_FILES})
 target_include_directories(vpnlibs_trusttunnel PUBLIC include)
+# Generated version.h wins over anything in the source tree.
+target_include_directories(vpnlibs_trusttunnel BEFORE PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/gen)
 
 find_package(cxxopts REQUIRED)
 find_package(magic_enum REQUIRED)
@@ -46,7 +56,26 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "mips.*")
     target_link_libraries(vpnlibs_trusttunnel atomic)
 endif ()
 
-if (CMAKE_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
+# The Conan provider turns a `zig cc -target <triple>` compiler into a plain
+# `<triple>-cc` wrapper script (Conan, and cargo below, need a single
+# executable); for a `<arch>-linux-musl*-gcc` toolchain it hands back
+# CMAKE_C_COMPILER unchanged.
+if (COMMAND conan_compiler_executable)
+    conan_compiler_executable(C TT_C_COMPILER)
+else ()
+    set(TT_C_COMPILER "${CMAKE_C_COMPILER}")
+endif ()
+
+# Whether the C compiler is `zig cc`. The provider rewrites CMAKE_C_COMPILER to
+# the wrapper in place, so it can no longer be told apart from TT_C_COMPILER by
+# comparison; is_zig_compiler reports it regardless of that substitution.
+if (COMMAND is_zig_compiler)
+    is_zig_compiler(C TT_C_COMPILER_IS_ZIG)
+else ()
+    set(TT_C_COMPILER_IS_ZIG FALSE)
+endif ()
+
+if (TT_C_COMPILER MATCHES ".*-musl(eabi)?(sf)?-.*")
     add_link_options(-static -Wl,--allow-multiple-definition)
     target_link_libraries(vpnlibs_trusttunnel atomic)
 endif ()
@@ -62,8 +91,12 @@ if (APPLE)
 endif ()
 
  if (WIN32)
+     configure_file(
+             ${CMAKE_CURRENT_SOURCE_DIR}/trusttunnel_client.rc.in
+             ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_client.rc
+             @ONLY)
      list(APPEND EXE_SOURCE_FILES
-             trusttunnel_client.rc
+             ${CMAKE_CURRENT_BINARY_DIR}/gen/trusttunnel_client.rc
      )
  endif ()
 
@@ -164,34 +197,43 @@ if (WIN32 AND MSVC)
 endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        if (CMAKE_C_COMPILER MATCHES "armv7.*-linux-musleabi")
-            set(MUSL_ARCH "armv7")
-        elseif (CMAKE_C_COMPILER MATCHES "aarch64.*-linux-musl")
-            set(MUSL_ARCH "aarch64")
-        elseif (CMAKE_C_COMPILER MATCHES "x86_64.*-linux-musl")
-            set(MUSL_ARCH "x86_64")
-        elseif (CMAKE_C_COMPILER MATCHES "mipsel.*-linux-musl")
-            set(MUSL_ARCH "mipsel")
-            set(CARGO_CHANNEL "+nightly")
-            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
-        elseif (CMAKE_C_COMPILER MATCHES "mips.*-linux-musl")
-            set(MUSL_ARCH "mips")
-            set(CARGO_CHANNEL "+nightly")
-            set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
-        endif ()
+    # zig names the 32-bit arm target `arm-linux-musleabi`, the gcc toolchains
+    # `armv7-linux-musleabi`.
+    if (TT_C_COMPILER MATCHES "arm(v7)?.*-linux-musleabi")
+        set(MUSL_ARCH "armv7")
+    elseif (TT_C_COMPILER MATCHES "aarch64.*-linux-musl")
+        set(MUSL_ARCH "aarch64")
+    elseif (TT_C_COMPILER MATCHES "x86_64.*-linux-musl")
+        set(MUSL_ARCH "x86_64")
+    elseif (TT_C_COMPILER MATCHES "mipsel.*-linux-musl")
+        set(MUSL_ARCH "mipsel")
+        set(CARGO_CHANNEL "+nightly")
+        set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+    elseif (TT_C_COMPILER MATCHES "mips.*-linux-musl")
+        set(MUSL_ARCH "mips")
+        set(CARGO_CHANNEL "+nightly")
+        set(CARGO_EXTRA_ARGS "-Zbuild-std=std,panic_abort")
+    endif ()
 
-        if (MUSL_ARCH)
-            if (MUSL_ARCH MATCHES "armv7")
-                set(RUST_TARGET_TRIPLE "armv7-unknown-linux-musleabi")
-            else ()
-                set(RUST_TARGET_TRIPLE "${MUSL_ARCH}-unknown-linux-musl")
-            endif ()
-            set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
-            set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
-            set(CARGO_ENV_CC CC=${CMAKE_C_COMPILER})
-            set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${CMAKE_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
-        endif()
+    if (MUSL_ARCH)
+        if (MUSL_ARCH MATCHES "armv7")
+            set(RUST_TARGET_TRIPLE "armv7-unknown-linux-musleabi")
+        else ()
+            set(RUST_TARGET_TRIPLE "${MUSL_ARCH}-unknown-linux-musl")
+        endif ()
+        set(CARGO_TARGET --target ${RUST_TARGET_TRIPLE})
+        set(TARGET_SUBDIR "${RUST_TARGET_TRIPLE}/${TARGET_SUBDIR}")
+        set(CARGO_ENV_CC CC=${TT_C_COMPILER})
+        set(CARGO_ENV_RUSTFLAGS "RUSTFLAGS=-Clinker=${TT_C_COMPILER} -Ctarget-feature=+crt-static -Clink-self-contained=no -Clink-arg=-no-pie")
+
+        if (TT_C_COMPILER_IS_ZIG)
+            # TT_C_COMPILER is the zig wrapper (`<zig triple>-cc`), which already
+            # carries `-target <zig triple>`. Left to itself, cc-rs would append
+            # the Rust triple (`--target=armv7-unknown-linux-musleabi`), which
+            # zig cannot parse. CRATE_CC_NO_DEFAULTS drops the flags cc-rs adds
+            # on its own and leaves the wrapper's target in place.
+            set(CARGO_ENV_CC_NO_DEFAULTS "CRATE_CC_NO_DEFAULTS=1")
+        endif ()
     elseif (CMAKE_CROSSCOMPILING)
         message(WARNING "Unexpected compiler, setup_wizard won't be cross-compiled")
     endif ()
@@ -209,7 +251,7 @@ if (ANDROID)
             UPDATE_COMMAND ""
             PATCH_COMMAND ""
             CONFIGURE_COMMAND ""
-            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${ANDROID_HOME_VAR}
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${ANDROID_HOME_VAR}
             cargo ${CARGO_TARGET}
             ${CARGO_BUILD_TYPE}
             --package trusttunnel-deeplink-ffi
@@ -225,7 +267,7 @@ else ()
             UPDATE_COMMAND ""
             PATCH_COMMAND ""
             CONFIGURE_COMMAND ""
-            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}"
+            BUILD_COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${RUST_WORKSPACE_TARGET_DIR} TT_CLIENT_VERSION=${TT_CLIENT_VERSION_FULL} ${CARGO_ENV_CC} "${CARGO_ENV_RUSTFLAGS}" ${CARGO_ENV_CC_NO_DEFAULTS}
             cargo ${CARGO_CHANNEL} build ${CARGO_EXTRA_ARGS}
             --manifest-path=<SOURCE_DIR>/Cargo.toml ${CARGO_BUILD_TYPE} ${CARGO_TARGET}
             --workspace

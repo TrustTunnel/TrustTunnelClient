@@ -1,0 +1,110 @@
+name: Deploy Apple library
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version override (e.g. 1.2.3). If omitted, the version comes from git describe."
+        required: false
+        type: string
+      ref:
+        description: "Git ref (SHA or branch) to build from. If omitted, uses the default checkout."
+        required: false
+        type: string
+
+jobs:
+  deploy-apple:
+    name: Deploy library / Apple
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    environment: apple-gh-packages
+    runs-on:
+      - ephemeral
+      - ephemeral-mac
+      - registry.int.agrd.dev/macos/tahoe-github-xcode27-26.11:@edge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so the build can resolve the version via
+          # git describe.
+          fetch-depth: 0
+
+      - name: Configure environment
+        run: |
+          python3 -m venv venv
+          source ./venv/bin/activate
+          pip install conan
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+          bundle config --local path '.bundle/vendor'
+          bundle install
+
+      # The build (build_framework.sh / podspec) resolves the version via git
+      # describe. Resolve it here too for the published artifact path; a manual
+      # `version` input forces an override that also drives the build.
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build xcframeworks
+        run: |
+          source ./venv/bin/activate
+          cd platform/apple
+          ./build_framework.sh
+
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_GPR_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -e -x
+
+          ARTIFACT_NAME="TrustTunnelClient-apple-${VERSION}.zip"
+
+          cp CHANGELOG.md platform/apple/Framework/CHANGELOG
+
+          cd platform/apple/Framework
+
+          echo "https://github.com/TrustTunnel/TrustTunnelClient/blob/main/LICENSE" > LICENSE
+
+          # Create .zip with CHANGELOG and LICENSE
+          zip -4yr "${ARTIFACT_NAME}" \
+            TrustTunnelClient.xcframework \
+            VpnClientFramework.xcframework \
+            CHANGELOG \
+            LICENSE
+
+          # Upload to Maven registry
+          curl -X PUT \
+            --upload-file "${ARTIFACT_NAME}" \
+            "https://${GH_TOKEN}:@maven.pkg.github.com/TrustTunnel/TrustTunnelClient/com/adguard/trusttunnel/trusttunnel-client-apple/${VERSION}/${ARTIFACT_NAME}"
+
+      # Upload the Conan packages built above (including dependencies) so that
+      # subsequent builds download them instead of rebuilding from source.
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          source ./venv/bin/activate
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true

@@ -49,7 +49,9 @@ add_library(${PROJECT_NAME} SHARED
 set_target_properties(${PROJECT_NAME} PROPERTIES
     FRAMEWORK TRUE
     FRAMEWORK_VERSION A
-    VERSION 1.0.49
+    # Resolved by cmake/version.cmake (included via the add_subdirectory above).
+    # The Mach-O VERSION must be numeric, so use the core X.Y.Z.
+    VERSION ${TT_CLIENT_VERSION_CORE}
     PUBLIC_HEADER "VpnClient.h;DeepLink.h"
     MACOSX_FRAMEWORK_INFO_PLIST "${INFOPLIST_FILE}"
     MACOSX_FRAMEWORK_IDENTIFIER com.adguard.TrustTunnel.VpnClientFramework
