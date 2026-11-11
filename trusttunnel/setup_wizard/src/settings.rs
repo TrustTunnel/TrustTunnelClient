@@ -473,8 +473,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
         ..Default::default()
     };
 
-    if endpoint_config.is_some() {
-        let config = endpoint_config.as_ref().unwrap();
+    if let Some(config) = &endpoint_config {
         x.hostname = config.hostname.clone();
         x.certificate = empty_to_none(config.certificate.clone());
     } else {
