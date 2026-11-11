@@ -897,7 +897,7 @@ ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile) {
     case VPN_TLS_PROFILE_OPENSSL_DEFAULT:
         return ag::tls::TlsClientProfile::OPENSSL_DEFAULT;
     case VPN_TLS_PROFILE_DEFAULT:
-        return ag::tls::TlsClientProfile::DEFAULT;
+        return ag::tls::TlsClientProfile::BORINGSSL_DEFAULT;
     case VPN_TLS_PROFILE_CHROME_CANARY:
         return ag::tls::TlsClientProfile::CHROME_CANARY;
     case VPN_TLS_PROFILE_CHROME:

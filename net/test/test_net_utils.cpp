@@ -44,14 +44,15 @@ struct TestDatum {
     std::vector<std::string> allowed_fingerprints;
 };
 
-// Fingerprint: Chrome 150.0.7871.129 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome stable (captured November 2026), no session resumption, source: Wireshark.
 static const TestDatum TEST_DATA_TCP[] = {
-        {"example.org", {"t13d1516h2_8daaf6152771_806a8c22fdea"}},
+        {"example.org", {"t13d1517h2_8daaf6152771_cb7bf5808d99"}},
 };
 
-// Fingerprint: Version 135.0.7049.85 (Official Build) (arm64), source: Wireshark.
+// Fingerprint: Chrome 135.0.7049.85 (Official Build) (arm64), source: Wireshark,
+// plus the `trust_anchors` extension that the native_libs_common 8.2.0 Chrome profile also sends over QUIC.
 static const TestDatum TEST_DATA_QUIC[] = {
-        {"example.org", {"q13d0311h3_55b375c5d22e_653d80c3fe9d"}},
+        {"example.org", {"q13d0312h3_55b375c5d22e_178839b6cec1"}},
 };
 
 TEST(NetUtils, JA4Tcp) {
@@ -76,8 +77,8 @@ TEST(NetUtils, JA4TlsProfiles) {
         bool with_alpn;
     };
     const Case cases[] = {
-            {ag::tls::TlsClientProfile::CHROME, "Chrome", "t13d1516h2_8daaf6152771_806a8c22fdea", true},
-            {ag::tls::TlsClientProfile::CHROME_CANARY, "Canary", "t13d1517h2_8daaf6152771_c4845d6bf6c5", true},
+            {ag::tls::TlsClientProfile::CHROME, "Chrome", "t13d1517h2_8daaf6152771_cb7bf5808d99", true},
+            {ag::tls::TlsClientProfile::CHROME_CANARY, "Canary", "t13d1517h2_8daaf6152771_cb7bf5808d99", true},
             {ag::tls::TlsClientProfile::SAFARI, "Safari", "t13d2013h2_a09f3c656075_7f0f34a4126d", true},
             {ag::tls::TlsClientProfile::FIREFOX, "Firefox", "t13d1717h2_5b57614c22b0_3cbfd9057e0d", true},
             {ag::tls::TlsClientProfile::OKHTTP, "OkHttp", "t13d1613h2_46e7e9700bed_eca864cca44a", true},
@@ -100,7 +101,7 @@ TEST(NetUtils, ToTlsClientProfile) {
     EXPECT_EQ(ag::tls::TlsClientProfile::OKHTTP, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OKHTTP));
     EXPECT_EQ(
             ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
-    EXPECT_EQ(ag::tls::TlsClientProfile::DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_DEFAULT));
+    EXPECT_EQ(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_DEFAULT));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks
@@ -182,8 +183,8 @@ TEST(NetUtils, JA4Ngtcp2ClientHelloSize) {
     ASSERT_FALSE(capture.initial_data.empty()) << "No TLS data was captured";
 
     auto fingerprint = ag::ja4::compute({capture.initial_data.data(), capture.initial_data.size()}, /*quic*/ true);
-    // Expected to match Chrome 135 QUIC fingerprint, same as JA4Quic test
-    EXPECT_EQ("q13d0311h3_55b375c5d22e_653d80c3fe9d", fingerprint) << "Ngtcp2 fingerprint mismatch";
+    // Expected to match the Chrome QUIC fingerprint, same as the JA4Ngtcp2Quic test
+    EXPECT_EQ("q13d0312h3_55b375c5d22e_178839b6cec1", fingerprint) << "Ngtcp2 fingerprint mismatch";
 }
 
 std::vector<uint8_t> prepare_client_hello(const char *sni, ag::tls::TlsClientProfile profile, bool with_alpn) {
