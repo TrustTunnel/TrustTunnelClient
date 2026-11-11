@@ -19,14 +19,9 @@ jobs:
 # Private repository jobs (self-hosted runners)
 # =============================================================================
 
-  resolve-images:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
-
   tests:
     name: ${{ matrix.name }} build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     permissions:
       contents: read
       id-token: write
@@ -35,7 +30,7 @@ jobs:
       matrix:
         include:
           - name: Linux
-            runs-on: '["ephemeral","ephemeral-linux","${{ needs.resolve-images.outputs.corelibs-builder }}","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
+            runs-on: '["ephemeral","ephemeral-linux","registry.int.agrd.dev/linux/corelibs-builder:@edge","ephemeral-limit-memory-12288","ephemeral-limit-cpu-6"]'
             container-image: 'adguard/core-libs:2.15'
             artifact-name: test-results-linux-private
             test-command: |
@@ -64,7 +59,7 @@ jobs:
               conan remove -c "*" || true
               conan cache clean || true
           - name: Mac
-            runs-on: '["ephemeral","ephemeral-mac","${{ needs.resolve-images.outputs.macos }}","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
+            runs-on: '["ephemeral","ephemeral-mac","registry.int.agrd.dev/macos/tahoe-github-xcode27-26.11:@edge","ephemeral-limit-memory-6144","ephemeral-limit-cpu-6"]'
             container-image: ''
             artifact-name: test-results-macos-private
             test-command: |
@@ -116,11 +111,10 @@ jobs:
   win-build:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-vmwin
-      - ${{ needs.resolve-images.outputs.windows }}
+      - registry.int.agrd.dev/windows/windows2022-vs2022:@edge
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
     steps:

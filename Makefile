@@ -40,9 +40,8 @@ endif
 #   make ARCH='arm64;x86_64' all
 # Not applied to the cross-compiling presets, which don't target Apple.
 #
-# Raise the deployment target to 11.0 once the code starts using
-# <stop_token>: libc++ marks it unavailable before macOS 11.
-MACOS_DEPLOYMENT_TARGET ?= 10.15
+# Xcode 27 supports macOS deployment targets from 12.0 only.
+MACOS_DEPLOYMENT_TARGET ?= 12.0
 ifeq ($(UNAME_S), Darwin)
 ifeq ($(findstring cross,$(PRESET)),)
 ARCH ?= $(shell uname -m)
