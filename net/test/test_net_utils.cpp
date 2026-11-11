@@ -13,6 +13,7 @@
 #include "net/utils.h"
 #include "vpn/utils.h"
 
+#include <magic_enum/magic_enum.hpp>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #include <openssl/rand.h>
@@ -130,20 +131,32 @@ TEST(NetUtils, TlsProfileFromName) {
 TEST(NetUtils, TlsProfileDescription) {
     for (const auto &[profile, name] : TLS_PROFILE_CASES) {
         std::string expected{name};
-        if (!MIMICRY_AVAILABLE) {
+        if (!MIMICRY_AVAILABLE && profile != ag::VPN_TLS_PROFILE_DEFAULT) {
             expected += " (mimicry unavailable in this build)";
         }
         EXPECT_EQ(expected, ag::tls_profile_description(profile));
     }
 }
 
+TEST(NetUtils, TlsProfileDescriptionCoversEveryProfile) {
+    for (auto profile : magic_enum::enum_values<ag::VpnTlsProfile>()) {
+        std::string description = ag::tls_profile_description(profile);
+        if (!MIMICRY_AVAILABLE && profile != ag::VPN_TLS_PROFILE_DEFAULT) {
+            constexpr std::string_view SUFFIX = " (mimicry unavailable in this build)";
+            ASSERT_TRUE(description.ends_with(SUFFIX)) << std::string{magic_enum::enum_name(profile)};
+            description.resize(description.size() - SUFFIX.size());
+        }
+        EXPECT_EQ(std::optional<ag::VpnTlsProfile>{profile}, ag::tls_profile_from_name(description))
+                << std::string{magic_enum::enum_name(profile)};
+    }
+}
+
 TEST(NetUtils, FormatVpnEndpointWithTlsProfile) {
     ag::VpnEndpoint endpoint = {ag::sockaddr_from_str("1.1.1.1:443"), "example.org"};
     endpoint.tls_profile = ag::VPN_TLS_PROFILE_FIREFOX;
-    std::string formatted = fmt::format("{}", endpoint);
-    EXPECT_NE(std::string::npos, formatted.find("name=example.org"));
-    EXPECT_NE(std::string::npos, formatted.find("address="));
-    EXPECT_NE(std::string::npos, formatted.find("tls_profile=firefox"));
+    std::string expected_profile = MIMICRY_AVAILABLE ? "firefox" : "firefox (mimicry unavailable in this build)";
+    EXPECT_EQ(fmt::format("name=example.org, address=1.1.1.1:443, tls_profile={}", expected_profile),
+            fmt::format("{}", endpoint));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks

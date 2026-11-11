@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Added logging of the applied TLS ClientHello profile for pings, HTTP/2 sessions, and HTTP/3 (QUIC) sessions.
-  Builds without BoringSSL state that profile mimicry is unavailable.
+- Added logging of the TLS ClientHello profile for pings, HTTP/2 sessions, and HTTP/3 (QUIC) sessions.
+  On builds without BoringSSL, the client logs that profile mimicry is unavailable.
 
 ### Changed
 

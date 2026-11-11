@@ -949,7 +949,7 @@ static bool tls_profile_mimicry_available() {
 
 std::string tls_profile_description(VpnTlsProfile profile) {
     std::string description{tls_profile_name(profile)};
-    if (!tls_profile_mimicry_available()) {
+    if (profile != VPN_TLS_PROFILE_DEFAULT && !tls_profile_mimicry_available()) {
         description += " (mimicry unavailable in this build)";
     }
     return description;
