@@ -1,0 +1,504 @@
+name: Build console apps
+
+# Reusable workflow that builds the trusttunnel_client and setup_wizard console
+# apps for Linux, macOS and Windows, signs/notarizes them, and collects every
+# platform archive into a single `release-artifacts` artifact for the caller to
+# attach to a GitHub Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
+        required: false
+        type: string
+      version:
+        description: 'Version override. If omitted, the build resolves it via git describe.'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref (SHA or branch) to build from. If omitted, uses the default checkout.'
+        required: false
+        type: string
+      version:
+        description: 'Version override. If omitted, the build resolves it via git describe.'
+        required: false
+        type: string
+
+jobs:
+# =============================================================================
+# Stage 1: Build artifacts (parallel)
+# =============================================================================
+
+  build-linux:
+    name: Linux build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-linux
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
+      - ephemeral-limit-memory-8192
+      - ephemeral-limit-cpu-6
+    container:
+      # 2.12 is the first image with zig, which the musl-cross-* presets use.
+      image: adguard/core-libs:2.15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
+
+      - name: Configure Conan
+        shell: bash
+        run: |
+          # The image's bundled Conan is too old to know about newer compiler
+          # versions (e.g. the zig wrapper now reports as Clang 22), so install
+          # an upgraded Conan into a venv. It reuses the image's Conan cache.
+          python3 -m venv venv
+          source ./venv/bin/activate
+          pip install conan
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      # The build resolves the version via git describe. A manual `version`
+      # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
+      # var), which also drives the artifact name below.
+      - name: Detect version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Import GPG key
+        run: |
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
+
+      - name: Build for all architectures
+        env:
+          GPG_KEY: devteam@adguard.com
+          VERSION: ${{ steps.version.outputs.version }}
+          # The image already provides the Conan dependencies.
+          SKIP_BOOTSTRAP: 1
+        shell: bash
+        run: |
+          set -x -e
+          source ./venv/bin/activate
+
+          mkdir -p artifacts
+          ARTIFACTS_DIR=${PWD}/artifacts
+
+          rustup +nightly component add rust-src
+
+          # One musl-cross-<arch> preset per architecture; see CMakePresets.json.
+          ARCHES="x86_64 aarch64 armv7 mips mipsel"
+          for ARCH in $ARCHES; do
+            BUILD_DIR=cmake-build-musl-cross-${ARCH}-relwithdebinfo
+            make PRESET=musl-cross-${ARCH}-relwithdebinfo all
+
+            NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
+            pushd ${BUILD_DIR}/trusttunnel
+              llvm-strip trusttunnel_client
+              llvm-strip setup_wizard
+              gpg --default-key "${GPG_KEY}" --detach-sig \
+                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                  trusttunnel_client
+              gpg --default-key "${GPG_KEY}" --detach-sig \
+                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                  setup_wizard
+              cp ../../LICENSE .
+              tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," \
+                trusttunnel_client trusttunnel_client.sig \
+                setup_wizard setup_wizard.sig LICENSE
+              mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
+            popd
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: artifacts/trusttunnel_client-*.tar.gz
+
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        shell: bash
+        run: |
+          set -x
+          source ./venv/bin/activate
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
+  build-macos:
+    name: Mac build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-mac
+      - registry.int.agrd.dev/macos/tahoe-github-xcode27-26.11:@edge
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Retrieve GPG signing secrets
+        uses: hashicorp/vault-action@v4
+        with:
+          url: ${{ vars.VAULT_URL }}
+          method: jwt
+          role: gpg-signing
+          secrets: |
+            secret/data/ci-secrets/gpg-signing gpgSecretKey | GPG_SECRET_KEY ;
+            secret/data/ci-secrets/gpg-signing gpgPassword | GPG_PASSWORD
+
+      - name: Configure environment
+        run: |
+          python3 -m venv venv
+          source ./venv/bin/activate
+          pip install conan
+          conan remote add --index 0 art ${{ vars.CONAN_REPO_URL }} || true
+
+      # The build resolves the version via git describe. A manual `version`
+      # input forces an override (version.cmake reads the TT_CLIENT_VERSION env
+      # var), which also drives the artifact name below.
+      - name: Detect version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            echo "TT_CLIENT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Import GPG key
+        run: |
+          echo "${GPG_SECRET_KEY}" | sed -e 'N;s/\(BEGIN PGP PRIVATE KEY BLOCK-----\n\)\(.\)/\1\n\2/' | gpg --import --batch --yes
+
+      - name: Sync signing certificates
+        uses: AdGuardSoftwareLimited/apple-devices/.github/actions/match-sync@master
+        with:
+          type: developer_id
+          app_id: com.adguard.trusttunnel.cli
+          keychain_name: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+          platform: macos
+          skip_profiles: "true"
+          vault_url: ${{ vars.VAULT_URL }}
+
+      - name: Build universal binary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # The runner image already provides the Conan dependencies.
+          SKIP_BOOTSTRAP: 1
+        run: |
+          set -x -e
+          source ./venv/bin/activate
+
+          # Both slices use the clang-relwithdebinfo preset, so each one gets its
+          # own BUILD_DIR instead of the preset's default directory.
+          ARCHES="x86_64 arm64"
+          for ARCH in $ARCHES; do
+            make PRESET=clang-relwithdebinfo \
+              ARCH=${ARCH} \
+              BUILD_DIR=build_${ARCH} \
+              all
+          done
+
+          mkdir -p build_universal
+          pushd build_universal
+            lipo -create -output trusttunnel_client \
+              ../build_arm64/trusttunnel/trusttunnel_client \
+              ../build_x86_64/trusttunnel/trusttunnel_client
+            strip trusttunnel_client
+            lipo -create -output setup_wizard \
+              ../build_arm64/trusttunnel/setup_wizard \
+              ../build_x86_64/trusttunnel/setup_wizard
+            strip setup_wizard
+          popd
+
+      - name: Code sign binaries
+        env:
+          CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
+          CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
+          CODESIGN_IDENTIFIER_WIZARD: "com.adguard.trusttunnel.client.wizard"
+          KEYCHAIN_PATH: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+        run: |
+          set -x -e
+          security unlock-keychain -p "" "${KEYCHAIN_PATH}"
+          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" \
+            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client
+          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER_WIZARD}" \
+            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/setup_wizard
+
+      - name: Notarize trusttunnel_client
+        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
+        with:
+          bundle_path: ${{ github.workspace }}/build_universal/trusttunnel_client
+          vault_url: ${{ vars.VAULT_URL }}
+
+      - name: Notarize setup_wizard
+        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
+        with:
+          bundle_path: ${{ github.workspace }}/build_universal/setup_wizard
+          vault_url: ${{ vars.VAULT_URL }}
+
+      - name: GPG sign and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GPG_KEY: devteam@adguard.com
+        run: |
+          set -x -e
+          pushd build_universal
+            gpg --default-key "${GPG_KEY}" --detach-sig \
+                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                trusttunnel_client
+            gpg --default-key "${GPG_KEY}" --detach-sig \
+                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
+                setup_wizard
+            cp ../LICENSE .
+
+            NAME=trusttunnel_client-v${VERSION}-macos-universal
+            tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," \
+              trusttunnel_client trusttunnel_client.sig \
+              setup_wizard setup_wizard.sig LICENSE
+          popd
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: build_universal/trusttunnel_client-*.tar.gz
+
+      - name: Upload to Conan and cleanup
+        if: always()
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_API_KEY: ${{ secrets.ARTIFACTORY_API_KEY }}
+        run: |
+          set -x
+          source ./venv/bin/activate
+          conan remote login art "$ARTIFACTORY_USER" --password "$ARTIFACTORY_API_KEY" || true
+          conan upload -r art -c "*" 2>&1 | grep --line-buffered "Uploading" || true
+
+  build-windows:
+    name: Windows build
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on:
+      - ephemeral
+      - ephemeral-vmwin
+      - registry.int.agrd.dev/windows/windows2022-vs2022:@edge
+      - ephemeral-limit-memory-6144
+      - ephemeral-limit-cpu-8
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Build
+        env:
+          CONAN_REPO_URL: ${{ vars.CONAN_REPO_URL }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # The build resolves the version via git describe. A manual `version`
+          # input forces an override (version.cmake reads the TT_CLIENT_VERSION
+          # env var).
+          if ('${{ inputs.version }}' -ne '') {
+            $Env:TT_CLIENT_VERSION = '${{ inputs.version }}'
+          }
+
+          & conan remote add --index 0 art $Env:CONAN_REPO_URL
+
+          # Save vcvars to switch between them
+          $vcvars32 = cmd /c "vcvarsall amd64_x86 & set"
+          $vcvars64 = cmd /c "vcvarsall amd64 & set"
+          $vcvarsarm64 = cmd /c "vcvarsall amd64_arm64 & set"
+          function setvar($_) {
+            if ($_ -match "=") {
+              $v = $_.split("="); set-item -force -path "ENV:\$($v[0])"  -value "$($v[1])"
+            }
+          }
+
+          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
+
+          function Build([string]$BuildDir, $VcvarsEnv, [string]$ArchName) {
+            & {
+              $VcvarsEnv | foreach { setvar $_ }
+              # GNU make is not part of the Windows image, so the Windows job
+              # drives the msvc-relwithdebinfo preset through cmake directly.
+              # Every architecture uses the same preset, so each one is
+              # configured into its own directory.
+              & cmake --preset msvc-relwithdebinfo -B $BuildDir
+              if (!$?) { exit 1 }
+              & cmake --build $BuildDir --target trusttunnel_client setup_wizard
+              if (!$?) { exit 1 }
+            }
+
+            # Collect the unsigned executables; they are signed by the reusable
+            # sign-by-signer.yml workflow (sign-windows job) and packaged by package-windows.
+            New-Item -ItemType Directory -Force -Path "unsigned\$ArchName" | Out-Null
+            Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client.exe" "unsigned\$ArchName\trusttunnel_client.exe"
+            Copy-Item -Force "$BuildDir\trusttunnel\setup_wizard.exe" "unsigned\$ArchName\setup_wizard.exe"
+          }
+
+          Build "build64" $vcvars64 "x86_64"
+          Build "build32" $vcvars32 "i686"
+          Build "buildarm64" $vcvarsarm64 "aarch64"
+        shell: powershell
+
+      - name: Upload unsigned executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-exe-unsigned
+          path: unsigned/
+
+      - name: Upload to Conan and cleanup
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & conan remote login art "${{ secrets.ARTIFACTORY_USER }}" --password "${{ secrets.ARTIFACTORY_API_KEY }}"
+          & conan upload -r art -c "*" 2>&1 | Select-String "Uploading" -SimpleMatch
+        shell: powershell
+
+  sign-windows:
+    name: Sign Windows binaries
+    needs: build-windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    permissions:
+      contents: read
+      id-token: write
+    uses: AdGuardSoftwareLimited/actions/.github/workflows/sign-by-signer.yml@master
+    with:
+      team: corelibs
+      artifact-name: windows-exe-unsigned
+      files: '**/*.exe'
+      signed-artifact-name: windows-exe-signed
+
+  package-windows:
+    name: Package Windows release
+    needs: sign-windows
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history + tags so git describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Download signed executables
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-exe-signed
+          path: signed
+
+      - name: Package
+        env:
+          ARTIFACTORY_URL: ${{ vars.ARTIFACTORY_URL }}
+        run: |
+          set -e -x
+
+          # Match the version the build stamped: the manual `version` input
+          # overrides git describe (same as the build-windows job).
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(git describe --tags --match 'v*' | sed -e 's/^v//')
+          fi
+
+          mkdir -p artifacts
+
+          # Download Wintun
+          curl -fsSL -o wintun-0.14.1.zip "${ARTIFACTORY_URL}/artifactory/adguard-pods/binaries/wintun-0.14.1.zip"
+          unzip -o -q wintun-0.14.1.zip -d wintun
+
+          package() {
+            local arch="$1" wintun_subdir="$2"
+            local name="trusttunnel_client-v${VERSION}-windows-${arch}"
+            local stage="stage/${arch}"
+            mkdir -p "${stage}"
+            cp "signed/${arch}/trusttunnel_client.exe" "${stage}/trusttunnel_client.exe"
+            cp "signed/${arch}/setup_wizard.exe"       "${stage}/setup_wizard.exe"
+            cp LICENSE                                 "${stage}/LICENSE.txt"
+            cp "wintun/wintun/bin/${wintun_subdir}/wintun.dll" "${stage}/wintun.dll"
+            cp "wintun/wintun/LICENSE.txt"             "${stage}/WINTUN_LICENSE.txt"
+            # Flat zip (files at the archive root), matching the previous layout.
+            ( cd "${stage}" && zip -q -X "${GITHUB_WORKSPACE}/artifacts/${name}.zip" \
+                trusttunnel_client.exe setup_wizard.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
+          }
+
+          package x86_64 amd64
+          package i686   x86
+          package aarch64 arm64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: artifacts/trusttunnel_client-*.zip
+
+# =============================================================================
+# Stage 2: Collect all platform archives into a single artifact
+# =============================================================================
+
+  collect:
+    name: Collect release artifacts
+    needs: [build-linux, build-macos, package-windows]
+    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
+    runs-on: [team-corelibs]
+    permissions:
+      contents: read
+    steps:
+      - name: Download all platform archives
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Upload combined release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: artifacts/trusttunnel_client-*
+          if-no-files-found: error
+          retention-days: 7

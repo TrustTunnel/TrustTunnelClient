@@ -1,9 +1,10 @@
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import patch, copy
+from conan.tools.files import patch, copy, update_conandata
 from conan.tools.apple import is_apple_os
+from conan.tools.scm import Git
 from os.path import join
-import re
+import re, os, shutil
 
 
 class VpnLibsConan(ConanFile):
@@ -60,20 +61,68 @@ class VpnLibsConan(ConanFile):
         self.options["pcre2"].build_pcre2grep = False
         self.options["dns-libs"].tcpip = False
 
+    def export(self):
+        # The exported sources carry no .git, so the build's git describe would
+        # fall back to 0.0.0-git for "local" exports. Capture the describe version
+        # now (the recipe folder still has .git) into conandata.yml for generate()
+        # to feed back into cmake/version.cmake via -DTT_CLIENT_VERSION.
+        if self.version == "local":
+            described = self._git_described_version(Git(self))
+            if described:
+                update_conandata(self, {"local_version": described})
+
+    def export_sources(self):
+        if self.version == "local":
+            git = Git(self)
+            included = git.included_files()
+            for i in included:
+                dst = os.path.join(self.export_sources_folder, i)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(i, dst)
+
+    @staticmethod
+    def _git_described_version(git):
+        # Quote the glob: Git.run executes through a shell, so an unquoted "v*"
+        # would expand against files in the recipe dir and match no tags.
+        try:
+            described = git.run('describe --tags --match "v*"').strip()
+        except Exception:
+            return ""
+        return described[1:] if described.startswith("v") else described
+
     def source(self):
-        self.run(f"git init . && git remote add origin {self.vcs_url} && git fetch")
-        if re.match(r'\d+\.\d+\.\d+', self.version) is not None:
-            version_hash = self.conan_data["commit_hash"][self.version]["hash"]
-            self.run("git checkout -f %s" % version_hash)
-        else:
-            self.run("git checkout -f %s" % self.version)
-            for p in self.patch_files:
-                patch(self, patch_file=p)
+        # Local export: the working tree was already staged by export_sources().
+        if os.listdir(self.source_folder):
+            return
+
+        version = str(self.version)
+        # A "git describe" version looks like "<tag>-<n>-g<rev>"; check out the
+        # commit after "-g". Any other version is a release tag "v<version>".
+        described = re.search(r"-g([0-9a-f]+)$", version)
+        ref = described.group(1) if described else "v%s" % version
+        git = Git(self)
+        git.clone(url=self.vcs_url, target=".")
+        git.checkout(ref)
 
     def generate(self):
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
+        # Don't write CMakeUserPresets.json into the source folder: builds are
+        # driven by the presets in CMakePresets.json, and Conan would add one
+        # include per build directory, so two build directories sharing a build
+        # type yield duplicate `conan-<build type>` presets that make CMake
+        # refuse to read the file.
+        tc.user_presets_path = None
+        # Drive cmake/version.cmake from the package version so the conan source
+        # (no .git for git describe) bakes the right version into the build. For
+        # "local" exports the describe version was stapled into conandata.yml at
+        # export time; a release version is the package version itself.
+        version = str(self.version)
+        if version == "local":
+            version = (self.conan_data or {}).get("local_version") or version
+        if version and version != "local":
+            tc.cache_variables["TT_CLIENT_VERSION"] = version
         if self.options.sanitize:
             tc.cache_variables["CMAKE_C_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
             tc.cache_variables["CMAKE_CXX_FLAGS"] += f" -fno-omit-frame-pointer -fsanitize={self.options.sanitize}"
