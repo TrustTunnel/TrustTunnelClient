@@ -4,6 +4,9 @@
 
 - [Feature] Raise the minimum supported macOS version to 12.0 because Xcode 27 cannot build for older deployment
             targets.
+- [Fix] Build the TLS ClientHello with the `native_libs_common` Chrome profile, which mimics the current Chrome
+        ClientHello (November 2026): it sends the `trust_anchors` extension and GREASE in `signature_algorithms`.
+        Updated `native_libs_common` to 8.2.0, `dns-libs` to 2.11.0-alpha.1-3-g3d6359be, and BoringSSL to 2026-05-08.
 
 ## 1.0.63
 
