@@ -6,18 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  resolve-images:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
-
   run-live-unit-tests:
     name: Run live unit tests
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}

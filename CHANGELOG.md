@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
+  build for older deployment targets.
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.
 - The `chrome` and `chrome_canary` TLS profiles now mimic the current Chrome ClientHello (November 2026): they send the `trust_anchors` extension and GREASE in `signature_algorithms`, and `chrome_canary` no longer sends `server_padding`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
 
