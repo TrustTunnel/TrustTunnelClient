@@ -12,6 +12,7 @@ on:
       - 'stable-*'
       - 'dev-*'
       - release/v1.1
+      - release/v1.1.10
   pull_request:
   workflow_dispatch:
 
