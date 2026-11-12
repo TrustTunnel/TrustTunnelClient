@@ -80,6 +80,8 @@ IID3ebZflKrRWfh/NHq3u+AFoadv
 '''
 # Protocol to be used to communicate with the endpoint [http2, http3]
 upstream_protocol = "http2"
+# TLS ClientHello fingerprint to mimic [chrome, chrome_canary, safari, firefox, okhttp, openssl, boringssl]
+tls_profile = "chrome"
 # Is anti-DPI measures should be enabled
 anti_dpi = false
 # DNS upstreams.

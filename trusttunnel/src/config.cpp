@@ -40,7 +40,13 @@ static const std::unordered_map<std::string_view, VpnTlsProfile> TLS_PROFILE_MAP
         {"firefox", VPN_TLS_PROFILE_FIREFOX},
         {"okhttp", VPN_TLS_PROFILE_OKHTTP},
         {"openssl", VPN_TLS_PROFILE_OPENSSL_DEFAULT},
-        {"default", VPN_TLS_PROFILE_DEFAULT},
+        {"boringssl", VPN_TLS_PROFILE_BORINGSSL_DEFAULT},
+        {"default", VPN_TLS_PROFILE_BORINGSSL_DEFAULT}, // Deprecated alias of "boringssl"
+};
+
+// Deprecated `[endpoint].tls_profile` values and the values that replace them.
+static const std::unordered_map<std::string_view, std::string_view> DEPRECATED_TLS_PROFILES = {
+        {"default", "boringssl"},
 };
 
 static const std::unordered_map<std::string_view, VpnMode> VPN_MODE_MAP = {
@@ -284,12 +290,17 @@ static std::optional<TrustTunnelConfig::Location> build_endpoint(const toml::tab
 
     // TLS fingerprint profile is optional and defaults to Chrome.
     if (auto tls_profile = config["tls_profile"].value<std::string_view>(); tls_profile && !tls_profile->empty()) {
-        if (auto it = TLS_PROFILE_MAP.find(*tls_profile); it != TLS_PROFILE_MAP.end()) {
-            location.tls_profile = it->second;
-        } else {
+        auto profile_it = TLS_PROFILE_MAP.find(*tls_profile);
+        if (profile_it == TLS_PROFILE_MAP.end()) {
             errlog(g_logger, "Unexpected endpoint tls_profile value: {}", streamable_to_string(config["tls_profile"]));
             return std::nullopt;
         }
+        if (auto deprecated_it = DEPRECATED_TLS_PROFILES.find(*tls_profile);
+                deprecated_it != DEPRECATED_TLS_PROFILES.end()) {
+            warnlog(g_logger, R"(The endpoint tls_profile value "{}" is deprecated, use "{}" instead)", *tls_profile,
+                    deprecated_it->second);
+        }
+        location.tls_profile = profile_it->second;
     }
 
     // Parse client random (format: "prefix[/mask]")
