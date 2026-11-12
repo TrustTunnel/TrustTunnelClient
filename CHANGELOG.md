@@ -10,11 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
-  build for older deployment targets.
-- On MIPS and MIPSel, the client now uses the mimalloc allocator.
-- The client now builds the TLS ClientHello with the `native_libs_common` Chrome profile, which mimics the current Chrome ClientHello (November 2026): it sends the `trust_anchors` extension and GREASE in `signature_algorithms`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
-
 ### Deprecated
 
 ### Removed
@@ -22,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.1.12] - 2026-11-12
+
+### Changed
+
+- Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
+  build for older deployment targets.
+- On MIPS and MIPSel, the client now uses the mimalloc allocator.
+- The client now builds the TLS ClientHello with the `native_libs_common` Chrome profile, which mimics the current Chrome ClientHello (November 2026): it sends the `trust_anchors` extension and GREASE in `signature_algorithms`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
 
 ## [1.1.11] - 2026-10-07
 
@@ -472,7 +476,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.11...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.12...HEAD
+[1.1.12]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.8...v1.1.9
