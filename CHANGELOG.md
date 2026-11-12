@@ -10,15 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.3.0-rc.3] - 2026-11-12
+
+### Changed
+
 - Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
   build for older deployment targets.
 - On MIPS and MIPSel, the client now uses the mimalloc allocator.
 - The `chrome` and `chrome_canary` TLS profiles now mimic the current Chrome ClientHello (November 2026): they send the `trust_anchors` extension and GREASE in `signature_algorithms`, and `chrome_canary` no longer sends `server_padding`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
 - The `[endpoint].tls_profile` setting now accepts `boringssl` for the profile that sends the linked TLS library's own ClientHello instead of impersonating a browser; `default` keeps working as a deprecated alias, and the `VpnTlsProfile` enumeration member `VPN_TLS_PROFILE_DEFAULT` is renamed to `VPN_TLS_PROFILE_BORINGSSL_DEFAULT`. The enumeration now also follows the order of `ag::tls::TlsClientProfile`, which renumbers its values.
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
@@ -38,8 +46,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   timeout period instead of on every timer tick, and the debug messages at the
   start of a TLS or QUIC handshake now show the TLS profile and the socket id.
 - Fixed event loop finalization: task finalizers are no longer called while holding the loop lock, tasks submitted during finalization are finalized immediately, and deferred tasks are destroyed before finalization is published.
-
-### Security
 
 ## [1.3.0-rc.2] - 2026-10-21
 
@@ -516,7 +522,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...HEAD
+[1.3.0-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...v1.3.0-rc.3
 [1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
 [1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
 [1.3.0-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.3.0-beta.1
