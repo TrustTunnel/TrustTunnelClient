@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Raised the minimum supported iOS version to 15.0 because the libc++ of Xcode 27 cannot build for older deployment targets.
+
 ### Deprecated
 
 ### Removed
