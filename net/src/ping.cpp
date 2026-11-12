@@ -678,6 +678,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
                 .timeout = Millis{ping->round_timeout_ms},
                 .socket_manager = ping->network_manager->socket,
                 .read_threshold = TCP_READ_THRESHOLD,
+                .log_prefix = ping->id,
 #ifdef _WIN32
                 .record_estats = TCP_RECORD_ESTATS,
 #endif // _WIN32
@@ -694,6 +695,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
                 .ev_loop = ping->loop,
                 .handler = {quic_connector_handler, conn},
                 .socket_manager = ping->network_manager->socket,
+                .log_prefix = ping->id,
         };
         conn->quic_connector.reset(quic_connector_create(&parameters));
         if (!conn->quic_connector) {

@@ -35,13 +35,19 @@ std::unique_ptr<ag::QuicConnectorResult> ag::quic_connector_get_result(QuicConne
 #include <magic_enum/magic_enum.hpp>
 
 #include "common/http/http3.h"
+#include "common/logger.h"
 #include "common/net_utils.h"
 #include "net/udp_socket.h"
+#include "net/utils.h"
 #include "vpn/event_loop.h"
 #include "vpn/utils.h"
 
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
+
+static ag::Logger g_logger{"QUIC_CONNECTOR"};
+
+#define log_connector(c_, lvl_, fmt_, ...) lvl_##log(g_logger, "[{}] " fmt_, (c_)->parameters.log_prefix, ##__VA_ARGS__)
 
 static void socket_handler(void *arg, ag::UdpSocketEvent what, void *data);
 static void on_timer(evutil_socket_t, short, void *);
@@ -97,6 +103,7 @@ ag::VpnError ag::quic_connector_connect(
             .timeout = parameters->timeout,
             .peer = parameters->peer ? *parameters->peer : SocketAddress{},
             .socket_manager = connector->parameters.socket_manager,
+            .log_prefix = connector->parameters.log_prefix,
     };
     connector->socket.reset(udp_socket_create(&sock_param));
     if (!connector->socket) {
@@ -140,6 +147,8 @@ ag::VpnError ag::quic_connector_connect(
     };
 
     // Create Http3Client
+    log_connector(connector, dbg, "[id={}/{}] Starting QUIC handshake (profile={})...",
+            udp_socket_get_id(connector->socket.get()), peer.str(), ag::ssl_get_tls_client_profile_name(ssl.get()));
     auto result = ag::http::Http3Client::connect(settings, callbacks, path, std::move(ssl));
     if (!result.has_value()) {
         return {.code = -1, .text = "Failed to create Http3Client"};

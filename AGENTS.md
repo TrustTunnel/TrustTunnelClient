@@ -191,7 +191,10 @@ and `vpn-cli`):
       `WARN` for recoverable issues, and `ERROR` for critical (unrecoverable) errors
     - Very frequent events (e.g. every packet) should be logged at `DEBUG` level, while important state changes (e.g. connection established, error occurred) should be at `INFO` or higher
     - Include relevant context in log messages (e.g. connection ID, error code)
-    - Avoid logging sensitive information (e.g. IP addresses, payload data)
+    - Avoid logging sensitive information (e.g. IP addresses, payload data).
+      Exception: socket and connection debug logs can show the peer address in
+      the `id=N/<peer>` form, which the socket log prefix already uses, so that
+      the messages of one connection can be found by one search
 
 ### Integration tests
 

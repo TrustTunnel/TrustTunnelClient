@@ -165,3 +165,15 @@ TEST(PortRangeSetTest, OverlappingRangesAtMax) {
     ASSERT_TRUE(set.contains(65535));
     ASSERT_FALSE(set.contains(65529));
 }
+
+// The log of a CONNECT request must not contain the credentials, for every HTTP version
+TEST(HeadersToLogStr, StripsCredentials) {
+    TunnelAddress dst = NamePort{"example.org", 443};
+    for (HttpVersion version : {HTTP_VER_1_1, HTTP_VER_2_0, HTTP_VER_3_0}) {
+        HttpHeaders headers = make_http_connect_request(version, &dst, "app", "dXNlcjpzZWNyZXQ=");
+        ASSERT_TRUE(headers.get_field("proxy-authorization").has_value());
+        std::string log = headers_to_log_str(headers);
+        EXPECT_EQ(std::string::npos, log.find("dXNlcjpzZWNyZXQ=")) << log;
+        EXPECT_NE(std::string::npos, log.find("__stripped__")) << log;
+    }
+}

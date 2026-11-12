@@ -219,6 +219,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     SocketAddress peer(upstream_config.endpoint->address);
     http::QuicNetworkPath path = make_network_path(local, peer);
 
+    log_upstream(this, dbg, "[id={}/{}] Starting QUIC handshake (profile={})...", udp_socket_get_id(m_socket.get()),
+            peer.str(), ssl_get_tls_client_profile_name(ssl_raw));
     auto result = http::Http3Client::connect(m_h3_settings, make_upstream_callbacks(this), path, std::move(ssl));
     if (!result.has_value()) {
         log_upstream(this, err, "Failed to create Http3Client: {}", result.error()->str());
@@ -1004,14 +1006,14 @@ Http3Upstream::SendConnectRequestResult Http3Upstream::send_connect_request(
     }
 
     HttpHeaders headers = make_http_connect_request(HTTP_VER_3_0, dst_addr, app_name, m_credentials);
+    log_upstream(this, dbg, "{}", headers_to_log_str(headers));
+
     http::Request request(http::HTTP_3_0);
     request.method(std::string(headers.method));       // "CONNECT"
     request.authority(std::string(headers.authority)); // "host:port"
     for (const auto &field : headers.fields) {
         request.headers().put(field.name, field.value); // proxy-authorization, user-agent
     }
-
-    log_upstream(this, dbg, "{}", request.str());
 
     auto stream_id_result = m_h3_client->submit_request(request, /*eof=*/false);
     if (!stream_id_result.has_value()) {
