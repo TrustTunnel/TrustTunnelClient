@@ -267,6 +267,12 @@ void load_session_cache(const std::string &path);
  */
 ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
 
+/**
+ * Return the name of the TLS ClientHello profile that `make_ssl()` configured on the SSL object,
+ * e.g. "CHROME", or "unknown" if `make_ssl()` did not create the object.
+ */
+std::string_view ssl_get_tls_client_profile_name(const SSL *ssl);
+
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},
         ag::Uint8View tls_client_random = ag::U8View{}, ag::Uint8View tls_client_random_mask = ag::U8View{},

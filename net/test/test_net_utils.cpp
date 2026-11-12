@@ -12,6 +12,7 @@
 #include "net/utils.h"
 #include "vpn/utils.h"
 
+#include <magic_enum/magic_enum.hpp>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #include <openssl/rand.h>
@@ -103,6 +104,28 @@ TEST(NetUtils, ToTlsClientProfile) {
             ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
     EXPECT_EQ(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT,
             ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_BORINGSSL_DEFAULT));
+}
+
+TEST(NetUtils, SslGetTlsClientProfileName) {
+    static constexpr uint8_t ALPN[] = {2, 'h', '2'};
+    for (auto type : {ag::MSPT_TLS, ag::MSPT_NGTCP2}) {
+        for (auto profile : {ag::tls::TlsClientProfile::CHROME, ag::tls::TlsClientProfile::FIREFOX,
+                     ag::tls::TlsClientProfile::BORINGSSL_DEFAULT}) {
+            auto r = ag::make_ssl(
+                    nullptr, nullptr, {ALPN, std::size(ALPN)}, "example.org", type, {}, {}, {}, {}, profile);
+            ASSERT_TRUE(std::holds_alternative<ag::SslPtr>(r)) << std::get<std::string>(r);
+            EXPECT_EQ(
+                    magic_enum::enum_name(profile), ag::ssl_get_tls_client_profile_name(std::get<ag::SslPtr>(r).get()));
+        }
+    }
+
+    // An SSL object that make_ssl() did not create has no profile
+    ag::DeclPtr<SSL_CTX, SSL_CTX_free> ctx{SSL_CTX_new(TLS_client_method())};
+    ASSERT_NE(nullptr, ctx);
+    ag::SslPtr ssl{SSL_new(ctx.get())};
+    ASSERT_NE(nullptr, ssl);
+    EXPECT_EQ("unknown", ag::ssl_get_tls_client_profile_name(ssl.get()));
+    EXPECT_EQ("unknown", ag::ssl_get_tls_client_profile_name(nullptr));
 }
 
 // Capture TLS handshake bytes from BoringSSL QUIC callbacks

@@ -33,6 +33,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `VpnError`, which made the reported disconnect error text point to freed
   memory; the QUIC error code and the `input()` error are now logged at `INFO`
   instead of being reported in the error text.
+- The HTTP/3 upstream no longer writes the proxy credentials of a CONNECT
+  request to the debug log, an idle UDP socket now reports a timeout once per
+  timeout period instead of on every timer tick, and the debug messages at the
+  start of a TLS or QUIC handshake now show the TLS profile and the socket id.
 - Fixed event loop finalization: task finalizers are no longer called while holding the loop lock, tasks submitted during finalization are finalized immediately, and deferred tasks are destroyed before finalization is published.
 
 ### Security
