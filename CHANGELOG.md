@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- `trusttunneld` now authorizes D-Bus `Start`/`Stop` calls through Polkit (`com.adguard.TrustTunnel.vpn.control`: allowed without a password for active local sessions, admin authentication otherwise, unconditional for root and on the session bus) and strips the privileged `listener.tun.netns` and `use_existing` fields from client-supplied configurations before applying them.
+
 ## [1.3.0-rc.3] - 2026-11-12
 
 ### Changed

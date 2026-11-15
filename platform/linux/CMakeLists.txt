@@ -93,6 +93,7 @@ else ()
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/trusttunneld.service DESTINATION lib/systemd/system)
     install(FILES daemon/resources/com.adguard.TrustTunnel.conf DESTINATION share/dbus-1/system.d)
     install(FILES daemon/resources/com.adguard.TrustTunnel.xml DESTINATION share/dbus-1/interfaces)
+    install(FILES daemon/resources/com.adguard.TrustTunnel.policy DESTINATION share/polkit-1/actions)
 endif ()
 
 # ---------------------------------------------------------------------------

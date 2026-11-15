@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/epoll.h>
+#include <unistd.h>
 
 #include <cstring>
 #include <iostream>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "daemon/dbus_interface.h"
+#include "src/vpn_controller.h"
 #include "trusttunnel/trusttunnel.h"
 
 namespace ag::trusttunnel_linux {
@@ -22,9 +24,186 @@ struct DaemonContext {
     sd_bus *bus = nullptr;
     sd_event *event = nullptr;
     trusttunnel_t *vpn = nullptr;
+    // Polkit is available on the system bus only: on the session bus (dev mode)
+    // Start/Stop run with the daemon user's own privileges without authorization
+    bool session_bus = true;
 };
 
 static DaemonContext g_ctx;
+
+// ---------------------------------------------------------------------------
+// Polkit authorization
+// ---------------------------------------------------------------------------
+
+static constexpr const char *POLKIT_SERVICE = "org.freedesktop.PolicyKit1";
+static constexpr const char *POLKIT_PATH = "/org/freedesktop/PolicyKit1/Authority";
+static constexpr const char *POLKIT_INTERFACE = "org.freedesktop.PolicyKit1.Authority";
+static constexpr const char *POLKIT_ACTION = "com.adguard.TrustTunnel.vpn.control";
+// AllowUserInteraction: polkitd may raise the admin authentication dialog
+static constexpr uint32_t POLKIT_ALLOW_USER_INTERACTION = 0x1;
+
+/// A D-Bus method request parked until the Polkit verdict arrives. Holds a
+/// reference to the request message and the arguments needed to perform it.
+struct PendingRequest {
+    sd_bus_message *request = nullptr;
+    /// Sanitized TOML configuration, only used by Start
+    std::string config;
+
+    ~PendingRequest() {
+        sd_bus_message_unref(request);
+    }
+};
+
+/// Perform the request and reply to the client on the parked message
+static void perform_request(const PendingRequest &pending) {
+    uint32_t error = 0;
+    if (pending.config.empty()) {
+        error = static_cast<uint32_t>(trusttunnel_stop(g_ctx.vpn));
+    } else {
+        error = static_cast<uint32_t>(trusttunnel_start(g_ctx.vpn, pending.config.c_str()));
+    }
+    int r = sd_bus_reply_method_return(pending.request, "u", error);
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to reply to the parked request: " << strerror(-r) << '\n';
+    }
+}
+
+/// Deny a parked request; `error_name` may be NULL for the generic access denied error
+static void deny_request(const PendingRequest &pending, const char *error_name, const char *message) {
+    error_name = error_name != nullptr ? error_name : SD_BUS_ERROR_ACCESS_DENIED;
+    int r = sd_bus_reply_method_errorf(pending.request, error_name, "%s", message);
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to deny the parked request: " << strerror(-r) << '\n';
+    }
+}
+
+static int on_polkit_result(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
+
+/// Send the Polkit CheckAuthorization call for a parked request.
+/// On success the request and its ownership are handed over to `on_polkit_result`.
+static int send_check_authorization(PendingRequest *pending) {
+    sd_bus_message *req = nullptr;
+    int r = sd_bus_message_new_method_call(
+            g_ctx.bus, &req, POLKIT_SERVICE, POLKIT_PATH, POLKIT_INTERFACE, "CheckAuthorization");
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to create the Polkit request: " << strerror(-r) << '\n';
+        return r;
+    }
+
+    // CheckAuthorization(in (sa{sv}) subject, in s action_id, in a{ss} details,
+    //                    in u flags, in s cancellation_id,
+    //                    out (bba{ss}) result)
+    const char *sender = sd_bus_message_get_sender(pending->request);
+    if (sender != nullptr) {
+        r = sd_bus_message_open_container(req, SD_BUS_TYPE_STRUCT, "sa{sv}");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append(req, "s", "system-bus-name");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_open_container(req, SD_BUS_TYPE_ARRAY, "{sv}");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_open_container(req, SD_BUS_TYPE_DICT_ENTRY, "sv");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append(req, "s", "name");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_open_container(req, SD_BUS_TYPE_VARIANT, "s");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append(req, "s", sender);
+    }
+    if (r >= 0) {
+        r = sd_bus_message_close_container(req); // v
+    }
+    if (r >= 0) {
+        r = sd_bus_message_close_container(req); // e
+    }
+    if (r >= 0) {
+        r = sd_bus_message_close_container(req); // a
+    }
+    if (r >= 0) {
+        r = sd_bus_message_close_container(req); // (sa{sv})
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append(req, "s", POLKIT_ACTION);
+    }
+    if (r >= 0) {
+        r = sd_bus_message_open_container(req, SD_BUS_TYPE_ARRAY, "{ss}");
+    }
+    if (r >= 0) {
+        r = sd_bus_message_close_container(req); // details
+    }
+    if (r >= 0) {
+        r = sd_bus_message_append(req, "us", POLKIT_ALLOW_USER_INTERACTION, "");
+    }
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to build the Polkit request: " << strerror(-r) << '\n';
+        sd_bus_message_unref(req);
+        return r;
+    }
+
+    r = sd_bus_call_async(g_ctx.bus, nullptr, req, on_polkit_result, pending, 0);
+    sd_bus_message_unref(req);
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to call Polkit: " << strerror(-r) << '\n';
+    }
+    return r;
+}
+
+/// Polkit CheckAuthorization reply handler: perform or deny the parked request
+static int on_polkit_result(sd_bus_message *reply, void *userdata, sd_bus_error *ret_error) {
+    std::unique_ptr<PendingRequest> pending(static_cast<PendingRequest *>(userdata));
+    bool authorized = false;
+    int is_challenge = 0;
+    int r = sd_bus_message_read(reply, "bb", &authorized, &is_challenge);
+    if (r < 0) {
+        std::cerr << "[trusttunneld] Failed to read the Polkit reply: " << strerror(-r) << '\n';
+        deny_request(*pending, ret_error != nullptr ? ret_error->name : nullptr,
+                ret_error != nullptr && ret_error->message != nullptr ? ret_error->message : "Polkit check failed");
+        return 1; // the error has been replied to the client already
+    }
+    if (!authorized) {
+        std::cerr << "[trusttunneld] Polkit denied the request" << '\n';
+        deny_request(*pending, nullptr, "Not authorized to control the TrustTunnel VPN");
+        return 1;
+    }
+    perform_request(*pending);
+    return 1;
+}
+
+/// True if the caller of a D-Bus method runs as root: root bypasses Polkit
+static bool caller_is_root(sd_bus_message *m) {
+    sd_bus_creds *creds = nullptr;
+    if (sd_bus_query_sender_creds(m, SD_BUS_CREDS_UID, &creds) < 0) {
+        return false;
+    }
+    uid_t uid = (uid_t) -1;
+    return sd_bus_creds_get_uid(creds, &uid) >= 0 && uid == 0;
+}
+
+/// Authorize a parked request: on success the request is performed and replied to
+/// asynchronously; on failure an error is replied synchronously. Takes the ownership
+/// of `pending` in both cases.
+/// @return 0 on success, a negative errno-style code on a synchronous failure
+static int authorize(PendingRequest *pending) {
+    sd_bus_message *m = pending->request;
+    if (g_ctx.session_bus || caller_is_root(m)) {
+        perform_request(*pending);
+        delete pending;
+        return 0;
+    }
+
+    int r = send_check_authorization(pending);
+    if (r < 0) {
+        // Fail closed: without a Polkit verdict the request is denied
+        deny_request(*pending, nullptr, "Failed to check the authorization to control the VPN");
+        delete pending;
+    }
+    return r;
+}
 
 // ---------------------------------------------------------------------------
 // D-Bus Method Handlers
@@ -38,14 +217,18 @@ static int method_start(sd_bus_message *m, void *, sd_bus_error *ret_error) {
     }
 
     std::cout << "[trusttunneld] Start requested" << '\n';
-    trusttunnel_vpn_error_t err = trusttunnel_start(g_ctx.vpn, config != nullptr ? config : "");
-    return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(err));
+    std::string sanitized = sanitize_daemon_config(config != nullptr ? config : "");
+    auto pending = std::make_unique<PendingRequest>();
+    pending->request = sd_bus_message_ref(m);
+    pending->config = std::move(sanitized);
+    return authorize(pending.release());
 }
 
 static int method_stop(sd_bus_message *m, void *, sd_bus_error *) {
     std::cout << "[trusttunneld] Stop requested" << '\n';
-    trusttunnel_vpn_error_t err = trusttunnel_stop(g_ctx.vpn);
-    return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(err));
+    auto pending = std::make_unique<PendingRequest>();
+    pending->request = sd_bus_message_ref(m);
+    return authorize(pending.release());
 }
 
 static int method_get_state(sd_bus_message *m, void *, sd_bus_error *) {
@@ -180,6 +363,7 @@ int main(int argc, char **argv) {
 
     std::cout << "[trusttunneld] Starting daemon (" << (use_session_bus ? "session bus" : "system bus") << ")..."
               << '\n';
+    g_ctx.session_bus = use_session_bus;
 
     // Create event loop
     int r = sd_event_default(&g_ctx.event);
