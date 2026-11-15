@@ -279,11 +279,17 @@ int main(int argc, char **argv) {
     r = sd_event_add_signal(g_ctx.event, nullptr, SIGINT, on_signal, g_ctx.event);
     if (r < 0) {
         std::cerr << "Failed to subscribe to SIGINT: " << strerror(-r) << '\n';
+        trusttunnel_destroy(g_ctx.vpn);
+        sd_bus_flush_close_unref(g_ctx.bus);
+        sd_event_unref(g_ctx.event);
         return 1;
     }
     r = sd_event_add_signal(g_ctx.event, nullptr, SIGTERM, on_signal, g_ctx.event);
     if (r < 0) {
         std::cerr << "Failed to subscribe to SIGTERM: " << strerror(-r) << '\n';
+        trusttunnel_destroy(g_ctx.vpn);
+        sd_bus_flush_close_unref(g_ctx.bus);
+        sd_event_unref(g_ctx.event);
         return 1;
     }
 

@@ -431,10 +431,11 @@ VpnListener *TrustTunnelClient::make_tun_listener(ListenerSettings listener_sett
     }
 
     if (m_callbacks.network_ready_handler) {
-        // In unmanaged mode the platform owns DNS, so it must not receive the
-        // daemon's internal resolvers. In managed mode the defaults are used
-        // even when change_system_dns is false: the platform still needs the
-        // actual server list to decide what to configure.
+        // Intentional asymmetry, mirrored by VpnLinuxTunnel::setup_dns(): in managed mode the
+        // daemon configures system DNS itself and reports the default resolver list even when
+        // change_system_dns is false, so a platform agent can still see the intended servers.
+        // In unmanaged mode the platform owns DNS, so it must not receive the daemon's
+        // internal resolvers and decides on its own what to configure.
         const VpnAddressArray dns_servers = config.managed ? defaults->dns_servers : VpnAddressArray{};
         const char *ipv4 = tunnel_settings.ipv4_address != nullptr ? tunnel_settings.ipv4_address : "";
         const char *ipv6 = tunnel_settings.ipv6_address != nullptr ? tunnel_settings.ipv6_address : "";
