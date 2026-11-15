@@ -2,6 +2,7 @@
 #include "net/os_tunnel.h"
 #include "vpn/utils.h"
 
+#include <arpa/inet.h>
 #include <cstring>
 #include <net/if.h> // should be included before linux/if.h
 #include <sstream>
@@ -479,6 +480,40 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
     return true;
 }
 
+/** Call a method on the systemd-resolved manager over the system bus.
+ * Writes are done through resolved's own D-Bus API rather than `resolvectl`:
+ * since systemd 257 `resolvectl dns`/`domain` route to systemd-networkd and
+ * fail wherever networkd is not active (typical NetworkManager-based desktops),
+ * while `org.freedesktop.resolve1` works on every systemd release. */
+static bool call_resolved(
+        const std::string &netns, const std::string &member, const std::string &signature, const std::string &args) {
+    std::string cmd = "busctl call org.freedesktop.resolve1 /org/freedesktop/resolve1 "
+                      "org.freedesktop.resolve1.Manager ";
+    cmd += AG_FMT("{} {} {}", ag::utils::escape_argument_for_shell(member),
+            ag::utils::escape_argument_for_shell(signature), args);
+    return sys_cmd_netns(netns, cmd);
+}
+
+/** Append the D-Bus arguments of one DNS server for the `SetLinkDNS` call:
+ * the address family followed by the raw address bytes. */
+static bool append_dns_server_args(std::string &args, std::string_view server) {
+    unsigned char bytes[sizeof(in6_addr)] = {};
+    int family = AF_INET;
+    size_t size = sizeof(in_addr);
+    if (inet_pton(AF_INET, std::string(server).c_str(), bytes) != 1) {
+        family = AF_INET6;
+        size = sizeof(in6_addr);
+        if (inet_pton(AF_INET6, std::string(server).c_str(), bytes) != 1) {
+            return false;
+        }
+    }
+    args += AG_FMT(" {} {}", family, size);
+    for (size_t i = 0; i < size; i++) {
+        args += AG_FMT(" {}", unsigned(bytes[i]));
+    }
+    return true;
+}
+
 void ag::VpnLinuxTunnel::setup_dns() {
     m_system_dns_setup_success = false;
     if (m_settings->dns_servers.size == 0 || !m_settings->managed) {
@@ -489,21 +524,21 @@ void ag::VpnLinuxTunnel::setup_dns() {
     std::vector<std::string_view> dns_servers{
             m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
 
-    std::vector<std::string> escaped_servers;
+    std::string dns_args = AG_FMT("{} {}", m_if_index, dns_servers.size());
     for (const auto &dns_server : dns_servers) {
-        escaped_servers.push_back(ag::utils::escape_argument_for_shell(dns_server));
-    }
-
-    m_system_dns_setup_success = false;
-    constexpr int TRIES = 5;
-    for (int i = 0; i < TRIES; i++) {
-        auto result = sys_cmd_with_output_netns(
-                m_netns, AG_FMT("resolvectl dns {} {}", m_tun_name, fmt::join(escaped_servers, " ")));
-        if (result.has_error()) {
-            warnlog(logger, "System DNS servers are not set");
+        if (!append_dns_server_args(dns_args, dns_server)) {
+            warnlog(logger, "Skipping unparsable DNS server \"{}\"", dns_server);
             return;
         }
-        result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl dns {}", m_tun_name));
+    }
+    if (!call_resolved(m_netns, "SetLinkDNS", "ia(iay)", dns_args)) {
+        warnlog(logger, "System DNS servers are not set");
+        return;
+    }
+
+    constexpr int TRIES = 5;
+    for (int i = 0; i < TRIES; i++) {
+        auto result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl dns {}", m_tun_name));
         if (result.has_error()) {
             warnlog(logger, "Can't get the list of system DNS servers set");
             return;
@@ -513,12 +548,14 @@ void ag::VpnLinuxTunnel::setup_dns() {
             return output.find(server) != output.npos;
         }) != dns_servers.end();
         if (found) {
-            result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl domain {} '~.'", m_tun_name));
-            if (result.has_error()) {
+            // resolvectl strips the "~" routing prefix client-side: the wildcard
+            // route-only domain goes on the wire as "." with positive = true
+            std::string domains_args = AG_FMT("{} 1 . true", m_if_index);
+            if (!call_resolved(m_netns, "SetLinkDomains", "ia(sb)", domains_args)) {
                 warnlog(logger, "Can't enable DNS leak protection settings on the interface");
                 return;
             }
-            m_system_dns_setup_success = result.has_value();
+            m_system_dns_setup_success = true;
             infolog(logger, "System DNS servers are successfully set");
             return;
         }
