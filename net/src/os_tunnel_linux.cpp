@@ -39,6 +39,9 @@ static PhysicalDefaultRoute g_physical_route4;
 static PhysicalDefaultRoute g_physical_route6;
 static std::vector<InstalledBypassRoute> g_installed_bypass_routes;
 
+static bool call_resolved(
+        const std::string &netns, const std::string &member, const std::string &signature, const std::string &args);
+
 static std::string get_outbound_interface_name() {
     uint32_t idx = ag::vpn_network_manager_get_outbound_interface();
     if (idx == 0) {
@@ -284,6 +287,12 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
 }
 
 void ag::VpnLinuxTunnel::deinit() {
+    // With use_existing the TUN device survives the session, so resolved keeps the per-link
+    // DNS configuration; drop it explicitly. When the device is destroyed by closing its fd,
+    // resolved removes the configuration of the vanished link on its own and this is a no-op.
+    if (m_system_dns_setup_success && m_settings->managed && m_settings->dns_servers.size > 0) {
+        call_resolved(m_netns, "RevertLink", "i", std::to_string(m_if_index));
+    }
     close(m_tun_fd);
     if (m_settings->included_routes.size > 0) {
         teardown_routes(TABLE_ID);
@@ -527,7 +536,7 @@ void ag::VpnLinuxTunnel::setup_dns() {
     std::string dns_args = AG_FMT("{} {}", m_if_index, dns_servers.size());
     for (const auto &dns_server : dns_servers) {
         if (!append_dns_server_args(dns_args, dns_server)) {
-            warnlog(logger, "Skipping unparsable DNS server \"{}\"", dns_server);
+            errlog(logger, "Aborting DNS setup: invalid DNS server address \"{}\"", dns_server);
             return;
         }
     }

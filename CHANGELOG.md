@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- Fixed the Linux platform adapter: the C API `dns_servers` array is now NULL-terminated as documented; the final `DISCONNECTED` state is published atomically with the end of a session, so a follow-up start can no longer hit `ALREADY_RUNNING`; stale messages queued by a finished session are dropped on restart; excluded-route bypasses are skipped in managed mode with empty `included_routes`, the physical route snapshot is reset between sessions, and installed bypass routes are removed with the exact `dev`/`via` they were installed with; per-link system DNS is configured through the systemd-resolved D-Bus API instead of `resolvectl`, which fails on systems where `systemd-networkd` is not active.
+- Fixed the Linux platform adapter: the C API `dns_servers` array is now NULL-terminated as documented; the final `DISCONNECTED` state is published atomically with the end of a session, so a follow-up start can no longer hit `ALREADY_RUNNING`; stale messages queued by a finished session are dropped on restart; excluded-route bypasses are skipped in managed mode with empty `included_routes`, the physical route snapshot is reset between sessions, and installed bypass routes are removed with the exact `dev`/`via` they were installed with; per-link system DNS is configured through the systemd-resolved D-Bus API instead of `resolvectl`, which fails on systems where `systemd-networkd` is not active, and is reverted when the session is taken down (matters for `use_existing` devices that survive it).
 
 ### Security
 
