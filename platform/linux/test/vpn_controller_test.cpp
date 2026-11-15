@@ -81,6 +81,63 @@ upstream_protocol = "http2"
     EXPECT_FALSE(parse_daemon_config(config).has_value());
 }
 
+TEST(SanitizeDaemonConfigTest, StripsNetnsAndResetsUseExisting) {
+    constexpr std::string_view config = R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["127.0.0.1:443"]
+username = "user"
+password = "pass"
+upstream_protocol = "http2"
+
+[listener.tun]
+use_existing = true
+device_name = "eth0"
+netns = "netns0"
+)";
+    std::optional<ag::TrustTunnelConfig> sanitized = parse_daemon_config(sanitize_daemon_config(config));
+    ASSERT_TRUE(sanitized.has_value());
+    const auto *tun = std::get_if<ag::TrustTunnelConfig::TunListener>(&sanitized->listener);
+    ASSERT_NE(tun, nullptr);
+    EXPECT_FALSE(tun->use_existing);
+    EXPECT_EQ(tun->device_name, "eth0");
+    EXPECT_FALSE(tun->netns.has_value());
+}
+
+TEST(SanitizeDaemonConfigTest, KeepsHarmlessFields) {
+    constexpr std::string_view config = R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["127.0.0.1:443"]
+username = "user"
+password = "pass"
+upstream_protocol = "http2"
+
+[listener.tun]
+included_routes = ["0.0.0.0/0"]
+excluded_routes = ["10.0.0.0/8"]
+)";
+
+    // Round-trip the document through the sanitizer: nothing must change
+    std::optional<ag::TrustTunnelConfig> sanitized = parse_daemon_config(sanitize_daemon_config(config));
+    ASSERT_TRUE(sanitized.has_value());
+    const auto *tun = std::get_if<ag::TrustTunnelConfig::TunListener>(&sanitized->listener);
+    ASSERT_NE(tun, nullptr);
+    ASSERT_EQ(tun->included_routes.size(), 1u);
+    EXPECT_EQ(tun->included_routes[0], "0.0.0.0/0");
+    ASSERT_EQ(tun->excluded_routes.size(), 1u);
+    EXPECT_EQ(tun->excluded_routes[0], "10.0.0.0/8");
+}
+
+TEST(SanitizeDaemonConfigTest, InvalidTomlIsPassedThroughUnchanged) {
+    std::string_view config = "this is [[ not toml";
+    EXPECT_EQ(sanitize_daemon_config(config), config);
+}
+
 /// Records everything the controller reports through its callbacks.
 struct ControllerObserver {
     std::vector<VpnState> states;

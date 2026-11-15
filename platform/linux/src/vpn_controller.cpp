@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <sstream>
 #include <utility>
 
 #include "common/logger.h"
@@ -28,6 +29,40 @@ std::optional<TrustTunnelConfig> parse_daemon_config(std::string_view toml_confi
         return std::nullopt;
     }
     return TrustTunnelConfig::build_config(parsed.table());
+}
+
+std::string sanitize_daemon_config(std::string_view toml_config) {
+    toml::parse_result parsed = toml::parse(toml_config);
+    if (!parsed) {
+        // Keep the document as is: start() reports the parse error itself
+        return std::string(toml_config);
+    }
+    toml::table &table = parsed.table();
+    auto *listener = table.get("listener");
+    auto *tun = listener != nullptr ? listener->as_table() : nullptr;
+    auto *tun_table = tun != nullptr && tun->contains("tun") ? tun->get("tun")->as_table() : nullptr;
+    if (tun_table == nullptr) {
+        std::ostringstream output;
+        output << toml::toml_formatter{table};
+        return output.str();
+    }
+
+    if (tun_table->contains("netns")) {
+        auto netns = tun_table->get("netns");
+        bool empty = netns->is_string() && netns->as_string()->get().empty();
+        if (!empty) {
+            warnlog(g_logger, "Stripping privileged config parameter listener.tun.netns");
+        }
+        tun_table->erase("netns");
+    }
+    if (auto *use_existing = tun_table->get("use_existing");
+            use_existing != nullptr && use_existing->is_boolean() && use_existing->as_boolean()->get()) {
+        warnlog(g_logger, "Resetting privileged config parameter listener.tun.use_existing to false");
+        tun_table->insert_or_assign("use_existing", false);
+    }
+    std::ostringstream output;
+    output << toml::toml_formatter{table};
+    return output.str();
 }
 
 /// Bind an outgoing endpoint socket to the current outbound interface to avoid a route loop.

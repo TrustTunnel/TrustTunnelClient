@@ -27,6 +27,16 @@ namespace ag::trusttunnel_linux {
 std::optional<ag::TrustTunnelConfig> parse_daemon_config(std::string_view toml_config);
 
 /**
+ * Strip privileged `[listener.tun]` fields from a client-supplied configuration.
+ * `netns` lets an unprivileged caller direct the daemon's root-level `ip` commands at
+ * an arbitrary network namespace, and `use_existing` makes it operate on an arbitrary
+ * existing interface. `netns` is removed, `use_existing` is reset to false; every other
+ * field is left untouched. Documents that do not parse are returned unchanged: the
+ * regular validation reports the parse error.
+ */
+std::string sanitize_daemon_config(std::string_view toml_config);
+
+/**
  * Owns the TrustTunnel client and bridges it to the single-threaded D-Bus event loop.
  *
  * The client invokes the callbacks from its own threads, so the callbacks only put messages
