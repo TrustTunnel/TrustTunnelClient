@@ -26,9 +26,17 @@ struct PhysicalDefaultRoute {
     uint32_t metric{UINT32_MAX};
 };
 
+/** A bypass route installed for an excluded prefix, kept with the exact
+ * arguments it was installed with: deleting it with the same `dev`/`via`
+ * avoids removing a different route that the platform reinstalled meanwhile. */
+struct InstalledBypassRoute {
+    bool ipv6;
+    std::string args; // "<cidr> dev <dev>[ via <via>]"
+};
+
 static PhysicalDefaultRoute g_physical_route4;
 static PhysicalDefaultRoute g_physical_route6;
-static std::vector<std::string> g_installed_bypass_routes;
+static std::vector<InstalledBypassRoute> g_installed_bypass_routes;
 
 static std::string get_outbound_interface_name() {
     uint32_t idx = ag::vpn_network_manager_get_outbound_interface();
@@ -145,12 +153,6 @@ static std::optional<PhysicalDefaultRoute> get_physical_default_route(const std:
 }
 
 static void snapshot_physical_routes(const std::string &netns) {
-    // Reset the session state first: init may follow a failed attempt that
-    // left something behind.
-    g_physical_route4 = {};
-    g_physical_route6 = {};
-    g_installed_bypass_routes.clear();
-
     if (auto route = get_physical_default_route(netns, false); route.has_value()) {
         g_physical_route4 = std::move(route.value());
         infolog(logger, "Physical default route: dev={} via={}", g_physical_route4.dev,
@@ -190,14 +192,15 @@ static void setup_excluded_routes(const std::string &netns, const ag::VpnOsTunne
         // A more-specific route always wins over the platform default route,
         // so plain replace in the main table is enough; `via` may be empty
         // for on-link physical networks.
-        std::string cmd = ipv6 ? "ip -6 ro replace" : "ip ro replace";
-        cmd += AG_FMT(" {} dev {}", route, physical.dev);
+        std::string args = AG_FMT("{} dev {}", route, physical.dev);
         if (!physical.via.empty()) {
-            cmd += AG_FMT(" via {}", physical.via);
+            args += AG_FMT(" via {}", physical.via);
         }
+        std::string cmd = ipv6 ? "ip -6 ro replace" : "ip ro replace";
+        cmd += AG_FMT(" {}", args);
 
         if (sys_cmd_netns(netns, cmd)) {
-            g_installed_bypass_routes.emplace_back(route);
+            g_installed_bypass_routes.emplace_back(InstalledBypassRoute{ipv6, std::move(args)});
             infolog(logger, "Excluded route {} now bypasses the tunnel via dev={}{}", route, physical.dev,
                     physical.via.empty() ? "" : AG_FMT(" via {}", physical.via));
         } else {
@@ -207,9 +210,11 @@ static void setup_excluded_routes(const std::string &netns, const ag::VpnOsTunne
 }
 
 static void teardown_excluded_routes(const std::string &netns) {
-    for (const auto &route : g_installed_bypass_routes) {
-        bool ipv6 = route.find(':') != std::string::npos;
-        sys_cmd_netns_ignore_errors(netns, AG_FMT("{} ro del {}", ipv6 ? "ip -6" : "ip", route));
+    // Delete each route with the exact arguments it was installed with: a bare
+    // `ip ro del <cidr>` could remove a different route (e.g. one that
+    // NetworkManager recreated for the same prefix after the tunnel went down)
+    for (const InstalledBypassRoute &bypass : g_installed_bypass_routes) {
+        sys_cmd_netns_ignore_errors(netns, AG_FMT("{} ro del {}", bypass.ipv6 ? "ip -6" : "ip", bypass.args));
     }
     g_installed_bypass_routes.clear();
 }
@@ -217,6 +222,11 @@ static void teardown_excluded_routes(const std::string &netns) {
 ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
     m_netns = netns.value_or("");
+    // Reset the per-session state first: init may follow another session (e.g. one with
+    // different routing settings) or a failed attempt that left something behind.
+    g_physical_route4 = {};
+    g_physical_route6 = {};
+    g_installed_bypass_routes.clear();
     bool managed_routing = m_settings->included_routes.size > 0;
     infolog(logger, "TUN mode: {}{}{}{}", m_settings->use_existing ? "attach" : "create",
             (m_settings->device_name && m_settings->device_name[0] != '\0')
@@ -260,7 +270,10 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
         }
     } else {
         infolog(logger, "Empty included_routes: skipping route and ip rule management");
-        if (m_settings->excluded_routes.size > 0) {
+        // Excluded prefixes only matter while the daemon installs the tunnel routes itself:
+        // in unmanaged mode the platform owns routing and the bypass must be explicit, while
+        // in managed mode with empty included_routes no tunnel routes exist to bypass.
+        if (!m_settings->managed && m_settings->excluded_routes.size > 0) {
             setup_excluded_routes(m_netns, m_settings.get());
         }
     }
