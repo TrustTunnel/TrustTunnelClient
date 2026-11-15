@@ -243,6 +243,9 @@ private:
     std::string m_tun_name{};
     bool m_sport_supported{false};
     std::string m_netns{};
+    /// True once `SetLinkDNS` succeeded and the resolved per-link DNS configuration must be
+    /// reverted in `deinit()` even when the rest of the DNS setup (domains) failed
+    bool m_dns_link_configured{false};
 };
 #elif __APPLE__ && !TARGET_OS_IPHONE
 class VpnMacTunnel : public VpnOsTunnel {

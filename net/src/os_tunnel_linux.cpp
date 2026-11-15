@@ -3,6 +3,8 @@
 #include "vpn/utils.h"
 
 #include <arpa/inet.h>
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <net/if.h> // should be included before linux/if.h
 #include <sstream>
@@ -130,7 +132,15 @@ static std::optional<PhysicalDefaultRoute> get_physical_default_route(const std:
             } else if (previous == "dev") {
                 route.dev = token;
             } else if (previous == "metric") {
-                route.metric = (uint32_t) strtoul(token.c_str(), nullptr, 10);
+                errno = 0;
+                unsigned long value = strtoul(token.c_str(), nullptr, 10);
+                if (errno == ERANGE || value > UINT32_MAX) {
+                    // Clamp an unparsable metric to the lowest priority instead of
+                    // relying on the truncated result of the cast
+                    route.metric = UINT32_MAX;
+                } else {
+                    route.metric = (uint32_t) value;
+                }
             }
             previous = token;
         }
@@ -290,7 +300,15 @@ void ag::VpnLinuxTunnel::deinit() {
     // With use_existing the TUN device survives the session, so resolved keeps the per-link
     // DNS configuration; drop it explicitly. When the device is destroyed by closing its fd,
     // resolved removes the configuration of the vanished link on its own and this is a no-op.
-    if (m_system_dns_setup_success && m_settings->managed && m_settings->dns_servers.size > 0) {
+    // RevertLink drops the whole per-link runtime configuration, so on a pre-existing device
+    // it may also revert DNS settings installed by the platform on the same link.
+    if (m_dns_link_configured) {
+        if (m_settings->use_existing) {
+            warnlog(logger,
+                    "Reverting the DNS configuration of the pre-existing device {};"
+                    " settings installed by the platform on this link are dropped as well",
+                    m_tun_name);
+        }
         call_resolved(m_netns, "RevertLink", "i", std::to_string(m_if_index));
     }
     close(m_tun_fd);
@@ -299,6 +317,7 @@ void ag::VpnLinuxTunnel::deinit() {
     }
     teardown_excluded_routes(m_netns);
     m_system_dns_setup_success = false;
+    m_dns_link_configured = false;
     clear_tunnel_active();
 }
 
@@ -525,6 +544,7 @@ static bool append_dns_server_args(std::string &args, std::string_view server) {
 
 void ag::VpnLinuxTunnel::setup_dns() {
     m_system_dns_setup_success = false;
+    m_dns_link_configured = false;
     if (m_settings->dns_servers.size == 0 || !m_settings->managed) {
         m_system_dns_setup_success = true;
         return;
@@ -544,6 +564,8 @@ void ag::VpnLinuxTunnel::setup_dns() {
         warnlog(logger, "System DNS servers are not set");
         return;
     }
+    // The server list is applied: deinit() must revert it even if the domain setup below fails
+    m_dns_link_configured = true;
 
     constexpr int TRIES = 5;
     for (int i = 0; i < TRIES; i++) {
