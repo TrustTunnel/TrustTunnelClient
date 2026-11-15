@@ -7,13 +7,17 @@
 
 #include <linux/if.h>
 #include <linux/if_tun.h>
+#include <magic_enum/magic_enum.hpp>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 static const ag::Logger logger("OS_TUNNEL_LINUX");
 
 static constexpr auto TABLE_ID = 880;
 static constexpr std::string_view PRIVILEGED_PORTS = "1-1024";
 static constexpr std::string_view VNC_PORTS = "5900-5920";
+static constexpr std::string_view RESOLV_CONF_PATH = "/etc/resolv.conf";
+static constexpr std::string_view RESOLV_CONF_BACKUP_PATH = "/etc/resolv.conf.trusttunnel.bak";
 
 static bool sys_cmd_bool(std::string cmd) {
     cmd += " 2>&1";
@@ -68,6 +72,165 @@ static ag::Result<std::string, ag::tunnel_utils::ExecError> sys_cmd_with_output_
     return ag::tunnel_utils::sys_cmd_with_output(cmd);
 }
 
+static std::string escaped_server_args(const ag::VpnAddressArray &servers) {
+    std::vector<std::string> escaped;
+    escaped.reserve(servers.size);
+    for (size_t i = 0; i < servers.size; ++i) {
+        escaped.push_back(ag::utils::escape_argument_for_shell(servers.data[i]));
+    }
+    return AG_FMT("{}", fmt::join(escaped, " "));
+}
+
+static std::vector<std::string> dns_config_lines(const ag::VpnAddressArray &servers) {
+    std::vector<std::string> lines{"# Managed by TrustTunnel"};
+    lines.reserve(1 + servers.size);
+    for (size_t i = 0; i < servers.size; ++i) {
+        lines.push_back(AG_FMT("nameserver {}", servers.data[i]));
+    }
+    return lines;
+}
+
+static std::string escaped_dns_config_args(const ag::VpnAddressArray &servers) {
+    std::vector<std::string> escaped;
+    std::vector<std::string> lines = dns_config_lines(servers);
+    escaped.reserve(lines.size());
+    for (const auto &line : lines) {
+        escaped.push_back(ag::utils::escape_argument_for_shell(line));
+    }
+    return AG_FMT("{}", fmt::join(escaped, " "));
+}
+
+std::string ag::tunnel_utils::make_resolvectl_dns_cmd(std::string_view iface, const VpnAddressArray &servers) {
+    return AG_FMT("resolvectl dns {} {}", ag::utils::escape_argument_for_shell(iface), escaped_server_args(servers));
+}
+
+std::string ag::tunnel_utils::make_resolvconf_register_cmd(
+        std::string_view exe, std::string_view iface, const VpnAddressArray &servers) {
+    return AG_FMT("printf '%s\\n' {} | {} -a {}", escaped_dns_config_args(servers),
+            ag::utils::escape_argument_for_shell(exe), ag::utils::escape_argument_for_shell(iface));
+}
+
+std::string ag::tunnel_utils::make_resolv_conf_write_cmd(std::string_view path, const VpnAddressArray &servers) {
+    return AG_FMT(
+            "printf '%s\\n' {} > {}", escaped_dns_config_args(servers), ag::utils::escape_argument_for_shell(path));
+}
+
+static bool resolvectl_available(const std::string &netns) {
+    // Redirect the output: only the exit code matters here, and `resolvectl
+    // status` is verbose.
+    if (sys_cmd_with_output_netns(netns, "command -v resolvectl > /dev/null 2>&1").has_error()) {
+        return false;
+    }
+    // resolvectl may be installed while systemd-resolved is not running.
+    if (sys_cmd_with_output_netns(netns, "resolvectl status > /dev/null 2>&1").has_error()) {
+        dbglog(logger, "systemd-resolved is not running");
+        return false;
+    }
+    return true;
+}
+
+static std::optional<std::string> find_resolvconf(const std::string &netns) {
+    auto probe = sys_cmd_with_output_netns(netns, "command -v resolvconf");
+    if (probe.has_value()) {
+        std::string path{ag::utils::rtrim(probe.value())};
+        if (!path.empty()) {
+            return path;
+        }
+    }
+    // Distributions may keep resolvconf in /sbin or /usr/sbin, which are often
+    // absent from the PATH of a system service.
+    for (std::string_view candidate : {"/sbin/resolvconf", "/usr/sbin/resolvconf"}) {
+        if (::access(std::string(candidate).c_str(), X_OK) == 0) {
+            return std::string{candidate};
+        }
+    }
+    return std::nullopt;
+}
+
+static bool setup_dns_systemd_resolved(
+        const std::string &netns, std::string_view iface, const ag::VpnAddressArray &servers) {
+    if (!resolvectl_available(netns)) {
+        dbglog(logger, "Skipping systemd-resolved backend");
+        return false;
+    }
+
+    std::vector<std::string_view> dns_servers{servers.data, servers.data + servers.size};
+
+    constexpr int TRIES = 5;
+    for (int i = 0; i < TRIES; i++) {
+        auto result = sys_cmd_with_output_netns(netns, ag::tunnel_utils::make_resolvectl_dns_cmd(iface, servers));
+        if (result.has_error()) {
+            warnlog(logger, "Failed to set system DNS servers via systemd-resolved: {}", result.error()->str());
+            return false;
+        }
+        result = sys_cmd_with_output_netns(
+                netns, AG_FMT("resolvectl dns {}", ag::utils::escape_argument_for_shell(iface)));
+        if (result.has_error()) {
+            warnlog(logger, "Can't get the list of system DNS servers set");
+            return false;
+        }
+        const std::string &output = result.value();
+        bool found = std::find_if(dns_servers.begin(), dns_servers.end(), [&output](auto &&server) {
+            return output.find(server) != output.npos;
+        }) != dns_servers.end();
+        if (found) {
+            result = sys_cmd_with_output_netns(
+                    netns, AG_FMT("resolvectl domain {} '~.'", ag::utils::escape_argument_for_shell(iface)));
+            if (result.has_error()) {
+                warnlog(logger, "Can't enable DNS leak protection settings on the interface");
+                return false;
+            }
+            return true;
+        }
+        if (i == TRIES - 1) {
+            warnlog(logger, "System DNS servers are not set after {} tries", TRIES);
+            return false;
+        }
+        warnlog(logger, "System DNS servers are set but not applied, retrying");
+        std::this_thread::sleep_for(ag::Secs{1});
+    }
+    return false;
+}
+
+static bool setup_dns_resolvconf(const std::string &netns, std::string_view iface, const ag::VpnAddressArray &servers) {
+    auto exe = find_resolvconf(netns);
+    if (!exe.has_value()) {
+        dbglog(logger, "Skipping resolvconf backend: binary not found");
+        return false;
+    }
+    auto result =
+            sys_cmd_with_output_netns(netns, ag::tunnel_utils::make_resolvconf_register_cmd(*exe, iface, servers));
+    if (result.has_error()) {
+        warnlog(logger, "Failed to set system DNS servers via resolvconf: {}", result.error()->str());
+        return false;
+    }
+    return true;
+}
+
+static bool setup_dns_resolv_conf_file(const std::string &netns, const ag::VpnAddressArray &servers) {
+    // Perform all file operations through the shell so that they respect the
+    // per-netns /etc/resolv.conf bind mounts (see ip-netns(8)).
+    if (sys_cmd_with_output_netns(netns, AG_FMT("test -e {}", RESOLV_CONF_BACKUP_PATH)).has_value()) {
+        warnlog(logger, "Found a leftover {} from a previous run, restoring it first", RESOLV_CONF_BACKUP_PATH);
+        sys_cmd_netns_ignore_errors(netns, AG_FMT("mv -f {} {}", RESOLV_CONF_BACKUP_PATH, RESOLV_CONF_PATH));
+    }
+    bool had_resolv_conf = sys_cmd_with_output_netns(netns, AG_FMT("test -e {}", RESOLV_CONF_PATH)).has_value();
+    if (had_resolv_conf
+            && sys_cmd_with_output_netns(netns, AG_FMT("mv -f {} {}", RESOLV_CONF_PATH, RESOLV_CONF_BACKUP_PATH))
+                    .has_error()) {
+        warnlog(logger, "Failed to back up {}", RESOLV_CONF_PATH);
+        return false;
+    }
+    auto result =
+            sys_cmd_with_output_netns(netns, ag::tunnel_utils::make_resolv_conf_write_cmd(RESOLV_CONF_PATH, servers));
+    if (result.has_error()) {
+        warnlog(logger, "Failed to write {}: {}", RESOLV_CONF_PATH, result.error()->str());
+        sys_cmd_netns_ignore_errors(netns, AG_FMT("mv -f {} {}", RESOLV_CONF_BACKUP_PATH, RESOLV_CONF_PATH));
+        return false;
+    }
+    return true;
+}
+
 ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
     m_netns = netns.value_or("");
@@ -105,6 +268,7 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
 
 void ag::VpnLinuxTunnel::deinit() {
     close(m_tun_fd);
+    teardown_dns();
     if (m_settings->included_routes.size > 0) {
         teardown_routes(TABLE_ID);
     }
@@ -299,54 +463,54 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
 
 void ag::VpnLinuxTunnel::setup_dns() {
     m_system_dns_setup_success = false;
-    if (m_settings->dns_servers.size == 0) {
+    m_dns_backend = DnsBackend::NONE;
+    const ag::VpnAddressArray &servers = m_settings->dns_servers;
+    if (servers.size == 0) {
         m_system_dns_setup_success = true;
         return;
     }
 
-    std::vector<std::string_view> dns_servers{
-            m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
-
-    std::vector<std::string> escaped_servers;
-    for (const auto &dns_server : dns_servers) {
-        escaped_servers.push_back(ag::utils::escape_argument_for_shell(dns_server));
+    if (setup_dns_systemd_resolved(m_netns, m_tun_name, servers)) {
+        m_dns_backend = DnsBackend::SYSTEMD_RESOLVED;
+    } else if (setup_dns_resolvconf(m_netns, m_tun_name, servers)) {
+        m_dns_backend = DnsBackend::RESOLVCONF;
+    } else if (setup_dns_resolv_conf_file(m_netns, servers)) {
+        m_dns_backend = DnsBackend::RESOLV_CONF_FILE;
+    } else {
+        warnlog(logger, "System DNS servers are not set: no working system DNS mechanism found");
+        return;
     }
 
-    m_system_dns_setup_success = false;
-    constexpr int TRIES = 5;
-    for (int i = 0; i < TRIES; i++) {
-        auto result = sys_cmd_with_output_netns(
-                m_netns, AG_FMT("resolvectl dns {} {}", m_tun_name, fmt::join(escaped_servers, " ")));
-        if (result.has_error()) {
-            warnlog(logger, "System DNS servers are not set");
-            return;
+    m_system_dns_setup_success = true;
+    infolog(logger, "System DNS servers are successfully set (backend: {})", magic_enum::enum_name(m_dns_backend));
+}
+
+void ag::VpnLinuxTunnel::teardown_dns() {
+    switch (m_dns_backend) {
+    case DnsBackend::NONE:
+        return;
+    case DnsBackend::SYSTEMD_RESOLVED:
+        // Per-link settings usually vanish together with the interface, but an
+        // explicit revert also covers devices that outlive the client
+        // (use_existing mode).
+        sys_cmd_netns_ignore_errors(
+                m_netns, AG_FMT("resolvectl revert {}", ag::utils::escape_argument_for_shell(m_tun_name)));
+        break;
+    case DnsBackend::RESOLVCONF: {
+        auto exe = find_resolvconf(m_netns);
+        if (exe.has_value()) {
+            sys_cmd_netns_ignore_errors(m_netns,
+                    AG_FMT("{} -d {}", ag::utils::escape_argument_for_shell(*exe),
+                            ag::utils::escape_argument_for_shell(m_tun_name)));
         }
-        result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl dns {}", m_tun_name));
-        if (result.has_error()) {
-            warnlog(logger, "Can't get the list of system DNS servers set");
-            return;
-        }
-        auto output = result.value();
-        bool found = std::find_if(dns_servers.begin(), dns_servers.end(), [&output](auto &&server) {
-            return output.find(server) != output.npos;
-        }) != dns_servers.end();
-        if (found) {
-            result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl domain {} '~.'", m_tun_name));
-            if (result.has_error()) {
-                warnlog(logger, "Can't enable DNS leak protection settings on the interface");
-                return;
-            }
-            m_system_dns_setup_success = result.has_value();
-            infolog(logger, "System DNS servers are successfully set");
-            return;
-        }
-        if (i == TRIES - 1) {
-            warnlog(logger, "System DNS servers are not set after {} tries", TRIES);
-            return;
-        }
-        warnlog(logger, "System DNS servers are set but not applied, retrying");
-        std::this_thread::sleep_for(Secs{1});
+        break;
     }
+    case DnsBackend::RESOLV_CONF_FILE:
+        // Restore the original file (or symlink) saved before the overwrite.
+        sys_cmd_netns_ignore_errors(m_netns, AG_FMT("mv -f {} {}", RESOLV_CONF_BACKUP_PATH, RESOLV_CONF_PATH));
+        break;
+    }
+    m_dns_backend = DnsBackend::NONE;
 }
 
 void ag::VpnLinuxTunnel::teardown_routes(int16_t table_id) {

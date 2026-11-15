@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added a DNS configuration fallback chain on Linux: when `systemd-resolved` (`resolvectl`) is unavailable, the client now falls back to `resolvconf`, and then to directly backing up and overwriting `/etc/resolv.conf`. The previous DNS configuration is restored when the tunnel is stopped, and a leftover backup from a crashed run is restored on the next start.
+
 ### Changed
 
 ### Deprecated
