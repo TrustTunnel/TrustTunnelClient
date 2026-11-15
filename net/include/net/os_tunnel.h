@@ -56,6 +56,9 @@ struct VpnOsTunnelSettings {
      *  instead of creating a new one. Requires `device_name` to be
      *  non-empty. Linux only. */
     bool use_existing;
+    /** If false, only create the TUN device and leave interface addresses,
+     *  routes, MTU and DNS configuration to the platform. Linux only. */
+    bool managed;
 };
 
 #ifdef _WIN32
@@ -240,6 +243,9 @@ private:
     std::string m_tun_name{};
     bool m_sport_supported{false};
     std::string m_netns{};
+    /// True once `SetLinkDNS` succeeded and the resolved per-link DNS configuration must be
+    /// reverted in `deinit()` even when the rest of the DNS setup (domains) failed
+    bool m_dns_link_configured{false};
 };
 #elif __APPLE__ && !TARGET_OS_IPHONE
 class VpnMacTunnel : public VpnOsTunnel {

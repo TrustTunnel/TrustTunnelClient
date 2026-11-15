@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added the `platform/linux` adapter featuring a static C API client library (`libtrusttunnel.a`, `include/trusttunnel/trusttunnel.h`), a systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`), and packaging scripts (`platform/linux/scripts/build.sh`, `package.sh`) producing the `trusttunnel-client-linux-<version>-<arch>` release artifact.
+- Added the `listener.tun.managed` setting and the `network_ready_handler` callback. When `managed = false` (Linux, requires `included_routes = []`), the core only creates the TUN device and leaves interface addresses, routes, MTU and DNS configuration to the platform; the actual session parameters (interface name, addresses with prefix lengths, MTU, and in managed mode the resolver list) are reported through the new callback right after the tunnel is initialized.
+
 ### Changed
 
 ### Deprecated
@@ -16,7 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed the Linux platform adapter: the C API `dns_servers` array is now NULL-terminated as documented; the final `DISCONNECTED` state is published atomically with the end of a session, so a follow-up start can no longer hit `ALREADY_RUNNING`; stale messages queued by a finished session are dropped on restart; excluded-route bypasses are skipped in managed mode with empty `included_routes`, the physical route snapshot is reset between sessions, and installed bypass routes are removed with the exact `dev`/`via` they were installed with; per-link system DNS is configured through the systemd-resolved D-Bus API instead of `resolvectl`, which fails on systems where `systemd-networkd` is not active, and is reverted when the session is taken down (matters for `use_existing` devices that survive it).
+
 ### Security
+
+- `trusttunneld` now authorizes D-Bus `Start`/`Stop` calls through Polkit (`com.adguard.TrustTunnel.vpn.control`: allowed without a password for active local sessions, admin authentication otherwise, unconditional for root and on the session bus) and strips the privileged `listener.tun.netns` and `use_existing` fields from client-supplied configurations before applying them.
 
 ## [1.3.0-rc.3] - 2026-11-12
 

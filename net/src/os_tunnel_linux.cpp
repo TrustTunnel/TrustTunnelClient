@@ -2,8 +2,12 @@
 #include "net/os_tunnel.h"
 #include "vpn/utils.h"
 
+#include <arpa/inet.h>
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <net/if.h> // should be included before linux/if.h
+#include <sstream>
 
 #include <linux/if.h>
 #include <linux/if_tun.h>
@@ -14,6 +18,41 @@ static const ag::Logger logger("OS_TUNNEL_LINUX");
 static constexpr auto TABLE_ID = 880;
 static constexpr std::string_view PRIVILEGED_PORTS = "1-1024";
 static constexpr std::string_view VNC_PORTS = "5900-5920";
+
+/** The physical (pre-tunnel) default route, needed to install bypass routes
+ * for the excluded prefixes while the platform (NetworkManager) owns the
+ * network. File-local state: the daemon runs a single session at a time and
+ * init/deinit are only invoked from the controller thread. */
+struct PhysicalDefaultRoute {
+    std::string dev;
+    std::string via;
+    uint32_t metric{UINT32_MAX};
+};
+
+/** A bypass route installed for an excluded prefix, kept with the exact
+ * arguments it was installed with: deleting it with the same `dev`/`via`
+ * avoids removing a different route that the platform reinstalled meanwhile. */
+struct InstalledBypassRoute {
+    bool ipv6;
+    std::string args; // "<cidr> dev <dev>[ via <via>]"
+};
+
+static PhysicalDefaultRoute g_physical_route4;
+static PhysicalDefaultRoute g_physical_route6;
+static std::vector<InstalledBypassRoute> g_installed_bypass_routes;
+
+static bool call_resolved(
+        const std::string &netns, const std::string &member, const std::string &signature, const std::string &args);
+
+static std::string get_outbound_interface_name() {
+    uint32_t idx = ag::vpn_network_manager_get_outbound_interface();
+    if (idx == 0) {
+        return {};
+    }
+    char buf[IF_NAMESIZE + 1];
+    char *name = if_indextoname(idx, buf);
+    return name != nullptr ? std::string(name) : std::string();
+}
 
 static bool sys_cmd_bool(std::string cmd) {
     cmd += " 2>&1";
@@ -68,19 +107,167 @@ static ag::Result<std::string, ag::tunnel_utils::ExecError> sys_cmd_with_output_
     return ag::tunnel_utils::sys_cmd_with_output(cmd);
 }
 
+static std::optional<PhysicalDefaultRoute> get_physical_default_route(const std::string &netns, bool ipv6) {
+    auto result = sys_cmd_with_output_netns(netns, ipv6 ? "ip -6 route show default" : "ip route show default");
+    if (!result.has_value() || result.value().empty()) {
+        return std::nullopt;
+    }
+    // Several default routes may coexist (another VPN, multiple uplinks).
+    // Prefer the one on the interface the daemon captured as its outbound
+    // path, then the lowest metric, then simply the first line.
+    std::string preferred_dev = get_outbound_interface_name();
+    std::optional<PhysicalDefaultRoute> first;
+    std::optional<PhysicalDefaultRoute> best_metric;
+    std::optional<PhysicalDefaultRoute> preferred;
+    std::istringstream lines(result.value());
+    std::string line;
+    while (std::getline(lines, line)) {
+        PhysicalDefaultRoute route;
+        std::istringstream words(line);
+        std::string token;
+        std::string previous;
+        while (words >> token) {
+            if (previous == "via") {
+                route.via = token;
+            } else if (previous == "dev") {
+                route.dev = token;
+            } else if (previous == "metric") {
+                errno = 0;
+                unsigned long value = strtoul(token.c_str(), nullptr, 10);
+                if (errno == ERANGE || value > UINT32_MAX) {
+                    // Clamp an unparsable metric to the lowest priority instead of
+                    // relying on the truncated result of the cast
+                    route.metric = UINT32_MAX;
+                } else {
+                    route.metric = (uint32_t) value;
+                }
+            }
+            previous = token;
+        }
+        if (route.dev.empty()) {
+            continue;
+        }
+        if (!first.has_value()) {
+            first = route;
+        }
+        if (!preferred.has_value() && !preferred_dev.empty() && route.dev == preferred_dev) {
+            preferred = route;
+        }
+        if (!best_metric.has_value() || route.metric < best_metric->metric) {
+            best_metric = route;
+        }
+    }
+    if (preferred.has_value()) {
+        return preferred;
+    }
+    if (best_metric.has_value()) {
+        return best_metric;
+    }
+    return first;
+}
+
+static void snapshot_physical_routes(const std::string &netns) {
+    if (auto route = get_physical_default_route(netns, false); route.has_value()) {
+        g_physical_route4 = std::move(route.value());
+        infolog(logger, "Physical default route: dev={} via={}", g_physical_route4.dev,
+                g_physical_route4.via.empty() ? "(on-link)" : g_physical_route4.via);
+    } else {
+        warnlog(logger, "No IPv4 default route found; IPv4 excluded routes will be skipped");
+    }
+    if (auto route = get_physical_default_route(netns, true); route.has_value()) {
+        g_physical_route6 = std::move(route.value());
+        infolog(logger, "Physical IPv6 default route: dev={} via={}", g_physical_route6.dev,
+                g_physical_route6.via.empty() ? "(on-link)" : g_physical_route6.via);
+    } else {
+        dbglog(logger, "No IPv6 default route found; IPv6 excluded routes will be skipped");
+    }
+}
+
+static void setup_excluded_routes(const std::string &netns, const ag::VpnOsTunnelSettings *settings) {
+    for (size_t i = 0; i < settings->excluded_routes.size; i++) {
+        // The value arrives from an unprivileged caller over D-Bus and is
+        // interpolated into a shell command below, so it must never be used
+        // raw: parse it as a CIDR and take the canonical form instead.
+        ag::CidrRange cidr(settings->excluded_routes.data[i]);
+        if (!cidr.valid()) {
+            warnlog(logger, "Skipping invalid excluded route \"{}\": {}", settings->excluded_routes.data[i],
+                    cidr.get_address_as_string());
+            continue;
+        }
+        std::string route = cidr.to_string();
+        bool ipv6 = route.find(':') != std::string::npos;
+        const PhysicalDefaultRoute &physical = ipv6 ? g_physical_route6 : g_physical_route4;
+
+        if (physical.dev.empty()) {
+            warnlog(logger, "Skipping excluded route {}: no physical default route", route);
+            continue;
+        }
+
+        // A more-specific route always wins over the platform default route,
+        // so plain replace in the main table is enough; `via` may be empty
+        // for on-link physical networks.
+        std::string args = AG_FMT("{} dev {}", route, physical.dev);
+        if (!physical.via.empty()) {
+            args += AG_FMT(" via {}", physical.via);
+        }
+        std::string cmd = ipv6 ? "ip -6 ro replace" : "ip ro replace";
+        cmd += AG_FMT(" {}", args);
+
+        if (sys_cmd_netns(netns, cmd)) {
+            g_installed_bypass_routes.emplace_back(InstalledBypassRoute{ipv6, std::move(args)});
+            infolog(logger, "Excluded route {} now bypasses the tunnel via dev={}{}", route, physical.dev,
+                    physical.via.empty() ? "" : AG_FMT(" via {}", physical.via));
+        } else {
+            warnlog(logger, "Failed to install excluded route {}", route);
+        }
+    }
+}
+
+static void teardown_excluded_routes(const std::string &netns) {
+    // Delete each route with the exact arguments it was installed with: a bare
+    // `ip ro del <cidr>` could remove a different route (e.g. one that
+    // NetworkManager recreated for the same prefix after the tunnel went down)
+    for (const InstalledBypassRoute &bypass : g_installed_bypass_routes) {
+        sys_cmd_netns_ignore_errors(netns, AG_FMT("{} ro del {}", bypass.ipv6 ? "ip -6" : "ip", bypass.args));
+    }
+    g_installed_bypass_routes.clear();
+}
+
 ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, std::optional<std::string> netns) {
     init_settings(settings);
     m_netns = netns.value_or("");
+    // Reset the per-session state first: init may follow another session (e.g. one with
+    // different routing settings) or a failed attempt that left something behind.
+    g_physical_route4 = {};
+    g_physical_route6 = {};
+    g_installed_bypass_routes.clear();
     bool managed_routing = m_settings->included_routes.size > 0;
-    infolog(logger, "TUN mode: {}{}{}", m_settings->use_existing ? "attach" : "create",
+    infolog(logger, "TUN mode: {}{}{}{}", m_settings->use_existing ? "attach" : "create",
             (m_settings->device_name && m_settings->device_name[0] != '\0')
                     ? AG_FMT(" name={}", m_settings->device_name)
                     : "",
-            managed_routing ? "" : " (routes unmanaged)");
+            (managed_routing || !m_settings->managed) ? "" : " (routes unmanaged)",
+            m_settings->managed ? "" : " (network unmanaged)");
+    if (!m_settings->managed && m_settings->included_routes.size > 0) {
+        // Mirrors the configuration-layer validation: routing cannot be both
+        // unmanaged and requested via included_routes.
+        errlog(logger, "Unmanaged mode requires included_routes to be empty");
+        return {-1, "Unmanaged mode requires included_routes to be empty"};
+    }
+    if (!m_settings->managed && m_settings->excluded_routes.size > 0) {
+        // While the platform owns the network, the excluded prefixes must be
+        // routed around the tunnel explicitly; capture the physical default
+        // route before the TUN device appears.
+        snapshot_physical_routes(m_netns);
+    }
     if (tun_open() == -1) {
         return {-1, "Failed to init tunnel"};
     }
-    setup_if();
+    if (m_settings->managed) {
+        setup_if();
+    } else {
+        infolog(logger, "Unmanaged mode: leaving interface configuration to the platform");
+    }
     mark_tunnel_active();
 
     if (managed_routing) {
@@ -97,6 +284,12 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
         }
     } else {
         infolog(logger, "Empty included_routes: skipping route and ip rule management");
+        // Excluded prefixes only matter while the daemon installs the tunnel routes itself:
+        // in unmanaged mode the platform owns routing and the bypass must be explicit, while
+        // in managed mode with empty included_routes no tunnel routes exist to bypass.
+        if (!m_settings->managed && m_settings->excluded_routes.size > 0) {
+            setup_excluded_routes(m_netns, m_settings.get());
+        }
     }
     setup_dns();
 
@@ -104,11 +297,27 @@ ag::VpnError ag::VpnLinuxTunnel::init(const ag::VpnOsTunnelSettings *settings, s
 }
 
 void ag::VpnLinuxTunnel::deinit() {
+    // With use_existing the TUN device survives the session, so resolved keeps the per-link
+    // DNS configuration; drop it explicitly. When the device is destroyed by closing its fd,
+    // resolved removes the configuration of the vanished link on its own and this is a no-op.
+    // RevertLink drops the whole per-link runtime configuration, so on a pre-existing device
+    // it may also revert DNS settings installed by the platform on the same link.
+    if (m_dns_link_configured) {
+        if (m_settings->use_existing) {
+            warnlog(logger,
+                    "Reverting the DNS configuration of the pre-existing device {};"
+                    " settings installed by the platform on this link are dropped as well",
+                    m_tun_name);
+        }
+        call_resolved(m_netns, "RevertLink", "i", std::to_string(m_if_index));
+    }
     close(m_tun_fd);
     if (m_settings->included_routes.size > 0) {
         teardown_routes(TABLE_ID);
     }
+    teardown_excluded_routes(m_netns);
     m_system_dns_setup_success = false;
+    m_dns_link_configured = false;
     clear_tunnel_active();
 }
 
@@ -192,14 +401,16 @@ void ag::VpnLinuxTunnel::setup_if() {
             return;
         }
 
-        auto result = sys_cmd_with_output_netns(m_netns,
-                AG_FMT("ip -6 addr add {} dev {}",
-                        tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(),
-                        m_tun_name));
-        if (result.has_error()) {
-            warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
-        } else {
-            m_ipv6_available = true;
+        if (m_settings->ipv6_address != nullptr && m_settings->ipv6_address[0] != '\0') {
+            auto result = sys_cmd_with_output_netns(m_netns,
+                    AG_FMT("ip -6 addr add {} dev {}",
+                            tunnel_utils::get_address_for_index(m_settings->ipv6_address, m_if_index).to_string(),
+                            m_tun_name));
+            if (result.has_error()) {
+                warnlog(logger, "Failed to set IPv6 address: {}", result.error()->str());
+            } else {
+                m_ipv6_available = true;
+            }
         }
     } else {
         // In attach mode the operator owns the interface addresses; just
@@ -297,9 +508,44 @@ bool ag::VpnLinuxTunnel::setup_routes(int16_t table_id) {
     return true;
 }
 
+/** Call a method on the systemd-resolved manager over the system bus.
+ * Writes are done through resolved's own D-Bus API rather than `resolvectl`:
+ * since systemd 257 `resolvectl dns`/`domain` route to systemd-networkd and
+ * fail wherever networkd is not active (typical NetworkManager-based desktops),
+ * while `org.freedesktop.resolve1` works on every systemd release. */
+static bool call_resolved(
+        const std::string &netns, const std::string &member, const std::string &signature, const std::string &args) {
+    std::string cmd = "busctl call org.freedesktop.resolve1 /org/freedesktop/resolve1 "
+                      "org.freedesktop.resolve1.Manager ";
+    cmd += AG_FMT("{} {} {}", ag::utils::escape_argument_for_shell(member),
+            ag::utils::escape_argument_for_shell(signature), args);
+    return sys_cmd_netns(netns, cmd);
+}
+
+/** Append the D-Bus arguments of one DNS server for the `SetLinkDNS` call:
+ * the address family followed by the raw address bytes. */
+static bool append_dns_server_args(std::string &args, std::string_view server) {
+    unsigned char bytes[sizeof(in6_addr)] = {};
+    int family = AF_INET;
+    size_t size = sizeof(in_addr);
+    if (inet_pton(AF_INET, std::string(server).c_str(), bytes) != 1) {
+        family = AF_INET6;
+        size = sizeof(in6_addr);
+        if (inet_pton(AF_INET6, std::string(server).c_str(), bytes) != 1) {
+            return false;
+        }
+    }
+    args += AG_FMT(" {} {}", family, size);
+    for (size_t i = 0; i < size; i++) {
+        args += AG_FMT(" {}", unsigned(bytes[i]));
+    }
+    return true;
+}
+
 void ag::VpnLinuxTunnel::setup_dns() {
     m_system_dns_setup_success = false;
-    if (m_settings->dns_servers.size == 0) {
+    m_dns_link_configured = false;
+    if (m_settings->dns_servers.size == 0 || !m_settings->managed) {
         m_system_dns_setup_success = true;
         return;
     }
@@ -307,21 +553,23 @@ void ag::VpnLinuxTunnel::setup_dns() {
     std::vector<std::string_view> dns_servers{
             m_settings->dns_servers.data, m_settings->dns_servers.data + m_settings->dns_servers.size};
 
-    std::vector<std::string> escaped_servers;
+    std::string dns_args = AG_FMT("{} {}", m_if_index, dns_servers.size());
     for (const auto &dns_server : dns_servers) {
-        escaped_servers.push_back(ag::utils::escape_argument_for_shell(dns_server));
-    }
-
-    m_system_dns_setup_success = false;
-    constexpr int TRIES = 5;
-    for (int i = 0; i < TRIES; i++) {
-        auto result = sys_cmd_with_output_netns(
-                m_netns, AG_FMT("resolvectl dns {} {}", m_tun_name, fmt::join(escaped_servers, " ")));
-        if (result.has_error()) {
-            warnlog(logger, "System DNS servers are not set");
+        if (!append_dns_server_args(dns_args, dns_server)) {
+            errlog(logger, "Aborting DNS setup: invalid DNS server address \"{}\"", dns_server);
             return;
         }
-        result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl dns {}", m_tun_name));
+    }
+    if (!call_resolved(m_netns, "SetLinkDNS", "ia(iay)", dns_args)) {
+        warnlog(logger, "System DNS servers are not set");
+        return;
+    }
+    // The server list is applied: deinit() must revert it even if the domain setup below fails
+    m_dns_link_configured = true;
+
+    constexpr int TRIES = 5;
+    for (int i = 0; i < TRIES; i++) {
+        auto result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl dns {}", m_tun_name));
         if (result.has_error()) {
             warnlog(logger, "Can't get the list of system DNS servers set");
             return;
@@ -331,12 +579,14 @@ void ag::VpnLinuxTunnel::setup_dns() {
             return output.find(server) != output.npos;
         }) != dns_servers.end();
         if (found) {
-            result = sys_cmd_with_output_netns(m_netns, AG_FMT("resolvectl domain {} '~.'", m_tun_name));
-            if (result.has_error()) {
+            // resolvectl strips the "~" routing prefix client-side: the wildcard
+            // route-only domain goes on the wire as "." with positive = true
+            std::string domains_args = AG_FMT("{} 1 . true", m_if_index);
+            if (!call_resolved(m_netns, "SetLinkDomains", "ia(sb)", domains_args)) {
                 warnlog(logger, "Can't enable DNS leak protection settings on the interface");
                 return;
             }
-            m_system_dns_setup_success = result.has_value();
+            m_system_dns_setup_success = true;
             infolog(logger, "System DNS servers are successfully set");
             return;
         }
