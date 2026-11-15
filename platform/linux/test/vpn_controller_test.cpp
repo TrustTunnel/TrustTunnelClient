@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -26,6 +27,22 @@ vpn_mode = "general"
 [endpoint]
 hostname = "vpn.example.com"
 addresses = ["127.0.0.1:443"]
+username = "user"
+password = "pass"
+upstream_protocol = "http2"
+
+[listener.socks]
+address = "127.0.0.1:0"
+)";
+
+/// Failing configuration: an endpoint on the loopback with nothing listening behind it,
+/// so connection attempts fail quickly without any network access
+static constexpr std::string_view FAILING_CONFIG = R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "localhost"
+addresses = ["127.0.0.1:1"]
 username = "user"
 password = "pass"
 upstream_protocol = "http2"
@@ -107,26 +124,12 @@ TEST(VpnControllerTest, EmptyConfigIsRejected) {
 }
 
 TEST(VpnControllerTest, FailedConnectEndsDisconnected) {
-    // Endpoint on the loopback with nothing listening behind it: the connection attempts
-    // fail quickly without any network access, ending the session with DISCONNECTED
-    constexpr std::string_view config = R"(
-vpn_mode = "general"
-
-[endpoint]
-hostname = "localhost"
-addresses = ["127.0.0.1:1"]
-username = "user"
-password = "pass"
-upstream_protocol = "http2"
-
-[listener.socks]
-address = "127.0.0.1:0"
-)";
-
+    // The connection attempts fail quickly without any network access, ending the
+    // session with DISCONNECTED
     ControllerObserver observer;
     VpnController controller(observer.callbacks());
 
-    EXPECT_EQ(controller.start(std::string(config)), VpnError::SUCCESS);
+    EXPECT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
     EXPECT_EQ(controller.state(), VpnState::CONNECTING);
     ASSERT_EQ(observer.states.size(), 1u);
     EXPECT_EQ(observer.states.back(), VpnState::CONNECTING);
@@ -149,4 +152,61 @@ TEST(VpnControllerTest, StopWithoutSessionIsNoop) {
     VpnController controller(observer.callbacks());
     EXPECT_EQ(controller.stop(), VpnError::SUCCESS);
     EXPECT_EQ(controller.state(), VpnState::DISCONNECTED);
+}
+
+TEST(VpnControllerTest, DisconnectedStateImpliesStartable) {
+    // Once GetState() reports DISCONNECTED, a follow-up start() must not hit
+    // ALREADY_RUNNING: the final state and the end of the session are published
+    // under the same lock
+    ControllerObserver observer;
+    VpnController controller(observer.callbacks());
+
+    ASSERT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
+    auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (controller.state() != VpnState::DISCONNECTED && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(controller.state(), VpnState::DISCONNECTED);
+
+    EXPECT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
+
+    // Let the second session finish on its own and check its final state
+    deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (controller.running() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_FALSE(controller.running());
+    controller.drain();
+    EXPECT_EQ(observer.states.back(), VpnState::DISCONNECTED);
+}
+
+TEST(VpnControllerTest, RestartDropsQueuedMessagesFromPreviousSession) {
+    // The final DISCONNECTED of the previous session may still sit in the queue when the
+    // next Start() arrives; the fresh CONNECTING must not be followed by a stale DISCONNECTED
+    ControllerObserver observer;
+    VpnController controller(observer.callbacks());
+
+    ASSERT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
+    auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (controller.running() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_FALSE(controller.running());
+    // The queue has not been drained: the previous DISCONNECTED is still pending
+
+    ASSERT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
+
+    deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (controller.running() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_FALSE(controller.running());
+    controller.drain();
+
+    // Only the second session's final DISCONNECTED may be observed
+    ASSERT_GE(observer.states.size(), 3u);
+    EXPECT_EQ(observer.states.front(), VpnState::CONNECTING);
+    EXPECT_EQ(observer.states[1], VpnState::CONNECTING);
+    EXPECT_EQ(std::count(observer.states.begin(), observer.states.end(), VpnState::DISCONNECTED), 1);
+    EXPECT_EQ(observer.states.back(), VpnState::DISCONNECTED);
 }

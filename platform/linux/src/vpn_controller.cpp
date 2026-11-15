@@ -86,11 +86,19 @@ VpnError VpnController::start(const std::string &toml_config) {
         }
     }
 
+    // A previous session has finished on its own (m_running is false), so this returns at once.
+    // Joining before the new state is published guarantees that no late transition of the old
+    // session can overwrite the fresh CONNECTING state.
+    if (m_run_thread.joinable()) {
+        m_run_thread.join();
+    }
+
     std::optional<TrustTunnelConfig> config = parse_daemon_config(toml_config);
     if (!config.has_value()) {
         return VpnError::INVALID_CONFIG;
     }
 
+    uint64_t counter = 0;
     {
         std::lock_guard lock(m_mutex);
         m_config = std::move(*config);
@@ -98,16 +106,17 @@ VpnError VpnController::start(const std::string &toml_config) {
         m_client_finished = false;
         m_state = VpnState::CONNECTING;
         m_running = true;
+        // Drop everything the previous session may have left queued (e.g. its final
+        // DISCONNECTED): the old thread is gone, so unread messages would otherwise be
+        // emitted by the next drain() over the fresh CONNECTING state.
+        m_queue.clear();
+        (void) read(m_event_fd.get(), &counter, sizeof(counter));
     }
     if (m_callbacks.on_state_changed) {
         // This runs on the loop thread, so the signal is emitted before Start() replies
         m_callbacks.on_state_changed(VpnState::CONNECTING);
     }
 
-    // Any previous thread has finished on its own (m_running is false), so this returns at once
-    if (m_run_thread.joinable()) {
-        m_run_thread.join();
-    }
     m_run_thread = std::thread(&VpnController::run, this);
     return VpnError::SUCCESS;
 }
@@ -225,13 +234,17 @@ void VpnController::run() {
     client->disconnect();
     client.reset();
 
-    // On a failed connection attempt the client has already reported DISCONNECTED,
-    // in which case this is deduplicated; on an early failure this is the final state
-    push_state(VpnState::DISCONNECTED);
     {
+        // Publish the final state and the end of the session atomically: once a state
+        // observer sees DISCONNECTED, a follow-up start() must not hit ALREADY_RUNNING.
         std::lock_guard lock(m_mutex);
         m_running = false;
+        if (m_state != VpnState::DISCONNECTED) {
+            m_state = VpnState::DISCONNECTED;
+            m_queue.emplace_back(StateChangedMessage{VpnState::DISCONNECTED});
+        }
     }
+    notify_event_fd();
     m_cv.notify_all();
 }
 
@@ -268,13 +281,17 @@ void VpnController::handle_state_changed(VpnStateChangedEvent *event) {
     if (state == VpnState::DISCONNECTED && event->error.code != 0) {
         errlog(g_logger, "Disconnected with error: {} {}", event->error.code, safe_to_string_view(event->error.text));
     }
-    push_state(state);
     if (state == VpnState::DISCONNECTED) {
+        // Do not publish the state here: the session is not torn down yet, run() still has to
+        // disconnect and destroy the client. run() reports DISCONNECTED atomically with
+        // m_running = false, so an observer never sees DISCONNECTED while start() would fail.
         {
             std::lock_guard lock(m_mutex);
             m_client_finished = true;
         }
         m_cv.notify_all();
+    } else {
+        push_state(state);
     }
 }
 
