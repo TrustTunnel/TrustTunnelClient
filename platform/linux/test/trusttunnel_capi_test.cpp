@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 
+#include "src/network_info_convert.h"
 #include "trusttunnel/trusttunnel.h"
 
 using namespace std::chrono_literals;
@@ -44,7 +45,7 @@ struct ClientObserver {
         };
         callbacks.connection_info_arg = this;
         callbacks.on_connection_info = [](void *arg, const char *json) {
-            static_cast<ClientObserver *>(arg)->connection_infos.push_back(json);
+            static_cast<ClientObserver *>(arg)->connection_infos.emplace_back(json);
         };
         callbacks.network_ready_arg = this;
         callbacks.on_network_ready = [](void *arg, const trusttunnel_network_info_t *info) {
@@ -63,6 +64,38 @@ struct ClientObserver {
 
 TEST(TrustTunnelCapiTest, NullCallbacksAreRejected) {
     EXPECT_EQ(trusttunnel_create(nullptr), nullptr);
+}
+
+TEST(TrustTunnelCapiTest, NetworkInfoDnsArrayIsNullTerminated) {
+    // The trusttunnel.h contract documents dns_servers as a NULL-terminated
+    // array; a consumer that iterates until NULL must not read past its end
+    ag::VpnNetworkInfo info;
+    info.iface_name = "tun0";
+    info.mtu = 1500;
+    info.dns_servers = {"94.140.14.14", "2a10:50c0::ad1:ff"};
+
+    std::vector<std::string> dns_storage;
+    std::vector<const char *> dns_ptrs;
+    trusttunnel_network_info_t c_info = ag::trusttunnel_linux::make_c_network_info(info, dns_storage, dns_ptrs);
+
+    EXPECT_STREQ(c_info.iface_name, "tun0");
+    EXPECT_EQ(c_info.mtu, 1500u);
+    ASSERT_NE(c_info.dns_servers, nullptr);
+    EXPECT_EQ(c_info.dns_servers_count, 2u);
+    EXPECT_STREQ(c_info.dns_servers[0], "94.140.14.14");
+    EXPECT_STREQ(c_info.dns_servers[1], "2a10:50c0::ad1:ff");
+    EXPECT_EQ(c_info.dns_servers[2], nullptr);
+}
+
+TEST(TrustTunnelCapiTest, NetworkInfoEmptyDnsArrayIsNullTerminated) {
+    ag::VpnNetworkInfo info;
+
+    std::vector<std::string> dns_storage;
+    std::vector<const char *> dns_ptrs;
+    trusttunnel_network_info_t c_info = ag::trusttunnel_linux::make_c_network_info(info, dns_storage, dns_ptrs);
+
+    EXPECT_EQ(c_info.dns_servers_count, 0u);
+    EXPECT_EQ(c_info.dns_servers[0], nullptr);
 }
 
 TEST(TrustTunnelCapiTest, NullInstanceArgumentsAreSafe) {

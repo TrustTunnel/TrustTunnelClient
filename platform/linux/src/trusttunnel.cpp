@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "src/network_info_convert.h"
 #include "src/vpn_controller.h"
 
 using namespace ag::trusttunnel_linux;
@@ -38,22 +39,9 @@ static VpnController::Callbacks make_controller_callbacks(const trusttunnel_call
         auto on_network_ready = c.on_network_ready;
         callbacks.on_network_ready = [arg, on_network_ready](const ag::VpnNetworkInfo &info) {
             // Pointers into these containers stay valid for the duration of the callback
-            std::vector<std::string> dns_servers(info.dns_servers.begin(), info.dns_servers.end());
+            std::vector<std::string> dns_servers;
             std::vector<const char *> dns_ptrs;
-            dns_ptrs.reserve(dns_servers.size());
-            for (const std::string &server : dns_servers) {
-                dns_ptrs.push_back(server.c_str());
-            }
-
-            trusttunnel_network_info_t network_info{};
-            network_info.iface_name = info.iface_name.c_str();
-            network_info.ipv4_address = info.ipv4_address.c_str();
-            network_info.ipv4_prefix = info.ipv4_prefix;
-            network_info.ipv6_address = info.ipv6_address.c_str();
-            network_info.ipv6_prefix = info.ipv6_prefix;
-            network_info.mtu = info.mtu;
-            network_info.dns_servers = dns_ptrs.data();
-            network_info.dns_servers_count = dns_ptrs.size();
+            trusttunnel_network_info_t network_info = make_c_network_info(info, dns_servers, dns_ptrs);
             on_network_ready(arg, &network_info);
         };
     }
