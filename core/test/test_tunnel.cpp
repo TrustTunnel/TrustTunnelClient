@@ -1,4 +1,5 @@
 #include <optional>
+#include <string_view>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -971,6 +972,213 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteUnreachableInTunnel) {
     tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
             m_fake_upstream->closing_connections.data());
 }
+
+// Builds a minimal TLS ClientHello record. `sni` is placed into the server_name extension;
+// `std::nullopt` builds a ClientHello without the extension at all.
+static std::vector<uint8_t> make_tls_client_hello(std::optional<std::string_view> sni) {
+    const auto append_uint = [](std::vector<uint8_t> &out, size_t value, size_t size) {
+        for (size_t i = size; i > 0; --i) {
+            out.push_back(static_cast<uint8_t>(value >> ((i - 1) * 8)));
+        }
+    };
+
+    std::vector<uint8_t> extensions;
+    if (sni.has_value()) {
+        append_uint(extensions, 0, 2);               // extension type: server_name
+        append_uint(extensions, 5 + sni->size(), 2); // extension data length
+        append_uint(extensions, 3 + sni->size(), 2); // server_name_list length
+        extensions.push_back(0);                     // name type: host_name
+        append_uint(extensions, sni->size(), 2);     // host name length
+        extensions.insert(extensions.end(), sni->begin(), sni->end());
+    }
+
+    std::vector<uint8_t> body;
+    body.push_back(0x03); // legacy_version: TLS 1.2
+    body.push_back(0x03);
+    body.insert(body.end(), 32, static_cast<uint8_t>(0xA1)); // client random, its value is irrelevant for the parser
+    body.push_back(0);                                       // session id length
+    append_uint(body, 2, 2);                                 // cipher suites length
+    body.push_back(0x13);                                    // TLS_AES_128_GCM_SHA256
+    body.push_back(0x01);
+    body.push_back(1); // compression methods length
+    body.push_back(0); // null compression
+    append_uint(body, extensions.size(), 2);
+    body.insert(body.end(), extensions.begin(), extensions.end());
+
+    std::vector<uint8_t> handshake = {0x01}; // client_hello
+    append_uint(handshake, body.size(), 3);
+    handshake.insert(handshake.end(), body.begin(), body.end());
+
+    std::vector<uint8_t> record = {0x16, 0x03, 0x01}; // handshake, TLS 1.0 record version
+    append_uint(record, handshake.size(), 2);
+    record.insert(record.end(), handshake.begin(), handshake.end());
+    return record;
+}
+
+static std::vector<uint8_t> string_to_bytes(std::string_view str) {
+    return {str.begin(), str.end()};
+}
+
+enum class DomainDetectionFailure {
+    NON_TLS_NON_HTTP,
+    MISSING_SNI,
+    INVALID_SNI,
+    EMPTY_SNI,
+    MISSING_HOST,
+    INVALID_HOST,
+    EMPTY_HOST,
+};
+
+// An SNI with a control character and a Host header with one must be rejected as a domain name.
+static constexpr std::string_view INVALID_SNI_HOST = "\x01invalid.example";
+static constexpr std::string_view MISSING_HOST_HTTP_REQUEST = "GET / HTTP/1.1\r\nAccept: text/html\r\n\r\n";
+static constexpr std::string_view INVALID_HOST_HTTP_REQUEST = "GET / HTTP/1.1\r\nHost: exam\x01ple.com\r\n\r\n";
+static constexpr std::string_view EMPTY_HOST_HTTP_REQUEST = "GET / HTTP/1.1\r\nHost:\r\n\r\n";
+
+// Builds a first packet from which the domain extractor cannot determine a domain name.
+static std::vector<uint8_t> make_domain_detection_failure_payload(DomainDetectionFailure failure) {
+    switch (failure) {
+    case DomainDetectionFailure::NON_TLS_NON_HTTP:
+        return {0x00, 0x01, 0x02, 0x03, 0xDE, 0xAD, 0xBE, 0xEF};
+    case DomainDetectionFailure::MISSING_SNI:
+        return make_tls_client_hello(std::nullopt);
+    case DomainDetectionFailure::INVALID_SNI:
+        return make_tls_client_hello(INVALID_SNI_HOST);
+    case DomainDetectionFailure::EMPTY_SNI:
+        return make_tls_client_hello("");
+    case DomainDetectionFailure::MISSING_HOST:
+        return string_to_bytes(MISSING_HOST_HTTP_REQUEST);
+    case DomainDetectionFailure::INVALID_HOST:
+        return string_to_bytes(INVALID_HOST_HTTP_REQUEST);
+    case DomainDetectionFailure::EMPTY_HOST:
+        return string_to_bytes(EMPTY_HOST_HTTP_REQUEST);
+    }
+    return {};
+}
+
+struct DomainDetectionFailureSample {
+    DomainDetectionFailure failure;
+    const char *name;
+};
+
+static constexpr DomainDetectionFailureSample DOMAIN_DETECTION_FAILURE_SAMPLES[] = {
+        {DomainDetectionFailure::NON_TLS_NON_HTTP, "non_tls_non_http"},
+        {DomainDetectionFailure::MISSING_SNI, "missing_sni"},
+        {DomainDetectionFailure::INVALID_SNI, "invalid_sni"},
+        {DomainDetectionFailure::EMPTY_SNI, "empty_sni"},
+        {DomainDetectionFailure::MISSING_HOST, "missing_host"},
+        {DomainDetectionFailure::INVALID_HOST, "invalid_host"},
+        {DomainDetectionFailure::EMPTY_HOST, "empty_host"},
+};
+
+struct DomainDetectionFailureTestParams {
+    bool early_ack;
+    VpnMode mode;
+    DomainDetectionFailure failure;
+    const char *failure_name;
+};
+
+static std::vector<DomainDetectionFailureTestParams> make_domain_detection_failure_test_params() {
+    std::vector<DomainDetectionFailureTestParams> params;
+    for (bool early_ack : {false, true}) {
+        for (VpnMode mode : {VPN_MODE_GENERAL, VPN_MODE_SELECTIVE}) {
+            for (const DomainDetectionFailureSample &sample : DOMAIN_DETECTION_FAILURE_SAMPLES) {
+                params.push_back({early_ack, mode, sample.failure, sample.name});
+            }
+        }
+    }
+    return params;
+}
+
+static std::string domain_detection_failure_test_name(
+        const testing::TestParamInfo<DomainDetectionFailureTestParams> &info) {
+    return AG_FMT("{}_{}_{}", info.param.early_ack ? "early_ack" : "no_early_ack",
+            info.param.mode == VPN_MODE_GENERAL ? "general" : "selective", info.param.failure_name);
+}
+
+// When the domain cannot be determined, the destination cannot be matched against the exclusions,
+// so the connection must be routed the default way for the VPN mode: through the VPN endpoint in
+// general mode and directly to the destination in selective mode.
+class DomainDetectionFailureTest : public TunnelTest,
+                                   public testing::WithParamInterface<DomainDetectionFailureTestParams> {
+public:
+    uint64_t m_client_id = NON_ID;
+    TestFakeUpstream *m_fake_upstream = nullptr;
+
+    void SetUp() override {
+        TunnelTest::SetUp();
+        const DomainDetectionFailureTestParams &params = GetParam();
+        vpn.exclusions_tcp_early_ack_enabled = params.early_ack;
+        ASSERT_TRUE(vpn.domain_filter.update_exclusions(params.mode, "excluded.example"));
+        if (!params.early_ack) {
+            // With early ACK off, only an address suspected of being an exclusion goes through the fake upstream.
+            vpn.domain_filter.add_exclusion_suspect(std::get<SocketAddress>(dst), std::chrono::seconds(60));
+        }
+        tun.fake_upstream = std::make_shared<TestFakeUpstream>(std::move(tun.fake_upstream));
+        ASSERT_TRUE(tun.fake_upstream->open_session());
+        m_fake_upstream = (TestFakeUpstream *) tun.fake_upstream.get();
+    }
+
+    void TearDown() override {
+        tun.fake_upstream->close_session();
+        tun.fake_upstream->deinit();
+        TunnelTest::TearDown();
+    }
+
+    // Opens a connection and drives it through the fake upstream until the client can send data.
+    void open_connection_via_fake_upstream() {
+        m_client_id = vpn.listener_conn_id_generator.get();
+        ASSERT_NO_FATAL_FAILURE(raise_client_connection(m_client_id));
+
+        std::optional<VpnConnectAction> action = tun.finalize_connect_action({m_client_id, VPN_CA_DEFAULT, "app", 1});
+        size_t redirect_before = redirect_upstream->connections.size();
+        size_t bypass_before = bypass_upstream->connections.size();
+        tun.complete_connect_request(m_client_id, action);
+        run_event_loop_once();
+
+        ASSERT_EQ(redirect_upstream->connections.size(), redirect_before)
+                << "The endpoint must not be contacted before the domain is known";
+        ASSERT_EQ(bypass_upstream->connections.size(), bypass_before)
+                << "The bypass upstream must not be contacted before the domain is known";
+        ASSERT_EQ(client_listener->connections[m_client_id].result, CCR_PASS);
+        tun.listener_handler(client_listener, CLIENT_EVENT_CONNECTION_ACCEPTED, &m_client_id);
+        ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+    }
+};
+
+TEST_P(DomainDetectionFailureTest, RoutesToModeDefaultUpstream) {
+    const DomainDetectionFailureTestParams &params = GetParam();
+    ASSERT_NO_FATAL_FAILURE(open_connection_via_fake_upstream());
+
+    std::vector<uint8_t> payload = make_domain_detection_failure_payload(params.failure);
+    ClientRead read_event = {m_client_id, payload.data(), payload.size(), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &read_event);
+    ASSERT_EQ(read_event.result, 0) << "The packet must be buffered until the upstream is switched";
+
+    const bool expect_bypass = params.mode == VPN_MODE_SELECTIVE;
+    std::shared_ptr<TestUpstream> &target = expect_bypass ? bypass_upstream : redirect_upstream;
+    std::shared_ptr<TestUpstream> &other = expect_bypass ? redirect_upstream : bypass_upstream;
+    ASSERT_EQ(target->connections.size(), 1)
+            << "With no domain detected, the connection must be routed "
+            << (expect_bypass ? "directly to the destination" : "through the VPN endpoint");
+    ASSERT_TRUE(other->connections.empty()) << "The other upstream must not be used";
+    uint64_t target_id = target->connections.back();
+
+    tun.upstream_handler(target, SERVER_EVENT_CONNECTION_OPENED, &target_id);
+    ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1) << "The fake connection must be closed after the switch";
+    tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
+            m_fake_upstream->closing_connections.data());
+    ASSERT_TRUE(client_listener->connections[m_client_id].read_enabled);
+
+    // The retransmitted packet must be sent to the selected upstream as is, without another lookup.
+    ClientRead retransmit_event = {m_client_id, payload.data(), payload.size(), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &retransmit_event);
+    ASSERT_EQ(retransmit_event.result, static_cast<int>(payload.size()));
+    ASSERT_EQ(target->last_send, payload.size());
+}
+
+INSTANTIATE_TEST_SUITE_P(Tunnel, DomainDetectionFailureTest,
+        testing::ValuesIn(make_domain_detection_failure_test_params()), domain_detection_failure_test_name);
 
 // Tests for exclusions_preresolve_enabled and exclusions_preresolve_max_queries settings.
 //
