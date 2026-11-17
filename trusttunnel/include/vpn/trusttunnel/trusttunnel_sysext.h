@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,10 +45,9 @@ public:
     /// Run the given subcommand. `install` stages the bundle before running the host app,
     /// `uninstall` removes it after a successful run, and every other subcommand is
     /// forwarded to the installed host app as is. The config path is forwarded to the host
-    /// app when it is non-empty. Returns true on success, false otherwise (the reason is
+    /// app when it is present. Returns true on success, false otherwise (the reason is
     /// logged).
-    // TODO: config_path is used only for `start` and no-op for everything else
-    bool run(std::string_view command, const std::string &config_path);
+    bool run(std::string_view command, std::optional<std::string_view> config_path);
 
 private:
     SysextController m_controller;

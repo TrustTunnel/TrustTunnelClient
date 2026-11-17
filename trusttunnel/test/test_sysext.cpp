@@ -155,6 +155,32 @@ TEST_F(SysextTest, ForwardsUnknownSubcommandToTheApp) {
     EXPECT_EQ(m_runner->calls().front(), expected);
 }
 
+TEST_F(SysextTest, ForwardsMissingConfigPathAsNoConfig) {
+    // `config_path` is optional: a missing one spawns the host app without
+    // `--config`; nothing in the controller validates it before the spawn.
+    const fs::path installed = make_bundle(m_applications_dir);
+    TrustTunnelSysextController controller = make_controller();
+    EXPECT_TRUE(controller.run("start", {}));
+    ASSERT_EQ(m_runner->calls().size(), 1u);
+    const std::vector<std::string> expected = {
+            (installed / "Contents" / "MacOS" / std::string_view(APP_BINARY_NAME)).string(), "start"};
+    EXPECT_EQ(m_runner->calls().front(), expected);
+}
+
+TEST_F(SysextTest, ForwardsGivenConfigPathToStatus) {
+    // `run()` forwards a presented config path whatever the subcommand; whether a
+    // subcommand expects one is the caller's decision.
+    const fs::path config = write_config("tun.toml", TUN_CONFIG);
+    const fs::path installed = make_bundle(m_applications_dir);
+    TrustTunnelSysextController controller = make_controller();
+    EXPECT_TRUE(controller.run("status", config.string()));
+    ASSERT_EQ(m_runner->calls().size(), 1u);
+    const std::vector<std::string> expected = {
+            (installed / "Contents" / "MacOS" / std::string_view(APP_BINARY_NAME)).string(), "status", "--config",
+            config.string()};
+    EXPECT_EQ(m_runner->calls().front(), expected);
+}
+
 TEST_F(SysextTest, StartPassesOriginalConfigPath) {
     // A deliberately socks-only configuration: nothing validates it anymore, a bad config
     // surfaces as a host-app failure relayed through the exit status.
@@ -184,6 +210,21 @@ TEST_F(SysextTest, StatusFailsWithoutInstalledApp) {
     TrustTunnelSysextController controller = make_controller();
     EXPECT_FALSE(controller.run("status", {}));
     EXPECT_TRUE(m_runner->calls().empty());
+}
+
+TEST_F(SysextTest, AcceptsConfigPathAsStringView) {
+    // `run()` takes the config as a non-owning view; a view of a short-lived string
+    // is valid for the synchronous call.
+    const fs::path config = write_config("tun.toml", TUN_CONFIG);
+    make_bundle(m_applications_dir);
+    TrustTunnelSysextController controller = make_controller();
+    EXPECT_TRUE(controller.run("start", std::string_view(config.string())));
+    ASSERT_EQ(m_runner->calls().size(), 1u);
+    const fs::path installed = m_applications_dir / std::string_view(APP_BUNDLE_NAME);
+    const std::vector<std::string> expected = {
+            (installed / "Contents" / "MacOS" / std::string_view(APP_BINARY_NAME)).string(), "start", "--config",
+            config.string()};
+    EXPECT_EQ(m_runner->calls().front(), expected);
 }
 
 TEST_F(SysextTest, UninstallFailsWithoutInstalledApp) {

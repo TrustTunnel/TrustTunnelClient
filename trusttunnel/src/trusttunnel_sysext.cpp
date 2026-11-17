@@ -38,7 +38,7 @@ TrustTunnelSysextController::TrustTunnelSysextController(std::filesystem::path s
                   std::move(runner)) {
 }
 
-bool TrustTunnelSysextController::run(std::string_view command, const std::string &config_path) {
+bool TrustTunnelSysextController::run(std::string_view command, std::optional<std::string_view> config_path) {
     if (command.empty()) {
         errlog(g_logger, "A --sysext subcommand is required");
         return false;
@@ -60,11 +60,11 @@ bool TrustTunnelSysextController::run(std::string_view command, const std::strin
     }
 
     std::vector<std::string> arguments{std::string(command)};
-    if (!config_path.empty()) {
+    if (config_path.has_value()) {
         // TODO: config path is passed as is, however this works only because sandboxing for app is disabled.
         // If the app will be decided to be sandboxed - copy the config into the app container folder.
         arguments.emplace_back("--config");
-        arguments.push_back(config_path);
+        arguments.emplace_back(*config_path);
     }
     return m_controller.run_app(std::move(arguments));
 }

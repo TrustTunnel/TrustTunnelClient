@@ -213,7 +213,12 @@ int main(int argc, char **argv) {
         if (result.count("command") > 0) {
             command = result["command"].as<std::string>();
         }
-        const bool success = TrustTunnelSysextController{}.run(command, result["config"].as<std::string>());
+
+        std::optional<std::string> config_path;
+        if (result.count("config")) {
+            config_path = result["config"].as<std::string>();
+        }
+        const bool success = TrustTunnelSysextController{}.run(command, config_path);
         return success ? 0 : -1;
     }
 #endif
