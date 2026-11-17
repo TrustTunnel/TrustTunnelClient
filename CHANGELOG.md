@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Deep links now carry the `tls_profile` setting, so a server exported with
+  a non-default TLS fingerprint imports with the same profile. The field is
+  omitted for the default `chrome` profile, the deprecated `default` alias
+  becomes `boringssl`, and an unknown value fails import and export.
+
 ### Changed
 
 ### Deprecated

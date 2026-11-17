@@ -223,6 +223,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
+            tls_profile: Some("firefox".to_string()),
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -269,6 +270,10 @@ mod tests {
         assert!(
             toml_str.contains("Example VPN"),
             "Output must contain name value"
+        );
+        assert!(
+            toml_str.contains("tls_profile = \"firefox\""),
+            "Output must contain tls_profile value"
         );
     }
 
@@ -391,8 +396,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             skip_verification: true,
             certificate: None,
             upstream_protocol: "http3".to_string(),
-            // The deep-link format carries no TLS profile, so it must stay at its default.
-            tls_profile: Endpoint::default_tls_profile(),
+            tls_profile: "safari".to_string(),
             anti_dpi: true,
             custom_sni: "sni.example.com".to_string(),
             dns_upstreams: vec![
@@ -437,5 +441,54 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             restored.endpoint == original.endpoint,
             "endpoint restored from a deep-link must match the original"
         );
+    }
+
+    #[test]
+    fn test_ffi_decode_rejects_unknown_tls_profile() {
+        let config = DeepLinkConfig::builder()
+            .hostname("vpn.example.com".to_string())
+            .addresses(vec!["1.2.3.4:443".to_string()])
+            .username("alice".to_string())
+            .password("s3cr3t".to_string())
+            .tls_profile(Some("netscape".to_string()))
+            .build()
+            .unwrap();
+        let uri = CString::new(trusttunnel_deeplink::encode(&config).unwrap()).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+
+        let ptr = trusttunnel_deeplink_decode(uri.as_ptr(), &mut error);
+
+        assert!(ptr.is_null(), "Decode must fail for an unknown tls_profile");
+        assert!(!error.is_null(), "Decode must set an error");
+        let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
+        assert_eq!(
+            message.to_str().unwrap(),
+            "unsupported tls_profile: netscape"
+        );
+        trusttunnel_deeplink_error_free(error);
+    }
+
+    #[test]
+    fn test_ffi_encode_rejects_unknown_tls_profile() {
+        let endpoint_toml = "\
+[endpoint]\n\
+hostname = \"vpn.example.com\"\n\
+addresses = [\"1.2.3.4:443\"]\n\
+username = \"alice\"\n\
+password = \"s3cr3t\"\n\
+tls_profile = \"netscape\"\n";
+        let input = CString::new(endpoint_toml).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+
+        let ptr = trusttunnel_deeplink_encode(input.as_ptr(), &mut error);
+
+        assert!(ptr.is_null(), "Encode must fail for an unknown tls_profile");
+        assert!(!error.is_null(), "Encode must set an error");
+        let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
+        assert_eq!(
+            message.to_str().unwrap(),
+            "unsupported tls_profile: netscape"
+        );
+        trusttunnel_deeplink_error_free(error);
     }
 }

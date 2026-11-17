@@ -125,7 +125,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
-| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl`, or `boringssl` (no mimicry). `default` is a deprecated alias of `boringssl` |
+| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl`, or `boringssl` (no mimicry). `default` is a deprecated alias of `boringssl`. Included in the deep-link when it differs from `chrome` |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
 | `name` | string | `null` | Human-readable server display name. Included in the deep-link when exporting with `--export-deeplink` |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN. If empty, AdGuard DNS unfiltered is used |
@@ -255,8 +255,9 @@ client (for example, the desktop app), export it as a `tt://` deep-link:
 ```
 
 The command prints the deep-link to the standard output and exits, leaving the
-configuration untouched. The link includes the server name and the DNS
-upstreams from the configuration. The server name can be overridden with the
+configuration untouched. The link includes the server name, the DNS
+upstreams, and the TLS profile (when it differs from the default `chrome`)
+from the configuration. The server name can be overridden with the
 optional `--name` option, which is useful when the configuration has no name.
 
 The certificate is embedded only when it is needed by the importing client,

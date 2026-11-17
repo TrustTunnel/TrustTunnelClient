@@ -49,6 +49,31 @@ impl Endpoint {
         "chrome".into()
     }
 
+    /// Keep in sync with `TLS_PROFILE_MAP` in `trusttunnel/src/config.cpp`.
+    pub fn is_known_tls_profile(profile: &str) -> bool {
+        matches!(
+            profile,
+            "chrome"
+                | "chrome_canary"
+                | "safari"
+                | "firefox"
+                | "okhttp"
+                | "openssl"
+                | "boringssl"
+                | "default"
+        )
+    }
+
+    /// Map a deprecated profile alias to the value that replaces it.
+    ///
+    /// Keep in sync with `DEPRECATED_TLS_PROFILES` in `trusttunnel/src/config.cpp`.
+    pub fn canonical_tls_profile(profile: &str) -> &str {
+        match profile {
+            "default" => "boringssl",
+            other => other,
+        }
+    }
+
     pub fn default_anti_dpi() -> bool {
         false
     }
@@ -104,7 +129,7 @@ impl Endpoint {
     }
 
     pub fn doc_tls_profile() -> &'static str {
-        "TLS ClientHello fingerprint to mimic [chrome, chrome_canary, safari, firefox, okhttp, openssl, boringssl]"
+        "TLS ClientHello fingerprint to mimic [chrome, chrome_canary, safari, firefox, okhttp, openssl, boringssl]. default is a deprecated alias of boringssl"
     }
 
     pub fn doc_anti_dpi() -> &'static str {
@@ -143,6 +168,16 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
         .transpose()
         .map_err(|e| e.to_string())?;
 
+    let tls_profile = match config.tls_profile {
+        Some(profile) if !profile.is_empty() => {
+            if !Endpoint::is_known_tls_profile(&profile) {
+                return Err(format!("unsupported tls_profile: {profile}"));
+            }
+            Endpoint::canonical_tls_profile(&profile).to_string()
+        }
+        _ => Endpoint::default_tls_profile(),
+    };
+
     Ok(Endpoint {
         hostname: config.hostname.unwrap_or_default(),
         addresses: config.addresses.iter().map(|a| a.to_string()).collect(),
@@ -154,7 +189,7 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
         skip_verification: config.skip_verification,
         certificate,
         upstream_protocol: config.upstream_protocol.to_string(),
-        tls_profile: Endpoint::default_tls_profile(),
+        tls_profile,
         anti_dpi: config.anti_dpi,
         custom_sni: config.custom_sni.unwrap_or_default(),
         dns_upstreams: config.dns_upstreams,
@@ -185,6 +220,16 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
         other => return Err(format!("unsupported upstream protocol: {other}")),
     };
 
+    let tls_profile = match non_empty(&endpoint.tls_profile) {
+        Some(profile) if !Endpoint::is_known_tls_profile(&profile) => {
+            return Err(format!("unsupported tls_profile: {profile}"));
+        }
+        Some(profile) if profile != Endpoint::default_tls_profile() => {
+            Some(Endpoint::canonical_tls_profile(&profile).to_string())
+        }
+        _ => None,
+    };
+
     Ok(DeepLinkConfig {
         hostname: Some(endpoint.hostname.clone()),
         addresses: endpoint.addresses.clone(),
@@ -192,6 +237,7 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
         password: Some(endpoint.password.clone()),
         client_random_prefix: endpoint.client_random.split('/').next().and_then(non_empty),
         client_random_auth_key: non_empty(&endpoint.client_random_auth_key),
+        tls_profile,
         custom_sni: non_empty(&endpoint.custom_sni),
         has_ipv6: endpoint.has_ipv6,
         skip_verification: endpoint.skip_verification,
@@ -213,6 +259,27 @@ mod tests {
     use super::*;
     use trusttunnel_deeplink::Protocol;
 
+    fn sample_deeplink_config() -> DeepLinkConfig {
+        DeepLinkConfig {
+            hostname: Some("vpn.example.com".to_string()),
+            addresses: vec!["1.2.3.4:443".to_string()],
+            username: Some("alice".to_string()),
+            password: Some("secret".to_string()),
+            client_random_prefix: None,
+            client_random_auth_key: None,
+            tls_profile: None,
+            custom_sni: None,
+            has_ipv6: true,
+            skip_verification: false,
+            certificate: None,
+            upstream_protocol: Protocol::Http2,
+            anti_dpi: false,
+            dns_upstreams: vec![],
+            name: None,
+            subscription_url: None,
+        }
+    }
+
     #[test]
     fn test_deeplink_field_mapping() {
         let config = DeepLinkConfig {
@@ -222,6 +289,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
+            tls_profile: Some("firefox".to_string()),
             custom_sni: Some("sni.example.com".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -240,6 +308,7 @@ mod tests {
         assert_eq!(ep.password, "s3cr3t");
         assert_eq!(ep.client_random, "aabb");
         assert_eq!(ep.client_random_auth_key, "aabbccdd");
+        assert_eq!(ep.tls_profile, "firefox");
         assert_eq!(ep.custom_sni, "sni.example.com");
         assert!(!ep.has_ipv6);
         assert!(ep.skip_verification);
@@ -259,6 +328,7 @@ mod tests {
             password: Some("p".to_string()),
             client_random_prefix: None,
             client_random_auth_key: None,
+            tls_profile: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -273,11 +343,50 @@ mod tests {
         let ep = endpoint_from_deeplink_config(config).unwrap();
         assert_eq!(ep.client_random, "");
         assert_eq!(ep.client_random_auth_key, "");
+        assert_eq!(ep.tls_profile, Endpoint::default_tls_profile());
         assert_eq!(ep.custom_sni, "");
         assert_eq!(ep.upstream_protocol, "http3");
         assert!(ep.anti_dpi);
         assert!(ep.dns_upstreams.is_empty());
         assert_eq!(ep.name, None);
+    }
+
+    #[test]
+    fn test_endpoint_from_deeplink_config_empty_tls_profile_defaults() {
+        let config = DeepLinkConfig {
+            tls_profile: Some(String::new()),
+            ..sample_deeplink_config()
+        };
+
+        let ep = endpoint_from_deeplink_config(config).unwrap();
+
+        assert_eq!(ep.tls_profile, Endpoint::default_tls_profile());
+    }
+
+    #[test]
+    fn test_endpoint_from_deeplink_config_rejects_unknown_tls_profile() {
+        let config = DeepLinkConfig {
+            tls_profile: Some("netscape".to_string()),
+            ..sample_deeplink_config()
+        };
+
+        let error = endpoint_from_deeplink_config(config)
+            .err()
+            .expect("unknown tls_profile must be rejected");
+
+        assert_eq!(error, "unsupported tls_profile: netscape");
+    }
+
+    #[test]
+    fn test_endpoint_from_deeplink_config_canonicalizes_default_tls_profile_alias() {
+        let config = DeepLinkConfig {
+            tls_profile: Some("default".to_string()),
+            ..sample_deeplink_config()
+        };
+
+        let ep = endpoint_from_deeplink_config(config).unwrap();
+
+        assert_eq!(ep.tls_profile, "boringssl");
     }
 
     #[test]
@@ -289,6 +398,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: None,
             client_random_auth_key: None,
+            tls_profile: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -317,6 +427,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: None,
             client_random_auth_key: None,
+            tls_profile: None,
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -416,7 +527,7 @@ omxU7kknZApM\n\
             skip_verification: true,
             certificate: Some(TEST_CERT_CHAIN_PEM.into()),
             upstream_protocol: "http3".into(),
-            tls_profile: "chrome".into(),
+            tls_profile: "firefox".into(),
             anti_dpi: true,
             custom_sni: "sni.example.com".into(),
             dns_upstreams: vec!["tls://dns.adguard-dns.com".into()],
@@ -434,6 +545,7 @@ omxU7kknZApM\n\
         assert_eq!(config.password.as_deref(), Some("s3cr3t"));
         assert_eq!(config.client_random_prefix.as_deref(), Some("aabb"));
         assert_eq!(config.client_random_auth_key.as_deref(), Some("aabbccdd"));
+        assert_eq!(config.tls_profile.as_deref(), Some("firefox"));
         assert_eq!(config.custom_sni.as_deref(), Some("sni.example.com"));
         assert!(!config.has_ipv6);
         assert!(config.skip_verification);
@@ -463,12 +575,45 @@ omxU7kknZApM\n\
 
         assert_eq!(config.client_random_prefix, None);
         assert_eq!(config.client_random_auth_key, None);
+        assert_eq!(config.tls_profile, None);
         assert_eq!(config.custom_sni, None);
         assert_eq!(config.certificate, None);
         assert_eq!(config.name, None);
         assert!(config.dns_upstreams.is_empty());
         assert_eq!(config.upstream_protocol, Protocol::Http2);
         assert!(config.has_ipv6);
+    }
+
+    #[test]
+    fn test_deeplink_config_from_endpoint_omits_default_tls_profile() {
+        let mut endpoint = sample_endpoint();
+        endpoint.tls_profile = Endpoint::default_tls_profile();
+
+        let config = deeplink_config_from_endpoint(&endpoint).unwrap();
+
+        assert_eq!(config.tls_profile, None);
+    }
+
+    #[test]
+    fn test_deeplink_config_from_endpoint_rejects_unknown_tls_profile() {
+        let mut endpoint = sample_endpoint();
+        endpoint.tls_profile = "netscape".into();
+
+        let error = deeplink_config_from_endpoint(&endpoint)
+            .err()
+            .expect("unknown tls_profile must be rejected");
+
+        assert_eq!(error, "unsupported tls_profile: netscape");
+    }
+
+    #[test]
+    fn test_deeplink_config_from_endpoint_canonicalizes_default_tls_profile_alias() {
+        let mut endpoint = sample_endpoint();
+        endpoint.tls_profile = "default".into();
+
+        let config = deeplink_config_from_endpoint(&endpoint).unwrap();
+
+        assert_eq!(config.tls_profile.as_deref(), Some("boringssl"));
     }
 
     #[test]
@@ -514,6 +659,7 @@ omxU7kknZApM\n\
             restored.client_random_auth_key,
             endpoint.client_random_auth_key
         );
+        assert_eq!(restored.tls_profile, endpoint.tls_profile);
         assert_eq!(restored.custom_sni, endpoint.custom_sni);
         assert_eq!(restored.has_ipv6, endpoint.has_ipv6);
         assert_eq!(restored.skip_verification, endpoint.skip_verification);
@@ -537,8 +683,7 @@ omxU7kknZApM\n\
             skip_verification: true,
             certificate: Some(TEST_CERT_CHAIN_PEM.into()),
             upstream_protocol: "http3".into(),
-            // The deep-link format carries no TLS profile, so it must stay at its default.
-            tls_profile: Endpoint::default_tls_profile(),
+            tls_profile: "safari".into(),
             anti_dpi: true,
             custom_sni: "sni.example.com".into(),
             dns_upstreams: vec!["tls://dns.adguard-dns.com".into(), "8.8.8.8:53".into()],
