@@ -1790,12 +1790,12 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 listener->turn_read(conn->client_id, false);
                 close_client_side_connection(this, conn, utils::AG_ECONNRESET, /*async*/ true);
             }
+            // Do not trigger migration on further reads.
             conn->flags.reset(CONNF_FAKE_CONNECTION);
             break;
         }
 
         conn->flags.reset(CONNF_FIRST_PACKET);
-        conn->flags.reset(CONNF_FAKE_CONNECTION);
 
         switch (conn->state) {
         case CONNS_CONNECTED: {
