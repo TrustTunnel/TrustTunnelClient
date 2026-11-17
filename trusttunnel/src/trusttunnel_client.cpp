@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
             command = result["command"].as<std::string>();
         }
         const bool success = TrustTunnelSysextController{}.run(command, result["config"].as<std::string>());
-        return success ? 0 : -1;
+        return success ? 0 : 1;
     }
 #endif
 
