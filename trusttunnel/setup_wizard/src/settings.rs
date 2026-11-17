@@ -981,6 +981,7 @@ mod tests {
             password: Some("pass1".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
+            tls_profile: Some("firefox".to_string()),
             custom_sni: Some("sni.host".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -1001,6 +1002,7 @@ mod tests {
         assert_eq!(decoded.password, Some("pass1".to_string()));
         assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
         assert_eq!(decoded.client_random_auth_key, Some("aabbccdd".to_string()));
+        assert_eq!(decoded.tls_profile, Some("firefox".to_string()));
         assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);
