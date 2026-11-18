@@ -107,6 +107,19 @@ TEST(NetUtils, ToTlsClientProfile) {
             ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_BORINGSSL_DEFAULT));
 }
 
+TEST(NetUtils, RelayCloneKeepsTheTlsProfile) {
+    ag::VpnRelay relay{};
+    relay.tls_profile = ag::VPN_TLS_PROFILE_SAFARI;
+
+    ag::AutoVpnRelay clone = ag::vpn_relay_clone(&relay);
+    EXPECT_EQ(clone->tls_profile, ag::VPN_TLS_PROFILE_SAFARI);
+
+    // A zero-initialized relay has the default profile.
+    ag::VpnRelay empty{};
+    ag::AutoVpnRelay zero = ag::vpn_relay_clone(&empty);
+    EXPECT_EQ(zero->tls_profile, ag::VPN_TLS_PROFILE_CHROME);
+}
+
 TEST(NetUtils, SslGetTlsClientProfileName) {
     static constexpr uint8_t ALPN[] = {2, 'h', '2'};
     for (auto type : {ag::MSPT_TLS, ag::MSPT_NGTCP2}) {
