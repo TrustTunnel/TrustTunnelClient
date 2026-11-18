@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
+use trusttunnel_deeplink::{DeepLinkConfig, Protocol, TlsProfile};
 
 /// Endpoint connection settings. Shared by `setup_wizard` and `deeplink-ffi`.
 #[derive(Default, Deserialize, PartialEq, Serialize)]
@@ -47,21 +47,6 @@ impl Endpoint {
 
     pub fn default_tls_profile() -> String {
         "chrome".into()
-    }
-
-    /// Keep in sync with `TLS_PROFILE_MAP` in `trusttunnel/src/config.cpp`.
-    pub fn is_known_tls_profile(profile: &str) -> bool {
-        matches!(
-            profile,
-            "chrome"
-                | "chrome_canary"
-                | "safari"
-                | "firefox"
-                | "okhttp"
-                | "openssl"
-                | "boringssl"
-                | "default"
-        )
     }
 
     /// Map a deprecated profile alias to the value that replaces it.
@@ -168,15 +153,10 @@ pub fn endpoint_from_deeplink_config(config: DeepLinkConfig) -> Result<Endpoint,
         .transpose()
         .map_err(|e| e.to_string())?;
 
-    let tls_profile = match config.tls_profile {
-        Some(profile) if !profile.is_empty() => {
-            if !Endpoint::is_known_tls_profile(&profile) {
-                return Err(format!("unsupported tls_profile: {profile}"));
-            }
-            Endpoint::canonical_tls_profile(&profile).to_string()
-        }
-        _ => Endpoint::default_tls_profile(),
-    };
+    let tls_profile = config
+        .tls_profile
+        .map(|profile| profile.to_string())
+        .unwrap_or_else(Endpoint::default_tls_profile);
 
     Ok(Endpoint {
         hostname: config.hostname.unwrap_or_default(),
@@ -221,13 +201,13 @@ pub fn deeplink_config_from_endpoint(endpoint: &Endpoint) -> Result<DeepLinkConf
     };
 
     let tls_profile = match non_empty(&endpoint.tls_profile) {
-        Some(profile) if !Endpoint::is_known_tls_profile(&profile) => {
-            return Err(format!("unsupported tls_profile: {profile}"));
+        Some(profile) => {
+            let parsed = Endpoint::canonical_tls_profile(&profile)
+                .parse::<TlsProfile>()
+                .map_err(|_| format!("unsupported tls_profile: {profile}"))?;
+            (parsed != TlsProfile::Chrome).then_some(parsed)
         }
-        Some(profile) if profile != Endpoint::default_tls_profile() => {
-            Some(Endpoint::canonical_tls_profile(&profile).to_string())
-        }
-        _ => None,
+        None => None,
     };
 
     Ok(DeepLinkConfig {
@@ -257,28 +237,6 @@ fn non_empty(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trusttunnel_deeplink::Protocol;
-
-    fn sample_deeplink_config() -> DeepLinkConfig {
-        DeepLinkConfig {
-            hostname: Some("vpn.example.com".to_string()),
-            addresses: vec!["1.2.3.4:443".to_string()],
-            username: Some("alice".to_string()),
-            password: Some("secret".to_string()),
-            client_random_prefix: None,
-            client_random_auth_key: None,
-            tls_profile: None,
-            custom_sni: None,
-            has_ipv6: true,
-            skip_verification: false,
-            certificate: None,
-            upstream_protocol: Protocol::Http2,
-            anti_dpi: false,
-            dns_upstreams: vec![],
-            name: None,
-            subscription_url: None,
-        }
-    }
 
     #[test]
     fn test_deeplink_field_mapping() {
@@ -289,7 +247,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
-            tls_profile: Some("firefox".to_string()),
+            tls_profile: Some(TlsProfile::Firefox),
             custom_sni: Some("sni.example.com".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -349,44 +307,6 @@ mod tests {
         assert!(ep.anti_dpi);
         assert!(ep.dns_upstreams.is_empty());
         assert_eq!(ep.name, None);
-    }
-
-    #[test]
-    fn test_endpoint_from_deeplink_config_empty_tls_profile_defaults() {
-        let config = DeepLinkConfig {
-            tls_profile: Some(String::new()),
-            ..sample_deeplink_config()
-        };
-
-        let ep = endpoint_from_deeplink_config(config).unwrap();
-
-        assert_eq!(ep.tls_profile, Endpoint::default_tls_profile());
-    }
-
-    #[test]
-    fn test_endpoint_from_deeplink_config_rejects_unknown_tls_profile() {
-        let config = DeepLinkConfig {
-            tls_profile: Some("netscape".to_string()),
-            ..sample_deeplink_config()
-        };
-
-        let error = endpoint_from_deeplink_config(config)
-            .err()
-            .expect("unknown tls_profile must be rejected");
-
-        assert_eq!(error, "unsupported tls_profile: netscape");
-    }
-
-    #[test]
-    fn test_endpoint_from_deeplink_config_canonicalizes_default_tls_profile_alias() {
-        let config = DeepLinkConfig {
-            tls_profile: Some("default".to_string()),
-            ..sample_deeplink_config()
-        };
-
-        let ep = endpoint_from_deeplink_config(config).unwrap();
-
-        assert_eq!(ep.tls_profile, "boringssl");
     }
 
     #[test]
@@ -545,7 +465,7 @@ omxU7kknZApM\n\
         assert_eq!(config.password.as_deref(), Some("s3cr3t"));
         assert_eq!(config.client_random_prefix.as_deref(), Some("aabb"));
         assert_eq!(config.client_random_auth_key.as_deref(), Some("aabbccdd"));
-        assert_eq!(config.tls_profile.as_deref(), Some("firefox"));
+        assert_eq!(config.tls_profile, Some(TlsProfile::Firefox));
         assert_eq!(config.custom_sni.as_deref(), Some("sni.example.com"));
         assert!(!config.has_ipv6);
         assert!(config.skip_verification);
@@ -613,7 +533,7 @@ omxU7kknZApM\n\
 
         let config = deeplink_config_from_endpoint(&endpoint).unwrap();
 
-        assert_eq!(config.tls_profile.as_deref(), Some("boringssl"));
+        assert_eq!(config.tls_profile, Some(TlsProfile::BoringSsl));
     }
 
     #[test]
