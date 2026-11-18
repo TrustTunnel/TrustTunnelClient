@@ -950,7 +950,7 @@ static std::shared_ptr<ServerUpstream> select_upstream(
             }
         }
         if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
-                conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN)
+                conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && !conn->flags.test(CONNF_FAKE_CONNECTION)
                 && (conn->flags.test(CONNF_SUSPECT_EXCLUSION) || self->vpn->exclusions_tcp_early_ack_enabled)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
                 && is_domain_scannable_port(self, dst->port())) {
@@ -1782,7 +1782,6 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             log_conn(this, conn, dbg,
                     "Couldn't find domain name for suspect-to-be-exclusion connection, routing it as usual ({})",
                     encode_to_hex({event->data, std::min(event->length, size_t(517))}));
-            conn->flags.reset(CONNF_FAKE_CONNECTION);
             conn->flags.reset(CONNF_SUSPECT_EXCLUSION);
             event->result = static_cast<int>(initiate_connection_migration(
                     this, conn, select_upstream(this, VPN_CA_DEFAULT, conn), {event->data, event->length}));
@@ -1790,11 +1789,12 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 listener->turn_read(conn->client_id, false);
                 close_client_side_connection(this, conn, utils::AG_ECONNRESET, /*async*/ true);
             }
+            // Do not trigger migration on further reads.
+            conn->flags.reset(CONNF_FAKE_CONNECTION);
             break;
         }
 
         conn->flags.reset(CONNF_FIRST_PACKET);
-        conn->flags.reset(CONNF_FAKE_CONNECTION);
 
         switch (conn->state) {
         case CONNS_CONNECTED: {

@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed connections being routed back through the fake upstream instead of the
+  default upstream for the VPN mode when the destination domain could not be
+  determined from the first packet and `exclusions_tcp_early_ack_enabled` was
+  enabled.
 - A tunnel through a relay now uses the relay `tls_client_random`,
   `tls_client_random_mask` and `tls_client_random_auth_key`, as a ping
   through the relay already did. Before, it kept the endpoint values, so the
