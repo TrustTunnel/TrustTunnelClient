@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a non-default TLS fingerprint imports with the same profile. The field is
   omitted for the default `chrome` profile, the deprecated `default` alias
   becomes `boringssl`, and an unknown value fails import and export.
+- `VpnRelay.tls_profile`: the TLS ClientHello profile for every connection
+  through the relay. When the client connects or pings through a relay, this
+  profile replaces the endpoint `tls_profile`. A zero-initialized relay keeps
+  the default `VPN_TLS_PROFILE_CHROME`. The TrustTunnel client gives its
+  relays the profile of the location, as before.
 
 ### Changed
 

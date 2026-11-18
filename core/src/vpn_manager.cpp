@@ -103,6 +103,8 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
         endpoint->address = relay->address;
         std::swap(endpoint->additional_data.data, relay->additional_data.data);
         std::swap(endpoint->additional_data.size, relay->additional_data.size);
+        // The TLS connection goes to the relay, so the ClientHello is the one the relay expects.
+        endpoint->tls_profile = relay->tls_profile;
     }
     auto ip_availability = IpVersionSet{}.set(IPV4);
     if (endpoint->has_ipv6) {

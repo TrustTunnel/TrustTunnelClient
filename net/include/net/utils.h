@@ -72,6 +72,8 @@ struct VpnRelay {
     AG_ARRAY_OF(uint8_t) tls_client_random;          // custom client random
     AG_ARRAY_OF(uint8_t) tls_client_random_mask;     // mask for custom client random
     AG_ARRAY_OF(uint8_t) tls_client_random_auth_key; // auth key for custom client random derivation
+    VpnTlsProfile tls_profile;                       // TLS ClientHello fingerprint profile for this relay.
+                                                     // Replaces the endpoint one when connecting through the relay.
 };
 
 typedef AG_ARRAY_OF(VpnRelay) VpnRelays;
