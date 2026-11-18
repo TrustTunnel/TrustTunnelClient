@@ -310,6 +310,37 @@ mod tests {
     }
 
     #[test]
+    fn test_tls_profile_names_match_client_loader() {
+        // Keep the names in sync with TLS_PROFILE_MAP in trusttunnel/src/config.cpp.
+        for (name, profile) in [
+            ("chrome", TlsProfile::Chrome),
+            ("chrome_canary", TlsProfile::ChromeCanary),
+            ("safari", TlsProfile::Safari),
+            ("firefox", TlsProfile::Firefox),
+            ("okhttp", TlsProfile::OkHttp),
+            ("openssl", TlsProfile::OpenSsl),
+            ("boringssl", TlsProfile::BoringSsl),
+        ] {
+            let config = DeepLinkConfig::builder()
+                .hostname("vpn.example.com".to_string())
+                .addresses(vec!["1.2.3.4:443".to_string()])
+                .username("alice".to_string())
+                .password("secret".to_string())
+                .tls_profile(Some(profile))
+                .build()
+                .unwrap();
+
+            let mut endpoint = endpoint_from_deeplink_config(config).unwrap();
+            assert_eq!(endpoint.tls_profile, name);
+
+            endpoint.tls_profile = name.to_string();
+            let config = deeplink_config_from_endpoint(&endpoint).unwrap();
+            let expected = (profile != TlsProfile::Chrome).then_some(profile);
+            assert_eq!(config.tls_profile, expected);
+        }
+    }
+
+    #[test]
     fn test_roundtrip_with_dns_upstreams_and_name() {
         let config = DeepLinkConfig {
             hostname: Some("vpn.example.com".to_string()),

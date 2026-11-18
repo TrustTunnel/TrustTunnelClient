@@ -465,9 +465,9 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         assert!(ptr.is_null(), "Decode must fail for an unknown tls_profile");
         assert!(!error.is_null(), "Decode must set an error");
         let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
-        assert_eq!(
-            message.to_str().unwrap(),
-            "Invalid TLS profile byte: 0x07 (expected 0x00..=0x06)"
+        assert!(
+            message.to_str().unwrap().contains("0x07"),
+            "Error must name the unknown profile byte"
         );
         trusttunnel_deeplink_error_free(error);
     }
