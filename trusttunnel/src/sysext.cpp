@@ -112,7 +112,7 @@ bool SysextController::stage_host_app() const {
 
 bool SysextController::run_app(std::vector<std::string> arguments) const {
     if (!is_existing_directory(m_app.install_location)) {
-        errlog(g_logger, "The host app is not installed at {}", m_app.install_location.string());
+        errlog(g_logger, "The host app is not installed, call the `install` command first");
         return false;
     }
     arguments.emplace(arguments.begin(), (m_app.install_location / "Contents" / "MacOS" / m_app.binary_name).string());

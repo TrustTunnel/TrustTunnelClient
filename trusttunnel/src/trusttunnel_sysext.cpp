@@ -40,7 +40,7 @@ TrustTunnelSysextController::TrustTunnelSysextController(std::filesystem::path s
 
 bool TrustTunnelSysextController::run(std::string_view command, const std::string &config_path) {
     if (command.empty()) {
-        errlog(g_logger, "A --sysext subcommand is required");
+        errlog(g_logger, "A --sysext subcommand is required; expected one of: install, start, stop, status, uninstall");
         return false;
     }
 
