@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed connections being routed back through the fake upstream instead of the
+  default upstream for the VPN mode when the destination domain could not be
+  determined from the first packet and `exclusions_tcp_early_ack_enabled` was
+  enabled.
+
 ### Security
 
 ## [1.3.0-rc.3] - 2026-11-12

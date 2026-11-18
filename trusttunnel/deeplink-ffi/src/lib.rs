@@ -170,7 +170,7 @@ pub extern "C" fn trusttunnel_deeplink_string_free(ptr: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
+    use trusttunnel_deeplink::{DeepLinkConfig, Protocol, TlsProfile};
 
     #[test]
     fn test_decode_invalid_scheme() {
@@ -223,7 +223,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
-            tls_profile: Some("firefox".to_string()),
+            tls_profile: Some(TlsProfile::Firefox),
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -445,15 +445,19 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
 
     #[test]
     fn test_ffi_decode_rejects_unknown_tls_profile() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+
         let config = DeepLinkConfig::builder()
             .hostname("vpn.example.com".to_string())
             .addresses(vec!["1.2.3.4:443".to_string()])
             .username("alice".to_string())
             .password("s3cr3t".to_string())
-            .tls_profile(Some("netscape".to_string()))
             .build()
             .unwrap();
-        let uri = CString::new(trusttunnel_deeplink::encode(&config).unwrap()).unwrap();
+        let mut payload = trusttunnel_deeplink::encode::encode_tlv_payload(&config).unwrap();
+        payload.extend_from_slice(&[0x10, 0x01, 0x07]);
+        let uri = CString::new(format!("tt://?{}", URL_SAFE_NO_PAD.encode(payload))).unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
 
         let ptr = trusttunnel_deeplink_decode(uri.as_ptr(), &mut error);
@@ -461,9 +465,9 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         assert!(ptr.is_null(), "Decode must fail for an unknown tls_profile");
         assert!(!error.is_null(), "Decode must set an error");
         let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
-        assert_eq!(
-            message.to_str().unwrap(),
-            "unsupported tls_profile: netscape"
+        assert!(
+            message.to_str().unwrap().contains("0x07"),
+            "Error must name the unknown profile byte"
         );
         trusttunnel_deeplink_error_free(error);
     }

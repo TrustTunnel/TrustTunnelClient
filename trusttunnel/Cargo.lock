@@ -949,11 +949,12 @@ dependencies = [
 [[package]]
 name = "trusttunnel-deeplink"
 version = "0.1.0"
-source = "git+https://github.com/TrustTunnel/TrustTunnel?tag=v1.3.0-rc.3#616e9ab714c0fcf7d6ccc4e57fe480a22913de87"
+source = "git+https://github.com/TrustTunnel/TrustTunnel?tag=v1.3.1-rc.1#a46f5d35646b18e00f131d16e2bc44f253be9273"
 dependencies = [
  "base64",
  "hex",
  "rustls-pemfile",
+ "serde",
  "thiserror",
 ]
 
@@ -961,6 +962,7 @@ dependencies = [
 name = "trusttunnel-deeplink-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde",
  "toml",
  "trusttunnel-deeplink",
