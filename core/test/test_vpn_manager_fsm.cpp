@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <functional>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -304,6 +305,52 @@ TEST_F(VpnManagerTest, SuccessfulConnect) {
         }
     }
     ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoints[std::size(endpoints) - 1]));
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+}
+
+// Through a relay, the tunnel connects to the relay address with the relay TLS settings
+TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
+    uint8_t endpoint_random[] = {1, 1};
+    uint8_t relay_data[] = {2, 2};
+    uint8_t relay_random[] = {3, 3};
+    uint8_t relay_random_mask[] = {4, 4};
+    uint8_t relay_random_auth_key[] = {5, 5};
+    VpnEndpoint endpoints[] = {
+            {.address = sockaddr_from_str("127.0.0.1:443"),
+                    .name = "localhost",
+                    .tls_client_random = {endpoint_random, std::size(endpoint_random)},
+                    .tls_profile = VPN_TLS_PROFILE_FIREFOX},
+    };
+    upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
+    VpnRelay relay{
+            .address = sockaddr_from_str("127.0.0.9:443"),
+            .additional_data = {relay_data, std::size(relay_data)},
+            .tls_client_random = {relay_random, std::size(relay_random)},
+            .tls_client_random_mask = {relay_random_mask, std::size(relay_random_mask)},
+            .tls_client_random_auth_key = {relay_random_auth_key, std::size(relay_random_auth_key)},
+            .tls_profile = VPN_TLS_PROFILE_SAFARI,
+    };
+
+    ASSERT_NO_FATAL_FAILURE(start_connect(1));
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{
+            .id = vpn->upstream_config->location.id, .ping_ms = 10, .endpoint = &endpoints[0], .relay = &relay}));
+
+    ASSERT_TRUE(test_mock::g_client.wait_called(test_mock::CMID_CONNECT));
+    const VpnEndpoint *connected = this->vpn->client.upstream_config.endpoint.get();
+    ASSERT_STREQ("localhost", connected->name);
+    ASSERT_EQ(SocketAddress(relay.address), SocketAddress(connected->address));
+    ASSERT_EQ(VPN_TLS_PROFILE_SAFARI, connected->tls_profile);
+    auto bytes = [](auto array) {
+        return std::vector<uint8_t>(array.data, array.data + array.size);
+    };
+    ASSERT_EQ(std::vector<uint8_t>({2, 2}), bytes(connected->additional_data));
+    ASSERT_EQ(std::vector<uint8_t>({3, 3}), bytes(connected->tls_client_random));
+    ASSERT_EQ(std::vector<uint8_t>({4, 4}), bytes(connected->tls_client_random_mask));
+    ASSERT_EQ(std::vector<uint8_t>({5, 5}), bytes(connected->tls_client_random_auth_key));
+
+    this->vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
+    raise_client_event(vpn_client::EVENT_CONNECTED);
     ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
     ASSERT_NO_FATAL_FAILURE(check_connect_result());
 }

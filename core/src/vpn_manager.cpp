@@ -100,10 +100,17 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     if (this->selected_endpoint->relay.has_value()) {
         AutoVpnRelay relay = vpn_relay_clone(this->selected_endpoint->relay.value().get());
         // NOLINTEND(bugprone-unchecked-optional-access)
+        // The TLS connection goes to the relay, so the relay TLS settings replace the endpoint ones as
+        // a whole set, as they do for a ping through the relay.
         endpoint->address = relay->address;
         std::swap(endpoint->additional_data.data, relay->additional_data.data);
         std::swap(endpoint->additional_data.size, relay->additional_data.size);
-        // The TLS connection goes to the relay, so the ClientHello is the one the relay expects.
+        std::swap(endpoint->tls_client_random.data, relay->tls_client_random.data);
+        std::swap(endpoint->tls_client_random.size, relay->tls_client_random.size);
+        std::swap(endpoint->tls_client_random_mask.data, relay->tls_client_random_mask.data);
+        std::swap(endpoint->tls_client_random_mask.size, relay->tls_client_random_mask.size);
+        std::swap(endpoint->tls_client_random_auth_key.data, relay->tls_client_random_auth_key.data);
+        std::swap(endpoint->tls_client_random_auth_key.size, relay->tls_client_random_auth_key.size);
         endpoint->tls_profile = relay->tls_profile;
     }
     auto ip_availability = IpVersionSet{}.set(IPV4);

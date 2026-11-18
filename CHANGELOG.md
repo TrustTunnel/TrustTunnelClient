@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A tunnel through a relay now uses the relay `tls_client_random`,
+  `tls_client_random_mask` and `tls_client_random_auth_key`, as a ping
+  through the relay already did. Before, it kept the endpoint values, so the
+  relay saw a different ClientHello for the ping and for the tunnel.
+
 ### Security
 
 ## [1.3.0-rc.3] - 2026-11-12

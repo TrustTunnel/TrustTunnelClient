@@ -18,6 +18,7 @@
 #include "common/socket_address.h"
 #include "net/quic_connector.h"
 #include "net/tcp_socket.h"
+#include "net/utils.h"
 #include "vpn/event_loop.h"
 
 namespace ag::test::mock_ping_sockets {
@@ -30,6 +31,7 @@ public:
     }
 
     void reset() {
+        tcp_tls_profiles.clear();
         tcp_connect_errors.clear();
         quic_connect_errors.clear();
         default_tcp_connect_error = ag::utils::AG_ECONNREFUSED;
@@ -58,11 +60,21 @@ public:
         default_tcp_connect_error = error;
     }
 
+    void record_tcp_tls_profile(const SocketAddress &addr, std::string_view profile) {
+        tcp_tls_profiles[addr.str()] = profile;
+    }
+
+    std::string get_tcp_tls_profile(const SocketAddress &addr) const {
+        auto it = tcp_tls_profiles.find(addr.str());
+        return it == tcp_tls_profiles.end() ? std::string{} : it->second;
+    }
+
     void set_default_quic_error(int error) {
         default_quic_connect_error = error;
     }
 
 private:
+    std::unordered_map<std::string, std::string> tcp_tls_profiles;
     std::unordered_map<std::string, int> tcp_connect_errors;
     std::unordered_map<std::string, int> quic_connect_errors;
     int default_tcp_connect_error = ag::utils::AG_ECONNREFUSED;
@@ -95,6 +107,11 @@ inline int get_tcp_error(const SocketAddress &addr) {
 
 inline int get_quic_error(const SocketAddress &addr) {
     return MockState::instance().get_quic_error(addr);
+}
+
+/** The name of the ClientHello profile that the last TCP connection to `addr` used, or empty if none. */
+inline std::string get_tcp_tls_profile(const SocketAddress &addr) {
+    return MockState::instance().get_tcp_tls_profile(addr);
 }
 
 } // namespace ag::test::mock_ping_sockets
@@ -130,6 +147,10 @@ struct MockTcpConnectedTask {
 };
 
 VpnError tcp_socket_connect(TcpSocket *socket, const TcpSocketConnectParameters *param) {
+    if (param->ssl != nullptr) {
+        test::mock_ping_sockets::MockState::instance().record_tcp_tls_profile(
+                *param->peer, ssl_get_tls_client_profile_name(param->ssl));
+    }
     int error = test::mock_ping_sockets::get_tcp_error(*param->peer);
     if (error != 0) {
         return {.code = error, .text = "mock tcp connect failed"};
