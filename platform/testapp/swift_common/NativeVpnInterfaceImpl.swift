@@ -20,10 +20,10 @@ class NativeVpnInterfaceImpl : NativeVpnInterface {
         )
     }
     func start(config: String) throws {
-        self.vpnManager.start(config: config, fallIntoRecovery: false)
+        self.vpnManager.start(config: config, fallIntoRecovery: false) { _ in }
     }
     func stop() throws {
-        self.vpnManager.stop()
+        self.vpnManager.stop { _ in }
     }
     func exportLogs() throws -> [String] {
         return vpnManager.exportLogs()
