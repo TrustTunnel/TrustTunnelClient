@@ -226,21 +226,24 @@ enum ConsoleService {
     /// deactivation is the caller's next step.
     private static func removeConfiguration(_ completion: @escaping (Int32) -> Void) {
         print("Removing the VPN configuration…")
-        // TODO: `updateConfiguration(config: nil)` only enqueues the deletion on
-        // `VpnManager`'s internal `apiQueue` and returns immediately. The process exits
-        // from the deactivation completion below, so nothing guarantees that
-        // `removeFromPreferences` was reached before the process dies, and the
-        // configuration may survive. Make the deletion observable (e.g. a completion on
-        // `VpnManager.updateConfiguration`) before relying on it.
-        vpnManager?.updateConfiguration(config: nil)
-        SystemExtensionManager.shared.deinstall { result in
-            switch result {
-            case .success:
-                print("The system extension has been uninstalled")
-                completion(EXIT_SUCCESS)
-            case .failure(let error):
-                print("Failed to uninstall the system extension: \(error.localizedDescription)")
-                completion(EXIT_FAILURE)
+        vpnManager?.updateConfiguration(config: nil) { error in
+            // `VpnManager` reports on its own queue, while the extension requests are main-actor.
+            DispatchQueue.main.async {
+                if let error {
+                    print("Failed to remove the VPN configuration: \(error.localizedDescription)")
+                    completion(EXIT_FAILURE)
+                    return
+                }
+                SystemExtensionManager.shared.deinstall { result in
+                    switch result {
+                    case .success:
+                        print("The system extension has been uninstalled")
+                        completion(EXIT_SUCCESS)
+                    case .failure(let error):
+                        print("Failed to uninstall the system extension: \(error.localizedDescription)")
+                        completion(EXIT_FAILURE)
+                    }
+                }
             }
         }
     }
