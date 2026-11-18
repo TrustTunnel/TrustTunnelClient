@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The `firefox` TLS profile now mimics the current Firefox ClientHello (Firefox 159, November 2026): it no longer offers the `ECDHE-ECDSA-AES128/256-SHA` cipher suites or the FFDHE groups, and it sends three key shares, including `secp256r1`. Updated `native_libs_common` to 8.2.1 and `dns-libs` to 2.11.0-alpha.2.
+
 ### Deprecated
 
 ### Removed
