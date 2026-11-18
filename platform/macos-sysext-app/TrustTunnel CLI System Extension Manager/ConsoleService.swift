@@ -74,6 +74,7 @@ enum ConsoleService {
     /// including the user approval, which blocks with no timeout by design.
     private static func install(_ completion: @escaping (Int32) -> Void) {
         print("Installing system extension…")
+        print("Approve the system extension in System Settings -> General -> Login Items -> Network Extensions.")
         activate { activated in
             if activated {
                 print("System extension installed")
