@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.3.0-rc.4] - 2026-11-18
+
+### Added
+
 - Deep links now carry the `tls_profile` setting, so a server exported with
   a non-default TLS fingerprint imports with the same profile. The field is
   omitted for the default `chrome` profile, the deprecated `default` alias
@@ -22,10 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The `firefox` TLS profile now mimics the current Firefox ClientHello (Firefox 159, November 2026): it no longer offers the `ECDHE-ECDSA-AES128/256-SHA` cipher suites or the FFDHE groups, and it sends three key shares, including `secp256r1`. Updated `native_libs_common` to 8.2.1 and `dns-libs` to 2.11.0-alpha.2.
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
 - Fixed connections being routed back through the fake upstream instead of the
@@ -36,8 +46,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `tls_client_random_mask` and `tls_client_random_auth_key`, as a ping
   through the relay already did. Before, it kept the endpoint values, so the
   relay saw a different ClientHello for the ping and for the tunnel.
-
-### Security
 
 ## [1.3.0-rc.3] - 2026-11-12
 
@@ -544,7 +552,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.4...HEAD
+[1.3.0-rc.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...v1.3.0-rc.4
 [1.3.0-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...v1.3.0-rc.3
 [1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
 [1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
