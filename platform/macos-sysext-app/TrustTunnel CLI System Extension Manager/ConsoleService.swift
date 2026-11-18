@@ -83,8 +83,7 @@ enum ConsoleService {
         }
     }
 
-    /// Ensure the extension is activated, then start the tunnel and wait until it
-    /// connects or disconnects.
+    /// Start the tunnel and wait until it connects or disconnects.
     private static func start(configPath: String?, _ completion: @escaping (Int32) -> Void) {
         guard let configPath else {
             print("No config path was handed over, cannot start the tunnel")
@@ -96,13 +95,7 @@ enum ConsoleService {
             completion(EXIT_FAILURE)
             return
         }
-        activate { activated in
-            guard activated else {
-                completion(EXIT_FAILURE)
-                return
-            }
-            startTunnel(config: config, completion)
-        }
+        startTunnel(config: config, completion)
     }
 
     /// Stop the tunnel and keep the (disabled) configuration installed. A stopped or
