@@ -36,13 +36,25 @@ public struct AppSettings {
     }
 }
 
+/// Errors reported to the completions of `start`, `stop` and `updateConfiguration`.
+public enum VpnManagerError: LocalizedError {
+    /// The tunnel is in a state that does not allow the operation.
+    case wrongState
+
+    public var errorDescription: String? {
+        switch self {
+        case .wrongState:
+            return "The VPN tunnel is in a state that does not allow this operation"
+        }
+    }
+}
+
 /// Logs emitted by VpnManager respect Logger.setCallback.
 /// Set the callback before creating VpnManager if you want to capture logs emitted during initialization.
 public final class VpnManager {
     private var apiQueue: DispatchQueue
     private var queue: DispatchQueue
     private var connectionInfoQueue: DispatchQueue
-    private var stopTimer: DispatchSourceTimer?
     private var vpnManager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
     private let stateChangeCallback: (Int) -> Void
@@ -102,7 +114,6 @@ public final class VpnManager {
         group.enter()
         let timerSource = DispatchSource.makeTimerSource(flags: [], queue: self.queue)
         timerSource.setCancelHandler {
-            self.stopTimer = nil
             group.leave()
         }
         timerSource.setEventHandler {
@@ -144,12 +155,6 @@ public final class VpnManager {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            self.queue.sync {
-                if self.stopTimer != nil
-                    && (manager.connection.status == .disconnected || manager.connection.status == .invalid) {
-                    self.cancelStopTimer()
-                }
-            }
             if manager.connection.status == .connected {
                 self.enableOnDemandIfNeeded(manager: manager)
             }
@@ -186,11 +191,6 @@ public final class VpnManager {
         }
     }
     
-    private func cancelStopTimer() {
-        self.stopTimer?.cancel()
-        self.stopTimer = nil
-    }
-
     private func setupConnectionInfoListener() {
         let notificationName = "\(self.bundleIdentifier).\(ConnectionInfoParams.notificationName)" as CFString
 
@@ -312,15 +312,15 @@ public final class VpnManager {
     }
 
     private func updateConfiguration(manager: NETunnelProviderManager,
-                                      config: String!,
+                                      config: String,
                            completionHandler: @escaping ((any Error)?) -> Void) {
         let isAllowedStatus = self.queue.sync {
             return manager.connection.status == .disconnected
                 || manager.connection.status == .invalid
         }
         guard isAllowedStatus else {
-            self.logger.warn("Failed to update configuration: VPN is not in allowed state")
-            completionHandler(nil)
+            self.logger.warn("Failed to update configuration: VPN is not in disconnected state")
+            completionHandler(VpnManagerError.wrongState)
             return
         }
         manager.loadFromPreferences { error in
@@ -381,11 +381,23 @@ public final class VpnManager {
 
     private func deleteConfiguration(manager: NETunnelProviderManager,
                            completionHandler: @escaping ((any Error)?) -> Void) {
-        let isDisconnected = self.queue.sync {
-            return manager.connection.status == .disconnected
+        let status = self.queue.sync {
+            return manager.connection.status
         }
-        guard isDisconnected else {
-            self.logger.warn("Failed to update configuration: VPN is not in disconnected state")
+        // A missing configuration has the `.invalid` status: there is nothing to remove, and
+        // `removeFromPreferences` fails on a manager that was never saved.
+        guard status != .invalid else {
+            self.logger.info("No VPN configuration to delete")
+            self.queue.sync {
+                self.killswitchEnabled = false
+                self.vpnManager = nil
+            }
+            completionHandler(nil)
+            return
+        }
+        guard status == .disconnected else {
+            self.logger.warn("Failed to delete configuration: VPN is not in disconnected state")
+            completionHandler(VpnManagerError.wrongState)
             return
         }
 
@@ -395,112 +407,86 @@ public final class VpnManager {
                 completionHandler(error)
                 return
             }
+            // The configuration is gone, so connect-on-demand rules must not be reinstalled
+            // by a late status change, and the removed manager must not be reused.
+            self.queue.sync {
+                self.killswitchEnabled = false
+                self.vpnManager = nil
+            }
             completionHandler(nil)
         }
     }
 
-    public func updateConfiguration(config: String?) {
+    /// Apply `config` to the tunnel configuration, or delete the configuration when
+    /// `config` is `nil`.
+    public func updateConfiguration(config: String?, completion: @escaping ((any Error)?) -> Void = { _ in }) {
+        // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
             let manager = self.getManager()
-            let group = DispatchGroup()
-            let timerSource = DispatchSource.makeTimerSource(flags: [], queue: self.queue)
-            timerSource.setCancelHandler {
-                self.stopTimer = nil
-                group.leave()
-            }
-            timerSource.setEventHandler {
-                timerSource.cancel()
-            }
-            group.enter()
-            let timeout = DispatchTime.now() + .seconds(15)
-            timerSource.schedule(deadline: timeout)
-            timerSource.resume()
-            if config == nil {
-                self.queue.sync {
-                    self.killswitchEnabled = false
-                }
-                self.deleteConfiguration(manager: manager) { error in
-                    timerSource.cancel()
-                }
+            if let config {
+                self.updateConfiguration(manager: manager, config: config, completionHandler: completion)
             } else {
-                self.updateConfiguration(manager: manager,
-                                          config: config!) { error in
-                    timerSource.cancel()
-                }
+                self.deleteConfiguration(manager: manager, completionHandler: completion)
             }
-            group.wait()
         }
     }
 
-    public func start(config: (String), fallIntoRecovery: Bool) {
+    public func start(config: String, fallIntoRecovery: Bool,
+                      completion: @escaping ((any Error)?) -> Void = { _ in }) {
+        // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
             let manager = self.getManager()
-            let group = DispatchGroup()
-            group.enter()
-
-            self.updateConfiguration(manager: manager,
-                                      config: config) { error in
+            self.updateConfiguration(manager: manager, config: config) { error in
                 if let error = error {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
-                } else {
-                    do {
-                        // The recovery retry policy applies to this particular start only.
-                        try manager.connection.startVPNTunnel(
-                            options: ["fallIntoRecovery": NSNumber(value: fallIntoRecovery)])
-                        self.logger.info("VPN has been started!")
-                    } catch {
-                        self.logger.error("Failed to start VPN tunnel: \(error)")
-                    }
+                    completion(error)
+                    return
                 }
-                group.leave()
+                do {
+                    // The recovery retry policy applies to this particular start only.
+                    try manager.connection.startVPNTunnel(
+                        options: ["fallIntoRecovery": NSNumber(value: fallIntoRecovery)])
+                } catch {
+                    self.logger.error("Failed to start VPN tunnel: \(error)")
+                    completion(error)
+                    return
+                }
+                self.logger.info("VPN has been started")
+                completion(nil)
             }
-
-            group.wait()
         }
     }
 
-    public func stop() {
+    public func stop(completion: @escaping ((any Error)?) -> Void = { _ in }) {
+        // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
-            let group = DispatchGroup()
-            let timerSource = DispatchSource.makeTimerSource(flags: [], queue: self.queue)
-            timerSource.setCancelHandler {
-                self.stopTimer = nil
-                group.leave()
-            }
-            timerSource.setEventHandler {
-                timerSource.cancel()
-            }
-            group.enter()
-            let timeout = DispatchTime.now() + .seconds(15)
-            timerSource.schedule(deadline: timeout)
-            timerSource.resume()
             let manager = self.getManager()
             self.queue.sync {
                 self.killswitchEnabled = false
-                self.stopTimer = timerSource
             }
             manager.isOnDemandEnabled = false
             manager.onDemandRules = nil
             self.reloadManager(manager: manager) { error in
                 if let error = error {
                     self.logger.error("Failed to stop VPN: \(error)")
-                    self.queue.sync {
-                        self.cancelStopTimer()
-                    }
+                    completion(error)
                     return
                 }
-                self.queue.sync {
-                    if manager.connection.status == .disconnected || manager.connection.status == .invalid {
-                        self.cancelStopTimer()
-                        return
-                    }
+                let isRunning = self.queue.sync {
+                    let status = manager.connection.status
+                    return status != .disconnected && status != .invalid
+                }
+                guard isRunning else {
+                    self.logger.info("VPN is already disconnected")
+                    completion(nil)
+                    return
                 }
                 // Log current status before stopping
                 self.logCurrentStatus(prefix: "pre-stop", manager: manager)
                 manager.connection.stopVPNTunnel()
+                self.logger.info("VPN has been asked to stop")
+                completion(nil)
             }
-            group.wait()
-            self.logger.info("VPN has been stopped!")
         }
     }
 
