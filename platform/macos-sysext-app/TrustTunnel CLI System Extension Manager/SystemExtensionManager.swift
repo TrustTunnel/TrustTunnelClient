@@ -37,6 +37,14 @@ final class SystemExtensionManager: NSObject, ObservableObject {
     /// Invoked once when the in-flight request finishes (success or failure).
     private var completion: ((Result<Void, Error>) -> Void)?
 
+    enum BusyError: LocalizedError {
+        case alreadyInProgress
+
+        var errorDescription: String? {
+            "Another system extension request is already in progress"
+        }
+    }
+
     /// True while a request is in flight, used to disable the buttons.
     var isBusy: Bool {
         state == .installing || state == .uninstalling
@@ -45,7 +53,10 @@ final class SystemExtensionManager: NSObject, ObservableObject {
     /// Requests activation of the system extension.
     /// - Parameter completion: Optional callback invoked when activation finishes.
     func install(completion: ((Result<Void, Error>) -> Void)? = nil) {
-        guard !isBusy else { return }
+        guard !isBusy else {
+            completion?(.failure(BusyError.alreadyInProgress))
+            return
+        }
         self.completion = completion
         state = .installing
         let request = OSSystemExtensionRequest.activationRequest(
@@ -59,7 +70,10 @@ final class SystemExtensionManager: NSObject, ObservableObject {
     /// Requests deactivation of the system extension.
     /// - Parameter completion: Optional callback invoked when deactivation finishes.
     func deinstall(completion: ((Result<Void, Error>) -> Void)? = nil) {
-        guard !isBusy else { return }
+        guard !isBusy else {
+            completion?(.failure(BusyError.alreadyInProgress))
+            return
+        }
         self.completion = completion
         state = .uninstalling
         let request = OSSystemExtensionRequest.deactivationRequest(
