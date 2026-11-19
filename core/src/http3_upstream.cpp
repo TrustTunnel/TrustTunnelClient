@@ -158,7 +158,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         }
         SocketAddress socket_local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
         SocketAddress socket_peer = remote_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
-        if (socket_local.str() != m_local.str() || socket_peer.str() != m_peer.str()) {
+        if (socket_local.host_str() != m_local.host_str() || socket_peer.str() != m_peer.str()) {
             log_upstream(this, warn, "Handoff path mismatch: session local={} remote={}, socket local={} remote={}",
                     m_local.str(), m_peer.str(), socket_local.str(), socket_peer.str());
         }

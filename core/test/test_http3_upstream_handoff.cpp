@@ -1,8 +1,7 @@
-// Regression test for BUG-2: the HTTP/3 upstream must feed the saved Retry with the network path
-// that created the QUIC session. A path rebuilt from the upstream config may differ, and ngtcp2
-// then discards the Retry as coming from an unknown path. The test sets the upstream endpoint
-// address to a different port on purpose. Without the fix, the Retry is ignored and the server
-// never receives a tokenized Initial.
+// Regression test for BUG-2: the HTTP/3 upstream must feed the saved Retry with the
+// network path that created the QUIC session, not one rebuilt from the upstream
+// endpoint config. Without the fix, ngtcp2 drops the Retry and the server never sees
+// a tokenized Initial.
 
 #ifdef _WIN32
 

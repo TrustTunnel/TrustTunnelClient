@@ -80,8 +80,8 @@ private:
     State m_state = (State) 0;
     std::chrono::milliseconds m_max_idle_timeout{};
     UdpSocketPtr m_socket;
-    // The network path used to create the QUIC session. Every call to `Http3Client::input()`
-    // must use exactly these addresses, otherwise ngtcp2 discards the datagram.
+    // The network path used to create the QUIC session. `Http3Client::input()` must
+    // use the session path; a path rebuilt from the endpoint address is rejected.
     SocketAddress m_local;
     SocketAddress m_peer;
     std::unique_ptr<http::Http3Client> m_h3_client;
