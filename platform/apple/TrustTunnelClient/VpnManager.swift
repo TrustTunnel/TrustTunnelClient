@@ -2,7 +2,7 @@ import Foundation
 import NetworkExtension
 import VpnClientFramework
 
-enum VpnSessionState: Int {
+public enum VpnSessionState: Int {
     case disconnected;
     case connecting;
     case connected;
@@ -74,10 +74,14 @@ public final class VpnManager {
     private var killswitchEnabled = false
     private let logger = Logger(category: "VpnManager")
     private let fileLogger: FileLogger?
-    /// Completion of an in-flight `start`, resolved once the tunnel reaches a final
-    /// state (connected / disconnected) — see `resolvePendingStart(for:)`. Access
-    /// only on `apiQueue`. Concurrent starts are the caller's responsibility to avoid.
-    private var pendingStartCompletion: (((any Error)?) -> Void)?
+    /// The single in-flight state wait, registered by `wait(completion:onState:)`
+    /// from `start`/`stop` and fed reported tunnel states from `logCurrentStatus`.
+    /// The wait maps each state to an outcome through its `onState` closure,
+    /// resolving the completion exactly once when `finish` is called. Access
+    /// only on `apiQueue`. A second `start` or `stop` while one is pending
+    /// completes with `wrongState` instead of overwriting the in-flight wait.
+    /// Setting it to `nil` cancels the wait (used on the immediate-failure paths).
+    private var pendingWait: ((Int) -> Void)?
 
     public init(bundleIdentifier: String,
                         appGroup: String,
@@ -168,7 +172,9 @@ public final class VpnManager {
             if manager.connection.status == .connected {
                 self.enableOnDemandIfNeeded(manager: manager)
             }
-            self.logCurrentStatus(prefix: "status change", manager: manager)
+            self.apiQueue.async {
+                self.logCurrentStatus(prefix: "status change", manager: manager)
+            }
         }
     }
 
@@ -183,32 +189,29 @@ public final class VpnManager {
         let status = manager.connection.status
         logger.info("VPN \(prefix): \(string(for: status))")
         if let state = Optional(convertVpnState(manager.connection.status)), state >= 0 {
-            apiQueue.async {
-                self.resolvePendingStart(for: state)
-            }
+            self.pendingWait?(state)
             stateChangeCallback(state)
         }
     }
 
-    /// Map a reported tunnel state to the outcome of an in-flight `start`, resolving
-    /// its completion exactly once on a final state. Runs on `apiQueue`.
-    ///
-    /// `connected` is success, and `disconnected` is failure: the pending `start` is
-    /// registered before the tunnel is asked to start, and the observer never
-    /// re-reports the initial status after the configuration is saved, so the waiter's
-    /// first `disconnected` is a genuine failure. `disconnecting` (reported as -1)
-    /// never reaches here, so it cannot end a start.
-    private func resolvePendingStart(for state: Int) {
-        guard pendingStartCompletion != nil else { return }
-        if state == VpnSessionState.connected.rawValue {
-            let completion = pendingStartCompletion
-            pendingStartCompletion = nil
-            completion?(nil)
-        } else if state == VpnSessionState.disconnected.rawValue {
-            let completion = pendingStartCompletion
-            pendingStartCompletion = nil
-            completion?(VpnManagerError.startFailed)
+    /// Register a wait for reported tunnel states, called from `start`/`stop`
+    /// and running on `apiQueue`. `onState` is called for every reported state
+    /// until it ends the wait by calling `finish` with the outcome (`nil` on
+    /// success). Returns `false` if another wait is already in flight, in which
+    /// case `completion` is not invoked by the wait and the caller reports
+    /// `wrongState`. Non-blocking: resolution happens from future
+    /// `logCurrentStatus` calls.
+    private func wait(completion: @escaping ((any Error)?) -> Void,
+                      onState: @escaping (Int, @escaping ((any Error)?) -> Void) -> Void) -> Bool {
+        guard pendingWait == nil else { return false }
+        pendingWait = { [weak self] state in
+            onState(state) { [weak self] error in
+                guard let self, self.pendingWait != nil else { return }
+                self.pendingWait = nil
+                completion(error)
+            }
         }
+        return true
     }
 
     private func string(for status: NEVPNStatus) -> String {
@@ -470,14 +473,24 @@ public final class VpnManager {
                       completion: @escaping ((any Error)?) -> Void = { _ in }) {
         // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
-            // Register the pending start before submitting it, so that the first
-            // status the tunnel reports after this point resolves it.
-            self.pendingStartCompletion = completion
+            // One start at a time: a second caller gets `wrongState` instead of
+            // silently overwriting (and abandoning) the in-flight completion.
+            guard self.wait(completion: completion, onState: { state, finish in
+                if state == VpnSessionState.connected.rawValue {
+                    finish(nil)
+                } else if state == VpnSessionState.disconnected.rawValue {
+                    finish(VpnManagerError.startFailed)
+                }
+            }) else {
+                self.logger.warn("Failed to start VPN tunnel: another start is already in progress")
+                completion(VpnManagerError.wrongState)
+                return
+            }
             let manager = self.getManager()
             self.updateConfiguration(manager: manager, config: config) { error in
                 if let error = error {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
-                    self.pendingStartCompletion = nil
+                    self.pendingWait = nil
                     completion(error)
                     return
                 }
@@ -487,19 +500,33 @@ public final class VpnManager {
                         options: ["fallIntoRecovery": NSNumber(value: fallIntoRecovery)])
                 } catch {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
-                    self.pendingStartCompletion = nil
+                    self.pendingWait = nil
                     completion(error)
                     return
                 }
                 self.logger.info("VPN has been started")
-                // Wait for the final state; `resolvePendingStart` resolves the completion.
+                // Wait for the final state; the wait's `onState` finishes it.
             }
         }
     }
 
+    /// Disable connect-on-demand rules and stop the tunnel, calling `completion`
+    /// once the tunnel reaches the `disconnected` state: `nil` on success (including
+    /// already disconnected), an error when the stop cannot be applied.
     public func stop(completion: @escaping ((any Error)?) -> Void = { _ in }) {
         // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
+            // One stop at a time, mirroring `start`: a concurrent caller gets
+            // `wrongState` instead of overwriting the in-flight completion.
+            guard self.wait(completion: completion, onState: { state, finish in
+                if state == VpnSessionState.disconnected.rawValue {
+                    finish(nil)
+                }
+            }) else {
+                self.logger.warn("Failed to stop VPN: another stop is already in progress")
+                completion(VpnManagerError.wrongState)
+                return
+            }
             let manager = self.getManager()
             self.queue.sync {
                 self.killswitchEnabled = false
@@ -509,6 +536,7 @@ public final class VpnManager {
             self.reloadManager(manager: manager) { error in
                 if let error = error {
                     self.logger.error("Failed to stop VPN: \(error)")
+                    self.pendingWait = nil
                     completion(error)
                     return
                 }
@@ -518,14 +546,17 @@ public final class VpnManager {
                 }
                 guard isRunning else {
                     self.logger.info("VPN is already disconnected")
+                    self.pendingWait = nil
                     completion(nil)
                     return
                 }
                 // Log current status before stopping
-                self.logCurrentStatus(prefix: "pre-stop", manager: manager)
+                self.apiQueue.async {
+                    self.logCurrentStatus(prefix: "pre-stop", manager: manager)
+                }
                 manager.connection.stopVPNTunnel()
                 self.logger.info("VPN has been asked to stop")
-                completion(nil)
+                // Wait for the `disconnected` state; the wait's `onState` finishes it.
             }
         }
     }

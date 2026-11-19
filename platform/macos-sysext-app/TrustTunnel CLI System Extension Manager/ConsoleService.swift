@@ -8,9 +8,10 @@
 //
 //  Tunnel lifecycle (start/stop/configuration) is driven exclusively through the
 //  `VpnManager` from the TrustTunnelClient pod: it owns the Network Extension
-//  configuration and reports every state change through its callback, so the commands
-//  below only wait for the state they need before exiting. The main thread must never
-//  block: the manager loads and `VpnManager`'s status observations deliver asynchronously.
+//  configuration and validates the tunnel state. Its start/stop completions only report
+//  whether the request was accepted, so the commands below decide the exit status from
+//  the states reported after it. The main thread must never block: the manager loads
+//  and `VpnManager`'s status observations deliver asynchronously.
 //
 
 import Foundation
@@ -31,25 +32,20 @@ enum ConsoleService {
     static let extensionBundleIdentifier = "com.adguard.TrustTunnel.SystemExtension"
     static let appGroup = "group.com.adguard.TrustTunnel"
 
-    /// Names for the states reported by `VpnManager`'s callback; the values must stay in
-    /// sync with `VpnSessionState` in `platform/apple/TrustTunnelClient/VpnManager.swift`.
-    private static let stateNames = [
-        "disconnected", "connecting", "connected", "waiting for recovery", "recovering",
-        "waiting for network",
+    /// Human-readable names keyed by the canonical `VpnSessionState`.
+    private static let stateNames: [VpnSessionState: String] = [
+        .disconnected: "disconnected",
+        .connecting: "connecting",
+        .connected: "connected",
+        .waiting_recovery: "waiting for recovery",
+        .recovering: "recovering",
+        .waiting_for_network: "waiting for network",
     ]
-
-    /// State values used by the commands. See `stateNames`.
-    private enum VpnState {
-        static let disconnected = 0
-        static let connected = 2
-    }
 
     /// Created by each command and retained for the lifetime of the headless process:
     /// `VpnManager` owns the state observation, so it must not be deallocated while a
     /// command is waiting for a state change.
     private static var vpnManager: VpnManager?
-    /// Set by `makeVpnManager`; called on the main queue for every state change.
-    private static var onStateChange: ((Int) -> Void)?
 
     /// Run the given subcommand and report the outcome through `completion`
     /// (0 = success, 1 = failure).
@@ -99,27 +95,14 @@ enum ConsoleService {
     }
 
     /// Stop the tunnel and keep the (disabled) configuration installed. A stopped or
-    /// missing tunnel is a success, mirroring `VpnManager` idempotency.
+    /// missing tunnel is a success: `VpnManager.stop` treats both as already stopped.
     private static func stop(_ completion: @escaping (Int32) -> Void) {
-        var receivedInitialState = false
-        var stopping = false
-        makeVpnManager { state in
-            guard receivedInitialState else {
-                receivedInitialState = true
-                guard state != VpnState.disconnected else {
-                    print("The tunnel is not running")
-                    completion(EXIT_SUCCESS)
-                    return
-                }
-                stopping = true
-                print("Stopping the tunnel…")
-                vpnManager?.stop()
+        stopTunnel { stopped in
+            guard stopped else {
+                completion(EXIT_FAILURE)
                 return
             }
-            guard stopping, state == VpnState.disconnected else {
-                return
-            }
-            print("The tunnel has been stopped, the configuration stays installed")
+            print("The tunnel is stopped, the configuration stays installed")
             completion(EXIT_SUCCESS)
         }
     }
@@ -138,24 +121,11 @@ enum ConsoleService {
     /// Stop the tunnel, delete the manager configuration and deactivate the extension.
     /// The CLI removes the app bundle from /Applications afterwards.
     static func uninstall(_ completion: @escaping (Int32) -> Void) {
-        var receivedInitialState = false
-        var stopping = false
-        makeVpnManager { state in
-            guard receivedInitialState else {
-                receivedInitialState = true
-                guard state != VpnState.disconnected else {
-                    removeConfiguration(completion)
-                    return
-                }
-                stopping = true
-                print("Stopping the tunnel…")
-                vpnManager?.stop()
+        stopTunnel { stopped in
+            guard stopped else {
+                completion(EXIT_FAILURE)
                 return
             }
-            guard stopping, state == VpnState.disconnected else {
-                return
-            }
-            stopping = false
             removeConfiguration(completion)
         }
     }
@@ -178,28 +148,67 @@ enum ConsoleService {
 
     // MARK: - Tunnel control
 
-    /// Start the tunnel; `VpnManager.start` resolves the completion once the tunnel
-    /// is connected or disconnected, so this only maps the outcome to the process
-    /// exit status. An already connected tunnel is reported without a redundant start.
+    /// Start the tunnel and wait for the outcome. `VpnManager.start` only reports whether the
+    /// request was accepted, and every state reported after an accepted request is caused by
+    /// it, so the states before acceptance are ignored: `connected` or `recovering` then means
+    /// started, `disconnected` means failed.
     private static func startTunnel(config: String, _ completion: @escaping (Int32) -> Void) {
+        var armed = false
         makeVpnManager { state in
-            guard state != VpnState.connected else {
-                print("The tunnel is already connected")
+            guard armed, let vpnState = VpnSessionState(rawValue: state) else {
+                return
+            }
+            switch vpnState {
+            case .connected, .recovering:
+                armed = false
+                print("The tunnel is connected")
                 completion(EXIT_SUCCESS)
-                return
+            case .disconnected:
+                armed = false
+                print("Failed to start the tunnel, check the logs")
+                completion(EXIT_FAILURE)
+            default:
+                break
             }
-            // Already connecting, recovering, etc.: wait for the final state.
-            guard state == VpnState.disconnected else {
-                return
-            }
-            print("Starting the tunnel…")
-            vpnManager?.start(config: config, fallIntoRecovery: false) { error in
+        }
+        print("Starting the tunnel…")
+        vpnManager?.start(config: config, fallIntoRecovery: false) { error in
+            DispatchQueue.main.async {
                 if error != nil {
                     print("Failed to start the tunnel, check the logs")
                     completion(EXIT_FAILURE)
                 } else {
-                    print("The tunnel is connected")
-                    completion(EXIT_SUCCESS)
+                    armed = true
+                }
+            }
+        }
+    }
+
+    /// Stop the tunnel and wait until it is disconnected, reporting whether it stopped.
+    private static func stopTunnel(_ completion: @escaping (Bool) -> Void) {
+        var armed = false
+        var lastState: VpnSessionState?
+        makeVpnManager { state in
+            guard let vpnState = VpnSessionState(rawValue: state) else {
+                return
+            }
+            lastState = vpnState
+            guard armed, vpnState == .disconnected else {
+                return
+            }
+            armed = false
+            completion(true)
+        }
+        print("Stopping the tunnel…")
+        vpnManager?.stop { error in
+            DispatchQueue.main.async {
+                if error != nil {
+                    print("Failed to stop the tunnel, check the logs")
+                    completion(false)
+                } else if lastState == .disconnected {
+                    completion(true)
+                } else {
+                    armed = true
                 }
             }
         }
@@ -233,17 +242,17 @@ enum ConsoleService {
 
     // MARK: - Helpers
 
-    /// Create the process-wide `VpnManager` and route its state changes to `handler` on
-    /// the main queue. `VpnManager` reports changes from its own queues, so the main
-    /// queue hop serializes all command logic.
-    private static func makeVpnManager(onStateChange handler: @escaping (Int) -> Void) {
-        onStateChange = handler
+    /// Create the process-wide `VpnManager` and route its state changes to `onStateChange` on
+    /// the main queue. `VpnManager` calls its completions and state callback on one serial
+    /// queue, so hopping both to the main queue keeps their order and serializes all command
+    /// logic.
+    private static func makeVpnManager(onStateChange: @escaping (Int) -> Void) {
         vpnManager = VpnManager(
             bundleIdentifier: extensionBundleIdentifier,
             appGroup: appGroup,
             stateChangeCallback: { state in
                 DispatchQueue.main.async {
-                    onStateChange?(state)
+                    onStateChange(state)
                 }
             },
             connectionInfoCallback: { _ in })
@@ -259,8 +268,9 @@ enum ConsoleService {
 
     private static func stateName(_ state: Int) -> String {
         // `VpnManager` reports -1 for statuses it does not map, currently .disconnecting.
-        guard state >= 0 else { return "disconnecting" }
-        guard state < stateNames.count else { return "unknown(\(state))" }
-        return stateNames[state]
+        guard let vpnState = VpnSessionState(rawValue: state) else {
+            return state >= 0 ? "unknown(\(state))" : "disconnecting"
+        }
+        return stateNames[vpnState] ?? "unknown(\(state))"
     }
 }
