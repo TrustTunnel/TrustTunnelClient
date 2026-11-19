@@ -10,10 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Added the setup wizard to the main client binary as
-  `trusttunnel_client --setup-wizard` and removed the standalone setup wizard
-  binary. Wizard options are unchanged.
-
 ### Deprecated
 
 ### Removed
@@ -21,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 ### Security
+
+## [1.3.0] - 2026-11-19
+
+### Changed
+
+- Added the setup wizard to the main client binary as
+  `trusttunnel_client --setup-wizard` and removed the standalone setup wizard
+  binary. Wizard options are unchanged.
 
 ## [1.3.0-rc.4] - 2026-11-18
 
@@ -556,7 +560,8 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.4...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.4...v1.3.0
 [1.3.0-rc.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...v1.3.0-rc.4
 [1.3.0-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...v1.3.0-rc.3
 [1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
