@@ -59,8 +59,8 @@ constexpr auto SERVER_TIMEOUT = 5s;
 // make the client produce a Retry and to detect whether the client accepts it.
 class RetryServer {
 public:
-    RetryServer() {
-        m_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    RetryServer()
+            : m_fd(::socket(AF_INET, SOCK_DGRAM, 0)) {
         if (m_fd < 0) {
             return;
         }
@@ -107,7 +107,7 @@ public:
     }
 
     [[nodiscard]] SocketAddress address() const {
-        return SocketAddress("127.0.0.1", m_port);
+        return {"127.0.0.1", m_port};
     }
 
     bool wait_retry_accepted(std::chrono::milliseconds timeout) {
