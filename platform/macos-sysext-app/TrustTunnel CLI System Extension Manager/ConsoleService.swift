@@ -178,46 +178,29 @@ enum ConsoleService {
 
     // MARK: - Tunnel control
 
-    /// Submit the tunnel start and wait for the connection to reach a final state.
-    ///
-    /// Saving the configuration makes `VpnManager` re-create its status observer, which
-    /// immediately reports the current (still disconnected) status again. That stale
-    /// callback must not be treated as a start failure before the connection has left
-    /// the disconnected state.
+    /// Start the tunnel; `VpnManager.start` resolves the completion once the tunnel
+    /// is connected or disconnected, so this only maps the outcome to the process
+    /// exit status. An already connected tunnel is reported without a redundant start.
     private static func startTunnel(config: String, _ completion: @escaping (Int32) -> Void) {
-        // TODO: refactor
-        var receivedInitialState = false
-        var waitingForFinalState = false
-        var leftDisconnected = false
         makeVpnManager { state in
-            guard receivedInitialState else {
-                receivedInitialState = true
-                if state == VpnState.connected {
-                    print("The tunnel is already connected")
-                    completion(EXIT_SUCCESS)
-                } else if state == VpnState.disconnected {
-                    print("Starting the tunnel…")
-                    waitingForFinalState = true
-                    vpnManager?.start(config: config, fallIntoRecovery: false)
-                } else {
-                    // Already connecting, recovering, etc.: wait for the final state.
-                    waitingForFinalState = true
-                    leftDisconnected = true
-                }
-                return
-            }
-            guard waitingForFinalState else {
-                return
-            }
-            if state != VpnState.disconnected {
-                leftDisconnected = true
-            }
-            if state == VpnState.connected {
-                print("The tunnel is connected")
+            guard state != VpnState.connected else {
+                print("The tunnel is already connected")
                 completion(EXIT_SUCCESS)
-            } else if state == VpnState.disconnected, leftDisconnected {
-                print("Failed to start the tunnel, check the logs")
-                completion(EXIT_FAILURE)
+                return
+            }
+            // Already connecting, recovering, etc.: wait for the final state.
+            guard state == VpnState.disconnected else {
+                return
+            }
+            print("Starting the tunnel…")
+            vpnManager?.start(config: config, fallIntoRecovery: false) { error in
+                if error != nil {
+                    print("Failed to start the tunnel, check the logs")
+                    completion(EXIT_FAILURE)
+                } else {
+                    print("The tunnel is connected")
+                    completion(EXIT_SUCCESS)
+                }
             }
         }
     }
