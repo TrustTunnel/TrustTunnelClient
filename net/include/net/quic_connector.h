@@ -62,6 +62,11 @@ struct QuicConnectorResult {
     // The recipient of the handoff must arm certificate verification on the client's SSL context
     // before processing it.
     std::vector<uint8_t> first_packet;
+    // The network path used to create the QUIC session. The recipient of the handoff must pass
+    // these addresses to `Http3Client::input()`. Otherwise ngtcp2 discards every datagram as
+    // coming from an unknown path.
+    SocketAddress local;
+    SocketAddress peer;
 
     ~QuicConnectorResult() {
         if (fd != EVUTIL_INVALID_SOCKET) {

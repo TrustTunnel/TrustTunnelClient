@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed the HTTP/3 handoff discarding server datagrams as coming from an
+  unknown path, which prevented the QUIC handshake from completing after a
+  valid Retry.
+
 ### Security
 
 ## [1.3.0-rc.3] - 2026-11-12

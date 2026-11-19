@@ -127,6 +127,10 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     if (this->vpn->quic_connector->client) {
         m_h3_client = std::move(this->vpn->quic_connector->client);
         std::vector<uint8_t> first_packet = std::move(this->vpn->quic_connector->first_packet);
+        // Reuse the exact path that created the QUIC session. Rebuilding it from the upstream
+        // config may produce different addresses, and ngtcp2 would discard every datagram.
+        m_local = this->vpn->quic_connector->local;
+        m_peer = this->vpn->quic_connector->peer;
         m_ssl_object = m_h3_client->get_ssl(); // non-owning; Http3Client owns SSL
 
         // The ping measures RTT without verifying the endpoint certificate, and hands off
@@ -141,7 +145,7 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
                 .ev_loop = this->vpn->parameters.ev_loop,
                 .handler = {socket_handler, this},
                 .timeout = upstream_config.timeout,
-                .peer = SocketAddress(upstream_config.endpoint->address),
+                .peer = m_peer,
                 .socket_manager = this->vpn->parameters.network_manager->socket,
                 .log_prefix = AG_FMT("h3-upstream-{}", this->id),
         };
@@ -200,11 +204,12 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
         return false;
     }
 
+    m_peer = SocketAddress(upstream_config.endpoint->address);
     UdpSocketParameters sock_params{
             .ev_loop = this->vpn->parameters.ev_loop,
             .handler = {socket_handler, this},
             .timeout = upstream_config.timeout,
-            .peer = SocketAddress(upstream_config.endpoint->address),
+            .peer = m_peer,
             .socket_manager = this->vpn->parameters.network_manager->socket,
             .log_prefix = AG_FMT("h3-upstream-{}", this->id),
     };
@@ -215,12 +220,12 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
     }
 
     SSL *ssl_raw = ssl.get(); // save non-owning pointer before move into Http3Client
-    SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
-    SocketAddress peer(upstream_config.endpoint->address);
-    http::QuicNetworkPath path = make_network_path(local, peer);
+    m_local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+    http::QuicNetworkPath path = make_network_path(m_local, m_peer);
+    log_upstream(this, trace, "Session path: local={} remote={}", m_local.str(), m_peer.str());
 
     log_upstream(this, dbg, "[id={}/{}] Starting QUIC handshake (profile={})...", udp_socket_get_id(m_socket.get()),
-            peer.str(), ssl_get_tls_client_profile_name(ssl_raw));
+            m_peer.str(), ssl_get_tls_client_profile_name(ssl_raw));
     auto result = http::Http3Client::connect(m_h3_settings, make_upstream_callbacks(this), path, std::move(ssl));
     if (!result.has_value()) {
         log_upstream(this, err, "Failed to create Http3Client: {}", result.error()->str());
@@ -242,9 +247,8 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
 }
 
 void Http3Upstream::process_handoff_packet(U8View packet) {
-    SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
-    SocketAddress peer(this->vpn->upstream_config.endpoint->address);
-    http::QuicNetworkPath path = make_network_path(local, peer);
+    log_upstream(this, trace, "Handoff path: local={} remote={}", m_local.str(), m_peer.str());
+    http::QuicNetworkPath path = make_network_path(m_local, m_peer);
 
     // Setting m_in_handler prevents from destroying the H3 client from withing its own callbacks
     m_in_handler = true;
@@ -295,6 +299,8 @@ void Http3Upstream::close_session() {
     }
 
     m_ssl_object = nullptr;
+    m_local = {};
+    m_peer = {};
     m_udp_mux.close({});
     m_icmp_mux.close();
     m_h3_client.reset();
@@ -571,9 +577,7 @@ void Http3Upstream::socket_handler(void *arg, UdpSocketEvent what, void *data) {
 
         constexpr size_t READ_BUDGET = 64;
         uint8_t buf[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE];
-        SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(upstream->m_socket.get()));
-        SocketAddress peer(upstream->vpn->upstream_config.endpoint->address);
-        http::QuicNetworkPath path = make_network_path(local, peer);
+        http::QuicNetworkPath path = make_network_path(upstream->m_local, upstream->m_peer);
 
         upstream->m_in_handler = true;
         bool data_received = false;
