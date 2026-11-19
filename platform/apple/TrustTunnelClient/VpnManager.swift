@@ -40,11 +40,15 @@ public struct AppSettings {
 public enum VpnManagerError: LocalizedError {
     /// The tunnel is in a state that does not allow the operation.
     case wrongState
+    /// The start did not complete: the tunnel disconnected before it connected.
+    case startFailed
 
     public var errorDescription: String? {
         switch self {
         case .wrongState:
             return "The VPN tunnel is in a state that does not allow this operation"
+        case .startFailed:
+            return "The VPN tunnel failed to start"
         }
     }
 }
@@ -70,6 +74,10 @@ public final class VpnManager {
     private var killswitchEnabled = false
     private let logger = Logger(category: "VpnManager")
     private let fileLogger: FileLogger?
+    /// Completion of an in-flight `start`, resolved once the tunnel reaches a final
+    /// state (connected / disconnected) — see `resolvePendingStart(for:)`. Access
+    /// only on `apiQueue`. Concurrent starts are the caller's responsibility to avoid.
+    private var pendingStartCompletion: (((any Error)?) -> Void)?
 
     public init(bundleIdentifier: String,
                         appGroup: String,
@@ -175,7 +183,31 @@ public final class VpnManager {
         let status = manager.connection.status
         logger.info("VPN \(prefix): \(string(for: status))")
         if let state = Optional(convertVpnState(manager.connection.status)), state >= 0 {
+            apiQueue.async {
+                self.resolvePendingStart(for: state)
+            }
             stateChangeCallback(state)
+        }
+    }
+
+    /// Map a reported tunnel state to the outcome of an in-flight `start`, resolving
+    /// its completion exactly once on a final state. Runs on `apiQueue`.
+    ///
+    /// `connected` is success, and `disconnected` is failure: the pending `start` is
+    /// registered before the tunnel is asked to start, and the observer never
+    /// re-reports the initial status after the configuration is saved, so the waiter's
+    /// first `disconnected` is a genuine failure. `disconnecting` (reported as -1)
+    /// never reaches here, so it cannot end a start.
+    private func resolvePendingStart(for state: Int) {
+        guard pendingStartCompletion != nil else { return }
+        if state == VpnSessionState.connected.rawValue {
+            let completion = pendingStartCompletion
+            pendingStartCompletion = nil
+            completion?(nil)
+        } else if state == VpnSessionState.disconnected.rawValue {
+            let completion = pendingStartCompletion
+            pendingStartCompletion = nil
+            completion?(VpnManagerError.startFailed)
         }
     }
 
@@ -431,14 +463,21 @@ public final class VpnManager {
         }
     }
 
+    /// Apply `config` and start the tunnel, calling `completion` once the tunnel
+    /// reaches a final state: `nil` on `connected`, an error when the tunnel
+    /// disconnects before connecting or when the start cannot be submitted.
     public func start(config: String, fallIntoRecovery: Bool,
                       completion: @escaping ((any Error)?) -> Void = { _ in }) {
         // `getManager()` may block, so it must not run on the caller's thread.
         apiQueue.async {
+            // Register the pending start before submitting it, so that the first
+            // status the tunnel reports after this point resolves it.
+            self.pendingStartCompletion = completion
             let manager = self.getManager()
             self.updateConfiguration(manager: manager, config: config) { error in
                 if let error = error {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
+                    self.pendingStartCompletion = nil
                     completion(error)
                     return
                 }
@@ -448,11 +487,12 @@ public final class VpnManager {
                         options: ["fallIntoRecovery": NSNumber(value: fallIntoRecovery)])
                 } catch {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
+                    self.pendingStartCompletion = nil
                     completion(error)
                     return
                 }
                 self.logger.info("VPN has been started")
-                completion(nil)
+                // Wait for the final state; `resolvePendingStart` resolves the completion.
             }
         }
     }
