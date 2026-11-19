@@ -90,7 +90,9 @@ public final class VpnManager {
             self.fileLogger = nil
         }
         self.apiQueue.async {
-            self.startObservingStatus(manager: self.getManager())
+            let manager = self.getManager()
+            self.startObservingStatus(manager: manager)
+            self.logCurrentStatus(prefix: "initial", manager: manager)
             if !self.appGroup.isEmpty {
                 self.setupConnectionInfoListener()
                 self.processConnectionInfo()
@@ -160,8 +162,6 @@ public final class VpnManager {
             }
             self.logCurrentStatus(prefix: "status change", manager: manager)
         }
-        // Log initial status immediately
-        logCurrentStatus(prefix: "initial", manager: manager)
     }
 
     private func stopObservingStatus() {
