@@ -156,6 +156,12 @@ bool Http3Upstream::open_session(std::optional<Millis>) {
             m_h3_client.reset();
             return false;
         }
+        SocketAddress socket_local = local_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+        SocketAddress socket_peer = remote_socket_address_from_fd(udp_socket_get_fd(m_socket.get()));
+        if (socket_local.str() != m_local.str() || socket_peer.str() != m_peer.str()) {
+            log_upstream(this, warn, "Handoff path mismatch: session local={} remote={}, socket local={} remote={}",
+                    m_local.str(), m_peer.str(), socket_local.str(), socket_peer.str());
+        }
 
         // Replace ping-phase callbacks with upstream-phase callbacks
         m_h3_client->update_callbacks(make_upstream_callbacks(this));
