@@ -223,6 +223,27 @@ jobs:
           skip_profiles: "true"
           vault_url: ${{ vars.VAULT_URL }}
 
+      # The app bundle and the system extension are signed with Developer ID
+      # profiles, unlike the bare CLI executables above.
+      - name: Sync system extension signing profiles
+        uses: AdGuardSoftwareLimited/apple-devices/.github/actions/match-sync@master
+        with:
+          type: developer_id
+          app_id: com.adguard.TrustTunnel.SystemExtensionManager,com.adguard.TrustTunnel.SystemExtension
+          keychain_name: ${{ runner.temp }}/trusttunnel-signing.keychain-db
+          platform: macos
+          vault_url: ${{ vars.VAULT_URL }}
+
+      # The system extension app links the prebuilt xcframeworks from platform/apple.
+      # TODO: reuse the one builded by deploy-apple.yml?
+      - name: Build Apple frameworks
+        env:
+          TT_CLIENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -x -e
+          source ./venv/bin/activate
+          ./platform/apple/build_framework.sh -macos-only
+
       - name: Build universal binary
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -280,6 +301,21 @@ jobs:
           bundle_path: ${{ github.workspace }}/build_universal/setup_wizard
           vault_url: ${{ vars.VAULT_URL }}
 
+      # Builds the Developer ID signed app bundle next to the CLI binary, where the CLI
+      # expects it in `--sysext` mode.
+      - name: Package system extension app
+        env:
+          TT_CLIENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -x -e
+          OUT_DIR="${PWD}/build_universal" ./platform/macos-sysext-app/package.sh
+
+      - name: Notarize system extension app
+        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
+        with:
+          bundle_path: ${{ github.workspace }}/build_universal/TrustTunnel CLI System Extension Manager.app
+          vault_url: ${{ vars.VAULT_URL }}
+
       - name: GPG sign and package
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -298,7 +334,9 @@ jobs:
             NAME=trusttunnel_client-v${VERSION}-macos-universal
             tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," \
               trusttunnel_client trusttunnel_client.sig \
-              setup_wizard setup_wizard.sig LICENSE
+              setup_wizard setup_wizard.sig \
+              "TrustTunnel CLI System Extension Manager.app" \
+              LICENSE
           popd
 
       - name: Upload artifacts
