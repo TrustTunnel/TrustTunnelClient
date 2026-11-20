@@ -145,6 +145,24 @@ cmake --build . --target setup_wizard
 
 For more information, refer to the [client's README](./trusttunnel/README.md) file.
 
+### macOS system extension app
+
+`--sysext` mode runs the tunnel in a macOS system extension, so the CLI needs the host
+app bundle next to its own binary. The app is not part of `make all`, because it
+requires Xcode and CocoaPods:
+
+```shell
+# Build the frameworks the app links. Run once, and again after Apple adapter changes.
+(cd platform/apple && ./build_framework.sh -macos-only)
+
+# Build the app and stage it next to the CLI binary.
+make build_macos_sysext_app
+```
+
+The app is staged into `$(BUILD_DIR)/trusttunnel/`, which is where
+`$(BUILD_DIR)/trusttunnel/trusttunnel_client --sysext install` looks for it.
+`make build_and_export_bin` copies it into `$(EXPORT_DIR)` together with the binaries.
+
 ## Debugging in Docker
 
 For remote debugging with LLDB in a Docker container (useful for Linux debugging from macOS or
