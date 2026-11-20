@@ -158,6 +158,13 @@ build_trusttunnel_client: setup_cmake
 build_wizard: setup_cmake
 	cmake --build $(BUILD_DIR) --target setup_wizard -j$(NPROC)
 
+.PHONY: build_macos_sysext_app
+## Build the macOS system extension host app for the CLI `--sysext` mode and stage it
+## next to the CLI binary. Requires macOS, Xcode and the frameworks built by
+## platform/apple/build_framework.sh.
+build_macos_sysext_app:
+	OUT_DIR=$(BUILD_DIR)/trusttunnel ./platform/macos-sysext-app/build.sh
+
 .PHONY: build_and_export_bin
 ## Build and copy all binaries in the specified directory
 build_and_export_bin: build_trusttunnel_client build_wizard
@@ -165,6 +172,11 @@ build_and_export_bin: build_trusttunnel_client build_wizard
 	cp $(BUILD_DIR)/trusttunnel/trusttunnel_client$(EXE_SUFFIX) \
 		$(BUILD_DIR)/trusttunnel/setup_wizard$(EXE_SUFFIX) \
 		$(EXPORT_DIR)
+	@if [ -d "$(BUILD_DIR)/trusttunnel/TrustTunnel CLI System Extension Manager.app" ]; then \
+		rm -rf "$(EXPORT_DIR)/TrustTunnel CLI System Extension Manager.app"; \
+		ditto "$(BUILD_DIR)/trusttunnel/TrustTunnel CLI System Extension Manager.app" \
+			"$(EXPORT_DIR)/TrustTunnel CLI System Extension Manager.app"; \
+	fi
 	@echo "Binaries are stored in $(EXPORT_DIR)"
 
 .PHONY: clean
