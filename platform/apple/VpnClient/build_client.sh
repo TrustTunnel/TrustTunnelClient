@@ -10,7 +10,7 @@ Usage: build_client.sh [options...|clean]
     --debug    Build with debug configuration
 "
 
-TARGET_OSES="all"
+TARGET_OSES="${TARGET_OSES:-all}"
 BUILD_DIR="${SRCROOT}/build"
 FRAMEWORK_DIR="${SRCROOT}/VpnClient"
 
@@ -96,7 +96,7 @@ IFS=',' read -r -a TARGET_OSES <<< "$TARGET_OSES"
 
 # shellcheck disable=SC2112
 function build_target() {
-    local 'target_name' 'target_os' 'build_dir' 'cmake_opt' 'target_arch'
+    local 'target_name' 'target_os' 'build_dir' 'cmake_opt' 'target_arch' 'cached_build_type'
 
     target_name=$1
     target_os=${2%-*}
@@ -104,6 +104,17 @@ function build_target() {
     build_dir=$3
 
     echo "Building ${target_name} (${target_os})..."
+
+    # A build directory holds one configuration: reconfiguring an existing tree for another
+    # build type leaves it broken, so start over when the cached type differs. Same-type runs
+    # reuse the tree and rebuild incrementally.
+    if [ -f "${build_dir}/CMakeCache.txt" ]; then
+        cached_build_type=$(sed -n 's/^CMAKE_BUILD_TYPE:STRING=//p' "${build_dir}/CMakeCache.txt")
+        if [ "${cached_build_type}" != "${BUILD_TYPE}" ]; then
+            echo "Configuration changed from '${cached_build_type}' to '${BUILD_TYPE}', removing ${build_dir}"
+            rm -rf "${build_dir}"
+        fi
+    fi
 
     mkdir -pv "${build_dir}"
     cd "${build_dir}"
@@ -165,31 +176,83 @@ done
 
 echo "Making XCFramework..."
 
-rm -rf "${BUILD_DIR}/${TARGET_NAME}.xcframework"
-rm -rf "${BUILD_DIR}/${TARGET_NAME}.dSYMs"
-rm -rf "${BUILD_DIR}/framework-macos"
-rm -rf "${BUILD_DIR}/framework-iphonesimulator"
+# The assembled output is rebuilt from scratch: the copy below merges into a directory and
+# -create-xcframework refuses to overwrite an existing framework. The per-platform build
+# directories are reused as-is.
 rm -rf "${BUILD_DIR}/framework"
+mkdir -p "${BUILD_DIR}/framework"
 
-mkdir -p "${BUILD_DIR}/framework-macos"
-cp -Rf "${BUILD_DIR}/framework-macos-x86_64/${TARGET_NAME}.framework" "${BUILD_DIR}/framework-macos/"
-rm "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework/Versions/A/${TARGET_NAME}"
-lipo -create -output "${BUILD_DIR}"/framework-macos{,-x86_64,-arm64}/"${TARGET_NAME}.framework/Versions/A/${TARGET_NAME}"
-mkdir -p "${BUILD_DIR}/framework-iphonesimulator"
-cp -Rf "${BUILD_DIR}/framework-iphonesimulator-x86_64/${TARGET_NAME}.framework" "${BUILD_DIR}/framework-iphonesimulator/"
-rm "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework/${TARGET_NAME}"
-lipo -create -output "${BUILD_DIR}"/framework-iphonesimulator{,-x86_64,-arm64}/"${TARGET_NAME}.framework/${TARGET_NAME}"
+# Only the platforms requested through TARGET_OSES are assembled, so a macOS-only build
+# does not fail on the iOS slices that were not built.
+has_platform() {
+    local prefix=$1
+    local target
+    for target in "${TARGET_OSES[@]}"; do
+        case "${target}" in
+        ${prefix}*) return 0 ;;
+        esac
+    done
+    return 1
+}
 
-dsymutil -o "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework/${TARGET_NAME}"
-dsymutil -o "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework/${TARGET_NAME}"
-dsymutil -o "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework/${TARGET_NAME}"
-xcodebuild -create-xcframework \
-            -framework ${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework \
-            -debug-symbols "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework.dSYM" \
-            -framework ${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework \
-            -debug-symbols "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework.dSYM" \
-            -framework ${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework \
-            -debug-symbols "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework.dSYM" \
+# compose_platform_framework <output dir> <binary path inside the .framework> <sources...>
+compose_platform_framework() {
+    local out_dir=$1
+    local binary=$2
+    shift 2
+
+    local sources=()
+    local source
+    for source in "$@"; do
+        if [ -d "${source}" ]; then
+            sources+=("${source}")
+        fi
+    done
+    if [ ${#sources[@]} -eq 0 ]; then
+        echo "No sources for ${out_dir}" >&2
+        exit 1
+    fi
+
+    rm -rf "${out_dir}"
+    mkdir -p "${out_dir}"
+    cp -Rf "${sources[0]}/${TARGET_NAME}.framework" "${out_dir}/"
+    rm "${out_dir}/${TARGET_NAME}.framework/${binary}"
+
+    local inputs=("${out_dir}/${TARGET_NAME}.framework/${binary}")
+    for source in "${sources[@]}"; do
+        inputs+=("${source}/${TARGET_NAME}.framework/${binary}")
+    done
+    lipo -create -output "${inputs[0]}" "${inputs[@]}"
+}
+
+if has_platform "macos-"; then
+    compose_platform_framework "${BUILD_DIR}/framework-macos" "Versions/A/${TARGET_NAME}" \
+        "${BUILD_DIR}/framework-macos-x86_64" "${BUILD_DIR}/framework-macos-arm64"
+fi
+
+if has_platform "iphonesimulator-"; then
+    compose_platform_framework "${BUILD_DIR}/framework-iphonesimulator" "${TARGET_NAME}" \
+        "${BUILD_DIR}/framework-iphonesimulator-x86_64" "${BUILD_DIR}/framework-iphonesimulator-arm64"
+fi
+
+xcframework_args=()
+if has_platform "ios"; then
+    dsymutil -o "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework/${TARGET_NAME}"
+    xcframework_args+=(-framework "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework")
+    xcframework_args+=(-debug-symbols "${BUILD_DIR}/framework-ios/${TARGET_NAME}.framework.dSYM")
+fi
+if has_platform "iphonesimulator-"; then
+    dsymutil -o "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework/${TARGET_NAME}"
+    xcframework_args+=(-framework "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework")
+    xcframework_args+=(-debug-symbols "${BUILD_DIR}/framework-iphonesimulator/${TARGET_NAME}.framework.dSYM")
+fi
+if has_platform "macos-"; then
+    dsymutil -o "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework.dSYM" "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework/${TARGET_NAME}"
+    xcframework_args+=(-framework "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework")
+    xcframework_args+=(-debug-symbols "${BUILD_DIR}/framework-macos/${TARGET_NAME}.framework.dSYM")
+fi
+
+xcodebuild -create-xcframework "${xcframework_args[@]}" \
             -output "${BUILD_DIR}/framework/${TARGET_NAME}.xcframework"
 
 echo "XCFramework has been made successfully"
