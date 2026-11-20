@@ -4,11 +4,11 @@
 <dict>
 	<key>com.apple.developer.networking.networkextension</key>
 	<array>
-		<string>packet-tunnel-provider</string>
+		<string>packet-tunnel-provider$(NE_SUFFIX)</string>
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.adguard.TrustTunnel</string>
+		<string>$(TeamIdentifierPrefix)group.com.adguard.TrustTunnel</string>
 	</array>
 </dict>
 </plist>
