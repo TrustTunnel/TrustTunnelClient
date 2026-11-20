@@ -15,6 +15,7 @@
 //
 
 import Foundation
+import Security
 import TrustTunnelClient
 
 enum ConsoleService {
@@ -30,7 +31,23 @@ enum ConsoleService {
     /// Must match the extension target and the provider configuration written by
     /// `VpnManager`.
     static let extensionBundleIdentifier = "com.adguard.TrustTunnel.SystemExtension"
-    static let appGroup = "group.com.adguard.TrustTunnel"
+
+    /// The app group to share logs and connection info with the extension.
+    ///
+    /// Read from the app's own signature instead of duplicating the string: the signed
+    /// value must equal an entry of `com.apple.security.application-groups`, and it
+    /// differs between development and Developer ID builds (the latter is prefixed with
+    /// the team id, see the entitlements file).
+    static let appGroup: String = {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let groups = SecTaskCopyValueForEntitlement(
+                  task, "com.apple.security.application-groups" as CFString, nil) as? [String],
+              let group = groups.first else {
+            print("No application groups entitlement, logs and connection info will not be shared")
+            return ""
+        }
+        return group
+    }()
 
     /// Human-readable names keyed by the canonical `VpnSessionState`.
     private static let stateNames: [VpnSessionState: String] = [
