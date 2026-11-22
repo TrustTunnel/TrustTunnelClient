@@ -5,8 +5,6 @@
 #include <lwip/timeouts.h>
 #include <lwip/udp.h>
 
-#include <vector>
-
 #include "common/logger.h"
 #include "tcpip/tcpip.h"
 #include "tcpip_common.h"
@@ -25,20 +23,17 @@ static void udp_raw_recv(
         void *arg, struct udp_pcb *pcb, struct pbuf *buffer, const ip_addr_t *src_addr, u16_t src_port) {
     auto *tcpip_ctx = (TcpipCtx *) arg;
 
-    size_t chain_length = pbuf_clen(buffer);
-    std::vector<evbuffer_iovec> iov;
-    iov.reserve(chain_length);
-
-    for (const struct pbuf *iter = buffer; (iov.size() < chain_length) && (iter != nullptr); iter = iter->next) {
-        iov.push_back({
-                .iov_base = iter->payload,
-                .iov_len = iter->len,
-        });
+    buffer = pbuf_coalesce(buffer, PBUF_RAW);
+    if (buffer->next != nullptr) {
+        warnlog(tcpip_ctx->udp.log, "Dropping UDP datagram: could not coalesce packet buffers");
+        pbuf_free(buffer);
+        return;
     }
 
+    const evbuffer_iovec datagram{.iov_base = buffer->payload, .iov_len = buffer->len};
     const ip_addr_t *dst_addr = ip_current_dest_addr();
     u16_t dst_port = pcb->local_port;
-    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, iov.size(), iov.data());
+    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, 1, &datagram);
 
     pbuf_free(buffer);
 }
