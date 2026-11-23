@@ -13,8 +13,6 @@
     <method name="GetState">
       <arg name="state" type="i" direction="out"/>
     </method>
-    <method name="ClearLogs">
-    </method>
 
     <!-- Signals -->
     <signal name="StateChanged">

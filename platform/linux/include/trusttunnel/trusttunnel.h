@@ -98,7 +98,8 @@ typedef struct trusttunnel_callbacks {
  * @param callbacks Callbacks invoked for client events (see the threading notes above).
  *                  Copied by the library; the pointers passed inside remain owned by
  *                  the caller and must stay valid until `trusttunnel_destroy()`.
- * @return On success, a pointer to the new instance. On error, a null pointer.
+ * @return On success, a pointer to the new instance. On error (invalid arguments or an
+ *         event-loop resource allocation failure), a null pointer.
  */
 trusttunnel_t *trusttunnel_create(const trusttunnel_callbacks_t *callbacks);
 

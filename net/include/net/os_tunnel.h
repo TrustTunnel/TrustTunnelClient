@@ -238,6 +238,33 @@ private:
     bool check_sport_rule_support();
     bool setup_routes(int16_t table_id);
     void teardown_routes(int16_t table_id);
+    /// Capture the pre-tunnel default routes used to bypass excluded prefixes
+    void snapshot_physical_routes();
+    /// Install explicit routes around the tunnel for the excluded prefixes (unmanaged mode)
+    void setup_excluded_routes();
+    /// Remove exactly the bypass routes installed by setup_excluded_routes()
+    void teardown_excluded_routes();
+
+    /** The physical (pre-tunnel) default route, needed to install bypass routes
+     * for the excluded prefixes while the platform (NetworkManager) owns the
+     * network. */
+    struct PhysicalDefaultRoute {
+        std::string dev;
+        std::string via;
+        uint32_t metric{UINT32_MAX};
+    };
+
+    /** A bypass route installed for an excluded prefix, kept with the exact
+     * arguments it was installed with: deleting it with the same `dev`/`via`
+     * avoids removing a different route that the platform reinstalled meanwhile. */
+    struct InstalledBypassRoute {
+        bool ipv6;
+        std::string args; // "<cidr> dev <dev>[ via <via>]"
+    };
+
+    /// Parse the default route from `ip route show default`, preferring the daemon's outbound
+    /// interface, then the lowest metric
+    static std::optional<PhysicalDefaultRoute> get_physical_default_route(const std::string &netns, bool ipv6);
 
     evutil_socket_t m_tun_fd{-1};
     std::string m_tun_name{};
@@ -246,6 +273,9 @@ private:
     /// True once `SetLinkDNS` succeeded and the resolved per-link DNS configuration must be
     /// reverted in `deinit()` even when the rest of the DNS setup (domains) failed
     bool m_dns_link_configured{false};
+    PhysicalDefaultRoute m_physical_route4{};
+    PhysicalDefaultRoute m_physical_route6{};
+    std::vector<InstalledBypassRoute> m_installed_bypass_routes{};
 };
 #elif __APPLE__ && !TARGET_OS_IPHONE
 class VpnMacTunnel : public VpnOsTunnel {

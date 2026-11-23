@@ -138,6 +138,24 @@ TEST(SanitizeDaemonConfigTest, InvalidTomlIsPassedThroughUnchanged) {
     EXPECT_EQ(sanitize_daemon_config(config), config);
 }
 
+TEST(SanitizeDaemonConfigTest, DocumentWithoutPrivilegedFieldsIsReturnedVerbatim) {
+    constexpr std::string_view config = R"(
+# a comment that must survive
+vpn_mode = "general"
+
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["127.0.0.1:443"]
+username = "user"
+password = "pass"
+upstream_protocol = "http2"
+
+[listener.tun]
+included_routes = ["0.0.0.0/0"]
+)";
+    EXPECT_EQ(sanitize_daemon_config(config), config);
+}
+
 /// Records everything the controller reports through its callbacks.
 struct ControllerObserver {
     std::vector<VpnState> states;
@@ -188,8 +206,10 @@ TEST(VpnControllerTest, FailedConnectEndsDisconnected) {
 
     EXPECT_EQ(controller.start(std::string(FAILING_CONFIG)), VpnError::SUCCESS);
     EXPECT_EQ(controller.state(), VpnState::CONNECTING);
-    ASSERT_EQ(observer.states.size(), 1u);
-    EXPECT_EQ(observer.states.back(), VpnState::CONNECTING);
+    // CONNECTING is queued before the client thread starts, so it is the first event
+    controller.drain();
+    ASSERT_GE(observer.states.size(), 1u);
+    EXPECT_EQ(observer.states.front(), VpnState::CONNECTING);
 
     // Wait for the client thread to finish on its own once the connection fails
     auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
@@ -260,10 +280,10 @@ TEST(VpnControllerTest, RestartDropsQueuedMessagesFromPreviousSession) {
     ASSERT_FALSE(controller.running());
     controller.drain();
 
-    // Only the second session's final DISCONNECTED may be observed
-    ASSERT_GE(observer.states.size(), 3u);
+    // Only the second session's events may be observed: the stale queue from the first
+    // session is dropped by the restart
+    ASSERT_GE(observer.states.size(), 2u);
     EXPECT_EQ(observer.states.front(), VpnState::CONNECTING);
-    EXPECT_EQ(observer.states[1], VpnState::CONNECTING);
     EXPECT_EQ(std::count(observer.states.begin(), observer.states.end(), VpnState::DISCONNECTED), 1);
     EXPECT_EQ(observer.states.back(), VpnState::DISCONNECTED);
 }

@@ -58,7 +58,6 @@ An XML introspection file is provided at `resources/com.adguard.TrustTunnel.xml`
     - `2`: INVALID_CONFIG
 - `Stop() -> (u error_code)`: Stop VPN (returns `0` on success).
 - `GetState() -> (i state)`: Query current state (`0=Disconnected`, `1=Connecting`, `2=Connected`, `3=WaitingRecovery`, `4=Recovering`, `5=WaitingForNetwork` — the values mirror the core's `ag::VpnSessionState`).
-- `ClearLogs() -> ()`: Request daemon to clear its logs.
 
 ### Signals
 
@@ -82,14 +81,21 @@ trusttunnel-client-linux-<version>-<arch>/
 ├── include/trusttunnel/trusttunnel.h
 ├── include/trusttunnel/trusttunnel_deeplink.h
 ├── lib/cmake/TrustTunnelClientLinux/TrustTunnelClientLinuxConfig.cmake
+├── lib/systemd/system/trusttunneld.service
+├── share/dbus-1/system.d/com.adguard.TrustTunnel.conf
+├── share/dbus-1/interfaces/com.adguard.TrustTunnel.xml
+├── share/polkit-1/actions/com.adguard.TrustTunnel.policy
 └── LICENSE
 ```
+
+The last four entries are the runtime integration files (systemd unit, D-Bus policy,
+introspection XML and Polkit action) that a deployment installs system-wide.
 
 Both libraries are static (`-fPIC`, so they can be linked into shared objects), the
 deeplink one carries its Rust standard-library system dependencies
 (`pthread;dl;m`) through the imported `trusttunnel::deeplink` target.
 
-Local assembly of the archive (the CI workflow calls the same scripts):
+Local assembly of the archive:
 
 ```bash
 platform/linux/scripts/build.sh --version 1.3.0 [--arch x86_64|aarch64]
@@ -112,8 +118,13 @@ make build_linux_adapter
 ```
 
 or by building the `trusttunneld` target in the root build directory directly. A standalone
-`cmake -S platform/linux` configure works too (it pulls in the repository root, see the
-release artifacts section above).
+configure works too (it pulls in the repository root, see the release artifacts section
+above); pass a build type explicitly:
+
+```bash
+cmake -S platform/linux -B build-linux -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-linux --target trusttunneld
+```
 
 ---
 

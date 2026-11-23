@@ -3,6 +3,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -13,11 +14,14 @@
 #include <utility>
 #include <vector>
 
+#include "common/logger.h"
 #include "daemon/dbus_interface.h"
 #include "src/vpn_controller.h"
 #include "trusttunnel/trusttunnel.h"
 
 namespace ag::trusttunnel_linux {
+
+static const Logger g_logger("TRUSTTUNNELD");
 
 // Daemon context holding bus, event loop and vpn client instance
 struct DaemonContext {
@@ -30,6 +34,11 @@ struct DaemonContext {
 };
 
 static DaemonContext g_ctx;
+
+/// Bumped on every Start/Stop request. A request parked for Polkit authorization carries the
+/// generation it was created with; if a newer request arrives meanwhile, the parked one is stale
+/// and must not be applied (e.g. a Start must not start the VPN after a newer Stop).
+static uint64_t g_request_generation = 0;
 
 // ---------------------------------------------------------------------------
 // Polkit authorization
@@ -48,6 +57,11 @@ struct PendingRequest {
     sd_bus_message *request = nullptr;
     /// Sanitized TOML configuration, only used by Start
     std::string config;
+    /// Distinguishes Start from Stop: an empty sanitized config is a valid Start argument
+    /// (it fails validation later), not a request to stop.
+    bool is_start = false;
+    /// `g_request_generation` value at the time the request was received
+    uint64_t generation = 0;
 
     ~PendingRequest() {
         sd_bus_message_unref(request);
@@ -56,15 +70,25 @@ struct PendingRequest {
 
 /// Perform the request and reply to the client on the parked message
 static void perform_request(const PendingRequest &pending) {
+    if (pending.generation != g_request_generation) {
+        infolog(g_logger, "Skipping a stale {} request superseded by a newer one", pending.is_start ? "Start" : "Stop");
+        // The superseded caller still waits for a reply on its own message
+        int r = sd_bus_reply_method_errorf(
+                pending.request, SD_BUS_ERROR_FAILED, "Superseded by a newer Start/Stop request");
+        if (r < 0) {
+            errlog(g_logger, "Failed to reply to the stale request: {}", strerror(-r));
+        }
+        return;
+    }
     uint32_t error = 0;
-    if (pending.config.empty()) {
-        error = static_cast<uint32_t>(trusttunnel_stop(g_ctx.vpn));
-    } else {
+    if (pending.is_start) {
         error = static_cast<uint32_t>(trusttunnel_start(g_ctx.vpn, pending.config.c_str()));
+    } else {
+        error = static_cast<uint32_t>(trusttunnel_stop(g_ctx.vpn));
     }
     int r = sd_bus_reply_method_return(pending.request, "u", error);
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to reply to the parked request: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to reply to the parked request: {}", strerror(-r));
     }
 }
 
@@ -73,7 +97,7 @@ static void deny_request(const PendingRequest &pending, const char *error_name, 
     error_name = error_name != nullptr ? error_name : SD_BUS_ERROR_ACCESS_DENIED;
     int r = sd_bus_reply_method_errorf(pending.request, error_name, "%s", message);
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to deny the parked request: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to deny the parked request: {}", strerror(-r));
     }
 }
 
@@ -86,7 +110,7 @@ static int send_check_authorization(PendingRequest *pending) {
     int r = sd_bus_message_new_method_call(
             g_ctx.bus, &req, POLKIT_SERVICE, POLKIT_PATH, POLKIT_INTERFACE, "CheckAuthorization");
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to create the Polkit request: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to create the Polkit request: {}", strerror(-r));
         return r;
     }
 
@@ -140,7 +164,7 @@ static int send_check_authorization(PendingRequest *pending) {
         r = sd_bus_message_append(req, "us", POLKIT_ALLOW_USER_INTERACTION, "");
     }
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to build the Polkit request: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to build the Polkit request: {}", strerror(-r));
         sd_bus_message_unref(req);
         return r;
     }
@@ -148,7 +172,7 @@ static int send_check_authorization(PendingRequest *pending) {
     r = sd_bus_call_async(g_ctx.bus, nullptr, req, on_polkit_result, pending, 0);
     sd_bus_message_unref(req);
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to call Polkit: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to call Polkit: {}", strerror(-r));
     }
     return r;
 }
@@ -160,13 +184,13 @@ static int on_polkit_result(sd_bus_message *reply, void *userdata, sd_bus_error 
     int is_challenge = 0;
     int r = sd_bus_message_read(reply, "bb", &authorized, &is_challenge);
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to read the Polkit reply: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to read the Polkit reply: {}", strerror(-r));
         deny_request(*pending, ret_error != nullptr ? ret_error->name : nullptr,
                 ret_error != nullptr && ret_error->message != nullptr ? ret_error->message : "Polkit check failed");
         return 1; // the error has been replied to the client already
     }
     if (!authorized) {
-        std::cerr << "[trusttunneld] Polkit denied the request" << '\n';
+        warnlog(g_logger, "Polkit denied the request");
         deny_request(*pending, nullptr, "Not authorized to control the TrustTunnel VPN");
         return 1;
     }
@@ -181,7 +205,9 @@ static bool caller_is_root(sd_bus_message *m) {
         return false;
     }
     uid_t uid = (uid_t) -1;
-    return sd_bus_creds_get_uid(creds, &uid) >= 0 && uid == 0;
+    bool root = sd_bus_creds_get_uid(creds, &uid) >= 0 && uid == 0;
+    sd_bus_creds_unref(creds);
+    return root;
 }
 
 /// Authorize a parked request: on success the request is performed and replied to
@@ -216,29 +242,27 @@ static int method_start(sd_bus_message *m, void *, sd_bus_error *ret_error) {
         return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "Expected string config argument");
     }
 
-    std::cout << "[trusttunneld] Start requested" << '\n';
-    std::string sanitized = sanitize_daemon_config(config != nullptr ? config : "");
+    infolog(g_logger, "Start requested");
     auto pending = std::make_unique<PendingRequest>();
     pending->request = sd_bus_message_ref(m);
-    pending->config = std::move(sanitized);
+    pending->config = sanitize_daemon_config(config != nullptr ? config : "");
+    pending->is_start = true;
+    pending->generation = ++g_request_generation;
     return authorize(pending.release());
 }
 
 static int method_stop(sd_bus_message *m, void *, sd_bus_error *) {
-    std::cout << "[trusttunneld] Stop requested" << '\n';
+    infolog(g_logger, "Stop requested");
     auto pending = std::make_unique<PendingRequest>();
     pending->request = sd_bus_message_ref(m);
+    pending->is_start = false;
+    pending->generation = ++g_request_generation;
     return authorize(pending.release());
 }
 
 static int method_get_state(sd_bus_message *m, void *, sd_bus_error *) {
     trusttunnel_vpn_state_t state = trusttunnel_get_state(g_ctx.vpn);
     return sd_bus_reply_method_return(m, "i", static_cast<int32_t>(state));
-}
-
-static int method_clear_logs(sd_bus_message *m, void *, sd_bus_error *) {
-    std::cout << "[trusttunneld] ClearLogs requested" << '\n';
-    return sd_bus_reply_method_return(m, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +274,6 @@ static const sd_bus_vtable vpn_vtable[] = {
         SD_BUS_METHOD(METHOD_START, "s", "u", method_start, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD(METHOD_STOP, "", "u", method_stop, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD(METHOD_GET_STATE, "", "i", method_get_state, SD_BUS_VTABLE_UNPRIVILEGED),
-        SD_BUS_METHOD(METHOD_CLEAR_LOGS, "", "", method_clear_logs, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL(SIGNAL_STATE_CHANGED, "i", 0),
         SD_BUS_SIGNAL(SIGNAL_CONNECTION_INFO, "s", 0),
         SD_BUS_SIGNAL(SIGNAL_NETWORK_READY, "ssusuuas", 0),
@@ -266,13 +289,18 @@ static const sd_bus_vtable vpn_vtable[] = {
 // The emission helpers below are therefore always called on the loop thread.
 
 static void emit_state_changed(trusttunnel_vpn_state_t new_state) {
-    std::cout << "[trusttunneld] State -> " << static_cast<int32_t>(new_state) << '\n';
-    sd_bus_emit_signal(
-            g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_STATE_CHANGED, "i", static_cast<int32_t>(new_state));
+    infolog(g_logger, "State -> {}", static_cast<int32_t>(new_state));
+    if (sd_bus_emit_signal(
+                g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_STATE_CHANGED, "i", static_cast<int32_t>(new_state))
+            < 0) {
+        errlog(g_logger, "Failed to emit StateChanged({})", static_cast<int32_t>(new_state));
+    }
 }
 
 static void emit_connection_info(const char *info_json) {
-    sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_CONNECTION_INFO, "s", info_json);
+    if (sd_bus_emit_signal(g_ctx.bus, OBJECT_PATH, INTERFACE_NAME, SIGNAL_CONNECTION_INFO, "s", info_json) < 0) {
+        errlog(g_logger, "Failed to emit ConnectionInfo");
+    }
 }
 
 static void emit_network_ready(const trusttunnel_network_info_t *info) {
@@ -291,7 +319,7 @@ static void emit_network_ready(const trusttunnel_network_info_t *info) {
     }
     dns_strv.push_back(nullptr);
 
-    std::cout << "[trusttunneld] Network ready: iface=" << info->iface_name << " mtu=" << info->mtu << '\n';
+    infolog(g_logger, "Network ready: iface={} mtu={}", info->iface_name, info->mtu);
     sd_bus_message *message = nullptr;
     int r = sd_bus_message_new_signal(g_ctx.bus, &message, OBJECT_PATH, INTERFACE_NAME, SIGNAL_NETWORK_READY);
     if (r >= 0) {
@@ -305,7 +333,7 @@ static void emit_network_ready(const trusttunnel_network_info_t *info) {
         r = sd_bus_send(g_ctx.bus, message, nullptr);
     }
     if (r < 0) {
-        std::cerr << "[trusttunneld] Failed to emit NetworkReady: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to emit NetworkReady: {}", strerror(-r));
     }
     sd_bus_message_unref(message);
 }
@@ -355,20 +383,19 @@ int main(int argc, char **argv) {
             print_usage(argv[0]);
             return 0;
         } else {
-            std::cerr << "[trusttunneld] Unknown argument: " << arg << '\n';
+            errlog(g_logger, "Unknown argument: {}", arg);
             print_usage(argv[0]);
             return 1;
         }
     }
 
-    std::cout << "[trusttunneld] Starting daemon (" << (use_session_bus ? "session bus" : "system bus") << ")..."
-              << '\n';
+    infolog(g_logger, "Starting daemon ({})...", use_session_bus ? "session bus" : "system bus");
     g_ctx.session_bus = use_session_bus;
 
     // Create event loop
     int r = sd_event_default(&g_ctx.event);
     if (r < 0) {
-        std::cerr << "Failed to allocate event loop: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to allocate event loop: {}", strerror(-r));
         return 1;
     }
 
@@ -379,7 +406,7 @@ int main(int argc, char **argv) {
         r = sd_bus_open_system(&g_ctx.bus);
     }
     if (r < 0) {
-        std::cerr << "Failed to connect to bus: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to connect to bus: {}", strerror(-r));
         sd_event_unref(g_ctx.event);
         return 1;
     }
@@ -387,7 +414,7 @@ int main(int argc, char **argv) {
     // Attach bus to event loop
     r = sd_bus_attach_event(g_ctx.bus, g_ctx.event, SD_EVENT_PRIORITY_NORMAL);
     if (r < 0) {
-        std::cerr << "Failed to attach bus to event loop: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to attach bus to event loop: {}", strerror(-r));
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -412,7 +439,7 @@ int main(int argc, char **argv) {
 
     g_ctx.vpn = trusttunnel_create(&callbacks);
     if (g_ctx.vpn == nullptr) {
-        std::cerr << "Failed to create the VPN client instance" << '\n';
+        errlog(g_logger, "Failed to create the VPN client instance");
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -422,7 +449,7 @@ int main(int argc, char **argv) {
     // Wake up the event loop whenever the client queues a message
     r = sd_event_add_io(g_ctx.event, nullptr, trusttunnel_event_fd(g_ctx.vpn), EPOLLIN, on_client_events, nullptr);
     if (r < 0) {
-        std::cerr << "Failed to subscribe to the client event fd: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to subscribe to the client event fd: {}", strerror(-r));
         trusttunnel_destroy(g_ctx.vpn);
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
@@ -433,7 +460,7 @@ int main(int argc, char **argv) {
     // Register object vtable
     r = sd_bus_add_object_vtable(g_ctx.bus, nullptr, OBJECT_PATH, INTERFACE_NAME, vpn_vtable, nullptr);
     if (r < 0) {
-        std::cerr << "Failed to register object vtable: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to register object vtable: {}", strerror(-r));
         trusttunnel_destroy(g_ctx.vpn);
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
@@ -444,7 +471,7 @@ int main(int argc, char **argv) {
     // Request well-known name (flag 0 ensures another running instance is not replaced)
     r = sd_bus_request_name(g_ctx.bus, BUS_NAME, 0);
     if (r < 0) {
-        std::cerr << "Failed to acquire bus name '" << BUS_NAME << "': " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to acquire bus name '{}': {}", BUS_NAME, strerror(-r));
         trusttunnel_destroy(g_ctx.vpn);
         sd_bus_close(g_ctx.bus);
         sd_bus_unref(g_ctx.bus);
@@ -462,7 +489,7 @@ int main(int argc, char **argv) {
 
     r = sd_event_add_signal(g_ctx.event, nullptr, SIGINT, on_signal, g_ctx.event);
     if (r < 0) {
-        std::cerr << "Failed to subscribe to SIGINT: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to subscribe to SIGINT: {}", strerror(-r));
         trusttunnel_destroy(g_ctx.vpn);
         sd_bus_flush_close_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -470,7 +497,7 @@ int main(int argc, char **argv) {
     }
     r = sd_event_add_signal(g_ctx.event, nullptr, SIGTERM, on_signal, g_ctx.event);
     if (r < 0) {
-        std::cerr << "Failed to subscribe to SIGTERM: " << strerror(-r) << '\n';
+        errlog(g_logger, "Failed to subscribe to SIGTERM: {}", strerror(-r));
         trusttunnel_destroy(g_ctx.vpn);
         sd_bus_flush_close_unref(g_ctx.bus);
         sd_event_unref(g_ctx.event);
@@ -480,7 +507,7 @@ int main(int argc, char **argv) {
     // Notify systemd that service is ready
     sd_notify(0, "READY=1\nSTATUS=TrustTunnel daemon running");
 
-    std::cout << "[trusttunneld] Service ready at " << BUS_NAME << " " << OBJECT_PATH << '\n';
+    infolog(g_logger, "Service ready at {} {}", BUS_NAME, OBJECT_PATH);
 
     // Run the event loop
     r = sd_event_loop(g_ctx.event);
@@ -496,6 +523,6 @@ int main(int argc, char **argv) {
     sd_event_unref(g_ctx.event);
     g_ctx.event = nullptr;
 
-    std::cout << "[trusttunneld] Daemon exited gracefully." << '\n';
+    infolog(g_logger, "Daemon exited gracefully.");
     return r < 0 ? 1 : 0;
 }

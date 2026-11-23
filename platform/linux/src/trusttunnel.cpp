@@ -52,7 +52,12 @@ trusttunnel_t *trusttunnel_create(const trusttunnel_callbacks_t *callbacks) {
     if (callbacks == nullptr) {
         return nullptr;
     }
-    return new trusttunnel_s(make_controller_callbacks(*callbacks));
+    auto *instance = new trusttunnel_s(make_controller_callbacks(*callbacks));
+    if (!instance->controller.valid()) {
+        delete instance;
+        return nullptr;
+    }
+    return instance;
 }
 
 trusttunnel_vpn_error_t trusttunnel_start(trusttunnel_t *vpn, const char *toml_config) {

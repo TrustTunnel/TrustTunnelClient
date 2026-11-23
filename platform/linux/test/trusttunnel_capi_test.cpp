@@ -144,8 +144,10 @@ address = "127.0.0.1:0"
 
     EXPECT_EQ(trusttunnel_start(vpn, std::string(config).c_str()), TRUSTTUNNEL_VPN_SUCCESS);
     EXPECT_EQ(trusttunnel_get_state(vpn), TRUSTTUNNEL_VPN_CONNECTING);
-    ASSERT_EQ(observer.states.size(), 1u);
-    EXPECT_EQ(observer.states.back(), TRUSTTUNNEL_VPN_CONNECTING);
+    // CONNECTING is queued before the client thread starts, so it is the first event
+    trusttunnel_drain(vpn);
+    ASSERT_GE(observer.states.size(), 1u);
+    EXPECT_EQ(observer.states.front(), TRUSTTUNNEL_VPN_CONNECTING);
     EXPECT_GE(trusttunnel_event_fd(vpn), 0);
 
     // Wait for the client thread to finish on its own once the connection fails

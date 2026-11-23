@@ -42,11 +42,11 @@ std::string sanitize_daemon_config(std::string_view toml_config) {
     auto *tun = listener != nullptr ? listener->as_table() : nullptr;
     auto *tun_table = tun != nullptr && tun->contains("tun") ? tun->get("tun")->as_table() : nullptr;
     if (tun_table == nullptr) {
-        std::ostringstream output;
-        output << toml::toml_formatter{table};
-        return output.str();
+        // Nothing to strip: keep the original document, including comments and formatting
+        return std::string(toml_config);
     }
 
+    bool changed = false;
     if (tun_table->contains("netns")) {
         auto netns = tun_table->get("netns");
         bool empty = netns->is_string() && netns->as_string()->get().empty();
@@ -54,11 +54,16 @@ std::string sanitize_daemon_config(std::string_view toml_config) {
             warnlog(g_logger, "Stripping privileged config parameter listener.tun.netns");
         }
         tun_table->erase("netns");
+        changed = true;
     }
     if (auto *use_existing = tun_table->get("use_existing");
             use_existing != nullptr && use_existing->is_boolean() && use_existing->as_boolean()->get()) {
         warnlog(g_logger, "Resetting privileged config parameter listener.tun.use_existing to false");
         tun_table->insert_or_assign("use_existing", false);
+        changed = true;
+    }
+    if (!changed) {
+        return std::string(toml_config);
     }
     std::ostringstream output;
     output << toml::toml_formatter{table};
@@ -145,12 +150,12 @@ VpnError VpnController::start(const std::string &toml_config) {
         // DISCONNECTED): the old thread is gone, so unread messages would otherwise be
         // emitted by the next drain() over the fresh CONNECTING state.
         m_queue.clear();
+        m_queue.emplace_back(StateChangedMessage{VpnState::CONNECTING});
         (void) read(m_event_fd.get(), &counter, sizeof(counter));
     }
-    if (m_callbacks.on_state_changed) {
-        // This runs on the loop thread, so the signal is emitted before Start() replies
-        m_callbacks.on_state_changed(VpnState::CONNECTING);
-    }
+    // The state callback is queued like every other transition so that it never runs on the
+    // caller's thread; the consumer observes it when it drains the event fd.
+    notify_event_fd();
 
     m_run_thread = std::thread(&VpnController::run, this);
     return VpnError::SUCCESS;

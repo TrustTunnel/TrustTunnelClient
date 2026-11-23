@@ -13,6 +13,9 @@ RestartSec=3s
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 ProtectSystem=strict
+# Managed mode updates the system resolver configuration; the leading '-' ignores
+# the paths if they do not exist on the host.
+ReadWritePaths=-/etc/resolv.conf -/run/systemd/resolve
 ProtectHome=read-only
 PrivateTmp=true
 

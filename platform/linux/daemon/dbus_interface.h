@@ -9,7 +9,6 @@ inline constexpr const char *INTERFACE_NAME = "com.adguard.TrustTunnel.Vpn1";
 inline constexpr const char *METHOD_START = "Start";
 inline constexpr const char *METHOD_STOP = "Stop";
 inline constexpr const char *METHOD_GET_STATE = "GetState";
-inline constexpr const char *METHOD_CLEAR_LOGS = "ClearLogs";
 
 // D-Bus signal names
 inline constexpr const char *SIGNAL_STATE_CHANGED = "StateChanged";

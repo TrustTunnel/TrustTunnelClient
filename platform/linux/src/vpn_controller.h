@@ -67,8 +67,8 @@ public:
     /**
      * Start a connection with the provided TOML configuration.
      * Parses the configuration synchronously (INVALID_CONFIG on failure), reports the
-     * CONNECTING state and spawns the client thread. May be called again once a previous
-     * session has finished on its own.
+     * CONNECTING state through the callback queue and spawns the client thread. May be called
+     * again once a previous session has finished on its own.
      */
     VpnError start(const std::string &toml_config);
 
@@ -83,6 +83,12 @@ public:
 
     /// True while the client thread is running (including the teardown after a stop request).
     bool running() const;
+
+    /// False if the controller could not allocate its eventfd, in which case it cannot
+    /// deliver any events and `trusttunnel_create()` rejects the instance.
+    bool valid() const {
+        return m_event_fd.is_valid();
+    }
 
     /// The eventfd that gets written whenever a new message is queued. Read it with `drain()`.
     int event_fd() const {
