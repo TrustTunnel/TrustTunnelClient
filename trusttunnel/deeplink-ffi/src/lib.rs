@@ -41,8 +41,12 @@ impl DeepLinkError {
 
 /// Free an error returned by any `trusttunnel_deeplink_*` function.
 /// Passing NULL is safe.
+///
+/// # Safety
+/// `error` must be NULL or a pointer returned by a `trusttunnel_deeplink_*`
+/// function. The pointer must not be used after this call.
 #[no_mangle]
-pub extern "C" fn trusttunnel_deeplink_error_free(error: *mut DeepLinkError) {
+pub unsafe extern "C" fn trusttunnel_deeplink_error_free(error: *mut DeepLinkError) {
     if !error.is_null() {
         unsafe {
             let e = Box::from_raw(error);
@@ -65,8 +69,12 @@ pub extern "C" fn trusttunnel_deeplink_error_message(error: &DeepLinkError) -> *
 /// On failure, returns NULL and writes a heap-allocated `DeepLinkError`
 /// into `*error` (if `error` is non-NULL). Free it with
 /// `trusttunnel_deeplink_error_free`.
+///
+/// # Safety
+/// `uri` must be NULL or a valid NUL-terminated C string. `error` must be NULL
+/// or point to a writable `*mut DeepLinkError` slot.
 #[no_mangle]
-pub extern "C" fn trusttunnel_deeplink_decode(
+pub unsafe extern "C" fn trusttunnel_deeplink_decode(
     uri: *const c_char,
     error: *mut *mut DeepLinkError,
 ) -> *mut c_char {
@@ -116,8 +124,12 @@ pub extern "C" fn trusttunnel_deeplink_decode(
 /// On failure, returns NULL and writes a heap-allocated `DeepLinkError`
 /// into `*error` (if `error` is non-NULL). Free it with
 /// `trusttunnel_deeplink_error_free`.
+///
+/// # Safety
+/// `endpoint_toml` must be NULL or a valid NUL-terminated C string. `error`
+/// must be NULL or point to a writable `*mut DeepLinkError` slot.
 #[no_mangle]
-pub extern "C" fn trusttunnel_deeplink_encode(
+pub unsafe extern "C" fn trusttunnel_deeplink_encode(
     endpoint_toml: *const c_char,
     error: *mut *mut DeepLinkError,
 ) -> *mut c_char {
@@ -160,8 +172,13 @@ pub extern "C" fn trusttunnel_deeplink_encode(
 /// Free a string returned by `trusttunnel_deeplink_decode` or
 /// `trusttunnel_deeplink_encode`.
 /// Passing NULL is safe.
+///
+/// # Safety
+/// `ptr` must be NULL or a pointer returned by `trusttunnel_deeplink_decode`
+/// or `trusttunnel_deeplink_encode`. The pointer must not be used after this
+/// call.
 #[no_mangle]
-pub extern "C" fn trusttunnel_deeplink_string_free(ptr: *mut c_char) {
+pub unsafe extern "C" fn trusttunnel_deeplink_string_free(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe { drop(CString::from_raw(ptr)) };
     }
@@ -170,7 +187,23 @@ pub extern "C" fn trusttunnel_deeplink_string_free(ptr: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
+    use trusttunnel_deeplink::{DeepLinkConfig, Protocol, TlsProfile};
+
+    fn decode(uri: *const c_char, error: *mut *mut DeepLinkError) -> *mut c_char {
+        unsafe { trusttunnel_deeplink_decode(uri, error) }
+    }
+
+    fn encode(endpoint_toml: *const c_char, error: *mut *mut DeepLinkError) -> *mut c_char {
+        unsafe { trusttunnel_deeplink_encode(endpoint_toml, error) }
+    }
+
+    fn string_free(ptr: *mut c_char) {
+        unsafe { trusttunnel_deeplink_string_free(ptr) }
+    }
+
+    fn error_free(error: *mut DeepLinkError) {
+        unsafe { trusttunnel_deeplink_error_free(error) }
+    }
 
     #[test]
     fn test_decode_invalid_scheme() {
@@ -193,15 +226,15 @@ mod tests {
     #[test]
     fn test_ffi_null_input() {
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
-        let ptr = trusttunnel_deeplink_decode(std::ptr::null(), &mut error);
+        let ptr = decode(std::ptr::null(), &mut error);
         assert!(ptr.is_null(), "Should return NULL for null input");
         assert!(!error.is_null(), "Should set error for null input");
-        trusttunnel_deeplink_error_free(error);
+        error_free(error);
     }
 
     #[test]
     fn test_ffi_null_error_param() {
-        let ptr = trusttunnel_deeplink_decode(std::ptr::null(), std::ptr::null_mut());
+        let ptr = decode(std::ptr::null(), std::ptr::null_mut());
         assert!(
             ptr.is_null(),
             "Should return NULL for null input even without error param"
@@ -210,8 +243,8 @@ mod tests {
 
     #[test]
     fn test_ffi_free_does_not_panic_on_null() {
-        trusttunnel_deeplink_string_free(std::ptr::null_mut());
-        trusttunnel_deeplink_error_free(std::ptr::null_mut());
+        string_free(std::ptr::null_mut());
+        error_free(std::ptr::null_mut());
     }
 
     #[test]
@@ -223,6 +256,7 @@ mod tests {
             password: Some("s3cr3t".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
+            tls_profile: Some(TlsProfile::Firefox),
             custom_sni: None,
             has_ipv6: true,
             skip_verification: false,
@@ -269,6 +303,10 @@ mod tests {
         assert!(
             toml_str.contains("Example VPN"),
             "Output must contain name value"
+        );
+        assert!(
+            toml_str.contains("tls_profile = \"firefox\""),
+            "Output must contain tls_profile value"
         );
     }
 
@@ -329,20 +367,20 @@ mod tests {
     #[test]
     fn test_ffi_encode_null_input() {
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
-        let ptr = trusttunnel_deeplink_encode(std::ptr::null(), &mut error);
+        let ptr = encode(std::ptr::null(), &mut error);
         assert!(ptr.is_null(), "Should return NULL for null input");
         assert!(!error.is_null(), "Should set error for null input");
-        trusttunnel_deeplink_error_free(error);
+        error_free(error);
     }
 
     #[test]
     fn test_ffi_encode_invalid_input() {
         let input = CString::new("not a valid toml").unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
-        let ptr = trusttunnel_deeplink_encode(input.as_ptr(), &mut error);
+        let ptr = encode(input.as_ptr(), &mut error);
         assert!(ptr.is_null(), "Should return NULL for invalid input");
         assert!(!error.is_null(), "Should set error for invalid input");
-        trusttunnel_deeplink_error_free(error);
+        error_free(error);
     }
 
     #[test]
@@ -358,7 +396,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         let input = CString::new(endpoint_toml).unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
 
-        let uri_ptr = trusttunnel_deeplink_encode(input.as_ptr(), &mut error);
+        let uri_ptr = encode(input.as_ptr(), &mut error);
         assert!(!uri_ptr.is_null(), "Encode should succeed");
         assert!(error.is_null(), "No error should be set on success");
 
@@ -366,7 +404,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             .to_str()
             .unwrap()
             .to_string();
-        trusttunnel_deeplink_string_free(uri_ptr);
+        string_free(uri_ptr);
 
         assert!(uri.starts_with("tt://?"), "URI must use the tt:// scheme");
         let decoded = trusttunnel_deeplink::decode(&uri).unwrap();
@@ -391,8 +429,7 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
             skip_verification: true,
             certificate: None,
             upstream_protocol: "http3".to_string(),
-            // The deep-link format carries no TLS profile, so it must stay at its default.
-            tls_profile: Endpoint::default_tls_profile(),
+            tls_profile: "safari".to_string(),
             anti_dpi: true,
             custom_sni: "sni.example.com".to_string(),
             dns_upstreams: vec![
@@ -407,14 +444,14 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         // Export the endpoint TOML as a deep-link.
         let input = CString::new(endpoint_toml.as_str()).unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
-        let uri_ptr = trusttunnel_deeplink_encode(input.as_ptr(), &mut error);
+        let uri_ptr = encode(input.as_ptr(), &mut error);
         assert!(!uri_ptr.is_null(), "Encode should succeed");
         assert!(error.is_null(), "No error should be set on success");
         let uri = unsafe { CStr::from_ptr(uri_ptr) }
             .to_str()
             .unwrap()
             .to_string();
-        trusttunnel_deeplink_string_free(uri_ptr);
+        string_free(uri_ptr);
 
         // Reset all settings before importing.
         endpoint_toml.clear();
@@ -423,19 +460,72 @@ dns_upstreams = [\"tls://dns.adguard-dns.com\"]\n";
         // Import the deep-link back into the endpoint TOML.
         let input = CString::new(uri).unwrap();
         let mut error: *mut DeepLinkError = std::ptr::null_mut();
-        let restored_ptr = trusttunnel_deeplink_decode(input.as_ptr(), &mut error);
+        let restored_ptr = decode(input.as_ptr(), &mut error);
         assert!(!restored_ptr.is_null(), "Decode should succeed");
         assert!(error.is_null(), "No error should be set on success");
         let restored_toml = unsafe { CStr::from_ptr(restored_ptr) }
             .to_str()
             .unwrap()
             .to_string();
-        trusttunnel_deeplink_string_free(restored_ptr);
+        string_free(restored_ptr);
 
         let restored: EndpointWrapper = toml::from_str(&restored_toml).unwrap();
         assert!(
             restored.endpoint == original.endpoint,
             "endpoint restored from a deep-link must match the original"
         );
+    }
+
+    #[test]
+    fn test_ffi_decode_rejects_unknown_tls_profile() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+
+        let config = DeepLinkConfig::builder()
+            .hostname("vpn.example.com".to_string())
+            .addresses(vec!["1.2.3.4:443".to_string()])
+            .username("alice".to_string())
+            .password("s3cr3t".to_string())
+            .build()
+            .unwrap();
+        let mut payload = trusttunnel_deeplink::encode::encode_tlv_payload(&config).unwrap();
+        payload.extend_from_slice(&[0x10, 0x01, 0x07]);
+        let uri = CString::new(format!("tt://?{}", URL_SAFE_NO_PAD.encode(payload))).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+
+        let ptr = decode(uri.as_ptr(), &mut error);
+
+        assert!(ptr.is_null(), "Decode must fail for an unknown tls_profile");
+        assert!(!error.is_null(), "Decode must set an error");
+        let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
+        assert!(
+            message.to_str().unwrap().contains("0x07"),
+            "Error must name the unknown profile byte"
+        );
+        error_free(error);
+    }
+
+    #[test]
+    fn test_ffi_encode_rejects_unknown_tls_profile() {
+        let endpoint_toml = "\
+[endpoint]\n\
+hostname = \"vpn.example.com\"\n\
+addresses = [\"1.2.3.4:443\"]\n\
+username = \"alice\"\n\
+password = \"s3cr3t\"\n\
+tls_profile = \"netscape\"\n";
+        let input = CString::new(endpoint_toml).unwrap();
+        let mut error: *mut DeepLinkError = std::ptr::null_mut();
+
+        let ptr = encode(input.as_ptr(), &mut error);
+
+        assert!(ptr.is_null(), "Encode must fail for an unknown tls_profile");
+        assert!(!error.is_null(), "Encode must set an error");
+        let message = unsafe { CStr::from_ptr(trusttunnel_deeplink_error_message(&*error)) };
+        assert_eq!(
+            message.to_str().unwrap(),
+            "unsupported tls_profile: netscape"
+        );
+        error_free(error);
     }
 }

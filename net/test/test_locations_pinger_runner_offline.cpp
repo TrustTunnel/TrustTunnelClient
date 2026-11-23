@@ -318,6 +318,58 @@ TEST_F(LocationsPingerRunnerOfflineTest, RelayAddressesOffline) {
     ASSERT_EQ("1.1.1.1:443", ctx.relay_address);
 }
 
+// The relay settings replace the endpoint ones as a whole set, the ClientHello profile included.
+TEST_F(LocationsPingerRunnerOfflineTest, RelayPingUsesTheRelayTlsProfileOffline) {
+    std::vector<VpnEndpoint> endpoints = {
+            {.address = sockaddr_from_str("94.140.14.222:443"),
+                    .name = "one.one.one.one",
+                    .tls_profile = VPN_TLS_PROFILE_FIREFOX},
+    };
+    std::vector<VpnRelay> relays = {
+            {.address = sockaddr_from_str("1.1.1.1:443"), .tls_profile = VPN_TLS_PROFILE_SAFARI},
+    };
+    test::mock_ping_sockets::set_tcp_error(SocketAddress(endpoints[0].address), ag::utils::AG_ETIMEDOUT);
+    test::mock_ping_sockets::set_tcp_error(SocketAddress(relays[0].address), 0);
+
+    VpnLocation location{
+            .id = "Cloudflare 1.1.1.1",
+            .endpoints = {.data = endpoints.data(), .size = (uint32_t) endpoints.size()},
+            .relays = {.data = relays.data(), .size = (uint32_t) relays.size()},
+    };
+    struct RelayCtx {
+        std::string relay_address;
+        int count = 0;
+    } ctx;
+
+    DeclPtr<LocationsPingerRunner, &locations_pinger_runner_free> runner;
+    LocationsPingerInfo info{
+            .timeout_ms = 1000,
+            .locations = {&location, 1},
+            .rounds = 1,
+            .main_protocol = VPN_UP_HTTP2,
+    };
+    runner.reset(locations_pinger_runner_create(&info,
+            {
+                    [](void *arg, const LocationsPingerResult *result) {
+                        auto *ctx = (RelayCtx *) arg;
+                        if (result->relay) {
+                            ctx->relay_address = SocketAddress(result->relay->address).str();
+                        }
+                        ++ctx->count;
+                    },
+                    &ctx,
+            }));
+    std::thread t1 = std::thread([&runner]() {
+        locations_pinger_runner_run(runner.get());
+    });
+    t1.join();
+
+    ASSERT_EQ(1, ctx.count);
+    ASSERT_EQ("1.1.1.1:443", ctx.relay_address);
+    ASSERT_EQ("FIREFOX", test::mock_ping_sockets::get_tcp_tls_profile(SocketAddress(endpoints[0].address)));
+    ASSERT_EQ("SAFARI", test::mock_ping_sockets::get_tcp_tls_profile(SocketAddress(relays[0].address)));
+}
+
 TEST_F(LocationsPingerRunnerOfflineTest, QuicToTlsFallbackOffline) {
     std::vector<VpnEndpoint> endpoints = {
             {sockaddr_from_str("9.9.9.9:443"), "dns.quad9.net"},

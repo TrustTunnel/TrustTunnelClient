@@ -35,7 +35,7 @@ enum VpnConnectionState {
 };
 
 enum VpnConnectionFlags {
-    /// Set until the first packet from a client is received
+    /// Set until the first client packet is forwarded to a real upstream
     CONNF_FIRST_PACKET,
     /// Connection is routed to the target host directly unconditionally
     CONNF_FORCIBLY_BYPASSED,

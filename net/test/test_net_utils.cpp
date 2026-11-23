@@ -81,7 +81,8 @@ TEST(NetUtils, JA4TlsProfiles) {
             {ag::tls::TlsClientProfile::CHROME, "Chrome", "t13d1517h2_8daaf6152771_cb7bf5808d99", true},
             {ag::tls::TlsClientProfile::CHROME_CANARY, "Canary", "t13d1517h2_8daaf6152771_cb7bf5808d99", true},
             {ag::tls::TlsClientProfile::SAFARI, "Safari", "t13d2013h2_a09f3c656075_7f0f34a4126d", true},
-            {ag::tls::TlsClientProfile::FIREFOX, "Firefox", "t13d1717h2_5b57614c22b0_3cbfd9057e0d", true},
+            // Reference captured from Firefox 159.0.1 (November 2026).
+            {ag::tls::TlsClientProfile::FIREFOX, "Firefox", "t13d1517h2_8daaf6152771_3cbfd9057e0d", true},
             {ag::tls::TlsClientProfile::OKHTTP, "OkHttp", "t13d1613h2_46e7e9700bed_eca864cca44a", true},
             // The default openssl s_client sends no ALPN, so its JA4 is measured without one.
             {ag::tls::TlsClientProfile::OPENSSL_DEFAULT, "OpenSSL", "t13d301100_1d37bd780c83_8e6e362c5eac", false},
@@ -104,6 +105,19 @@ TEST(NetUtils, ToTlsClientProfile) {
             ag::tls::TlsClientProfile::OPENSSL_DEFAULT, ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_OPENSSL_DEFAULT));
     EXPECT_EQ(ag::tls::TlsClientProfile::BORINGSSL_DEFAULT,
             ag::to_tls_client_profile(ag::VPN_TLS_PROFILE_BORINGSSL_DEFAULT));
+}
+
+TEST(NetUtils, RelayCloneKeepsTheTlsProfile) {
+    ag::VpnRelay relay{};
+    relay.tls_profile = ag::VPN_TLS_PROFILE_SAFARI;
+
+    ag::AutoVpnRelay clone = ag::vpn_relay_clone(&relay);
+    EXPECT_EQ(clone->tls_profile, ag::VPN_TLS_PROFILE_SAFARI);
+
+    // A zero-initialized relay has the default profile.
+    ag::VpnRelay empty{};
+    ag::AutoVpnRelay zero = ag::vpn_relay_clone(&empty);
+    EXPECT_EQ(zero->tls_profile, ag::VPN_TLS_PROFILE_CHROME);
 }
 
 TEST(NetUtils, SslGetTlsClientProfileName) {

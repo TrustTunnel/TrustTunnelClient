@@ -259,6 +259,7 @@ AutoVpnRelay vpn_relay_clone(const VpnRelay *src) {
     array_of_copy(dst->tls_client_random, src->tls_client_random);
     array_of_copy(dst->tls_client_random_mask, src->tls_client_random_mask);
     array_of_copy(dst->tls_client_random_auth_key, src->tls_client_random_auth_key);
+    dst->tls_profile = src->tls_profile;
 
     return dst;
 }

@@ -20,6 +20,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+## [1.3.0] - 2026-11-19
+
+### Changed
+
+- Added the setup wizard to the main client binary as
+  `trusttunnel_client --setup-wizard` and removed the standalone setup wizard
+  binary. Wizard options are unchanged.
+
+## [1.3.0-rc.4] - 2026-11-18
+
+### Added
+
+- Deep links now carry the `tls_profile` setting, so a server exported with
+  a non-default TLS fingerprint imports with the same profile. The field is
+  omitted for the default `chrome` profile, the deprecated `default` alias
+  becomes `boringssl`, and an unknown value fails import and export.
+- `VpnRelay.tls_profile`: the TLS ClientHello profile for every connection
+  through the relay. When the client connects or pings through a relay, this
+  profile replaces the endpoint `tls_profile`. A zero-initialized relay keeps
+  the default `VPN_TLS_PROFILE_CHROME`. The TrustTunnel client gives its
+  relays the profile of the location, as before.
+
+### Changed
+
+- The `firefox` TLS profile now mimics the current Firefox ClientHello (Firefox 159, November 2026): it no longer offers the `ECDHE-ECDSA-AES128/256-SHA` cipher suites or the FFDHE groups, and it sends three key shares, including `secp256r1`. Updated `native_libs_common` to 8.2.1 and `dns-libs` to 2.11.0-alpha.2.
+
+### Fixed
+
+- Fixed connections being routed back through the fake upstream instead of the
+  default upstream for the VPN mode when the destination domain could not be
+  determined from the first packet and `exclusions_tcp_early_ack_enabled` was
+  enabled.
+- A tunnel through a relay now uses the relay `tls_client_random`,
+  `tls_client_random_mask` and `tls_client_random_auth_key`, as a ping
+  through the relay already did. Before, it kept the endpoint values, so the
+  relay saw a different ClientHello for the ping and for the tunnel.
+
 ## [1.3.0-rc.3] - 2026-11-12
 
 ### Changed
@@ -525,7 +562,9 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.4...v1.3.0
+[1.3.0-rc.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...v1.3.0-rc.4
 [1.3.0-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...v1.3.0-rc.3
 [1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
 [1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
