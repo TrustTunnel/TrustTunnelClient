@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Preserve UDP datagram boundaries when forwarding reassembled IP fragments from TUN.
+- Preserve the complete UDP payload when reassembling IPv6 fragments from TUN.
 
 ### Security
 

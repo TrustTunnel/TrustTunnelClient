@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <lwip/mem.h>
 #include <lwip/pbuf.h>
+#include <lwip/prot/ip6.h>
 
 #include "common/defs.h"
 #include "tun_device_listener.h"
@@ -18,6 +20,7 @@
 using namespace ag;
 
 static constexpr size_t IPV4_HEADER_SIZE = 20;
+static constexpr size_t IPV6_OPTIONS_HEADER_SIZE = 8;
 static constexpr size_t UDP_HEADER_SIZE = 8;
 
 static thread_local std::optional<size_t> g_fail_lwip_allocation_size;
@@ -120,6 +123,72 @@ static std::vector<InputFragment> make_ipv4_fragments(
     return fragments;
 }
 
+static uint32_t checksum_words(std::span<const uint8_t> bytes) {
+    uint32_t sum = 0;
+    for (size_t offset = 0; offset < bytes.size(); offset += 2) {
+        sum += uint32_t{bytes[offset]} << 8;
+        if (offset + 1 < bytes.size()) {
+            sum += bytes[offset + 1];
+        }
+    }
+    return sum;
+}
+
+struct Ipv6Options {
+    bool before_fragment;
+    bool after_fragment;
+};
+
+static std::vector<InputFragment> make_ipv6_fragments(
+        const std::vector<uint8_t> &payload, uint32_t mtu, Ipv6Options options) {
+    constexpr std::array<uint8_t, 16> SOURCE{0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    constexpr std::array<uint8_t, 16> DESTINATION{0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2};
+    const size_t before_size = options.before_fragment ? IPV6_OPTIONS_HEADER_SIZE : 0;
+    const size_t after_size = options.after_fragment ? IPV6_OPTIONS_HEADER_SIZE : 0;
+    const size_t fragment_header_offset = IP6_HLEN + before_size;
+    const size_t fragment_data_offset = fragment_header_offset + IP6_FRAG_HLEN;
+    const size_t fragment_capacity = (mtu - fragment_data_offset) & ~size_t{7};
+
+    std::vector<uint8_t> fragmentable(after_size + UDP_HEADER_SIZE + payload.size());
+    if (options.after_fragment) {
+        fragmentable[0] = IP6_NEXTH_UDP;
+    }
+    const std::span udp = std::span(fragmentable).subspan(after_size);
+    put_network_u16(udp.data(), 43210);
+    put_network_u16(udp.data() + 2, 27000);
+    put_network_u16(udp.data() + 4, static_cast<uint16_t>(udp.size()));
+    std::copy(payload.begin(), payload.end(), udp.begin() + UDP_HEADER_SIZE);
+    uint32_t sum = checksum_words(SOURCE) + checksum_words(DESTINATION) + static_cast<uint32_t>(udp.size())
+            + IP6_NEXTH_UDP + checksum_words(udp);
+    while (sum > UINT16_MAX) {
+        sum = (sum & UINT16_MAX) + (sum >> 16);
+    }
+    const auto checksum = static_cast<uint16_t>(~sum);
+    put_network_u16(udp.data() + 6, checksum != 0 ? checksum : UINT16_MAX);
+
+    std::vector<InputFragment> fragments;
+    for (size_t offset = 0; offset < fragmentable.size(); offset += fragment_capacity) {
+        const size_t length = std::min(fragment_capacity, fragmentable.size() - offset);
+        const bool more_fragments = offset + length < fragmentable.size();
+        auto &fragment = fragments.emplace_back(std::vector<uint8_t>(fragment_data_offset + length)).bytes;
+        fragment[0] = 0x60;
+        put_network_u16(fragment.data() + 4, static_cast<uint16_t>(fragment.size() - IP6_HLEN));
+        fragment[6] = options.before_fragment ? IP6_NEXTH_DESTOPTS : IP6_NEXTH_FRAGMENT;
+        fragment[7] = 64;
+        std::copy(SOURCE.begin(), SOURCE.end(), fragment.data() + 8);
+        std::copy(DESTINATION.begin(), DESTINATION.end(), fragment.data() + 24);
+        if (options.before_fragment) {
+            fragment[IP6_HLEN] = IP6_NEXTH_FRAGMENT;
+        }
+        fragment[fragment_header_offset] = options.after_fragment ? IP6_NEXTH_DESTOPTS : IP6_NEXTH_UDP;
+        put_network_u16(
+                fragment.data() + fragment_header_offset + 2, static_cast<uint16_t>(offset | (more_fragments ? 1 : 0)));
+        put_network_u16(fragment.data() + fragment_header_offset + 6, 173);
+        std::copy_n(fragmentable.data() + offset, length, fragment.data() + fragment_data_offset);
+    }
+    return fragments;
+}
+
 static int forward_fragments(TunUdpForwarding &state, std::vector<InputFragment> &fragments) {
     std::vector<VpnPacket> input;
     for (auto &fragment : fragments) {
@@ -138,7 +207,7 @@ static int forward_fragments(TunUdpForwarding &state, std::vector<InputFragment>
 
 static void expect_released_once(const std::vector<InputFragment> &fragments) {
     for (size_t index = 0; index < fragments.size(); ++index) {
-        EXPECT_EQ(fragments[index].releases, 1u) << "IPv4 fragment " << index;
+        EXPECT_EQ(fragments[index].releases, 1u) << "Input fragment " << index;
     }
 }
 
@@ -218,6 +287,37 @@ TEST(TunUdpForwardingRegressionTest, DropsWholeDatagramOnCoalesceAllocationFailu
         expect_released_once(next);
     });
 }
+
+class TunUdpForwardingIpv6Test : public testing::TestWithParam<Ipv6Options> {};
+
+TEST_P(TunUdpForwardingIpv6Test, ForwardsOneCompleteDatagram) {
+    constexpr uint32_t MTU = 1350;
+    const auto options = GetParam();
+    const auto payload = make_payload(4097, 29);
+    auto fragments = make_ipv6_fragments(payload, MTU, options);
+    ASSERT_GT(fragments.size(), 1u);
+
+    with_udp_listener(MTU, [&](TunUdpForwarding &state) {
+        EXPECT_EQ(forward_fragments(state, fragments), 0);
+        ASSERT_EQ(state.received.size(), 1u);
+        EXPECT_TRUE(state.received.front() == payload);
+        EXPECT_EQ(state.connections, 1u);
+        expect_released_once(fragments);
+    });
+}
+
+INSTANTIATE_TEST_SUITE_P(Reassembled, TunUdpForwardingIpv6Test,
+        testing::Values(
+                Ipv6Options{false, false}, Ipv6Options{true, false}, Ipv6Options{false, true}, Ipv6Options{true, true}),
+        [](const testing::TestParamInfo<Ipv6Options> &info) -> std::string {
+            if (info.param.before_fragment && info.param.after_fragment) {
+                return "OptionsBeforeAndAfter";
+            }
+            if (info.param.before_fragment) {
+                return "OptionsBefore";
+            }
+            return info.param.after_fragment ? "OptionsAfter" : "NoOptions";
+        });
 
 INSTANTIATE_TEST_SUITE_P(FragmentationBoundary, TunUdpForwardingTest,
         testing::Values(DatagramCase{1350, 1322}, DatagramCase{1350, 1323}, DatagramCase{1350, 4096},
