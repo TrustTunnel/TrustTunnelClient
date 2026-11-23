@@ -93,6 +93,14 @@ target_link_libraries(test_dns_routing PRIVATE vpnlibs_core mock_dns_server)
 add_unit_test(test_socks_idle_close "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_socks_idle_close PRIVATE vpnlibs_core)
 add_unit_test(test_tun_udp_forwarding "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+set(TUN_UDP_TEST_LWIP_DIR "${THIRD_PARTY_DIR}/lwip/lwip/src")
+set(TUN_UDP_TEST_LWIP_MEM "${TUN_UDP_TEST_LWIP_DIR}/core/mem.c")
+set_source_files_properties("${TUN_UDP_TEST_LWIP_MEM}" PROPERTIES
+        COMPILE_DEFINITIONS mem_malloc=tun_udp_real_mem_malloc)
+target_sources(test_tun_udp_forwarding PRIVATE "${TUN_UDP_TEST_LWIP_MEM}")
+target_include_directories(test_tun_udp_forwarding PRIVATE
+        "${TUN_UDP_TEST_LWIP_DIR}/include"
+        "${VPN_LIB_DIR}/tcpip/src")
 target_link_libraries(test_tun_udp_forwarding PRIVATE vpnlibs_core)
 add_unit_test(test_http2_upstream "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_http2_upstream PRIVATE vpnlibs_core)
