@@ -92,6 +92,8 @@ add_unit_test(test_dns_routing "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_dns_routing PRIVATE vpnlibs_core mock_dns_server)
 add_unit_test(test_socks_idle_close "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_socks_idle_close PRIVATE vpnlibs_core)
+add_unit_test(test_tun_udp_forwarding "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+target_link_libraries(test_tun_udp_forwarding PRIVATE vpnlibs_core)
 add_unit_test(test_http2_upstream "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_http2_upstream PRIVATE vpnlibs_core)
 

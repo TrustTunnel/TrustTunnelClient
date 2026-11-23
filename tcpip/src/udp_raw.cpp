@@ -30,10 +30,10 @@ static void udp_raw_recv(
         return;
     }
 
-    const evbuffer_iovec datagram{.iov_base = buffer->payload, .iov_len = buffer->len};
+    evbuffer_iovec datagram{.iov_base = buffer->payload, .iov_len = buffer->len};
     const ip_addr_t *dst_addr = ip_current_dest_addr();
     u16_t dst_port = pcb->local_port;
-    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, 1, &datagram);
+    udp_cm_receive(tcpip_ctx, src_addr, src_port, dst_addr, dst_port, datagram);
 
     pbuf_free(buffer);
 }
