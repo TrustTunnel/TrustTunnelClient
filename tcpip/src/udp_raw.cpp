@@ -23,6 +23,9 @@ static void udp_raw_recv(
         void *arg, struct udp_pcb *pcb, struct pbuf *buffer, const ip_addr_t *src_addr, u16_t src_port) {
     auto *tcpip_ctx = (TcpipCtx *) arg;
 
+    // Flatten the buffer into one contiguous block. A reassembled packet is naturally a pbuf chain,
+    // but the `ClientRead` listener interface cannot pass a whole scatter-gather chain to the handler:
+    // it takes one data block, so each chain element would go out as a separate UDP datagram.
     buffer = pbuf_coalesce(buffer, PBUF_RAW);
     if (buffer->next != nullptr) {
         warnlog(tcpip_ctx->udp.log, "Dropping UDP datagram: could not coalesce packet buffers");
