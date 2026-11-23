@@ -14,12 +14,12 @@ Unlike the Windows adapter (which relies on named pipes, helper installers, and 
 - VPN Core: `ag::TrustTunnelClient` from `trusttunnel/`, driven on a dedicated thread
   (`AutoNetworkMonitor` + `set_system_dns()` + `connect()`), modelled after the CLI client.
 
-The adapter is split into a client library and a thin daemon, following the same
-methodology as the Windows adapter (library + service):
+The adapter follows the same methodology as the Windows adapter (library + service):
 
-- `include/trusttunnel/trusttunnel.h` — the public C API of the client library
-  (`trusttunnel_create` / `trusttunnel_start` / `trusttunnel_stop` / `trusttunnel_get_state`,
-  an event fd + `trusttunnel_drain()` for event-loop integration, and event callbacks).
+- `include/trusttunnel/trusttunnel.h` — the public C API of the adapter library:
+  `trusttunnel_create` / `trusttunnel_start` / `trusttunnel_start_with_options` /
+  `trusttunnel_stop` / `trusttunnel_get_state`, an event fd + `trusttunnel_drain()` for
+  event-loop integration, and event callbacks.
 - `src/` — the static library (`trusttunnel_linux_a`, installed as `libtrusttunnel.a`):
   `VpnController` (owns the client lifecycle and bridges it to a single-threaded event
   loop) plus the thin C wrapper.
@@ -27,6 +27,14 @@ methodology as the Windows adapter (library + service):
   methods to the library API and library callbacks to D-Bus signals.
   The D-Bus contract (`com.adguard.TrustTunnel.Vpn1`) is described in
   `daemon/resources/com.adguard.TrustTunnel.xml`.
+
+**What `libtrusttunnel.a` is for:** it drives a VPN session *in the linking process*.
+Linking it (e.g. into a privileged helper) creates its own TUN device and runs the real
+TrustTunnel core there; it does **not** talk to `trusttunneld`. Applications that want
+to control the running daemon must use system D-Bus (`com.adguard.TrustTunnel`,
+interface described by the XML installed next to the headers). There is no client-side
+D-Bus wrapper in this package yet; see the quick-testing commands below for the raw
+calls.
 
 The daemon needs `libsystemd`; the library itself does not.
 
@@ -52,10 +60,15 @@ An XML introspection file is provided at `resources/com.adguard.TrustTunnel.xml`
 ### Methods
 
 - `Start(s toml_config) -> (u error_code)`: Start VPN with the TOML configuration
-  (same format as the CLI client's `trusttunnel_client.toml`). Returns `VpnError`:
+  (same format as the CLI client's `trusttunnel_client.toml`), using the default failure
+  handling. Equivalent to `StartEx` with `fall_into_recovery = false`.
+  Returns `VpnError`:
     - `0`: SUCCESS
     - `1`: ALREADY_RUNNING
     - `2`: INVALID_CONFIG
+- `StartEx(s toml_config, b fall_into_recovery) -> (u error_code)`: Same as `Start`, but
+  selects the failure handling for initial connection establishment: `false` retries a fixed
+  number of times, `true` enters the recovery algorithm (`VPN_CRP_FALL_INTO_RECOVERY`).
 - `Stop() -> (u error_code)`: Stop VPN (returns `0` on success).
 - `GetState() -> (i state)`: Query current state (`0=Disconnected`, `1=Connecting`, `2=Connected`, `3=WaitingRecovery`, `4=Recovering`, `5=WaitingForNetwork` — the values mirror the core's `ag::VpnSessionState`).
 
@@ -131,6 +144,14 @@ cmake --build build-linux --target trusttunneld
 ## Quick Testing with `busctl`
 
 Two ways to drive the daemon manually, depending on what you want to check:
+
+An automated variant of the D-Bus-only path is `test/smoke_daemon.sh`: it runs the daemon on a
+private session bus and checks `GetState`, `Start` with an invalid config and `Stop`
+(requires `busctl` and `dbus-run-session`):
+
+```bash
+./platform/linux/test/smoke_daemon.sh cmake-build-clang-relwithdebinfo/platform/linux/trusttunneld
+```
 
 ### D-Bus wiring only (no TUN)
 

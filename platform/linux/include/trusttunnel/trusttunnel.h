@@ -104,8 +104,22 @@ typedef struct trusttunnel_callbacks {
 trusttunnel_t *trusttunnel_create(const trusttunnel_callbacks_t *callbacks);
 
 /**
+ * Options for `trusttunnel_start_with_options()`.
+ * Pass NULL for the default behaviour.
+ */
+typedef struct trusttunnel_start_options {
+    /**
+     * If true, failures during initial connection establishment enter the recovery algorithm
+     * (`VPN_CRP_FALL_INTO_RECOVERY`) instead of retrying a fixed number of times
+     * (`VPN_CRP_SEVERAL_ATTEMPTS`).
+     */
+    bool fall_into_recovery;
+} trusttunnel_start_options_t;
+
+/**
  * Start (connect) a VPN client with the provided TOML configuration
  * (same format as the CLI client's `trusttunnel_client.toml`).
+ * Equivalent to `trusttunnel_start_with_options()` with default options.
  * The configuration is parsed synchronously; on success the client transitions to
  * the CONNECTING state (reported through the state callback) and the connection
  * runs on a library thread.
@@ -113,6 +127,14 @@ trusttunnel_t *trusttunnel_create(const trusttunnel_callbacks_t *callbacks);
  *         `TRUSTTUNNEL_VPN_INVALID_CONFIG`).
  */
 trusttunnel_vpn_error_t trusttunnel_start(trusttunnel_t *vpn, const char *toml_config);
+
+/**
+ * Same as `trusttunnel_start()`, but takes explicit start options.
+ * @param options Options to apply; pass NULL to use the defaults (equivalent to
+ *                `trusttunnel_start_options_t{false}`).
+ */
+trusttunnel_vpn_error_t trusttunnel_start_with_options(
+        trusttunnel_t *vpn, const char *toml_config, const trusttunnel_start_options_t *options);
 
 /**
  * Request a stop of the active session. Does not block: the final DISCONNECTED state

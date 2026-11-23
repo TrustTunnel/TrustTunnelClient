@@ -7,6 +7,11 @@
       <arg name="toml_config" type="s" direction="in"/>
       <arg name="error_code" type="u" direction="out"/>
     </method>
+    <method name="StartEx">
+      <arg name="toml_config" type="s" direction="in"/>
+      <arg name="fall_into_recovery" type="b" direction="in"/>
+      <arg name="error_code" type="u" direction="out"/>
+    </method>
     <method name="Stop">
       <arg name="error_code" type="u" direction="out"/>
     </method>

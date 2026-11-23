@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Added the Linux platform adapter in `platform/linux`: a systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`) driving the real TrustTunnel core, a static C API client library (`libtrusttunnel.a`, `include/trusttunnel/trusttunnel.h`), the `listener.tun.managed` setting with the `NetworkReady` session-parameter callback for platform-managed TUN/DNS, Polkit authorization plus sanitization of privileged `listener.tun` fields, and packaging scripts producing the `trusttunnel-client-linux-<version>-<arch>` artifact.
+- Added the Linux platform adapter in `platform/linux`: a systemd D-Bus daemon (`trusttunneld`, interface `com.adguard.TrustTunnel.Vpn1`) driving the real TrustTunnel core, a static C API client library (`libtrusttunnel.a`, `include/trusttunnel/trusttunnel.h`), the `listener.tun.managed` setting with the `NetworkReady` session-parameter callback for platform-managed TUN/DNS, Polkit authorization plus sanitization of privileged `listener.tun` fields, the D-Bus `StartEx` method exposing `fall_into_recovery`, and packaging scripts producing the `trusttunnel-client-linux-<version>-<arch>` artifact.
 
 ### Changed
 

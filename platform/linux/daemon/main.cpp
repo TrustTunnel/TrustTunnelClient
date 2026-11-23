@@ -60,6 +60,8 @@ struct PendingRequest {
     /// Distinguishes Start from Stop: an empty sanitized config is a valid Start argument
     /// (it fails validation later), not a request to stop.
     bool is_start = false;
+    /// Passed through to the client's connect options when `is_start` is true
+    bool fall_into_recovery = false;
     /// `g_request_generation` value at the time the request was received
     uint64_t generation = 0;
 
@@ -82,7 +84,9 @@ static void perform_request(const PendingRequest &pending) {
     }
     uint32_t error = 0;
     if (pending.is_start) {
-        error = static_cast<uint32_t>(trusttunnel_start(g_ctx.vpn, pending.config.c_str()));
+        trusttunnel_start_options_t options{};
+        options.fall_into_recovery = pending.fall_into_recovery;
+        error = static_cast<uint32_t>(trusttunnel_start_with_options(g_ctx.vpn, pending.config.c_str(), &options));
     } else {
         error = static_cast<uint32_t>(trusttunnel_stop(g_ctx.vpn));
     }
@@ -235,20 +239,38 @@ static int authorize(PendingRequest *pending) {
 // D-Bus Method Handlers
 // ---------------------------------------------------------------------------
 
+/// Sanitize and park a Start request until it is authorized.
+/// `fall_into_recovery` selects the core's failure-handling mode.
+static int submit_start(sd_bus_message *m, const char *config, bool fall_into_recovery) {
+    infolog(g_logger, "Start requested (fall_into_recovery={})", fall_into_recovery);
+    auto pending = std::make_unique<PendingRequest>();
+    pending->request = sd_bus_message_ref(m);
+    pending->config = sanitize_daemon_config(config != nullptr ? config : "");
+    pending->is_start = true;
+    pending->fall_into_recovery = fall_into_recovery;
+    pending->generation = ++g_request_generation;
+    return authorize(pending.release());
+}
+
 static int method_start(sd_bus_message *m, void *, sd_bus_error *ret_error) {
     const char *config = nullptr;
     int r = sd_bus_message_read(m, "s", &config);
     if (r < 0) {
         return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS, "Expected string config argument");
     }
+    // Default options: a fixed number of connection attempts
+    return submit_start(m, config, false);
+}
 
-    infolog(g_logger, "Start requested");
-    auto pending = std::make_unique<PendingRequest>();
-    pending->request = sd_bus_message_ref(m);
-    pending->config = sanitize_daemon_config(config != nullptr ? config : "");
-    pending->is_start = true;
-    pending->generation = ++g_request_generation;
-    return authorize(pending.release());
+static int method_start_ex(sd_bus_message *m, void *, sd_bus_error *ret_error) {
+    const char *config = nullptr;
+    int fall_into_recovery = 0;
+    int r = sd_bus_message_read(m, "sb", &config, &fall_into_recovery);
+    if (r < 0) {
+        return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS,
+                "Expected string config and boolean fall_into_recovery arguments");
+    }
+    return submit_start(m, config, fall_into_recovery != 0);
 }
 
 static int method_stop(sd_bus_message *m, void *, sd_bus_error *) {
@@ -272,6 +294,7 @@ static int method_get_state(sd_bus_message *m, void *, sd_bus_error *) {
 static const sd_bus_vtable vpn_vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD(METHOD_START, "s", "u", method_start, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD(METHOD_START_EX, "sb", "u", method_start_ex, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD(METHOD_STOP, "", "u", method_stop, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD(METHOD_GET_STATE, "", "i", method_get_state, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL(SIGNAL_STATE_CHANGED, "i", 0),

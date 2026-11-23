@@ -61,10 +61,17 @@ trusttunnel_t *trusttunnel_create(const trusttunnel_callbacks_t *callbacks) {
 }
 
 trusttunnel_vpn_error_t trusttunnel_start(trusttunnel_t *vpn, const char *toml_config) {
+    return trusttunnel_start_with_options(vpn, toml_config, nullptr);
+}
+
+trusttunnel_vpn_error_t trusttunnel_start_with_options(
+        trusttunnel_t *vpn, const char *toml_config, const trusttunnel_start_options_t *options) {
     if (vpn == nullptr) {
         return TRUSTTUNNEL_VPN_INVALID_CONFIG;
     }
-    return static_cast<trusttunnel_vpn_error_t>(vpn->controller.start(toml_config != nullptr ? toml_config : ""));
+    bool fall_into_recovery = options != nullptr && options->fall_into_recovery;
+    return static_cast<trusttunnel_vpn_error_t>(
+            vpn->controller.start(toml_config != nullptr ? toml_config : "", fall_into_recovery));
 }
 
 trusttunnel_vpn_error_t trusttunnel_stop(trusttunnel_t *vpn) {

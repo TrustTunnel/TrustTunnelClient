@@ -118,7 +118,7 @@ VpnController::~VpnController() {
     }
 }
 
-VpnError VpnController::start(const std::string &toml_config) {
+VpnError VpnController::start(const std::string &toml_config, bool fall_into_recovery) {
     {
         std::lock_guard lock(m_mutex);
         if (m_running) {
@@ -146,6 +146,7 @@ VpnError VpnController::start(const std::string &toml_config) {
         m_client_finished = false;
         m_state = VpnState::CONNECTING;
         m_running = true;
+        m_fall_into_recovery = fall_into_recovery;
         // Drop everything the previous session may have left queued (e.g. its final
         // DISCONNECTED): the old thread is gone, so unread messages would otherwise be
         // emitted by the next drain() over the fresh CONNECTING state.
@@ -241,9 +242,11 @@ VpnCallbacks VpnController::make_client_callbacks() {
 
 void VpnController::run() {
     TrustTunnelConfig config;
+    bool fall_into_recovery = false;
     {
         std::lock_guard lock(m_mutex);
         config = std::move(m_config);
+        fall_into_recovery = m_fall_into_recovery;
     }
 
     std::string bound_if;
@@ -259,7 +262,8 @@ void VpnController::run() {
         errlog(g_logger, "Failed to start network monitor");
     } else if (auto res = client->set_system_dns()) {
         errlog(g_logger, "Failed to set system DNS: {}", res->str());
-    } else if (auto res = client->connect(TrustTunnelClient::AutoSetup{}, TrustTunnelClient::ConnectOptions{})) {
+    } else if (auto res = client->connect(TrustTunnelClient::AutoSetup{},
+                       TrustTunnelClient::ConnectOptions{.fall_into_recovery = fall_into_recovery})) {
         errlog(g_logger, "Failed to connect: {}", res->str());
     } else {
         // Wait until a stop is requested or the client reports the final disconnection

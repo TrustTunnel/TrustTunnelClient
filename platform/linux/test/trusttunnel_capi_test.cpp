@@ -120,6 +120,57 @@ TEST(TrustTunnelCapiTest, InvalidConfigIsRejected) {
     trusttunnel_destroy(vpn);
 }
 
+TEST(TrustTunnelCapiTest, StartWithOptionsIsAccepted) {
+    // Same failing configuration as above: the option is plumbed through without
+    // changing the visible lifecycle
+    constexpr std::string_view config = R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "localhost"
+addresses = ["127.0.0.1:1"]
+username = "user"
+password = "pass"
+upstream_protocol = "http2"
+
+[listener.socks]
+address = "127.0.0.1:0"
+)";
+
+    ClientObserver observer;
+    trusttunnel_callbacks_t callbacks = observer.callbacks();
+    trusttunnel_t *vpn = trusttunnel_create(&callbacks);
+    ASSERT_NE(vpn, nullptr);
+
+    EXPECT_EQ(trusttunnel_start_with_options(vpn, "this is [[ not toml", nullptr), TRUSTTUNNEL_VPN_INVALID_CONFIG);
+
+    trusttunnel_start_options_t options{};
+    options.fall_into_recovery = true;
+    EXPECT_EQ(trusttunnel_start_with_options(vpn, std::string(config).c_str(), &options), TRUSTTUNNEL_VPN_SUCCESS);
+    EXPECT_EQ(trusttunnel_get_state(vpn), TRUSTTUNNEL_VPN_CONNECTING);
+    trusttunnel_drain(vpn);
+    ASSERT_GE(observer.states.size(), 1u);
+    EXPECT_EQ(observer.states.front(), TRUSTTUNNEL_VPN_CONNECTING);
+
+    // With recovery enabled the client must not give up and report DISCONNECTED
+    auto deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (trusttunnel_get_state(vpn) == TRUSTTUNNEL_VPN_CONNECTING && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    EXPECT_NE(trusttunnel_get_state(vpn), TRUSTTUNNEL_VPN_CONNECTING);
+    EXPECT_NE(trusttunnel_get_state(vpn), TRUSTTUNNEL_VPN_DISCONNECTED);
+
+    EXPECT_EQ(trusttunnel_stop(vpn), TRUSTTUNNEL_VPN_SUCCESS);
+    deadline = std::chrono::steady_clock::now() + CONNECT_TIMEOUT;
+    while (trusttunnel_get_state(vpn) != TRUSTTUNNEL_VPN_DISCONNECTED && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    trusttunnel_drain(vpn);
+    EXPECT_EQ(observer.states.back(), TRUSTTUNNEL_VPN_DISCONNECTED);
+
+    trusttunnel_destroy(vpn);
+}
+
 TEST(TrustTunnelCapiTest, FailedConnectEndsDisconnected) {
     // Endpoint on the loopback with nothing listening behind it: the connection attempts
     // fail quickly without any network access, ending the session with DISCONNECTED

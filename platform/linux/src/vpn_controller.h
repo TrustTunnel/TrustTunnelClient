@@ -69,8 +69,10 @@ public:
      * Parses the configuration synchronously (INVALID_CONFIG on failure), reports the
      * CONNECTING state through the callback queue and spawns the client thread. May be called
      * again once a previous session has finished on its own.
+     * @param fall_into_recovery Failure handling during initial connection establishment, see
+     *                           `TrustTunnelClient::ConnectOptions`
      */
-    VpnError start(const std::string &toml_config);
+    VpnError start(const std::string &toml_config, bool fall_into_recovery = false);
 
     /**
      * Request a stop of the active session. Does not block: the final DISCONNECTED state
@@ -135,6 +137,8 @@ private:
     bool m_running = false;
     bool m_stop_requested = false;
     bool m_client_finished = false;
+    /// Failure handling for the current/next connection attempt
+    bool m_fall_into_recovery = false;
 
     ag::AutoFd m_event_fd;
     std::thread m_run_thread;
