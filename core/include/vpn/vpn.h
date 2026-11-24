@@ -37,6 +37,10 @@ static constexpr int VPN_DEFAULT_CONN_MEMORY_BUFFER_THRESHOLD = DEFAULT_CONNECTI
 static constexpr int VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS = 10 * 1000;
 static constexpr int VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_CONNECT_ATTEMPTS_NUM = 5;
+/** Default maximum number of parallel HTTP/2 sessions with the VPN endpoint */
+static constexpr uint32_t VPN_DEFAULT_HTTP2_SESSIONS_NUM = 3;
+/** Number of connections on each HTTP/2 session, exceeding which a new session will be opened */
+static constexpr uint32_t VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD = 8;
 static constexpr int VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_POSTPONEMENT_WINDOW_MS = 3 * 1000; // how long after recovery starts connections are postponed instead of bypassed
 // clang-format on
@@ -256,6 +260,15 @@ typedef struct {
     VpnUpstreamSessionRecoverySettings recovery;
     /** Enable anti-dpi measures */
     bool anti_dpi;
+    /**
+     * Maximum number of parallel HTTP/2 sessions with the VPN endpoint.
+     * The library opens a new session when every open session carries more than
+     * `VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD` connections. When the maximum is reached,
+     * new connections go to the session with the fewest connections.
+     * Not used for HTTP/3.
+     * If 0, `VPN_DEFAULT_HTTP2_SESSIONS_NUM` will be used.
+     */
+    uint32_t http2_sessions_num;
 } VpnUpstreamConfig;
 
 /**

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <numeric>
 #include <unordered_set>
 
@@ -65,6 +66,7 @@ protected:
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     VpnClient vpn;
     int events = 0;
+    size_t upstreams_num = 0; // 0 means the default number
 
     static void upstream_handler(void *arg, ServerEvent what, void *) {
         auto *test = (UpstreamMuxTest *) arg;
@@ -75,11 +77,12 @@ protected:
         g_open_session_result = true;
 
         this->vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
-        this->vpn.endpoint_upstream = std::make_unique<UpstreamMultiplexer>(0, VpnUpstreamProtocolConfig{}, 0,
-                [](const VpnUpstreamProtocolConfig &, int id, VpnClient *vpn,
-                        ServerHandler handler) -> std::unique_ptr<MultiplexableUpstream> {
-                    return std::make_unique<TestUpstream>(id, vpn, handler);
-                });
+        this->vpn.endpoint_upstream =
+                std::make_unique<UpstreamMultiplexer>(0, VpnUpstreamProtocolConfig{}, this->upstreams_num,
+                        [](const VpnUpstreamProtocolConfig &, int id, VpnClient *vpn,
+                                ServerHandler handler) -> std::unique_ptr<MultiplexableUpstream> {
+                            return std::make_unique<TestUpstream>(id, vpn, handler);
+                        });
         ASSERT_TRUE(this->vpn.endpoint_upstream->init(&this->vpn, {upstream_handler, this}));
 
         ASSERT_TRUE(this->vpn.endpoint_upstream->open_session());
@@ -273,6 +276,26 @@ TEST_F(UpstreamMuxTest, UpstreamsNumCap) {
         } else {
             ASSERT_EQ(g_upstreams.size(), UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM) << i;
         }
+    }
+}
+
+class UpstreamMuxCustomNumTest : public UpstreamMuxTest {
+protected:
+    static constexpr size_t CUSTOM_UPSTREAMS_NUM = UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM + 2;
+
+    UpstreamMuxCustomNumTest() {
+        this->upstreams_num = CUSTOM_UPSTREAMS_NUM;
+    }
+};
+
+// Check that the configured upstreams number is used instead of the default one
+TEST_F(UpstreamMuxCustomNumTest, UpstreamsNumCap) {
+    for (size_t i = 0; i < 2 * UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD * CUSTOM_UPSTREAMS_NUM;
+            ++i) {
+        ASSERT_NO_FATAL_FAILURE(open_connection());
+        ASSERT_EQ(g_upstreams.size(),
+                std::min(CUSTOM_UPSTREAMS_NUM, 1 + (i / UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD)))
+                << i;
     }
 }
 

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added `VpnUpstreamConfig::http2_sessions_num` to set the maximum number of parallel HTTP/2 sessions with the endpoint, and changed the default to 3 sessions with up to 8 connections on each before the library spreads connections between them.
+
 ### Changed
 
 ### Deprecated

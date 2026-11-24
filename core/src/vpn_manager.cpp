@@ -117,9 +117,12 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     if (endpoint->has_ipv6) {
         ip_availability.set(IPV6);
     }
+    VpnUpstreamProtocolConfig main_protocol{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2};
+    if (main_protocol.type == VPN_UP_HTTP2) {
+        main_protocol.http2.connections_num = this->upstream_config->http2_sessions_num;
+    }
     return {
-            .main_protocol =
-                    VpnUpstreamProtocolConfig{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2},
+            .main_protocol = main_protocol,
             .fallback = VpnUpstreamFallbackConfig{},
             .endpoint = std::move(endpoint),
             .timeout = Millis{this->upstream_config->timeout_ms},
