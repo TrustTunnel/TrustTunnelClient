@@ -498,7 +498,7 @@
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "TrustTunnel installs a network system extension to route your traffic through the VPN tunnel.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 15.8;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtensionManager;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -539,7 +539,7 @@
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "TrustTunnel installs a network system extension to route your traffic through the VPN tunnel.";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) @executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 15.8;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtensionManager;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -585,7 +585,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.8;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtension;
 				PRODUCT_NAME = "$(inherited)";
@@ -630,7 +630,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.8;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.adguard.TrustTunnel.SystemExtension;
 				PRODUCT_NAME = "$(inherited)";
