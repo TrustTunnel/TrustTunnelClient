@@ -27,6 +27,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# The platforms this run builds and assembles. A macOS-only run must not pick up
+# iOS archives left behind by an earlier full run.
+if [ "${MACOS_ONLY}" = true ]; then
+  PLATFORMS=(macos)
+else
+  PLATFORMS=(ios iphonesimulator macos)
+fi
+
 # Resolve the version once: TT_CLIENT_VERSION env -> git describe --tags
 # --match v* -> 0.0.0-git. Exported so `pod install` (the podspec resolver) and
 # the CMake-driven VpnClientFramework build pick it up; the numeric core is
@@ -51,10 +59,10 @@ VERSION_ARGS=(MARKETING_VERSION="${VER_FULL}" CURRENT_PROJECT_VERSION="${VER_COR
 # rebuild incrementally, including after switching the configuration.
 ARCHIVES=./build/archives
 mkdir -p "${ARCHIVES}"
-rm -rf "${ARCHIVES}/macos.xcarchive" Framework
-if [ "${MACOS_ONLY}" != true ]; then
-  rm -rf "${ARCHIVES}/ios.xcarchive" "${ARCHIVES}/iphonesimulator.xcarchive"
-fi
+rm -rf Framework
+for platform in "${PLATFORMS[@]}"; do
+  rm -rf "${ARCHIVES}/${platform}.xcarchive"
+done
 
 pod install
 
@@ -119,12 +127,17 @@ fi
 
 # Assemble the xcframework from the slices this run built.
 XC_ARGS=()
-for platform in ios iphonesimulator macos; do
+for platform in "${PLATFORMS[@]}"; do
   FRAMEWORK="${ARCHIVES}/${platform}.xcarchive/Products/Library/Frameworks/TrustTunnelClient.framework"
   if [ -d "${FRAMEWORK}" ]; then
     XC_ARGS+=(-framework "${FRAMEWORK}")
   fi
 done
+
+if [ ${#XC_ARGS[@]} -eq 0 ]; then
+  echo "No TrustTunnelClient.framework slices found in ${ARCHIVES}" >&2
+  exit 1
+fi
 
 xcodebuild -create-xcframework "${XC_ARGS[@]}" \
   -output Framework/TrustTunnelClient.xcframework
