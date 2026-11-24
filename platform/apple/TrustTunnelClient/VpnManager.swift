@@ -531,6 +531,16 @@ public final class VpnManager {
             self.queue.sync {
                 self.killswitchEnabled = false
             }
+            let status = self.queue.sync {
+                return manager.connection.status
+            }
+            // A missing configuration has the `.invalid` status: there is no tunnel to stop, and
+            // saving the blank manager would fail or persist an empty configuration.
+            guard status != .invalid else {
+                self.logger.info("No VPN configuration to stop")
+                completion(nil)
+                return
+            }
             manager.isOnDemandEnabled = false
             manager.onDemandRules = nil
             self.reloadManager(manager: manager) { error in
