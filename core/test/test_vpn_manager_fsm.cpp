@@ -313,12 +313,12 @@ TEST_F(VpnManagerTest, SuccessfulConnect) {
 class VpnManagerHttp2SessionsNumTest : public VpnManagerTest,
                                        public testing::WithParamInterface<std::pair<uint32_t, uint32_t>> {};
 
-// Check that the configured number of HTTP/2 sessions, with the default and the limit applied, reaches the client
+// Check that the endpoint number of HTTP/2 sessions, with the default and the limit applied, reaches the client
 TEST_P(VpnManagerHttp2SessionsNumTest, PassedToClient) {
     auto [configured, expected] = GetParam();
     VpnEndpoint endpoint = {sockaddr_from_str("127.0.0.1:443"), "localhost"};
+    endpoint.http2_sessions_num = configured;
     upstream.location = VpnLocation{"1", {&endpoint, 1}};
-    upstream.http2_sessions_num = configured;
 
     ASSERT_NO_FATAL_FAILURE(start_connect());
     ASSERT_NO_FATAL_FAILURE(ping_location());
@@ -334,7 +334,29 @@ INSTANTIATE_TEST_SUITE_P(Http2SessionsNum, VpnManagerHttp2SessionsNumTest,
                 std::pair{VPN_MAX_HTTP2_SESSIONS_NUM, VPN_MAX_HTTP2_SESSIONS_NUM},
                 std::pair{UINT32_MAX, VPN_MAX_HTTP2_SESSIONS_NUM}));
 
-// Through a relay, the tunnel connects to the relay address with the relay TLS settings
+// Check that each connection attempt uses the number of HTTP/2 sessions of the selected endpoint
+TEST_F(VpnManagerTest, Http2SessionsNumOfSelectedEndpoint) {
+    VpnEndpoint endpoints[] = {
+            {.address = sockaddr_from_str("127.0.0.1:443"), .name = "localhost", .http2_sessions_num = 2},
+            {.address = sockaddr_from_str("127.0.0.2:443"), .name = "localhost", .http2_sessions_num = 5},
+    };
+    upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
+
+    ASSERT_NO_FATAL_FAILURE(start_connect(std::size(endpoints)));
+
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[0]}));
+    ASSERT_NO_FATAL_FAILURE(connect_client_fail(VPN_EC_ERROR, &endpoints[0]));
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, 2);
+
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[1]}));
+    ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoints[1]));
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, 5);
+}
+
+// Through a relay, the tunnel connects to the relay address with the relay TLS settings,
+// and keeps the endpoint number of HTTP/2 sessions
 TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
     uint8_t endpoint_random[] = {1, 1};
     uint8_t relay_data[] = {2, 2};
@@ -345,7 +367,8 @@ TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
             {.address = sockaddr_from_str("127.0.0.1:443"),
                     .name = "localhost",
                     .tls_client_random = {endpoint_random, std::size(endpoint_random)},
-                    .tls_profile = VPN_TLS_PROFILE_FIREFOX},
+                    .tls_profile = VPN_TLS_PROFILE_FIREFOX,
+                    .http2_sessions_num = 5},
     };
     upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
     VpnRelay relay{
@@ -373,6 +396,8 @@ TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
     ASSERT_EQ(std::vector<uint8_t>({3, 3}), bytes(connected->tls_client_random));
     ASSERT_EQ(std::vector<uint8_t>({4, 4}), bytes(connected->tls_client_random_mask));
     ASSERT_EQ(std::vector<uint8_t>({5, 5}), bytes(connected->tls_client_random_auth_key));
+    // The number of HTTP/2 sessions is the endpoint one, a relay does not replace it
+    ASSERT_EQ(5, this->vpn->client.upstream_config.main_protocol.http2.connections_num);
 
     this->vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
     raise_client_event(vpn_client::EVENT_CONNECTED);

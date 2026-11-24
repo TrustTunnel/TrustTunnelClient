@@ -262,16 +262,6 @@ typedef struct {
     VpnUpstreamSessionRecoverySettings recovery;
     /** Enable anti-dpi measures */
     bool anti_dpi;
-    /**
-     * Maximum number of parallel HTTP/2 sessions with the VPN endpoint.
-     * The library opens a new session once every open session carries at least
-     * `VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD` connections. When the maximum number of sessions
-     * is reached, new connections go to the open session with the fewest connections.
-     * Not used for HTTP/3.
-     * If 0, `VPN_DEFAULT_HTTP2_SESSIONS_NUM` will be used.
-     * A value larger than `VPN_MAX_HTTP2_SESSIONS_NUM` is reduced to it.
-     */
-    uint32_t http2_sessions_num;
 } VpnUpstreamConfig;
 
 /**

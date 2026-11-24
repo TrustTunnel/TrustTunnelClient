@@ -83,11 +83,6 @@ void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_
     if (this->upstream_config->recovery.attempts == 0) {
         this->upstream_config->recovery.attempts = VPN_DEFAULT_RECOVERY_ATTEMPTS;
     }
-    if (this->upstream_config->http2_sessions_num == 0) {
-        this->upstream_config->http2_sessions_num = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
-    }
-    this->upstream_config->http2_sessions_num =
-            std::min(this->upstream_config->http2_sessions_num, VPN_MAX_HTTP2_SESSIONS_NUM);
 }
 
 vpn_client::Parameters Vpn::make_client_parameters() const {
@@ -124,7 +119,12 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     }
     VpnUpstreamProtocolConfig main_protocol{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2};
     if (main_protocol.type == VPN_UP_HTTP2) {
-        main_protocol.http2.connections_num = this->upstream_config->http2_sessions_num;
+        // The session number is a property of the endpoint, so a relay does not replace it
+        uint32_t sessions_num = endpoint->http2_sessions_num;
+        if (sessions_num == 0) {
+            sessions_num = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
+        }
+        main_protocol.http2.connections_num = std::min(sessions_num, VPN_MAX_HTTP2_SESSIONS_NUM);
     }
     return {
             .main_protocol = main_protocol,
