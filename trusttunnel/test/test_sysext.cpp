@@ -301,6 +301,21 @@ TEST_F(SysextTest, UninstallRemovesInstalledBundle) {
     EXPECT_FALSE(fs::exists(installed, ec));
 }
 
+TEST_F(SysextTest, RemovingAbsentBundleSucceeds) {
+    // Removing an already absent bundle is a success: `remove_all` reports no error for a
+    // path that does not exist, so only a real failure to remove it is reported.
+    ag::SysextController controller(
+            ag::SysextApp{
+                    .shipped_bundle = m_binary_dir / APP_BUNDLE_NAME,
+                    .install_location = m_applications_dir / APP_BUNDLE_NAME,
+                    .binary_name = std::string(APP_BINARY_NAME),
+            },
+            std::make_unique<MockProcessRunner>());
+    EXPECT_TRUE(controller.remove_install_location_bundle());
+    std::error_code ec;
+    EXPECT_FALSE(fs::exists(m_applications_dir / APP_BUNDLE_NAME, ec));
+}
+
 TEST_F(SysextTest, IgnoresShippedBundleForRuntimeCommands) {
     make_bundle(m_binary_dir);
     const fs::path installed = make_bundle(m_applications_dir);

@@ -132,14 +132,11 @@ bool SysextController::run_app(std::vector<std::string> arguments) const {
 
 bool SysextController::remove_install_location_bundle() const {
     std::error_code ec;
-    std::string install_location = m_app.install_location.string();
-    if (std::filesystem::exists(install_location, ec) && !ec) {
-        std::filesystem::remove_all(install_location, ec);
-        if (ec) {
-            errlog(g_logger, "Failed to remove the host app bundle {}: {} (try running with sudo)", install_location,
-                    ec.message());
-            return false;
-        }
+    std::filesystem::remove_all(m_app.install_location, ec);
+    if (ec) {
+        errlog(g_logger, "Failed to remove the host app bundle {}: {} (try running with sudo)",
+                m_app.install_location.string(), ec.message());
+        return false;
     }
     return true;
 }
