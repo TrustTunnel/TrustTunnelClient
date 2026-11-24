@@ -20,10 +20,18 @@ class NativeVpnInterfaceImpl : NativeVpnInterface {
         )
     }
     func start(config: String) throws {
-        self.vpnManager.start(config: config, fallIntoRecovery: false) { _ in }
+        self.vpnManager.start(config: config, fallIntoRecovery: false) { error in
+            if let error {
+                NSLog("Failed to start the tunnel: \(error.localizedDescription)")
+            }
+        }
     }
     func stop() throws {
-        self.vpnManager.stop { _ in }
+        self.vpnManager.stop { error in
+            if let error {
+                NSLog("Failed to stop the tunnel: \(error.localizedDescription)")
+            }
+        }
     }
     func exportLogs() throws -> [String] {
         return vpnManager.exportLogs()
