@@ -61,9 +61,10 @@ std::optional<int> SpawnProcessRunner::run(const std::vector<std::string> &argum
     argv.push_back(nullptr);
 
     pid_t pid = -1;
-    if (posix_spawn(&pid, argv.front(), nullptr, nullptr, argv.data(), *_NSGetEnviron()) != 0) {
-        const int code = sys::last_error();
-        errlog(g_logger, "Failed to spawn '{}': {} ({})", argv.front(), sys::strerror(code), code);
+    // posix_spawn returns the error number itself and does not set errno.
+    const int spawn_error = posix_spawn(&pid, argv.front(), nullptr, nullptr, argv.data(), *_NSGetEnviron());
+    if (spawn_error != 0) {
+        errlog(g_logger, "Failed to spawn '{}': {} ({})", argv.front(), sys::strerror(spawn_error), spawn_error);
         return std::nullopt;
     }
     int status = 0;
