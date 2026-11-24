@@ -409,7 +409,7 @@ std::optional<int> UpstreamMultiplexer::select_existing_upstream(
 
     // if a caller wants an existing upstream or the number of open upstreams reached the cap,
     // choose the least loaded
-    if (allow_underflow || m_upstreams_pool.size() == DEFAULT_UPSTREAMS_NUM) {
+    if (allow_underflow || m_upstreams_pool.size() >= m_max_upstreams_num) {
         std::optional<decltype(m_upstreams_pool.begin())> least_loaded;
         for (auto i = m_upstreams_pool.begin(); i != m_upstreams_pool.end(); ++i) {
             if (i->first == ignored_upstream) {
@@ -417,7 +417,7 @@ std::optional<int> UpstreamMultiplexer::select_existing_upstream(
             }
 
             if (!least_loaded.has_value()
-                    || (*least_loaded)->second->upstream->connections_num() > i->second->upstream->connections_num()) {
+                    || connections_num_by_upstream((*least_loaded)->first) > connections_num_by_upstream(i->first)) {
                 least_loaded = i;
             }
         }

@@ -37,6 +37,12 @@ static constexpr int VPN_DEFAULT_CONN_MEMORY_BUFFER_THRESHOLD = DEFAULT_CONNECTI
 static constexpr int VPN_DEFAULT_RECOVERY_LOCATION_UPDATE_PERIOD_MS = 10 * 1000;
 static constexpr int VPN_DEFAULT_INITIAL_RECOVERY_INTERVAL_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_CONNECT_ATTEMPTS_NUM = 5;
+/** Default maximum number of parallel HTTP/2 sessions with the VPN endpoint */
+static constexpr uint32_t VPN_DEFAULT_HTTP2_SESSIONS_NUM = 3;
+/** Largest accepted maximum number of parallel HTTP/2 sessions; a larger value is reduced to it */
+static constexpr uint32_t VPN_MAX_HTTP2_SESSIONS_NUM = 16;
+/** Connection count per HTTP/2 session at which a new session will be opened */
+static constexpr uint32_t VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD = 8;
 static constexpr int VPN_DEFAULT_FALLBACK_CONNECT_DELAY_MS = 1 * 1000;
 static constexpr int VPN_DEFAULT_POSTPONEMENT_WINDOW_MS = 3 * 1000; // how long after recovery starts connections are postponed instead of bypassed
 // clang-format on

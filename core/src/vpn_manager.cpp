@@ -117,9 +117,17 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     if (endpoint->has_ipv6) {
         ip_availability.set(IPV6);
     }
+    VpnUpstreamProtocolConfig main_protocol{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2};
+    if (main_protocol.type == VPN_UP_HTTP2) {
+        // The session number is a property of the endpoint, so a relay does not replace it
+        uint32_t sessions_num = endpoint->http2_sessions_num;
+        if (sessions_num == 0) {
+            sessions_num = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
+        }
+        main_protocol.http2.connections_num = std::min(sessions_num, VPN_MAX_HTTP2_SESSIONS_NUM);
+    }
     return {
-            .main_protocol =
-                    VpnUpstreamProtocolConfig{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2},
+            .main_protocol = main_protocol,
             .fallback = VpnUpstreamFallbackConfig{},
             .endpoint = std::move(endpoint),
             .timeout = Millis{this->upstream_config->timeout_ms},
