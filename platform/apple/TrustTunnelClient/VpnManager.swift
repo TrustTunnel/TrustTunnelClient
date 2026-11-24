@@ -55,7 +55,8 @@ public enum VpnManagerError: LocalizedError {
 
 /// Logs emitted by VpnManager respect Logger.setCallback.
 /// Set the callback before creating VpnManager if you want to capture logs emitted during initialization.
-/// The completions of `start`, `stop` and `updateConfiguration` are called on an internal serial queue.
+/// Every callback and completion (`stateChangeCallback`, `connectionInfoCallback`, and the completions of
+/// `start`, `stop` and `updateConfiguration`) is called on an internal serial queue.
 public final class VpnManager {
     private var apiQueue: DispatchQueue
     private var queue: DispatchQueue
