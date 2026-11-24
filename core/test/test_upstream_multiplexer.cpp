@@ -279,25 +279,27 @@ TEST_F(UpstreamMuxTest, UpstreamsNumCap) {
     }
 }
 
-class UpstreamMuxCustomNumTest : public UpstreamMuxTest {
+class UpstreamMuxConfiguredNumTest : public UpstreamMuxTest, public testing::WithParamInterface<size_t> {
 protected:
-    static constexpr size_t CUSTOM_UPSTREAMS_NUM = UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM + 2;
-
-    UpstreamMuxCustomNumTest() {
-        this->upstreams_num = CUSTOM_UPSTREAMS_NUM;
+    UpstreamMuxConfiguredNumTest() {
+        this->upstreams_num = GetParam();
     }
 };
 
-// Check that the configured upstreams number is used instead of the default one
-TEST_F(UpstreamMuxCustomNumTest, UpstreamsNumCap) {
-    for (size_t i = 0; i < 2 * UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD * CUSTOM_UPSTREAMS_NUM;
-            ++i) {
+// Check that the upstreams number grows up to the configured number, or to the default one if it is 0
+TEST_P(UpstreamMuxConfiguredNumTest, UpstreamsNumCap) {
+    size_t cap = (GetParam() == 0) ? UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM : GetParam();
+    for (size_t i = 0; i < 2 * UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD * cap; ++i) {
         ASSERT_NO_FATAL_FAILURE(open_connection());
         ASSERT_EQ(g_upstreams.size(),
-                std::min(CUSTOM_UPSTREAMS_NUM, 1 + (i / UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD)))
+                std::min(cap, 1 + (i / UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD)))
                 << i;
     }
 }
+
+INSTANTIATE_TEST_SUITE_P(UpstreamsNum, UpstreamMuxConfiguredNumTest,
+        testing::Values(0, 1, UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM - 1,
+                UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM, UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM + 2));
 
 // Check that the least loaded upstream is selected for new connection
 TEST_F(UpstreamMuxTest, LeastLoaded) {

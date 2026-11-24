@@ -83,6 +83,11 @@ void Vpn::update_upstream_config(AutoPod<VpnUpstreamConfig, vpn_upstream_config_
     if (this->upstream_config->recovery.attempts == 0) {
         this->upstream_config->recovery.attempts = VPN_DEFAULT_RECOVERY_ATTEMPTS;
     }
+    if (this->upstream_config->http2_sessions_num == 0) {
+        this->upstream_config->http2_sessions_num = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
+    }
+    this->upstream_config->http2_sessions_num =
+            std::min(this->upstream_config->http2_sessions_num, VPN_MAX_HTTP2_SESSIONS_NUM);
 }
 
 vpn_client::Parameters Vpn::make_client_parameters() const {

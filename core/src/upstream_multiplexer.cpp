@@ -417,7 +417,7 @@ std::optional<int> UpstreamMultiplexer::select_existing_upstream(
             }
 
             if (!least_loaded.has_value()
-                    || (*least_loaded)->second->upstream->connections_num() > i->second->upstream->connections_num()) {
+                    || connections_num_by_upstream((*least_loaded)->first) > connections_num_by_upstream(i->first)) {
                 least_loaded = i;
             }
         }

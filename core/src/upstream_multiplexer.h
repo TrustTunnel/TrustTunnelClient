@@ -15,9 +15,9 @@ struct UpstreamInfo;
 
 class UpstreamMultiplexer : public ServerUpstream {
 public:
-    // Maximum number of upstreams
+    // Maximum number of upstreams, if the configured number is 0
     static constexpr size_t DEFAULT_UPSTREAMS_NUM = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
-    // Number of connection exceeding which a new upstream will be opened
+    // Connection count per upstream at which a new upstream will be opened
     static constexpr size_t NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD = VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD;
 
     using MakeUpstream = std::unique_ptr<MultiplexableUpstream> (*)(

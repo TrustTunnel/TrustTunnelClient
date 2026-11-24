@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <functional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -308,6 +309,30 @@ TEST_F(VpnManagerTest, SuccessfulConnect) {
     ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
     ASSERT_NO_FATAL_FAILURE(check_connect_result());
 }
+
+class VpnManagerHttp2SessionsNumTest : public VpnManagerTest,
+                                       public testing::WithParamInterface<std::pair<uint32_t, uint32_t>> {};
+
+// Check that the configured number of HTTP/2 sessions, with the default and the limit applied, reaches the client
+TEST_P(VpnManagerHttp2SessionsNumTest, PassedToClient) {
+    auto [configured, expected] = GetParam();
+    VpnEndpoint endpoint = {sockaddr_from_str("127.0.0.1:443"), "localhost"};
+    upstream.location = VpnLocation{"1", {&endpoint, 1}};
+    upstream.http2_sessions_num = configured;
+
+    ASSERT_NO_FATAL_FAILURE(start_connect());
+    ASSERT_NO_FATAL_FAILURE(ping_location());
+    ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoint));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.type, VPN_UP_HTTP2);
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, expected);
+}
+
+INSTANTIATE_TEST_SUITE_P(Http2SessionsNum, VpnManagerHttp2SessionsNumTest,
+        testing::Values(std::pair{0U, VPN_DEFAULT_HTTP2_SESSIONS_NUM}, std::pair{1U, 1U},
+                std::pair{VPN_MAX_HTTP2_SESSIONS_NUM, VPN_MAX_HTTP2_SESSIONS_NUM},
+                std::pair{UINT32_MAX, VPN_MAX_HTTP2_SESSIONS_NUM}));
 
 // Through a relay, the tunnel connects to the relay address with the relay TLS settings
 TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
