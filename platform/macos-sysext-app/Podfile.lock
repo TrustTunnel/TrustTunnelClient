@@ -1,5 +1,5 @@
 PODS:
-  - TrustTunnelClient (1.3.0-rc.2-17-gfb251b6e)
+  - TrustTunnelClient (1.3.0-rc.2-49-g2d1f8a80)
 
 DEPENDENCIES:
   - TrustTunnelClient (from `../apple/`)
@@ -9,8 +9,8 @@ EXTERNAL SOURCES:
     :path: "../apple/"
 
 SPEC CHECKSUMS:
-  TrustTunnelClient: 39675f5e8df03579bf41f77655bb42695adeb6b8
+  TrustTunnelClient: 8693d49c890432a5e4e61a8b0c6b7192af69b456
 
-PODFILE CHECKSUM: 023518e48c240916614655a53c04fdde20e61f7b
+PODFILE CHECKSUM: 2ab3d792464648df8baf7e28ce5271252de0d8ee
 
 COCOAPODS: 1.16.2
