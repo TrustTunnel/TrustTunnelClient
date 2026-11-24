@@ -2,12 +2,16 @@ import Foundation
 import NetworkExtension
 import VpnClientFramework
 
+/// Tunnel state, passed to the `VpnManager` state change callback as the raw value.
 public enum VpnSessionState: Int {
     case disconnected;
     case connecting;
     case connected;
+    /// The connection to the endpoint is lost, the tunnel waits for the next recovery attempt.
     case waiting_recovery;
+    /// The tunnel is reconnecting to the endpoint (`NEVPNStatus.reasserting`).
     case recovering;
+    /// The network is lost, the tunnel waits for it to appear.
     case waiting_for_network;
 }
 
