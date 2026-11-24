@@ -28,8 +28,8 @@ enum ConsoleService {
         case uninstall
     }
 
-    /// Must match the extension target and the provider configuration written by
-    /// `VpnManager`.
+    /// Bundle identifier of the embedded system extension; the single place it is spelled out,
+    /// used for activation requests and for the configuration written by `VpnManager`.
     static let extensionBundleIdentifier = "com.adguard.TrustTunnel.SystemExtension"
 
     /// The app group to share logs and connection info with the extension.

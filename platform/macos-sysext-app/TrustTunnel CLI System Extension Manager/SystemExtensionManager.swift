@@ -17,9 +17,6 @@ final class SystemExtensionManager: NSObject, ObservableObject {
 
     static let shared = SystemExtensionManager()
 
-    /// Bundle identifier of the embedded system extension target.
-    static let extensionIdentifier = "com.adguard.TrustTunnel.SystemExtension"
-
     /// Set when macOS completes an activation request with `.willCompleteAfterReboot`,
     /// reported by the `status` command until a regular activation clears it.
     static let rebootRequiredKey = "sysextRebootRequired"
@@ -60,7 +57,7 @@ final class SystemExtensionManager: NSObject, ObservableObject {
         self.completion = completion
         state = .installing
         let request = OSSystemExtensionRequest.activationRequest(
-            forExtensionWithIdentifier: Self.extensionIdentifier,
+            forExtensionWithIdentifier: ConsoleService.extensionBundleIdentifier,
             queue: .main
         )
         request.delegate = self
@@ -77,7 +74,7 @@ final class SystemExtensionManager: NSObject, ObservableObject {
         self.completion = completion
         state = .uninstalling
         let request = OSSystemExtensionRequest.deactivationRequest(
-            forExtensionWithIdentifier: Self.extensionIdentifier,
+            forExtensionWithIdentifier: ConsoleService.extensionBundleIdentifier,
             queue: .main
         )
         request.delegate = self
