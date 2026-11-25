@@ -80,6 +80,7 @@ CI run means the same configuration built locally.
 | `make build_libs` | Bootstrap Conan deps → CMake configure → build `vpnlibs_core` |
 | `make build_trusttunnel_client` | Build the CLI client binary (depends on `build_libs`) |
 | `make build_wizard` | Build the setup wizard binary |
+| `make build_macos_sysext_app` | macOS only: build the `--sysext` host app and stage it in `$(BUILD_DIR)/trusttunnel/` (requires Xcode, CocoaPods and `platform/apple/build_framework.sh`; not part of `make all`) |
 | `make build_and_export_bin` | Build binaries and copy to `$(EXPORT_DIR)` (default `bin/`) |
 | `make all` | Build all binaries (client + wizard); the default target |
 | `make test` | Run all tests (`test-cpp` + `test-rust`) |
