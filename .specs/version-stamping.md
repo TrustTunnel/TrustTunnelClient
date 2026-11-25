@@ -3,7 +3,8 @@
 Status: **IMPLEMENTED**
 Related: `cmake/version.cmake`, `trusttunnel/setup_wizard/build.rs`,
 `platform/android/lib/build.gradle.kts`, `platform/apple/build_framework.sh`,
-`platform/apple/TrustTunnelClient.podspec`
+`platform/apple/TrustTunnelClient.podspec`, `platform/macos-sysext-app/build.sh`,
+`platform/macos-sysext-app/package.sh`
 
 ## Problem
 
@@ -38,6 +39,8 @@ builds from a clean tree.
 | Apple framework (CMake path) | `platform/apple/VpnClient/CMakeLists.txt` | `VERSION ${TT_CLIENT_VERSION_CORE}` (numeric core) |
 | Apple xcframework (xcodebuild path) | `platform/apple/build_framework.sh` | resolves the version, exports `TT_CLIENT_VERSION`, passes `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`/`DYLIB_CURRENT_VERSION` build-setting overrides |
 | Apple podspec | `platform/apple/TrustTunnelClient.podspec` | `resolve_tt_client_version` (env → git describe → fallback) |
+| macOS sysext host app (dev build) | `platform/macos-sysext-app/build.sh` | resolves the version the same way and passes `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` to `xcodebuild` |
+| macOS sysext host app (release) | `platform/macos-sysext-app/package.sh` | same resolution, then `xcodebuild archive` / `-exportArchive` with the same build-setting overrides |
 
 `cmake/version.cmake` exports three cache vars: `TT_CLIENT_VERSION_FULL` (free
 form, e.g. `1.2.3-beta.4`), `TT_CLIENT_VERSION_CORE` (numeric `X.Y.Z`, for the
