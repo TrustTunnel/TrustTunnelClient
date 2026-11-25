@@ -137,6 +137,11 @@ open class AGPacketTunnelProvider: NEPacketTunnelProvider {
                             fallthrough
                         case .recovering:
                             self.clientQueue.async {
+                                // `reasserting` is a no-op until the start completion is resolved
+                                if (!self.startProcessed) {
+                                    completionHandler(nil)
+                                    self.startProcessed = true
+                                }
                                 self.reasserting = true
                             }
                             break
