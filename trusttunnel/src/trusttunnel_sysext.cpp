@@ -22,6 +22,8 @@ static const Logger g_logger("TRUSTTUNNEL_CLIENT_SYSEXT"); // NOLINT(readability
 static constexpr std::string_view HOST_APP_INSTALL_COMMAND = "install";
 /// Host app command that deactivates the system extension before the bundle is removed.
 static constexpr std::string_view HOST_APP_UNINSTALL_COMMAND = "uninstall";
+/// Start command that requires additional `config` argument.
+static constexpr std::string_view HOST_APP_START_COMMAND = "start";
 
 std::filesystem::path ag::default_shipped_bundle_location() {
     return executable_dir() / TRUSTTUNNEL_SYSEXT_BUNDLE_NAME;
@@ -60,7 +62,7 @@ bool TrustTunnelSysextController::run(std::string_view command, const std::strin
     }
 
     std::vector<std::string> arguments{std::string(command)};
-    if (!config_path.empty()) {
+    if (command == HOST_APP_START_COMMAND && !config_path.empty()) {
         // TODO: config path is passed as is, however this works only because sandboxing for app is disabled.
         // If the app will be decided to be sandboxed - copy the config into the app container folder.
         arguments.emplace_back("--config");
