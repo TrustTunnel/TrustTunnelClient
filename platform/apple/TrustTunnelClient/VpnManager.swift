@@ -445,10 +445,10 @@ public final class VpnManager {
         }
     }
 
-    /// Apply `config` and start the tunnel, calling `completion` once the tunnel
-    /// reaches a final state: `nil` on `connected` or `recovering`, `startFailed` when
-    /// the tunnel disconnects first (including by `stop`), or the error that prevented
-    /// the start.
+    /// Apply `config` and ask the tunnel to start, calling `completion` once the request is made:
+    /// `nil` when the start was requested, `wrongState` when the tunnel is not disconnected, or the
+    /// error that prevented the request. The resulting state changes are reported to
+    /// `stateChangeCallback` on the same queue, after `completion`.
     public func start(config: String, fallIntoRecovery: Bool,
                       completion: @escaping ((any Error)?) -> Void = { _ in }) {
         // `getManager()` may block, so it must not run on the caller's thread.
@@ -458,6 +458,19 @@ public final class VpnManager {
                 if let error = error {
                     self.logger.error("Failed to start VPN tunnel: \(error)")
                     completion(error)
+                    return
+                }
+                // The tunnel may have been started elsewhere (e.g. by connect-on-demand) while the
+                // configuration was saved. Starting a running tunnel reports no status change, so the
+                // check and the start request must share one `apiQueue` block: a `nil` completion then
+                // guarantees a following state change.
+                let isStopped = self.queue.sync {
+                    let status = manager.connection.status
+                    return status == .disconnected || status == .invalid
+                }
+                guard isStopped else {
+                    self.logger.warn("Failed to start VPN tunnel: VPN is not in disconnected state")
+                    completion(VpnManagerError.wrongState)
                     return
                 }
                 do {
