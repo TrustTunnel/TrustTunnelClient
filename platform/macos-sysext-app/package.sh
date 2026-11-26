@@ -45,7 +45,9 @@ done
 
 version="${TT_CLIENT_VERSION:-}"
 if [ -z "${version}" ]; then
-    version="$(git -C "${SCRIPT_DIR}" describe --tags --match 'v*' 2>/dev/null | sed -e 's/^v//')"
+    # A checkout without tags (shallow clone, exported tree) has nothing to describe;
+    # `|| version=""` keeps `set -e` from aborting before the fallback below.
+    version="$(git -C "${SCRIPT_DIR}" describe --tags --match 'v*' 2>/dev/null | sed -e 's/^v//')" || version=""
 fi
 version="${version:-0.0.0-git}"
 core="$(printf '%s' "${version}" | sed -nE 's/^([0-9]+(\.[0-9]+){2}).*/\1/p')"
