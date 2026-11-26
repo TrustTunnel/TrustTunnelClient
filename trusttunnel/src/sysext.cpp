@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <utility>
 
+#include <cerrno>
 #include <crt_externs.h>
 #include <mach-o/dyld.h>
 #include <spawn.h>
@@ -73,7 +74,12 @@ std::optional<int> SpawnProcessRunner::run(const std::vector<std::string> &argum
         return std::nullopt;
     }
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
+    // A delivered signal interrupts the wait; keep waiting for this particular child.
+    pid_t waited = -1;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited == -1 && errno == EINTR);
+    if (waited == -1) {
         const int code = sys::last_error();
         errlog(g_logger, "Failed to wait for '{}': {} ({})", argv.front(), sys::strerror(code), code);
         return std::nullopt;
