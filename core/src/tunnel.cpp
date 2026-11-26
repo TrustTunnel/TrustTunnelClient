@@ -861,12 +861,14 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
             log_conn(this, conn, dbg, "Failed to switch upstream: {} ({})", safe_to_string_view(event->error.text),
                     event->error.code);
 
-            VpnConnection *src_conn =
-                    vpn_connection_get_by_id(this->connections.by_client_id, conn->migrating_client_id);
-            if (src_conn == nullptr) {
-                // do nothing
-            } else {
-                upstream->close_connection(src_conn->server_id, false, true);
+            // Close the source connection through its own upstream, not through the one that reported
+            // the error. Then the source upstream reports the closure, and the client side is closed too.
+            if (VpnConnection *src_conn =
+                            vpn_connection_get_by_id(this->connections.by_client_id, conn->migrating_client_id);
+                    src_conn != nullptr) {
+                if (std::shared_ptr<ServerUpstream> src_upstream = src_conn->upstream.lock(); src_upstream != nullptr) {
+                    src_upstream->close_connection(src_conn->server_id, false, true);
+                }
             }
 
             if (std::shared_ptr<ServerUpstream> conn_upstream = conn->upstream.lock(); conn_upstream != nullptr) {
@@ -949,10 +951,15 @@ static std::shared_ptr<ServerUpstream> select_upstream(
                 return self->dns_handler;
             }
         }
+        // Early ACK applies to IPv4 destinations only. With early ACK, the client gets a successful connect
+        // result before the library knows if the endpoint can reach the destination. If the endpoint has no
+        // IPv6, the connection to an IPv6 destination fails after that, and the application does not fall back
+        // to IPv4.
         if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
                 conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && !conn->flags.test(CONNF_FAKE_CONNECTION)
-                && (conn->flags.test(CONNF_SUSPECT_EXCLUSION) || self->vpn->exclusions_tcp_early_ack_enabled)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
+                && (conn->flags.test(CONNF_SUSPECT_EXCLUSION)
+                        || (self->vpn->exclusions_tcp_early_ack_enabled && dst->is_ipv4()))
                 && is_domain_scannable_port(self, dst->port())) {
             return self->fake_upstream;
         }

@@ -1038,6 +1038,47 @@ TEST_F(ExternalSecureDnsEarlyAckTest, WildcardSiteSplitClientHello) {
     ASSERT_EQ(bypass_upstream->total_sent, std::size(CLIENT_HELLO_SUB_LOCALHOST));
 }
 
+// Early ACK does not apply to IPv6 destinations. If the endpoint has no IPv6, the client must get the
+// unreachable status at once, so that the application can fall back to IPv4. With early ACK, the client
+// gets a successful connect result, and the connection fails only after the migration to the endpoint.
+TEST_F(ExternalSecureDnsEarlyAckTest, Ipv6DestinationUnreachableWithoutEndpointIpv6) {
+    vpn.endpoint_upstream->update_ip_availability(IpVersionSet{1 << IPV4});
+    src = SocketAddress("[::1:1:1:1]:1000");
+    dst = SocketAddress("[::2:2:2:2]:443");
+    m_client_id = vpn.listener_conn_id_generator.get();
+    ASSERT_NO_FATAL_FAILURE(raise_client_connection(m_client_id));
+
+    std::optional<VpnConnectAction> action = tun.finalize_connect_action({m_client_id, VPN_CA_DEFAULT, "app", 1});
+    tun.complete_connect_request(m_client_id, action);
+    run_event_loop_once();
+
+    ASSERT_TRUE(redirect_upstream->connections.empty());
+    ASSERT_TRUE(bypass_upstream->connections.empty());
+    ASSERT_EQ(client_listener->connections[m_client_id].result, CCR_UNREACH)
+            << "An IPv6 connection must not go through the fake upstream with early ACK";
+}
+
+// Early ACK does not apply to IPv6 destinations: the connection goes to the endpoint at once, and the
+// client gets the connect result from the endpoint.
+TEST_F(ExternalSecureDnsEarlyAckTest, Ipv6DestinationGoesToEndpointAtOnce) {
+    src = SocketAddress("[::1:1:1:1]:1000");
+    dst = SocketAddress("[::2:2:2:2]:443");
+    m_client_id = vpn.listener_conn_id_generator.get();
+    ASSERT_NO_FATAL_FAILURE(raise_client_connection(m_client_id));
+
+    std::optional<VpnConnectAction> action = tun.finalize_connect_action({m_client_id, VPN_CA_DEFAULT, "app", 1});
+    tun.complete_connect_request(m_client_id, action);
+    ASSERT_EQ(redirect_upstream->connections.size(), 1)
+            << "An IPv6 connection must go to the endpoint without early ACK";
+    ASSERT_NE(client_listener->connections[m_client_id].state, TestListener::CS_COMPLETED)
+            << "The client must not get the connect result before the endpoint opens the connection";
+
+    uint64_t redirect_id = redirect_upstream->connections.back();
+    tun.upstream_handler(redirect_upstream, SERVER_EVENT_CONNECTION_OPENED, &redirect_id);
+    ASSERT_EQ(client_listener->connections[m_client_id].state, TestListener::CS_COMPLETED);
+    ASSERT_EQ(client_listener->connections[m_client_id].result, CCR_PASS);
+}
+
 // Builds a minimal TLS ClientHello record. `sni` is placed into the server_name extension;
 // `std::nullopt` builds a ClientHello without the extension at all.
 static std::vector<uint8_t> make_tls_client_hello(std::optional<std::string_view> sni) {
@@ -1473,6 +1514,52 @@ static std::vector<DomainDetectionFailureTestParams> make_multi_packet_lookup_te
 }
 
 INSTANTIATE_TEST_SUITE_P(Tunnel, MultiPacketLookupTest, testing::ValuesIn(make_multi_packet_lookup_test_params()),
+        domain_detection_failure_test_name);
+
+// If the upstream that the connection migrates to reports an error, the source connection on the fake
+// upstream must be closed through the fake upstream. Then the fake upstream reports the closure and the
+// client side is closed. Before, the source connection was closed through the upstream that reported the
+// error, which does not know it, so the client side stalled until the application gave up.
+// Shares the fixture above: only the early-ACK and mode dimensions matter here. The mode selects the
+// migration target: the VPN endpoint in general mode and the direct upstream in selective mode.
+class MigrationErrorTest : public DomainDetectionFailureTest {};
+
+TEST_P(MigrationErrorTest, ClosesClientSide) {
+    ASSERT_NO_FATAL_FAILURE(open_connection_via_fake_upstream());
+
+    std::vector<uint8_t> payload = make_domain_detection_failure_payload(GetParam().failure);
+    ClientRead read_event = {m_client_id, payload.data(), payload.size(), 0};
+    tun.listener_handler(client_listener, CLIENT_EVENT_READ, &read_event);
+
+    const bool expect_bypass = GetParam().mode == VPN_MODE_SELECTIVE;
+    std::shared_ptr<TestUpstream> &target = expect_bypass ? bypass_upstream : redirect_upstream;
+    ASSERT_EQ(target->connections.size(), 1) << "The connection must migrate to the mode default upstream";
+    uint64_t target_id = target->connections.back();
+
+    ServerError err = {target_id, {ag::utils::AG_ECONNREFUSED, "Bad response status"}};
+    tun.upstream_handler(target, SERVER_EVENT_ERROR, &err);
+    ASSERT_TRUE(target->connections.empty()) << "The failed connection must be closed";
+    ASSERT_EQ(m_fake_upstream->closing_connections.size(), 1)
+            << "The source connection must be closed through the fake upstream";
+    ASSERT_NE(client_listener->connections.count(m_client_id), 0)
+            << "The client side must stay until the fake upstream reports the closure";
+
+    tun.fake_upstream->handler.func(tun.fake_upstream->handler.arg, SERVER_EVENT_CONNECTION_CLOSED,
+            m_fake_upstream->closing_connections.data());
+    ASSERT_EQ(client_listener->connections.count(m_client_id), 0) << "The client side must be closed";
+}
+
+static std::vector<DomainDetectionFailureTestParams> make_migration_error_test_params() {
+    std::vector<DomainDetectionFailureTestParams> params;
+    for (bool early_ack : {false, true}) {
+        for (VpnMode mode : {VPN_MODE_GENERAL, VPN_MODE_SELECTIVE}) {
+            params.push_back({early_ack, mode, DomainDetectionFailure::NON_TLS_NON_HTTP, "migration_error"});
+        }
+    }
+    return params;
+}
+
+INSTANTIATE_TEST_SUITE_P(Tunnel, MigrationErrorTest, testing::ValuesIn(make_migration_error_test_params()),
         domain_detection_failure_test_name);
 
 // Tests for exclusions_preresolve_enabled and exclusions_preresolve_max_queries settings.
