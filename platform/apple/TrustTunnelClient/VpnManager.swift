@@ -133,6 +133,7 @@ public final class VpnManager {
         
 
         NETunnelProviderManager.loadAllFromPreferences { managers, error in
+            defer { timerSource.cancel() }
             guard let managers else {return}
             // Try to find an existing configuration
             let existingManager = managers.first {
@@ -146,7 +147,6 @@ public final class VpnManager {
                 }
                 self.vpnManager = existingManager
             }
-            timerSource.cancel()
         }
         group.wait()
         return self.queue.sync {
