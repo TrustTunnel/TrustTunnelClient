@@ -345,6 +345,11 @@ TEST_F(SysextTest, DefaultShippedBundleIsNextToTheRunningBinary) {
     EXPECT_EQ(ag::default_shipped_bundle_location(), ag::executable_dir() / std::string_view(APP_BUNDLE_NAME));
 }
 
+TEST_F(SysextTest, RealSpawnFailsWithoutExecutablePath) {
+    ag::SpawnProcessRunner runner;
+    EXPECT_FALSE(runner.run({}).has_value());
+}
+
 TEST_F(SysextTest, RealSpawnPassesArgumentsWithSpaces) {
     const fs::path bundle = make_bundle(m_applications_dir);
     const fs::path binary = bundle / "Contents" / "MacOS" / std::string_view(APP_BINARY_NAME);

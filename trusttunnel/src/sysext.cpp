@@ -51,6 +51,11 @@ SysextController::SysextController(SysextApp app, std::unique_ptr<ProcessRunner>
 }
 
 std::optional<int> SpawnProcessRunner::run(const std::vector<std::string> &arguments) {
+    // The first argument is the executable path; there is nothing to spawn without it.
+    if (arguments.empty()) {
+        errlog(g_logger, "Cannot spawn a process without an executable path");
+        return std::nullopt;
+    }
     // posix_spawn takes mutable string pointers; hand it copies of the arguments.
     std::vector<std::string> mutable_arguments = arguments;
     std::vector<char *> argv;
