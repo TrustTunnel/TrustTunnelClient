@@ -18,6 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- TCP early ACK for exclusions (`VpnSettings::exclusions_tcp_early_ack_enabled`) now applies to IPv4 destinations only. Before, a connection to an IPv6 destination got a successful connect result and then stalled if the endpoint had no IPv6, so the application did not fall back to IPv4.
+- A connection no longer stalls if the library moves it to another upstream after it reads the first data (for example, after the TLS ClientHello) and that upstream reports an error. Now the client side of the connection is closed.
+
 ### Security
 
 ## [1.3.0] - 2026-11-19
