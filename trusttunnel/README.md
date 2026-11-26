@@ -360,3 +360,58 @@ removal.
   service will fail to start. Reinstall the service with the new config path.
 - The `--service-install` and `--service-uninstall` options are only available
   on Windows builds.
+
+---
+
+## macOS System Extension (macOS Only)
+
+The CLI can run the tunnel inside a macOS system extension instead of a
+locally owned `utun` device. The tunnel is then owned by a host app that macOS
+requires to live in `/Applications`; the CLI ships it next to its own binary
+and installs it there:
+
+```shell
+./trusttunnel_client --sysext install
+```
+
+`install` copies the host app bundle into `/Applications` and activates the
+system extension. The copy requires write access to `/Applications`, which the
+`admin` group has: if the account is not in the `admin` group, `sudo` may be
+required. The first install also needs to be approved by the user in **System
+Settings → General → Login Items → Network Extensions**.
+
+Start the tunnel with a configuration file:
+
+```shell
+./trusttunnel_client --sysext start --config <path/to/configuration/file.toml>
+```
+
+The command returns once the tunnel is connected (exit code `0`) or has failed
+to connect (exit code `1`, with details in the logs). The path is not
+remembered: the installed app stores the configuration but not where it came
+from, so every `start` hands it over again. When `--config` is omitted, the
+default `trusttunnel_client.toml` is used, resolved relative to the current
+directory (the host app inherits the CLI's working directory). The tunnel must
+be stopped when `start` is called: starting an already running tunnel is an
+error, so stop it first (or use `status` to check).
+
+`--loglevel` affects the CLI process only: it sets the level of the messages
+the CLI prints itself (staging the bundle, spawning the host app, relaying its
+exit status). The host app and the tunnel ignore it and log at the level from
+the configuration's `loglevel` field.
+Check the current state, stop the tunnel, or remove everything again:
+
+```shell
+./trusttunnel_client --sysext status
+./trusttunnel_client --sysext stop
+./trusttunnel_client --sysext uninstall
+```
+
+`stop` keeps the installed VPN configuration and the activation of the system
+extension, so the next `start` reuses them. `uninstall` stops the tunnel,
+removes the VPN configuration, deactivates the system extension and deletes the
+host app from `/Applications`.
+
+> **Note**: The `--sysext` mode is only available on macOS builds, and only in
+> the release tarballs and development builds that include the host app bundle
+> (see [DEVELOPMENT.md](../DEVELOPMENT.md#macos-system-extension-app)).

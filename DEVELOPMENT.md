@@ -163,6 +163,22 @@ The app is staged into `$(BUILD_DIR)/trusttunnel/`, which is where
 `$(BUILD_DIR)/trusttunnel/trusttunnel_client --sysext install` looks for it.
 `make build_and_export_bin` copies it into `$(EXPORT_DIR)` together with the binaries.
 
+`install` and `uninstall` write to `/Applications`, which the `admin` group can modify.
+If the account is not in the `admin` group, `sudo` may be required for both (check with
+`test -w /Applications`). After approving the system extension in **System Settings →
+General → Login Items → Network Extensions**, drive the installed app from the CLI:
+
+```shell
+trusttunnel_client --sysext install
+trusttunnel_client --sysext start --config <path/to/configuration/file.toml>
+trusttunnel_client --sysext status
+trusttunnel_client --sysext stop
+trusttunnel_client --sysext uninstall
+```
+
+See the [client's README](./trusttunnel/README.md#macos-system-extension-macos-only) for
+what each subcommand does.
+
 ## Debugging in Docker
 
 For remote debugging with LLDB in a Docker container (useful for Linux debugging from macOS or

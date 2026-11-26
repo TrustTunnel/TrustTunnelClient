@@ -202,7 +202,8 @@ int main(int argc, char **argv) {
 
     if (result["sysext"].as<bool>()) {
         // Apply the command line log level like the --export-deeplink mode does: the
-        // configuration is not parsed in this mode.
+        // configuration is not parsed here, so this sets the level of the CLI's own messages
+        // only; the host app and the tunnel keep their own levels.
         auto loglevel = TrustTunnelCliUtils::parse_loglevel(result["loglevel"].as<std::string>());
         if (!loglevel) {
             errlog(g_logger, "Unexpected log level: {}", result["loglevel"].as<std::string>());
