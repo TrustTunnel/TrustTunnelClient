@@ -122,7 +122,7 @@ static void process_forwarded_connection(UdpConnDescriptor *connection) {
 }
 
 void udp_cm_receive(TcpipCtx *ctx, const ip_addr_t *src_addr, u16_t src_port, const ip_addr_t *dst_addr, u16_t dst_port,
-        size_t iovlen, const evbuffer_iovec *iov) {
+        evbuffer_iovec &datagram) {
     auto *connection = (UdpConnDescriptor *) tcpip_get_connection_by_ip(
             &ctx->udp.connections, src_addr, src_port, dst_addr, dst_port);
     if (connection == nullptr) {
@@ -132,7 +132,7 @@ void udp_cm_receive(TcpipCtx *ctx, const ip_addr_t *src_addr, u16_t src_port, co
 
     TcpipHandler *callbacks = &ctx->parameters.handler;
 
-    TcpipReadEvent event = {connection->common.id, iovlen, iov, 0};
+    TcpipReadEvent event = {connection->common.id, 1, &datagram, 0};
     callbacks->handler(callbacks->arg, TCPIP_EVENT_READ, &event);
 
     if (event.result >= 0) {

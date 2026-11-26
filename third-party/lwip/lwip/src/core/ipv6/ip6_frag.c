@@ -614,7 +614,7 @@ ip6_reass(struct pbuf *p)
       sizeof(struct ip6_frag_hdr));
 
     /* Adjust datagram length by adding header lengths. */
-    ipr->datagram_len = (u16_t)(ipr->datagram_len + ((u8_t*)p->payload - (u8_t*)iphdr_ptr)
+    ipr->datagram_len = (u16_t)(ipr->datagram_len + ((u8_t*)p->payload - (u8_t*)ipr->iphdr)
                          - IP6_HLEN);
 
     /* Set payload length in ip header. */
