@@ -952,9 +952,10 @@ static std::shared_ptr<ServerUpstream> select_upstream(
             }
         }
         // Early ACK applies to IPv4 destinations only. With early ACK, the client gets a successful connect
-        // result before the library knows if the endpoint can reach the destination. If the endpoint has no
-        // IPv6, the connection to an IPv6 destination fails after that, and the application does not fall back
-        // to IPv4.
+        // result before the library knows if the upstream can reach the destination. Applications usually
+        // prefer IPv6. If the endpoint or the direct upstream has no IPv6, the application gets "Connection
+        // reset by peer" after the migration, and much software does not try again with IPv4 then. Without
+        // early ACK, the application gets the unreachable status at once and falls back to IPv4.
         if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
                 conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && !conn->flags.test(CONNF_FAKE_CONNECTION)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
