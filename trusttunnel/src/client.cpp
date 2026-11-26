@@ -253,6 +253,8 @@ Error<TrustTunnelClient::ConnectResultError> TrustTunnelClient::connect_to_serve
         if (target.is_relay) {
             // Use only the first resolved address for relay
             auto &relay = relays.emplace_back(resolved.front());
+            // A relay connection used the endpoint profile before relays had their own one: keep it.
+            relay.tls_profile = m_config.location.tls_profile;
             if (!m_config.location.client_random.empty()) {
                 copy_to_c_buffer(relay.tls_client_random, m_config.location.client_random);
             }

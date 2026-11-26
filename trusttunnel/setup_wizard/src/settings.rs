@@ -18,8 +18,8 @@ macro_rules! opt_field {
     };
 }
 
-pub fn build(template: Option<&Settings>) -> Settings {
-    Settings {
+pub fn build(template: Option<&Settings>) -> Option<Settings> {
+    Some(Settings {
         loglevel: opt_field!(template, loglevel)
             .cloned()
             .unwrap_or_else(Settings::default_loglevel),
@@ -58,12 +58,12 @@ pub fn build(template: Option<&Settings>) -> Settings {
         exclusions: opt_field!(template, exclusions)
             .cloned()
             .unwrap_or_default(),
-        endpoint: build_endpoint(opt_field!(template, endpoint)),
+        endpoint: build_endpoint(opt_field!(template, endpoint))?,
         listener: build_listener(opt_field!(template, listener)),
-    }
+    })
 }
 
-fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
+fn build_endpoint(template: Option<&Endpoint>) -> Option<Endpoint> {
     let predefined_params = crate::get_predefined_params().clone();
 
     // Pick the import source: a deep-link (CLI flag or interactive choice),
@@ -160,7 +160,7 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
             }
             Err(error) => {
                 eprintln!("Could not fetch the subscription: {error}");
-                std::process::exit(1);
+                return None;
             }
         }
     }
@@ -202,9 +202,11 @@ fn build_endpoint(template: Option<&Endpoint>) -> Endpoint {
         .map(cert_infos_from_pem)
         .unwrap_or_default();
 
-    display_and_confirm_endpoint(&x, &cert_infos);
+    if !display_and_confirm_endpoint(&x, &cert_infos) {
+        return None;
+    }
 
-    x
+    Some(x)
 }
 
 fn build_endpoint_manually(
@@ -716,15 +718,17 @@ fn cert_infos_from_pem(pem: &str) -> Vec<CertInfo> {
     cert_infos
 }
 
-fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) {
+fn display_and_confirm_endpoint(endpoint: &Endpoint, cert_infos: &[CertInfo]) -> bool {
     println!("{}\n", EndpointSummary::new(endpoint, cert_infos));
 
     if crate::get_mode() == Mode::Interactive
         && !ask_for_agreement_with_default("Accept this configuration?", false)
     {
         eprintln!("Endpoint configuration declined by user.");
-        std::process::exit(1);
+        return false;
     }
+
+    true
 }
 
 /// Decode the deep-link and return the endpoint it describes. The
@@ -740,7 +744,7 @@ pub fn endpoint_from_deeplink(uri: &str) -> Endpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trusttunnel_deeplink::{DeepLinkConfig, Protocol};
+    use trusttunnel_deeplink::{DeepLinkConfig, Protocol, TlsProfile};
 
     #[test]
     fn test_deeplink_field_mapping() {
@@ -755,6 +759,7 @@ mod tests {
             password: Some("pass1".to_string()),
             client_random_prefix: Some("aabb".to_string()),
             client_random_auth_key: Some("aabbccdd".to_string()),
+            tls_profile: Some(TlsProfile::Firefox),
             custom_sni: Some("sni.host".to_string()),
             has_ipv6: false,
             skip_verification: true,
@@ -775,6 +780,7 @@ mod tests {
         assert_eq!(decoded.password.as_deref(), Some("pass1"));
         assert_eq!(decoded.client_random_prefix, Some("aabb".to_string()));
         assert_eq!(decoded.client_random_auth_key, Some("aabbccdd".to_string()));
+        assert_eq!(decoded.tls_profile, Some(TlsProfile::Firefox));
         assert_eq!(decoded.custom_sni, Some("sni.host".to_string()));
         assert!(!decoded.has_ipv6);
         assert!(decoded.skip_verification);

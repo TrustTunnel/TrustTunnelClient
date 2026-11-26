@@ -678,6 +678,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
                 .timeout = Millis{ping->round_timeout_ms},
                 .socket_manager = ping->network_manager->socket,
                 .read_threshold = TCP_READ_THRESHOLD,
+                .log_prefix = ping->id,
 #ifdef _WIN32
                 .record_estats = TCP_RECORD_ESTATS,
 #endif // _WIN32
@@ -694,6 +695,7 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
                 .ev_loop = ping->loop,
                 .handler = {quic_connector_handler, conn},
                 .socket_manager = ping->network_manager->socket,
+                .log_prefix = ping->id,
         };
         conn->quic_connector.reset(quic_connector_create(&parameters));
         if (!conn->quic_connector) {
@@ -710,22 +712,25 @@ bool conn_prepare(Ping *ping, PingConn *conn) {
     U8View client_random_data;
     U8View client_random_mask;
     U8View client_random_auth_key;
+    VpnTlsProfile tls_profile;
     if (conn->relay->address.sa_family != 0) {
         const VpnRelay &relay = *conn->relay;
         endpoint_data = array_of_view(relay.additional_data);
         client_random_data = array_of_view(relay.tls_client_random);
         client_random_mask = array_of_view(relay.tls_client_random_mask);
         client_random_auth_key = array_of_view(relay.tls_client_random_auth_key);
+        tls_profile = relay.tls_profile;
     } else {
         const VpnEndpoint &endpoint = *conn->endpoint;
         endpoint_data = array_of_view(endpoint.additional_data);
         client_random_data = array_of_view(endpoint.tls_client_random);
         client_random_mask = array_of_view(endpoint.tls_client_random_mask);
         client_random_auth_key = array_of_view(endpoint.tls_client_random_auth_key);
+        tls_profile = endpoint.tls_profile;
     }
     auto ssl_result = make_ssl(nullptr, nullptr, alpn_protos, conn->endpoint->name,
             conn->use_quic ? MSPT_NGTCP2 : MSPT_TLS, endpoint_data, client_random_data, client_random_mask,
-            client_random_auth_key, to_tls_client_profile(conn->endpoint->tls_profile));
+            client_random_auth_key, to_tls_client_profile(tls_profile));
 
     if (!std::holds_alternative<SslPtr>(ssl_result)) {
         assert(std::holds_alternative<std::string>(ssl_result));

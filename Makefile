@@ -57,9 +57,8 @@ CLANGD_TIDY_JOBS ?= $(shell echo $$(( $(NPROC) / 2 > 0 ? $(NPROC) / 2 : 1 )))
 #   make ARCH='arm64;x86_64' all
 # Not applied to the cross-compiling presets, which don't target Apple.
 #
-# Raise the deployment target to 11.0 once the code starts using
-# <stop_token>: libc++ marks it unavailable before macOS 11.
-MACOS_DEPLOYMENT_TARGET ?= 10.15
+# Xcode 27 supports macOS deployment targets from 12.0 only.
+MACOS_DEPLOYMENT_TARGET ?= 12.0
 ifeq ($(UNAME_S), Darwin)
 ifeq ($(findstring cross,$(PRESET)),)
 ARCH ?= $(shell uname -m)
@@ -78,8 +77,8 @@ help:
 		{doc = ""}' $(MAKEFILE_LIST)
 
 .PHONY: all
-## Build all binaries (client + wizard). Default target.
-all: build_trusttunnel_client build_wizard
+## Build the client binary. Default target.
+all: build_trusttunnel_client
 
 .PHONY: init
 ## Initialize the development environment (git hooks, etc.)
@@ -153,17 +152,11 @@ build_libs: setup_cmake
 build_trusttunnel_client: setup_cmake
 	cmake --build $(BUILD_DIR) --target trusttunnel_client -j$(NPROC)
 
-.PHONY: build_wizard
-## Build the setup wizard binary for the VPN client
-build_wizard: setup_cmake
-	cmake --build $(BUILD_DIR) --target setup_wizard -j$(NPROC)
-
 .PHONY: build_and_export_bin
-## Build and copy all binaries in the specified directory
-build_and_export_bin: build_trusttunnel_client build_wizard
+## Build and copy the client binary in the specified directory
+build_and_export_bin: build_trusttunnel_client
 	mkdir -p $(EXPORT_DIR)
 	cp $(BUILD_DIR)/trusttunnel/trusttunnel_client$(EXE_SUFFIX) \
-		$(BUILD_DIR)/trusttunnel/setup_wizard$(EXE_SUFFIX) \
 		$(EXPORT_DIR)
 	@echo "Binaries are stored in $(EXPORT_DIR)"
 

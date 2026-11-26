@@ -10,12 +10,46 @@ use std::str::FromStr;
 
 pub static THEME: Lazy<ColorfulTheme> = Lazy::new(ColorfulTheme::default);
 
+/// Restore the terminal state after an interrupt.
+fn restore_terminal() {
+    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::cursor::Show,
+        crossterm::event::DisableBracketedPaste
+    );
+    let _ = std::io::stdout().flush();
+}
+
+/// Install a handler that restores the terminal before exiting on Ctrl+C.
+pub fn install_interrupt_handler() {
+    if let Err(error) = ctrlc::set_handler(|| {
+        restore_terminal();
+        std::process::exit(130);
+    }) {
+        eprintln!("Warning: cannot install the Ctrl+C handler: {error}");
+    }
+}
+
+fn handle_interaction<T>(result: std::io::Result<T>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+            restore_terminal();
+            std::process::exit(130);
+        }
+        Err(error) => panic!("Interaction failure: {error}"),
+    }
+}
+
 /// Ask user to enter a raw line using bracketed paste mode.
 /// This delivers the entire paste as a single event, bypassing the TTY canonical
 /// mode line buffer that truncates long inputs like deep-link URIs.
 /// This function supports only Paste and Enter events.
 pub fn ask_for_input_raw_line(message: &str) -> String {
-    use crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode};
+    use crossterm::event::{
+        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers,
+    };
     use crossterm::execute;
     use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
@@ -44,6 +78,15 @@ pub fn ask_for_input_raw_line(message: &str) -> String {
                 stdout.flush().unwrap();
                 break;
             }
+            Event::Key(key)
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('c') =>
+            {
+                execute!(std::io::stdout(), DisableBracketedPaste).unwrap();
+                disable_raw_mode().unwrap();
+                println!();
+                std::process::exit(130);
+            }
             Event::Key(key) if key.code == KeyCode::Enter => {
                 break;
             }
@@ -70,17 +113,19 @@ where
     }
 
     if default.is_some() {
-        Input::<T>::with_theme(THEME.deref())
-            .with_prompt(message)
-            .show_default(default.is_some())
-            .default(default.unwrap_or_default())
-            .interact()
-            .unwrap()
+        handle_interaction(
+            Input::<T>::with_theme(THEME.deref())
+                .with_prompt(message)
+                .show_default(default.is_some())
+                .default(default.unwrap_or_default())
+                .interact(),
+        )
     } else {
-        Input::<T>::with_theme(THEME.deref())
-            .with_prompt(message)
-            .interact()
-            .unwrap()
+        handle_interaction(
+            Input::<T>::with_theme(THEME.deref())
+                .with_prompt(message)
+                .interact(),
+        )
     }
 }
 
@@ -102,12 +147,13 @@ pub fn ask_for_agreement_with_default(message: &str, default: bool) -> bool {
         return default;
     }
 
-    Confirm::with_theme(THEME.deref())
-        .with_prompt(message)
-        .default(default)
-        .show_default(true)
-        .interact()
-        .unwrap()
+    handle_interaction(
+        Confirm::with_theme(THEME.deref())
+            .with_prompt(message)
+            .default(default)
+            .show_default(true)
+            .interact(),
+    )
 }
 
 /// Ask user to enter a password in a secure way
@@ -117,10 +163,11 @@ pub fn ask_for_password(message: &str) -> String {
         Mode::NonInteractive,
         "Expecting a user input in non-interactive mode"
     );
-    Password::with_theme(THEME.deref())
-        .with_prompt(message)
-        .interact()
-        .unwrap()
+    handle_interaction(
+        Password::with_theme(THEME.deref())
+            .with_prompt(message)
+            .interact(),
+    )
 }
 
 /// Check if a file exists and if it does, ask if one wants to overwrite it
@@ -143,14 +190,21 @@ pub fn select_index<S: Into<String>>(
         return default.expect("Expecting a user input in non-interactive mode");
     }
 
-    Select::with_theme(THEME.deref())
-        .with_prompt(prompt)
-        .items(variants)
-        .report(true)
-        .default(default.unwrap_or_default())
-        .interact_opt()
-        .expect("Interaction failure")
-        .expect("None selected")
+    let selected = handle_interaction(
+        Select::with_theme(THEME.deref())
+            .with_prompt(prompt)
+            .items(variants)
+            .report(true)
+            .default(default.unwrap_or_default())
+            .interact_opt(),
+    );
+    match selected {
+        Some(index) => index,
+        None => {
+            restore_terminal();
+            std::process::exit(130);
+        }
+    }
 }
 
 /// Ask user to select a variant. Returns the selected variant.

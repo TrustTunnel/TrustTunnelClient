@@ -861,12 +861,14 @@ void Tunnel::upstream_handler(const std::shared_ptr<ServerUpstream> &upstream, S
             log_conn(this, conn, dbg, "Failed to switch upstream: {} ({})", safe_to_string_view(event->error.text),
                     event->error.code);
 
-            VpnConnection *src_conn =
-                    vpn_connection_get_by_id(this->connections.by_client_id, conn->migrating_client_id);
-            if (src_conn == nullptr) {
-                // do nothing
-            } else {
-                upstream->close_connection(src_conn->server_id, false, true);
+            // Close the source connection through its own upstream, not through the one that reported
+            // the error. Then the source upstream reports the closure, and the client side is closed too.
+            if (VpnConnection *src_conn =
+                            vpn_connection_get_by_id(this->connections.by_client_id, conn->migrating_client_id);
+                    src_conn != nullptr) {
+                if (std::shared_ptr<ServerUpstream> src_upstream = src_conn->upstream.lock(); src_upstream != nullptr) {
+                    src_upstream->close_connection(src_conn->server_id, false, true);
+                }
             }
 
             if (std::shared_ptr<ServerUpstream> conn_upstream = conn->upstream.lock(); conn_upstream != nullptr) {
@@ -949,10 +951,16 @@ static std::shared_ptr<ServerUpstream> select_upstream(
                 return self->dns_handler;
             }
         }
+        // Early ACK applies to IPv4 destinations only. With early ACK, the client gets a successful connect
+        // result before the library knows if the upstream can reach the destination. Applications usually
+        // prefer IPv6. If the endpoint or the direct upstream has no IPv6, the application gets "Connection
+        // reset by peer" after the migration, and much software does not try again with IPv4 then. Without
+        // early ACK, the application gets the unreachable status at once and falls back to IPv4.
         if (const SocketAddress *dst; // NOLINT(cppcoreguidelines-init-variables)
-                conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN)
-                && (conn->flags.test(CONNF_SUSPECT_EXCLUSION) || self->vpn->exclusions_tcp_early_ack_enabled)
+                conn != nullptr && conn->flags.test(CONNF_LOOKINGUP_DOMAIN) && !conn->flags.test(CONNF_FAKE_CONNECTION)
                 && nullptr != (dst = std::get_if<SocketAddress>(&conn->addr.dst))
+                && (conn->flags.test(CONNF_SUSPECT_EXCLUSION)
+                        || (self->vpn->exclusions_tcp_early_ack_enabled && dst->is_ipv4()))
                 && is_domain_scannable_port(self, dst->port())) {
             return self->fake_upstream;
         }
@@ -1782,7 +1790,6 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
             log_conn(this, conn, dbg,
                     "Couldn't find domain name for suspect-to-be-exclusion connection, routing it as usual ({})",
                     encode_to_hex({event->data, std::min(event->length, size_t(517))}));
-            conn->flags.reset(CONNF_FAKE_CONNECTION);
             conn->flags.reset(CONNF_SUSPECT_EXCLUSION);
             event->result = static_cast<int>(initiate_connection_migration(
                     this, conn, select_upstream(this, VPN_CA_DEFAULT, conn), {event->data, event->length}));
@@ -1790,11 +1797,12 @@ void Tunnel::listener_handler(const std::shared_ptr<ClientListener> &listener, C
                 listener->turn_read(conn->client_id, false);
                 close_client_side_connection(this, conn, utils::AG_ECONNRESET, /*async*/ true);
             }
+            // Do not trigger migration on further reads.
+            conn->flags.reset(CONNF_FAKE_CONNECTION);
             break;
         }
 
         conn->flags.reset(CONNF_FIRST_PACKET);
-        conn->flags.reset(CONNF_FAKE_CONNECTION);
 
         switch (conn->state) {
         case CONNS_CONNECTED: {

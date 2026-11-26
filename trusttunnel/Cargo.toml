@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["settings", "deeplink-ffi", "setup_wizard", "subscription", "subscription-ffi"]
+members = ["settings", "deeplink-ffi", "setup_wizard", "client-ffi", "subscription", "subscription-ffi"]
 
 [profile.release]
 debug = true

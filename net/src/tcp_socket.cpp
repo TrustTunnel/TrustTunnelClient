@@ -22,6 +22,7 @@
 #include "common/socket_address.h"
 #include "net/socket_manager.h"
 #include "net/tcp_socket.h"
+#include "net/utils.h"
 #include "vpn/utils.h"
 
 namespace ag {
@@ -459,7 +460,8 @@ static void on_connect_event(struct bufferevent *, short what, TcpSocket *ctx) {
 #endif // _WIN32
 
         if (socket->ssl) {
-            log_sock(socket, dbg, "Starting TLS handshake...");
+            log_sock(socket, dbg, "Starting TLS handshake (profile={})...",
+                    ssl_get_tls_client_profile_name(socket->ssl.get()));
             SSL_set_connect_state(socket->ssl.get());
             SSL_set0_rbio(socket->ssl.get(), BIO_new(BIO_s_mem()));
             SSL_set0_wbio(socket->ssl.get(), BIO_new(BIO_s_mem()));

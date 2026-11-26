@@ -61,6 +61,11 @@ VpnError udp_socket_write(UdpSocket *socket, const uint8_t *data, size_t length)
 evutil_socket_t udp_socket_get_fd(const UdpSocket *socket);
 
 /**
+ * Get socket id, the `N` in the `id=N/<peer>` part of the socket log messages
+ */
+int udp_socket_get_id(const UdpSocket *socket);
+
+/**
  * Dissociate `socket` with its file descriptor and return
  * the file descriptor while destroying the socket.
  */

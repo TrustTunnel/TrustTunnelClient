@@ -28,12 +28,12 @@ For quick setup, please follow [Getting Started instructions](../README.md#getti
 
 For a more customized configuration experience, follow the steps below:
 
-1. [Build](../DEVELOPMENT.md#building) the setup wizard tool.
+1. [Build](../DEVELOPMENT.md#building) the client.
 
 2. Launch the setup wizard:
 
    ```shell
-   ./setup_wizard
+   ./trusttunnel_client --setup-wizard
    ```
 
    The setup wizard will guide you through the configuration process,
@@ -46,7 +46,7 @@ For a more customized configuration experience, follow the steps below:
 #### Setup Wizard CLI Options
 
 ```text
-Usage: setup_wizard [OPTIONS]
+Usage: trusttunnel_client --setup-wizard [OPTIONS]
 
 Options:
   -m, --mode <mode>           Wizard running mode [default: interactive]
@@ -71,13 +71,13 @@ Options:
 **Interactive mode** (guided setup):
 
 ```shell
-./setup_wizard
+./trusttunnel_client --setup-wizard
 ```
 
 **Non-interactive with endpoint config** (recommended):
 
 ```shell
-./setup_wizard --mode non-interactive \
+./trusttunnel_client --setup-wizard --mode non-interactive \
     --endpoint_config <endpoint_config.toml> \
     --settings trusttunnel_client.toml
 ```
@@ -85,7 +85,7 @@ Options:
 **Non-interactive with manual parameters**:
 
 ```shell
-./setup_wizard --mode non-interactive \
+./trusttunnel_client --setup-wizard --mode non-interactive \
     --address 192.168.1.100:443 \
     --hostname vpn.example.com \
     --creds myuser:mypassword \
@@ -129,7 +129,7 @@ The configuration file uses TOML format. Below are all available settings.
 | `skip_verification` | bool | `false` | Skip endpoint certificate verification (accepts any cert) |
 | `certificate` | string | `null` | Endpoint certificate in PEM format (uses system store if empty) |
 | `upstream_protocol` | string | `"http2"` | Protocol: `http2` or `http3` |
-| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl`, or `default` (no mimicry) |
+| `tls_profile` | string | `"chrome"` | TLS ClientHello fingerprint to mimic: `chrome`, `chrome_canary`, `safari`, `firefox`, `okhttp`, `openssl`, or `boringssl` (no mimicry). `default` is a deprecated alias of `boringssl`. Included in the deep-link when it differs from `chrome` |
 | `anti_dpi` | bool | `false` | Enable anti-DPI (Deep Packet Inspection) measures |
 | `name` | string | `null` | Human-readable server display name. Written on server creation; included in the deep-link when exporting with `--export-deeplink` |
 | `dns_upstreams` | array[string] | `[]` | DNS resolvers for queries routed through VPN. If empty, AdGuard DNS unfiltered is used |
@@ -287,10 +287,10 @@ client (for example, the desktop app), export it as a `tt://` deep-link:
 
 The command prints the deep-link to the standard output and exits, leaving the
 configuration untouched. The link includes the server name, the DNS
-upstreams, and the subscription URL from the configuration, so the importing
-client can keep the endpoint up to date. The server name can be overridden
-with the optional `--name` option, which is useful when the configuration has
-no name.
+upstreams, the TLS profile (when it differs from the default `chrome`), and the
+subscription URL from the configuration, so the importing client can keep the
+endpoint up to date. The server name can be overridden with the optional
+`--name` option, which is useful when the configuration has no name.
 
 The certificate is embedded only when it is needed by the importing client,
 that is, it is omitted when the chain can be verified with the system

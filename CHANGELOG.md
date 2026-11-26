@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- On MIPS and MIPSel, the client now uses the mimalloc allocator.
+- The library now uses 3 parallel HTTP/2 sessions with up to 8 connections on each by default (previously 8 sessions and 5 connections); `VpnEndpoint::http2_sessions_num` sets the maximum number of parallel HTTP/2 sessions with the endpoint (ignored for HTTP/3).
 
 ### Deprecated
 
@@ -24,12 +24,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- TCP early ACK for exclusions (`VpnSettings::exclusions_tcp_early_ack_enabled`) now applies to IPv4 destinations only. Before, a connection to an IPv6 destination got a successful connect result and then stalled if the endpoint had no IPv6, so the application did not fall back to IPv4.
+- A connection no longer stalls if the library moves it to another upstream after it reads the first data (for example, after the TLS ClientHello) and that upstream reports an error. Now the client side of the connection is closed.
+
+### Security
+
+## [1.3.0] - 2026-11-19
+
+### Changed
+
+- Added the setup wizard to the main client binary as
+  `trusttunnel_client --setup-wizard` and removed the standalone setup wizard
+  binary. Wizard options are unchanged.
+
+## [1.3.0-rc.4] - 2026-11-18
+
+### Added
+
+- Deep links now carry the `tls_profile` setting, so a server exported with
+  a non-default TLS fingerprint imports with the same profile. The field is
+  omitted for the default `chrome` profile, the deprecated `default` alias
+  becomes `boringssl`, and an unknown value fails import and export.
+- `VpnRelay.tls_profile`: the TLS ClientHello profile for every connection
+  through the relay. When the client connects or pings through a relay, this
+  profile replaces the endpoint `tls_profile`. A zero-initialized relay keeps
+  the default `VPN_TLS_PROFILE_CHROME`. The TrustTunnel client gives its
+  relays the profile of the location, as before.
+
+### Changed
+
+- The `firefox` TLS profile now mimics the current Firefox ClientHello (Firefox 159, November 2026): it no longer offers the `ECDHE-ECDSA-AES128/256-SHA` cipher suites or the FFDHE groups, and it sends three key shares, including `secp256r1`. Updated `native_libs_common` to 8.2.1 and `dns-libs` to 2.11.0-alpha.2.
+
+### Fixed
+
+- Fixed connections being routed back through the fake upstream instead of the
+  default upstream for the VPN mode when the destination domain could not be
+  determined from the first packet and `exclusions_tcp_early_ack_enabled` was
+  enabled.
+- A tunnel through a relay now uses the relay `tls_client_random`,
+  `tls_client_random_mask` and `tls_client_random_auth_key`, as a ping
+  through the relay already did. Before, it kept the endpoint values, so the
+  relay saw a different ClientHello for the ping and for the tunnel.
+
+## [1.3.0-rc.3] - 2026-11-12
+
+### Changed
+
+- Raised the minimum supported macOS version to 12.0 because Xcode 27 cannot
+  build for older deployment targets.
+- Raised the minimum supported iOS version to 15.0 because the libc++ of Xcode 27 cannot build for older deployment targets.
+- On MIPS and MIPSel, the client now uses the mimalloc allocator.
+- The `chrome` and `chrome_canary` TLS profiles now mimic the current Chrome ClientHello (November 2026): they send the `trust_anchors` extension and GREASE in `signature_algorithms`, and `chrome_canary` no longer sends `server_padding`. Updated `native_libs_common` to 8.2.0 and `dns-libs` to 2.11.0-alpha.1-3-g3d6359be.
+- The `[endpoint].tls_profile` setting now accepts `boringssl` for the profile that sends the linked TLS library's own ClientHello instead of impersonating a browser; `default` keeps working as a deprecated alias, and the `VpnTlsProfile` enumeration member `VPN_TLS_PROFILE_DEFAULT` is renamed to `VPN_TLS_PROFILE_BORINGSSL_DEFAULT`. The enumeration now also follows the order of `ag::tls::TlsClientProfile`, which renumbers its values.
+
+### Fixed
+
+- Report a fatal `VPN_EC_AUTH_REQUIRED`,
+  `VPN_EC_CERTIFICATE_VERIFICATION_FAILED`, or
+  `VPN_EC_CERTIFICATE_NOT_YET_VALID` error in `VPN_EVENT_STATE_CHANGED`
+  when it aborts a session after the initial connect. Previously such
+  errors were lost for the `CONNECTED`, `WAITING_RECOVERY`,
+  `RECOVERING`, and `WAITING_FOR_NETWORK` states, and applications
+  received `VPN_SS_DISCONNECTED` with an empty `VpnError`.
 - Fixed the HTTP/3 upstream storing pointers to already destroyed strings in
   `VpnError`, which made the reported disconnect error text point to freed
   memory; the QUIC error code and the `input()` error are now logged at `INFO`
   instead of being reported in the error text.
-
-### Security
+- The HTTP/3 upstream no longer writes the proxy credentials of a CONNECT
+  request to the debug log, an idle UDP socket now reports a timeout once per
+  timeout period instead of on every timer tick, and the debug messages at the
+  start of a TLS or QUIC handshake now show the TLS profile and the socket id.
+- Fixed event loop finalization: task finalizers are no longer called while holding the loop lock, tasks submitted during finalization are finalized immediately, and deferred tasks are destroyed before finalization is published.
 
 ## [1.3.0-rc.2] - 2026-10-21
 
@@ -45,6 +110,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Propagate destination closes of idle SOCKS5 connections to the client immediately instead of
   waiting for new client data, which previously made clients reuse zombie connections and lose
   requests written into them
+- Fixed a deadlock between `vpn_listen()`/`vpn_get_socks_listener_address()` and VPN event handlers: synchronous dispatch now releases the caller's lock while waiting.
 
 ## [1.3.0-rc.1] - 2026-10-15
 
@@ -505,7 +571,10 @@ For this purpose, new event `VPN_EVENT_CONNECTION_INFO` was introduced in `VpnEv
 
 - VpnLibs is now open-source.
 
-[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...HEAD
+[Unreleased]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.4...v1.3.0
+[1.3.0-rc.4]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.3...v1.3.0-rc.4
+[1.3.0-rc.3]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.2...v1.3.0-rc.3
 [1.3.0-rc.2]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-rc.1...v1.3.0-rc.2
 [1.3.0-rc.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.3.0-beta.1...v1.3.0-rc.1
 [1.3.0-beta.1]: https://github.com/TrustTunnel/TrustTunnelClient/compare/v1.1.5...v1.3.0-beta.1
