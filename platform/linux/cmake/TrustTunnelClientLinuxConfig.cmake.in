@@ -1,0 +1,29 @@
+# TrustTunnelClientLinux CMake package config
+# This file is consumed by find_package(TrustTunnelClientLinux) or via FetchContent.
+#
+# Provided targets:
+#   TrustTunnelClientLinux::trusttunnel - Static library with the VPN adapter C API
+#
+# The library is static because its Conan dependencies are built without -fPIC. The consumer
+# links it into an executable or shared object and provides those transitive dependencies
+# (Thread, libevent, nghttp2, dns-libs, OpenSSL, and so on); the archive itself is built from
+# the same Conan packages as the CLI client.
+#
+# Usage:
+#   find_package(TrustTunnelClientLinux REQUIRED)
+#   target_link_libraries(myapp PRIVATE TrustTunnelClientLinux::trusttunnel)
+
+@PACKAGE_INIT@
+
+set_and_check(TRUSTTUNNEL_CLIENT_LINUX_LIB_DIR "@PACKAGE_TT_LINUX_PACKAGE_CONFIG_LIB_DIR@")
+set_and_check(TRUSTTUNNEL_CLIENT_LINUX_INCLUDE_DIR "@PACKAGE_TT_LINUX_PACKAGE_CONFIG_INCLUDE_DIR@")
+
+if(NOT TARGET TrustTunnelClientLinux::trusttunnel)
+    add_library(TrustTunnelClientLinux::trusttunnel STATIC IMPORTED)
+    set_target_properties(TrustTunnelClientLinux::trusttunnel PROPERTIES
+        IMPORTED_LOCATION "${TRUSTTUNNEL_CLIENT_LINUX_LIB_DIR}/libtrusttunnel.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${TRUSTTUNNEL_CLIENT_LINUX_INCLUDE_DIR}"
+    )
+endif()
+
+check_required_components(TrustTunnelClientLinux)

@@ -1,0 +1,3 @@
+# Build directories (standalone cmake builds)
+build/
+cmake-build-*/
