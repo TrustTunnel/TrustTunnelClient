@@ -94,6 +94,10 @@ add_unit_test(test_socks_idle_close "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE 
 target_link_libraries(test_socks_idle_close PRIVATE vpnlibs_core)
 add_unit_test(test_http2_upstream "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
 target_link_libraries(test_http2_upstream PRIVATE vpnlibs_core)
+if (NOT DISABLE_HTTP3)
+    add_unit_test(test_http3_upstream_handoff "${TEST_DIR}" "${TEST_EXTRA_INCLUDES}" TRUE TRUE)
+    target_link_libraries(test_http3_upstream_handoff PRIVATE vpnlibs_core)
+endif()
 
 set(MOCKED_SOURCE_FILES
         ${SOURCE_FILES}

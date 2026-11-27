@@ -62,7 +62,9 @@ struct ag::QuicConnector {
     std::unique_ptr<ag::http::Http3Client> client;
     ag::DeclPtr<event, &event_free> timer;
     QuicConnectorParameters parameters = {};
-    SocketAddress peer; // server address, saved from connect() for path construction
+    // The network path used to create the QUIC session, saved from connect() for the handoff.
+    SocketAddress local;
+    SocketAddress peer;
     int64_t deadline_ns = 0;
     ag::TaskId report_task = -1;
     uint8_t server_payload[NGTCP2_DEFAULT_MAX_RECV_UDP_PAYLOAD_SIZE]{};
@@ -109,7 +111,6 @@ ag::VpnError ag::quic_connector_connect(
     if (!connector->socket) {
         return {.code = -1, .text = "Failed to create a UDP socket"};
     }
-    connector->peer = parameters->peer ? *parameters->peer : SocketAddress{};
 
     // Configure Http3Settings
     ag::http::Http3Settings settings{};
@@ -139,6 +140,9 @@ ag::VpnError ag::quic_connector_connect(
     // Build QuicNetworkPath
     SocketAddress local = local_socket_address_from_fd(udp_socket_get_fd(connector->socket.get()));
     SocketAddress peer = parameters->peer ? *parameters->peer : SocketAddress{};
+    connector->local = local;
+    connector->peer = peer;
+    log_connector(connector, trace, "Session path: local={} remote={}", local.str(), peer.str());
     ag::http::QuicNetworkPath path{
             .local = local.c_sockaddr(),
             .local_len = local.c_socklen(),
@@ -274,6 +278,8 @@ static void do_report(ag::QuicConnector *self) {
     }
     self->result = std::make_unique<ag::QuicConnectorResult>();
     self->result->fd = ag::udp_socket_release_fd(self->socket.release());
+    self->result->local = self->local;
+    self->result->peer = self->peer;
     self->result->client = std::move(self->client);
     // The client may outlive the connector once the ping is done, so detach the callbacks
     // referencing the connector.

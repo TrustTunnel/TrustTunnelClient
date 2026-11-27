@@ -62,6 +62,9 @@ struct QuicConnectorResult {
     // The recipient of the handoff must arm certificate verification on the client's SSL context
     // before processing it.
     std::vector<uint8_t> first_packet;
+    // The network path used to create the QUIC session.
+    SocketAddress local;
+    SocketAddress peer;
 
     ~QuicConnectorResult() {
         if (fd != EVUTIL_INVALID_SOCKET) {

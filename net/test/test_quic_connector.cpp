@@ -120,10 +120,13 @@ public:
         };
     }
 
-    void connect(ConnectorCtx &ctx, uint16_t port) const {
+    std::optional<SocketAddress> connect(ConnectorCtx &ctx, uint16_t port) const {
         auto ssl_r = make_ssl(
                 nullptr, nullptr, {QUIC_H3_ALPN_PROTOS, std::size(QUIC_H3_ALPN_PROTOS)}, "localhost", MSPT_NGTCP2);
-        ASSERT_TRUE(std::holds_alternative<SslPtr>(ssl_r)) << std::get<std::string>(ssl_r);
+        if (!std::holds_alternative<SslPtr>(ssl_r)) {
+            ADD_FAILURE() << std::get<std::string>(ssl_r);
+            return std::nullopt;
+        }
         SslPtr ssl = std::move(std::get<SslPtr>(ssl_r));
 
         QuicConnectorParameters parameters{
@@ -133,7 +136,10 @@ public:
                 .log_prefix = "test",
         };
         ctx.connector.reset(quic_connector_create(&parameters));
-        ASSERT_NE(ctx.connector.get(), nullptr);
+        if (!ctx.connector) {
+            ADD_FAILURE() << "Failed to create the QUIC connector";
+            return std::nullopt;
+        }
 
         SocketAddress peer{sockaddr_from_str(AG_FMT("127.0.0.1:{}", port).c_str())};
         QuicConnectorConnectParameters connect_parameters{
@@ -144,7 +150,11 @@ public:
                 .quic_version = 0,
         };
         VpnError error = quic_connector_connect(ctx.connector.get(), &connect_parameters);
-        ASSERT_EQ(error.code, 0) << error.text;
+        if (error.code != 0) {
+            ADD_FAILURE() << error.text;
+            return std::nullopt;
+        }
+        return peer;
     }
 
     void run_event_loop() {
@@ -181,7 +191,8 @@ TEST_F(QuicConnectorTest, ReadyOnFirstDatagram) {
     server.start();
 
     ConnectorCtx ctx = make_ctx();
-    connect(ctx, server.port());
+    std::optional<SocketAddress> peer = connect(ctx, server.port());
+    ASSERT_TRUE(peer.has_value());
     run_event_loop();
 
     if (ctx.error.has_value()) {
@@ -195,6 +206,9 @@ TEST_F(QuicConnectorTest, ReadyOnFirstDatagram) {
     EXPECT_EQ(0, SSL_is_init_finished(ctx.result->client->get_ssl()));
     // The connector must have sent the ClientHello to the server
     EXPECT_GT(server.received_count(), 0);
+    // The recipient must be able to rebuild the exact session path from the result.
+    EXPECT_EQ(peer->str(), ctx.result->peer.str());
+    EXPECT_EQ(local_socket_address_from_fd(ctx.result->fd).str(), ctx.result->local.str());
 }
 
 // The connector must report an error if the server does not respond in time.
@@ -203,7 +217,7 @@ TEST_F(QuicConnectorTest, TimeoutOnNoResponse) {
     // Do not start the server thread: nothing will reply to the connector's packets
 
     ConnectorCtx ctx = make_ctx();
-    connect(ctx, black_hole.port());
+    ASSERT_TRUE(connect(ctx, black_hole.port()).has_value());
     run_event_loop();
 
     EXPECT_EQ(ctx.result, nullptr);
@@ -220,7 +234,7 @@ TEST_F(QuicConnectorTest, DestroyConnectorBeforeResult) {
     server.start();
 
     ConnectorCtx ctx = make_ctx();
-    connect(ctx, server.port());
+    ASSERT_TRUE(connect(ctx, server.port()).has_value());
     run_event_loop();
 
     if (ctx.error.has_value()) {
