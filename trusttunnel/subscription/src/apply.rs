@@ -123,6 +123,18 @@ url = "https://u:p@old.example.com/subscription"
     }
 
     #[test]
+    fn apply_installs_the_tls_profile() {
+        let mut body: serde_json::Value = serde_json::from_str(&body()).unwrap();
+        body["tls_profile"] = serde_json::json!("chrome_canary");
+        let outcome = apply_endpoint_at(ENDPOINT, &body.to_string(), &fixed_now).unwrap();
+        let doc: toml_edit::Document = outcome.parse().unwrap();
+        assert_eq!(
+            doc["endpoint"]["tls_profile"].as_str(),
+            Some("chrome_canary")
+        );
+    }
+
+    #[test]
     fn apply_keeps_the_endpoint_scope() {
         let outcome = apply_endpoint_at(ENDPOINT, &body(), &fixed_now).unwrap();
         assert!(!outcome.contains("loglevel"), "unexpected: {outcome}");

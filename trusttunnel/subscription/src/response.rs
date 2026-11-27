@@ -27,6 +27,8 @@ pub struct SubscriptionResponse {
     #[serde(default)]
     pub client_random_auth_key: Option<String>,
     #[serde(default)]
+    pub tls_profile: Option<String>,
+    #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub dns_upstreams: Option<Vec<String>>,
@@ -58,6 +60,10 @@ impl SubscriptionResponse {
         endpoint.custom_sni = self.custom_sni.clone().unwrap_or_default();
         endpoint.client_random = self.client_random_prefix.clone().unwrap_or_default();
         endpoint.client_random_auth_key = self.client_random_auth_key.clone().unwrap_or_default();
+        endpoint.tls_profile = self
+            .tls_profile
+            .clone()
+            .unwrap_or_else(Endpoint::default_tls_profile);
     }
 
     fn validate(&self) -> Result<(), SubscriptionError> {
@@ -84,6 +90,13 @@ impl SubscriptionResponse {
                 "unrecognized upstream_protocol '{}'",
                 self.upstream_protocol
             )));
+        }
+        if let Some(profile) = self.tls_profile.as_deref() {
+            if !Endpoint::is_valid_tls_profile(profile) {
+                return Err(SubscriptionError::InvalidDocument(format!(
+                    "unrecognized tls_profile '{profile}'"
+                )));
+            }
         }
         Ok(())
     }
@@ -117,6 +130,7 @@ mod tests {
         assert!(response.certificate.is_none());
         assert!(response.client_random_prefix.is_none());
         assert!(response.client_random_auth_key.is_none());
+        assert!(response.tls_profile.is_none());
         assert!(response.name.is_none());
         assert!(response.dns_upstreams.is_none());
     }
@@ -156,6 +170,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unknown_tls_profile() {
+        let mut doc = valid_document();
+        doc["tls_profile"] = serde_json::json!("netscape");
+        let err = SubscriptionResponse::from_json(&doc.to_string()).unwrap_err();
+        assert!(err.to_string().contains("tls_profile"), "unexpected: {err}");
+    }
+
+    #[test]
     fn ignores_unrecognized_fields() {
         let mut doc = valid_document();
         doc["future_field"] = serde_json::json!({"anything": true});
@@ -187,6 +209,7 @@ mod tests {
                 "certificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n",
                 "custom_sni": "sni.example.com",
                 "client_random_prefix": "aabb/16",
+                "tls_profile": "chrome_canary",
                 "name": "Ignored Name",
                 "dns_upstreams": ["tls://9.9.9.9"]
             })
@@ -215,6 +238,7 @@ mod tests {
     fn overlays_all_live_fields() {
         let mut ep = endpoint();
         ep.client_random_auth_key = "deadbeef".to_string();
+        ep.tls_profile = "firefox".to_string();
         response().apply_to(&mut ep);
         assert_eq!(ep.hostname, "new.example.com");
         assert_eq!(ep.addresses, vec!["5.6.7.8:443".to_string()]);
@@ -231,6 +255,7 @@ mod tests {
         assert_eq!(ep.custom_sni, "sni.example.com");
         assert_eq!(ep.client_random, "aabb/16");
         assert_eq!(ep.client_random_auth_key, "");
+        assert_eq!(ep.tls_profile, "chrome_canary");
     }
 
     #[test]
@@ -280,6 +305,7 @@ mod tests {
             custom_sni: "old-sni".to_string(),
             client_random: "ff/8".to_string(),
             client_random_auth_key: "deadbeef".to_string(),
+            tls_profile: "firefox".to_string(),
             ..endpoint()
         };
         response.apply_to(&mut ep);
@@ -287,5 +313,6 @@ mod tests {
         assert_eq!(ep.custom_sni, "");
         assert_eq!(ep.client_random, "");
         assert_eq!(ep.client_random_auth_key, "");
+        assert_eq!(ep.tls_profile, Endpoint::default_tls_profile());
     }
 }

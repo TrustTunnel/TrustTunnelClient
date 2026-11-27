@@ -80,6 +80,14 @@ impl Endpoint {
         }
     }
 
+    /// Return whether `profile` names a TLS ClientHello profile accepted by
+    /// the client loader. A deprecated alias is accepted and canonicalized.
+    pub fn is_valid_tls_profile(profile: &str) -> bool {
+        Endpoint::canonical_tls_profile(profile)
+            .parse::<TlsProfile>()
+            .is_ok()
+    }
+
     pub fn default_anti_dpi() -> bool {
         false
     }
@@ -374,6 +382,29 @@ mod tests {
             let config = deeplink_config_from_endpoint(&endpoint).unwrap();
             let expected = (profile != TlsProfile::Chrome).then_some(profile);
             assert_eq!(config.tls_profile, expected);
+        }
+    }
+
+    #[test]
+    fn test_is_valid_tls_profile_accepts_known_names_and_alias() {
+        for name in [
+            "chrome",
+            "chrome_canary",
+            "safari",
+            "firefox",
+            "okhttp",
+            "openssl",
+            "boringssl",
+            "default",
+        ] {
+            assert!(Endpoint::is_valid_tls_profile(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn test_is_valid_tls_profile_rejects_unknown_names() {
+        for name in ["", "netscape", "Chrome", "chrome-canary"] {
+            assert!(!Endpoint::is_valid_tls_profile(name), "{name}");
         }
     }
 
