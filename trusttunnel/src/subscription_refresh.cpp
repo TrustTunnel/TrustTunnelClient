@@ -14,7 +14,7 @@
 
 namespace ag {
 
-Logger g_logger("SUBSCRIPTION_REFRESH");
+static Logger g_logger("SUBSCRIPTION_REFRESH");
 
 using FfiString = std::unique_ptr<char, decltype(&trusttunnel_subscription_string_free)>;
 
