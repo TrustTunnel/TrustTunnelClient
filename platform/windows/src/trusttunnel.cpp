@@ -100,6 +100,8 @@ private:
 };
 
 struct trusttunnel_s {
+    // Serializes every call to `client`: the network monitor thread and the caller thread share it.
+    std::mutex client_mutex;
     std::unique_ptr<ag::TrustTunnelClient> client;
     std::unique_ptr<ag::AutoNetworkMonitor> network_monitor;
 };
@@ -160,7 +162,8 @@ trusttunnel_t *trusttunnel_start_ex(const char *toml_config, bool fall_into_reco
 
     vpn->client = std::make_unique<ag::TrustTunnelClient>(std::move(*trusttunnel_config), std::move(callbacks));
     vpn->network_monitor = std::make_unique<ag::AutoNetworkMonitor>(
-            [client = vpn->client.get()](ag::VpnNetworkState state) {
+            [client = vpn->client.get(), mutex = &vpn->client_mutex](ag::VpnNetworkState state) {
+                std::lock_guard lock(*mutex);
                 client->notify_network_change(state);
             },
             std::move(bound_if));
@@ -171,9 +174,12 @@ trusttunnel_t *trusttunnel_start_ex(const char *toml_config, bool fall_into_reco
     ag::TrustTunnelClient::ConnectOptions options{
             .fall_into_recovery = fall_into_recovery,
     };
-    if (auto connect_error = vpn->client->connect(ag::TrustTunnelClient::AutoSetup{}, options)) {
-        errlog(g_logger, "Failed to connect: {}", connect_error->pretty_str());
-        return nullptr;
+    {
+        std::lock_guard lock(vpn->client_mutex);
+        if (auto connect_error = vpn->client->connect(ag::TrustTunnelClient::AutoSetup{}, options)) {
+            errlog(g_logger, "Failed to connect: {}", connect_error->pretty_str());
+            return nullptr;
+        }
     }
 
     return vpn.release();
@@ -183,11 +189,13 @@ void trusttunnel_stop_ex(trusttunnel_t *vpn) {
     if (!vpn) {
         return;
     }
-    if (vpn->client) {
-        vpn->client->disconnect();
-    }
     if (vpn->network_monitor) {
+        // No network change callback can run after this returns.
         vpn->network_monitor->stop();
+    }
+    if (vpn->client) {
+        std::lock_guard lock(vpn->client_mutex);
+        vpn->client->disconnect();
     }
     delete vpn;
 }
