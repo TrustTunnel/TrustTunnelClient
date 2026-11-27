@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added the Linux platform adapter C API library (`libtrusttunnel.a`, `include/trusttunnel/trusttunnel.h`) with `start`/`stop` and `start_ex`/`stop_ex` operations, VPN state callbacks, and JSON connection-info events.
+
 ### Changed
 
 - The library now uses 3 parallel HTTP/2 sessions with up to 8 connections on each by default (previously 8 sessions and 5 connections); `VpnEndpoint::http2_sessions_num` sets the maximum number of parallel HTTP/2 sessions with the endpoint (ignored for HTTP/3).
