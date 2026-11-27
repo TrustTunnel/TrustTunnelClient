@@ -27,6 +27,7 @@ static void prepare_for_recovery_nc(void *ctx, void *data);
 static void reconnect_client(void *ctx, void *data);
 static void finalize_recovery(void *ctx, void *data);
 static void do_disconnect(void *ctx, void *data);
+static void disconnect_with_error(void *ctx, void *data);
 static void start_listening(void *ctx, void *data);
 static void on_wrong_connect_state(void *ctx, void *data);
 static void on_wrong_listen_state(void *ctx, void *data);
@@ -77,7 +78,7 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {VPN_SS_WAITING_RECOVERY, CE_NETWORK_CHANGE,      Fsm::OTHERWISE,           run_ping,               VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_DO_RECOVERY,         need_to_ping_on_recovery, run_ping,               VPN_SS_RECOVERING,       raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_DO_RECOVERY,         Fsm::OTHERWISE,           connect_client,         VPN_SS_RECOVERING,       raise_state},
-        {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
+        {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, is_fatal_error,           disconnect_with_error,  VPN_SS_DISCONNECTED,     raise_state},
         {VPN_SS_WAITING_RECOVERY, CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           Fsm::DO_NOTHING,        Fsm::SAME_TARGET_STATE,  Fsm::DO_NOTHING},
         {VPN_SS_WAITING_RECOVERY, CE_ABANDON_ENDPOINT,    is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
 
@@ -95,7 +96,7 @@ static constexpr FsmTransitionEntry TRANSITION_TABLE[] = {
         {VPN_SS_WAITING_FOR_NETWORK, CE_NETWORK_CHANGE,   no_connect_attempts,      fail_connect_with_no_attempts, VPN_SS_DISCONNECTED,     raise_state},
         {VPN_SS_WAITING_FOR_NETWORK, CE_NETWORK_CHANGE,   Fsm::OTHERWISE,           retry_connect,                 VPN_SS_CONNECTING,       raise_state},
 
-        {Fsm::ANY_SOURCE_STATE,   CE_CLIENT_DISCONNECTED, is_fatal_error,           do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
+        {Fsm::ANY_SOURCE_STATE,   CE_CLIENT_DISCONNECTED, is_fatal_error,           disconnect_with_error,  VPN_SS_DISCONNECTED,     raise_state},
         {Fsm::ANY_SOURCE_STATE,   CE_CLIENT_DISCONNECTED, Fsm::OTHERWISE,           prepare_for_recovery,   VPN_SS_WAITING_RECOVERY, raise_state},
         {Fsm::ANY_SOURCE_STATE,   CE_SHUTDOWN,            Fsm::ANYWAY,              do_disconnect,          VPN_SS_DISCONNECTED,     raise_state},
         {Fsm::ANY_SOURCE_STATE,   CE_DO_CONNECT,          Fsm::ANYWAY,              on_wrong_connect_state, VPN_SS_DISCONNECTED,     raise_state},
@@ -433,6 +434,17 @@ static void do_disconnect(void *ctx, void *) {
     vpn->disconnect();
 
     log_vpn(vpn, trace, "Done");
+}
+
+// Keep the error passed with the transition so that it is reported in the
+// state changed event. Used by fatal transitions whose data is a `VpnError`.
+static void disconnect_with_error(void *ctx, void *data) {
+    Vpn *vpn = (Vpn *) ctx;
+    const auto *error = (const VpnError *) data;
+    if (!vpn->pending_error.has_value() && error != nullptr && error->code != VPN_EC_NOERROR) {
+        vpn->pending_error = *error;
+    }
+    do_disconnect(ctx, data);
 }
 
 static void start_listening(void *ctx, void *data) {

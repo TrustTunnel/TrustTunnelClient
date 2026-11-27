@@ -100,17 +100,34 @@ vpn_client::EndpointConnectionConfig Vpn::make_client_upstream_config() const {
     if (this->selected_endpoint->relay.has_value()) {
         AutoVpnRelay relay = vpn_relay_clone(this->selected_endpoint->relay.value().get());
         // NOLINTEND(bugprone-unchecked-optional-access)
+        // The TLS connection goes to the relay, so the relay TLS settings replace the endpoint ones as
+        // a whole set, as they do for a ping through the relay.
         endpoint->address = relay->address;
         std::swap(endpoint->additional_data.data, relay->additional_data.data);
         std::swap(endpoint->additional_data.size, relay->additional_data.size);
+        std::swap(endpoint->tls_client_random.data, relay->tls_client_random.data);
+        std::swap(endpoint->tls_client_random.size, relay->tls_client_random.size);
+        std::swap(endpoint->tls_client_random_mask.data, relay->tls_client_random_mask.data);
+        std::swap(endpoint->tls_client_random_mask.size, relay->tls_client_random_mask.size);
+        std::swap(endpoint->tls_client_random_auth_key.data, relay->tls_client_random_auth_key.data);
+        std::swap(endpoint->tls_client_random_auth_key.size, relay->tls_client_random_auth_key.size);
+        endpoint->tls_profile = relay->tls_profile;
     }
     auto ip_availability = IpVersionSet{}.set(IPV4);
     if (endpoint->has_ipv6) {
         ip_availability.set(IPV6);
     }
+    VpnUpstreamProtocolConfig main_protocol{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2};
+    if (main_protocol.type == VPN_UP_HTTP2) {
+        // The session number is a property of the endpoint, so a relay does not replace it
+        uint32_t sessions_num = endpoint->http2_sessions_num;
+        if (sessions_num == 0) {
+            sessions_num = VPN_DEFAULT_HTTP2_SESSIONS_NUM;
+        }
+        main_protocol.http2.connections_num = std::min(sessions_num, VPN_MAX_HTTP2_SESSIONS_NUM);
+    }
     return {
-            .main_protocol =
-                    VpnUpstreamProtocolConfig{.type = this->client.quic_connector ? VPN_UP_HTTP3 : VPN_UP_HTTP2},
+            .main_protocol = main_protocol,
             .fallback = VpnUpstreamFallbackConfig{},
             .endpoint = std::move(endpoint),
             .timeout = Millis{this->upstream_config->timeout_ms},
@@ -175,6 +192,8 @@ bool Vpn::run_event_loop() {
         }
     });
 
+    // The startup wait still dispatches under `stop_guard`. It only waits for tasks queued before `vpn_connect()`;
+    // they do not raise state-change events in `VPN_SS_DISCONNECTED`, so no deadlock has been observed here.
     if (!vpn_event_loop_dispatch_sync(this->ev_loop.get(), nullptr, nullptr)) {
         log_vpn(this, err, "Event loop did not start");
         vpn_event_loop_stop(this->ev_loop.get());
@@ -382,16 +401,27 @@ VpnError vpn_listen(Vpn *vpn, VpnListener *listener_, const VpnListenerConfig *c
 
     std::unique_lock l(vpn->stop_guard);
 
-    if (!vpn->executor_thread.joinable()) {
+    if (!vpn->executor_thread.joinable() || vpn->ev_loop == nullptr) {
         VpnError error = {VPN_EC_ERROR, "VPN client worker is not running"};
         log_vpn(vpn, err, "{}", error.text);
         return error;
     }
 
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         StartListeningArgs args{.listener = std::move(listener), .config = config};
         vpn->fsm.perform_transition(vpn_fsm::CE_START_LISTENING, &args);
     });
+    if (vpn->ev_loop == nullptr || !vpn->executor_thread.joinable()) {
+        VpnError error = {VPN_EC_ERROR, "VPN client was stopped"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
+    if (!executed) {
+        VpnError error = {VPN_EC_ERROR, "VPN client event loop is not running"};
+        log_vpn(vpn, err, "{}", error.text);
+        return error;
+    }
 
     log_vpn(vpn, info, "Done");
 
@@ -450,11 +480,6 @@ void vpn_close(Vpn *vpn) {
 
     log_vpn(vpn, info, "Done");
     delete vpn;
-}
-
-VpnListenerConfig vpn_get_listener_config(const Vpn *vpn) {
-    std::unique_lock l(vpn->stop_guard);
-    return vpn_listener_config_clone(&vpn->client.listener_config);
 }
 
 VpnListenerConfig vpn_listener_config_clone(const VpnListenerConfig *config) {
@@ -868,10 +893,18 @@ VpnListener *vpn_create_socks_listener(Vpn *, const VpnSocksListenerConfig *conf
 
 SocketAddressStorage vpn_get_socks_listener_address(Vpn *vpn) {
     SocketAddressStorage ret{};
-    std::scoped_lock l(vpn->stop_guard);
-    event_loop::dispatch_sync(vpn->ev_loop.get(), [&]() mutable {
+    std::unique_lock l(vpn->stop_guard);
+    if (vpn->ev_loop == nullptr) {
+        return ret;
+    }
+
+    // The lock is released while waiting, so that event handlers can call library functions that acquire it.
+    bool executed = event_loop::dispatch_sync(vpn->ev_loop.get(), l, [&]() mutable {
         ret = *vpn->client.socks_listener_address.c_storage();
     });
+    if (vpn->ev_loop == nullptr || !executed) {
+        return {};
+    }
     return ret;
 }
 

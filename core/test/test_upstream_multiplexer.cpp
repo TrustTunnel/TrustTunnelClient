@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <numeric>
 #include <unordered_set>
 
@@ -65,6 +66,7 @@ protected:
     DeclPtr<VpnEventLoop, &vpn_event_loop_destroy> ev_loop{vpn_event_loop_create()};
     VpnClient vpn;
     int events = 0;
+    size_t upstreams_num = 0; // 0 means the default number
 
     static void upstream_handler(void *arg, ServerEvent what, void *) {
         auto *test = (UpstreamMuxTest *) arg;
@@ -75,11 +77,12 @@ protected:
         g_open_session_result = true;
 
         this->vpn.parameters.cert_verify_handler = {&cert_verify_handler, this};
-        this->vpn.endpoint_upstream = std::make_unique<UpstreamMultiplexer>(0, VpnUpstreamProtocolConfig{}, 0,
-                [](const VpnUpstreamProtocolConfig &, int id, VpnClient *vpn,
-                        ServerHandler handler) -> std::unique_ptr<MultiplexableUpstream> {
-                    return std::make_unique<TestUpstream>(id, vpn, handler);
-                });
+        this->vpn.endpoint_upstream =
+                std::make_unique<UpstreamMultiplexer>(0, VpnUpstreamProtocolConfig{}, this->upstreams_num,
+                        [](const VpnUpstreamProtocolConfig &, int id, VpnClient *vpn,
+                                ServerHandler handler) -> std::unique_ptr<MultiplexableUpstream> {
+                            return std::make_unique<TestUpstream>(id, vpn, handler);
+                        });
         ASSERT_TRUE(this->vpn.endpoint_upstream->init(&this->vpn, {upstream_handler, this}));
 
         ASSERT_TRUE(this->vpn.endpoint_upstream->open_session());
@@ -275,6 +278,28 @@ TEST_F(UpstreamMuxTest, UpstreamsNumCap) {
         }
     }
 }
+
+class UpstreamMuxConfiguredNumTest : public UpstreamMuxTest, public testing::WithParamInterface<size_t> {
+protected:
+    UpstreamMuxConfiguredNumTest() {
+        this->upstreams_num = GetParam();
+    }
+};
+
+// Check that the upstreams number grows up to the configured number, or to the default one if it is 0
+TEST_P(UpstreamMuxConfiguredNumTest, UpstreamsNumCap) {
+    size_t cap = (GetParam() == 0) ? UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM : GetParam();
+    for (size_t i = 0; i < 2 * UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD * cap; ++i) {
+        ASSERT_NO_FATAL_FAILURE(open_connection());
+        ASSERT_EQ(g_upstreams.size(),
+                std::min(cap, 1 + (i / UpstreamMultiplexer::NEW_UPSTREAM_CONNECTIONS_NUM_THRESHOLD)))
+                << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(UpstreamsNum, UpstreamMuxConfiguredNumTest,
+        testing::Values(0, 1, UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM - 1,
+                UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM, UpstreamMultiplexer::DEFAULT_UPSTREAMS_NUM + 2));
 
 // Check that the least loaded upstream is selected for new connection
 TEST_F(UpstreamMuxTest, LeastLoaded) {

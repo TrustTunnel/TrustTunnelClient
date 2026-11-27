@@ -1,3 +1,5 @@
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -275,4 +277,163 @@ TEST_F(EventLoopTest, StopSubmitRun) {
     m_ev_loop.reset();
     ASSERT_TRUE(ctx.ran);
     ASSERT_TRUE(ctx.finalized);
+}
+
+TEST_F(EventLoopTest, DispatchSyncUnlocksCallerLock) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+
+    std::mutex guard;
+    bool action_ran = false;
+    {
+        std::unique_lock l(guard);
+        bool executed = event_loop::dispatch_sync(m_ev_loop.get(), l, [&] {
+            // The event loop thread must be able to acquire the guard: the caller releases it while waiting.
+            std::unique_lock guard_l(guard);
+            action_ran = true;
+        });
+        EXPECT_TRUE(executed);
+        EXPECT_TRUE(l.owns_lock());
+    }
+    EXPECT_TRUE(action_ran);
+}
+
+TEST_F(EventLoopTest, DispatchSyncUnlockedOnStoppedLoopReturnsFalse) {
+    run_event_loop();
+    // Wait for the loop thread to enter the loop before stopping it. Without this handshake the stop may run while
+    // the loop is still stopped, leaving the exit request pending and the test hanging.
+    ASSERT_TRUE(event_loop::dispatch_sync(m_ev_loop.get(), [] {}));
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    std::mutex guard;
+    std::unique_lock l(guard);
+    EXPECT_FALSE(event_loop::dispatch_sync(m_ev_loop.get(), l, [] {}));
+    EXPECT_TRUE(l.owns_lock());
+}
+
+TEST_F(EventLoopTest, FinalizeExitCallsFinalizeWithoutLock) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool finalized = false;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // Finalizers run without `loop->guard`, so re-entering the loop API must not
+                                // deadlock.
+                                vpn_event_loop_cancel(ctx->loop, -1);
+                                ctx->finalized = true;
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_TRUE(ctx.finalized);
+}
+
+TEST_F(EventLoopTest, SubmitDuringFinalizationIsFinalizedImmediately) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool nested_finalized = false;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // The loop is finalizing, so a new task cannot be queued for a future run: it must be
+                                // finalized immediately.
+                                vpn_event_loop_submit(ctx->loop,
+                                        {
+                                                .arg = &ctx->nested_finalized,
+                                                .action = [](void *, TaskId) {},
+                                                .finalize =
+                                                        [](void *arg) {
+                                                            *(bool *) arg = true;
+                                                        },
+                                        });
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_TRUE(ctx.nested_finalized);
+}
+
+TEST_F(EventLoopTest, ScheduleWithoutFinalizerDuringFinalization) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        TaskId id = 0;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_submit(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action = [](void *, TaskId) {},
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // Scheduling a task without a finalizer while finalizing must not crash.
+                                ctx->id = vpn_event_loop_schedule(
+                                        ctx->loop, {.arg = nullptr, .action = nullptr, .finalize = nullptr}, Millis{1});
+                            },
+            });
+
+    vpn_event_loop_stop(m_ev_loop.get());
+    EXPECT_EQ(ctx.id, -1);
+}
+
+// Check that stopping a running loop finalizes a scheduled task and that running the loop afterwards fails
+TEST_F(EventLoopTest, StopFinalizesScheduledTaskWhileLoopRunning) {
+    run_event_loop();
+    event_loop::dispatch_sync(m_ev_loop.get(), [] {});
+
+    struct Ctx {
+        VpnEventLoop *loop;
+        bool finalized = false;
+        int run_result = 0;
+    };
+    Ctx ctx{.loop = m_ev_loop.get()};
+    vpn_event_loop_schedule(m_ev_loop.get(),
+            {
+                    .arg = &ctx,
+                    .action =
+                            [](void *, TaskId) {
+                                ADD_FAILURE() << "scheduled task must not run";
+                            },
+                    .finalize =
+                            [](void *arg) {
+                                auto *ctx = (Ctx *) arg;
+                                // Re-entering the loop API from a finalizer must not deadlock.
+                                vpn_event_loop_cancel(ctx->loop, -1);
+                                // The loop is finalizing, so run must reject this call and not block.
+                                ctx->run_result = vpn_event_loop_run(ctx->loop);
+                                ctx->finalized = true;
+                            },
+            },
+            Millis{3600 * 1000});
+
+    // The loop is running here; stop must finalize the scheduled task.
+    vpn_event_loop_stop(m_ev_loop.get());
+
+    EXPECT_TRUE(ctx.finalized);
+    EXPECT_EQ(ctx.run_result, -1);
 }

@@ -1,9 +1,9 @@
 name: Build console apps
 
-# Reusable workflow that builds the trusttunnel_client and setup_wizard console
-# apps for Linux, macOS and Windows, signs/notarizes them, and collects every
-# platform archive into a single `release-artifacts` artifact for the caller to
-# attach to a GitHub Release.
+# Reusable workflow that builds the trusttunnel_client console app for Linux,
+# macOS and Windows, signs/notarizes it, and collects every platform archive
+# into a single `release-artifacts` artifact for the caller to attach to a
+# GitHub Release.
 
 on:
   workflow_dispatch:
@@ -32,18 +32,13 @@ jobs:
 # Stage 1: Build artifacts (parallel)
 # =============================================================================
 
-  resolve-images:
-    if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    uses: AdGuardSoftwareLimited/native-libs-common/.github/workflows/resolve-images.yml@master
-
   build-linux:
     name: Linux build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-linux
-      - ${{ needs.resolve-images.outputs.corelibs-builder }}
+      - registry.int.agrd.dev/linux/corelibs-builder:@edge
       - ephemeral-limit-memory-8192
       - ephemeral-limit-cpu-6
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
@@ -125,17 +120,12 @@ jobs:
             NAME=trusttunnel_client-v${VERSION}-linux-${ARCH}
             pushd ${BUILD_DIR}/trusttunnel
               llvm-strip trusttunnel_client
-              llvm-strip setup_wizard
               gpg --default-key "${GPG_KEY}" --detach-sig \
                   --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
                   trusttunnel_client
-              gpg --default-key "${GPG_KEY}" --detach-sig \
-                  --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                  setup_wizard
               cp ../../LICENSE .
               tar zcf ${NAME}.tar.gz --transform "s,^,${NAME}/," \
-                trusttunnel_client trusttunnel_client.sig \
-                setup_wizard setup_wizard.sig LICENSE
+                trusttunnel_client trusttunnel_client.sig LICENSE
               mv ${NAME}.tar.gz ${ARTIFACTS_DIR}/
             popd
           done
@@ -161,11 +151,10 @@ jobs:
   build-macos:
     name: Mac build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-mac
-      - ${{ needs.resolve-images.outputs.macos }}
+      - registry.int.agrd.dev/macos/tahoe-github-xcode27-26.11:@edge
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
     permissions:
       contents: read
@@ -269,36 +258,23 @@ jobs:
               ../build_arm64/trusttunnel/trusttunnel_client \
               ../build_x86_64/trusttunnel/trusttunnel_client
             strip trusttunnel_client
-            lipo -create -output setup_wizard \
-              ../build_arm64/trusttunnel/setup_wizard \
-              ../build_x86_64/trusttunnel/setup_wizard
-            strip setup_wizard
           popd
 
-      - name: Code sign binaries
+      - name: Code sign binary
         env:
           CODESIGN_IDENTITY: "Developer ID Application: Adguard Software Limited (TC3Q7MAJXF)"
           CODESIGN_IDENTIFIER: "com.adguard.trusttunnel.client.main"
-          CODESIGN_IDENTIFIER_WIZARD: "com.adguard.trusttunnel.client.wizard"
           KEYCHAIN_PATH: ${{ runner.temp }}/trusttunnel-signing.keychain-db
         run: |
           set -x -e
           security unlock-keychain -p "" "${KEYCHAIN_PATH}"
           codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER}" \
             --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/trusttunnel_client
-          codesign -s "${CODESIGN_IDENTITY}" -i "${CODESIGN_IDENTIFIER_WIZARD}" \
-            --keychain "${KEYCHAIN_PATH}" --options=runtime build_universal/setup_wizard
 
       - name: Notarize trusttunnel_client
         uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
         with:
           bundle_path: ${{ github.workspace }}/build_universal/trusttunnel_client
-          vault_url: ${{ vars.VAULT_URL }}
-
-      - name: Notarize setup_wizard
-        uses: AdGuardSoftwareLimited/actions/actions/notarize-macos-app@master
-        with:
-          bundle_path: ${{ github.workspace }}/build_universal/setup_wizard
           vault_url: ${{ vars.VAULT_URL }}
 
       # Builds the Developer ID signed app bundle next to the CLI binary, where the CLI
@@ -326,15 +302,11 @@ jobs:
             gpg --default-key "${GPG_KEY}" --detach-sig \
                 --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
                 trusttunnel_client
-            gpg --default-key "${GPG_KEY}" --detach-sig \
-                --passphrase "${GPG_PASSWORD}" --pinentry-mode loopback \
-                setup_wizard
             cp ../LICENSE .
 
             NAME=trusttunnel_client-v${VERSION}-macos-universal
             tar zcf ${NAME}.tar.gz -s ",^,${NAME}/," \
               trusttunnel_client trusttunnel_client.sig \
-              setup_wizard setup_wizard.sig \
               "TrustTunnel CLI System Extension Manager.app" \
               LICENSE
           popd
@@ -359,11 +331,10 @@ jobs:
   build-windows:
     name: Windows build
     if: github.repository == 'AdGuardSoftwareLimited/trusttunnel-client'
-    needs: [resolve-images]
     runs-on:
       - ephemeral
       - ephemeral-vmwin
-      - ${{ needs.resolve-images.outputs.windows }}
+      - registry.int.agrd.dev/windows/windows2022-vs2022:@edge
       - ephemeral-limit-memory-6144
       - ephemeral-limit-cpu-8
       - ephemeral-job-key-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || 0 }}
@@ -414,7 +385,7 @@ jobs:
               # configured into its own directory.
               & cmake --preset msvc-relwithdebinfo -B $BuildDir
               if (!$?) { exit 1 }
-              & cmake --build $BuildDir --target trusttunnel_client setup_wizard
+              & cmake --build $BuildDir --target trusttunnel_client
               if (!$?) { exit 1 }
             }
 
@@ -422,7 +393,6 @@ jobs:
             # sign-by-signer.yml workflow (sign-windows job) and packaged by package-windows.
             New-Item -ItemType Directory -Force -Path "unsigned\$ArchName" | Out-Null
             Copy-Item -Force "$BuildDir\trusttunnel\trusttunnel_client.exe" "unsigned\$ArchName\trusttunnel_client.exe"
-            Copy-Item -Force "$BuildDir\trusttunnel\setup_wizard.exe" "unsigned\$ArchName\setup_wizard.exe"
           }
 
           Build "build64" $vcvars64 "x86_64"
@@ -505,13 +475,12 @@ jobs:
             local stage="stage/${arch}"
             mkdir -p "${stage}"
             cp "signed/${arch}/trusttunnel_client.exe" "${stage}/trusttunnel_client.exe"
-            cp "signed/${arch}/setup_wizard.exe"       "${stage}/setup_wizard.exe"
             cp LICENSE                                 "${stage}/LICENSE.txt"
             cp "wintun/wintun/bin/${wintun_subdir}/wintun.dll" "${stage}/wintun.dll"
             cp "wintun/wintun/LICENSE.txt"             "${stage}/WINTUN_LICENSE.txt"
             # Flat zip (files at the archive root), matching the previous layout.
             ( cd "${stage}" && zip -q -X "${GITHUB_WORKSPACE}/artifacts/${name}.zip" \
-                trusttunnel_client.exe setup_wizard.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
+                trusttunnel_client.exe LICENSE.txt wintun.dll WINTUN_LICENSE.txt )
           }
 
           package x86_64 amd64

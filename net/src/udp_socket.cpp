@@ -29,6 +29,7 @@ struct UdpSocket {
     struct timeval timeout_ts;
     UdpSocketParameters parameters;
     std::optional<int> subscribe_id;
+    int id;
     char log_id[LOG_ID_PREFIX_SIZE + SOCKADDR_STR_BUF_SIZE];
 };
 
@@ -72,6 +73,9 @@ static void timer_callback(void *arg, struct timeval now) {
 
     if (timercmp(&sock->timeout_ts, &now, <)) {
         log_sock(sock, dbg, "Timed out");
+        // Raise the event once per timeout period, not on every timer tick until the next read or write.
+        // Set the next deadline before the handler is called, because the handler may destroy the socket.
+        sock->timeout_ts = get_next_timeout_ts(sock);
         sock->parameters.handler.func(sock->parameters.handler.arg, UDP_SOCKET_EVENT_TIMEOUT, nullptr);
     }
 }
@@ -94,7 +98,8 @@ static UdpSocket *udp_socket_create_inner(const UdpSocketParameters *parameters,
 
     sock->parameters = *parameters;
 
-    snprintf(sock->log_id, sizeof(sock->log_id), "id=%d/%s", g_next_id.fetch_add(1), parameters->peer.str().c_str());
+    sock->id = g_next_id.fetch_add(1);
+    snprintf(sock->log_id, sizeof(sock->log_id), "id=%d/%s", sock->id, parameters->peer.str().c_str());
 
     const SocketAddress *peer = &sock->parameters.peer;
     if (fd < 0) {
@@ -232,6 +237,10 @@ VpnError udp_socket_write(UdpSocket *socket, const uint8_t *data, size_t length)
 
 evutil_socket_t udp_socket_get_fd(const UdpSocket *socket) {
     return event_get_fd(socket->event);
+}
+
+int udp_socket_get_id(const UdpSocket *socket) {
+    return socket->id;
 }
 
 ssize_t udp_socket_recv(UdpSocket *socket, uint8_t *buffer, size_t cap) {

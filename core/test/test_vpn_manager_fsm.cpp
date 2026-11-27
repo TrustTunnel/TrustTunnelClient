@@ -1,4 +1,10 @@
+#include <atomic>
 #include <condition_variable>
+#include <cstdlib>
+#include <functional>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -67,6 +73,8 @@ protected:
     int raised_events = 0;
     VpnError vpn_error{};
     FsmState vpn_state = 0;
+    /** Called from the event handler before it takes the test lock; used by tests to block the event loop. */
+    std::function<void(VpnEvent)> handler_hook;
 
     void SetUp() override {
         infolog(log, "\n\n{}(): ...\n\n", __func__);
@@ -75,6 +83,7 @@ protected:
 
         raised_events = 0;
         vpn_error = {};
+        handler_hook = nullptr;
 
         upstream = {};
         upstream.username = "test";
@@ -92,6 +101,10 @@ protected:
         infolog(log, "\n\n{}(): ...\n\n", __func__);
 
         if (vpn != nullptr) {
+            {
+                std::scoped_lock l(this->guard);
+                handler_hook = nullptr;
+            }
             vpn_stop(vpn);
             vpn_close(vpn);
         }
@@ -223,6 +236,16 @@ protected:
 
 static void vpn_handler(void *arg, VpnEvent what, void *data) {
     VpnManagerTest *test = (VpnManagerTest *) arg;
+
+    std::function<void(VpnEvent)> hook;
+    {
+        std::scoped_lock l(test->guard);
+        hook = test->handler_hook;
+    }
+    if (hook) {
+        hook(what);
+    }
+
     std::unique_lock l(test->guard);
     test->raised_events |= 1 << what;
     test->vpn_state = test->vpn->fsm.get_state();
@@ -283,6 +306,101 @@ TEST_F(VpnManagerTest, SuccessfulConnect) {
         }
     }
     ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoints[std::size(endpoints) - 1]));
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+}
+
+class VpnManagerHttp2SessionsNumTest : public VpnManagerTest,
+                                       public testing::WithParamInterface<std::pair<uint32_t, uint32_t>> {};
+
+// Check that the endpoint number of HTTP/2 sessions, with the default and the limit applied, reaches the client
+TEST_P(VpnManagerHttp2SessionsNumTest, PassedToClient) {
+    auto [configured, expected] = GetParam();
+    VpnEndpoint endpoint = {sockaddr_from_str("127.0.0.1:443"), "localhost"};
+    endpoint.http2_sessions_num = configured;
+    upstream.location = VpnLocation{"1", {&endpoint, 1}};
+
+    ASSERT_NO_FATAL_FAILURE(start_connect());
+    ASSERT_NO_FATAL_FAILURE(ping_location());
+    ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoint));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.type, VPN_UP_HTTP2);
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, expected);
+}
+
+INSTANTIATE_TEST_SUITE_P(Http2SessionsNum, VpnManagerHttp2SessionsNumTest,
+        testing::Values(std::pair{0U, VPN_DEFAULT_HTTP2_SESSIONS_NUM}, std::pair{1U, 1U},
+                std::pair{VPN_MAX_HTTP2_SESSIONS_NUM, VPN_MAX_HTTP2_SESSIONS_NUM},
+                std::pair{UINT32_MAX, VPN_MAX_HTTP2_SESSIONS_NUM}));
+
+// Check that each connection attempt uses the number of HTTP/2 sessions of the selected endpoint
+TEST_F(VpnManagerTest, Http2SessionsNumOfSelectedEndpoint) {
+    VpnEndpoint endpoints[] = {
+            {.address = sockaddr_from_str("127.0.0.1:443"), .name = "localhost", .http2_sessions_num = 2},
+            {.address = sockaddr_from_str("127.0.0.2:443"), .name = "localhost", .http2_sessions_num = 5},
+    };
+    upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
+
+    ASSERT_NO_FATAL_FAILURE(start_connect(std::size(endpoints)));
+
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[0]}));
+    ASSERT_NO_FATAL_FAILURE(connect_client_fail(VPN_EC_ERROR, &endpoints[0]));
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, 2);
+
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{vpn->upstream_config->location.id, 10, &endpoints[1]}));
+    ASSERT_NO_FATAL_FAILURE(connect_client_ok(&endpoints[1]));
+    ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
+    ASSERT_NO_FATAL_FAILURE(check_connect_result());
+    ASSERT_EQ(this->vpn->client.upstream_config.main_protocol.http2.connections_num, 5);
+}
+
+// Through a relay, the tunnel connects to the relay address with the relay TLS settings,
+// and keeps the endpoint number of HTTP/2 sessions
+TEST_F(VpnManagerTest, SuccessfulConnectThroughRelay) {
+    uint8_t endpoint_random[] = {1, 1};
+    uint8_t relay_data[] = {2, 2};
+    uint8_t relay_random[] = {3, 3};
+    uint8_t relay_random_mask[] = {4, 4};
+    uint8_t relay_random_auth_key[] = {5, 5};
+    VpnEndpoint endpoints[] = {
+            {.address = sockaddr_from_str("127.0.0.1:443"),
+                    .name = "localhost",
+                    .tls_client_random = {endpoint_random, std::size(endpoint_random)},
+                    .tls_profile = VPN_TLS_PROFILE_FIREFOX,
+                    .http2_sessions_num = 5},
+    };
+    upstream.location = VpnLocation{"1", {endpoints, std::size(endpoints)}};
+    VpnRelay relay{
+            .address = sockaddr_from_str("127.0.0.9:443"),
+            .additional_data = {relay_data, std::size(relay_data)},
+            .tls_client_random = {relay_random, std::size(relay_random)},
+            .tls_client_random_mask = {relay_random_mask, std::size(relay_random_mask)},
+            .tls_client_random_auth_key = {relay_random_auth_key, std::size(relay_random_auth_key)},
+            .tls_profile = VPN_TLS_PROFILE_SAFARI,
+    };
+
+    ASSERT_NO_FATAL_FAILURE(start_connect(1));
+    ASSERT_NO_FATAL_FAILURE(ping_location(LocationsPingerResult{
+            .id = vpn->upstream_config->location.id, .ping_ms = 10, .endpoint = &endpoints[0], .relay = &relay}));
+
+    ASSERT_TRUE(test_mock::g_client.wait_called(test_mock::CMID_CONNECT));
+    const VpnEndpoint *connected = this->vpn->client.upstream_config.endpoint.get();
+    ASSERT_STREQ("localhost", connected->name);
+    ASSERT_EQ(SocketAddress(relay.address), SocketAddress(connected->address));
+    ASSERT_EQ(VPN_TLS_PROFILE_SAFARI, connected->tls_profile);
+    auto bytes = [](auto array) {
+        return std::vector<uint8_t>(array.data, array.data + array.size);
+    };
+    ASSERT_EQ(std::vector<uint8_t>({2, 2}), bytes(connected->additional_data));
+    ASSERT_EQ(std::vector<uint8_t>({3, 3}), bytes(connected->tls_client_random));
+    ASSERT_EQ(std::vector<uint8_t>({4, 4}), bytes(connected->tls_client_random_mask));
+    ASSERT_EQ(std::vector<uint8_t>({5, 5}), bytes(connected->tls_client_random_auth_key));
+    // The number of HTTP/2 sessions is the endpoint one, a relay does not replace it
+    ASSERT_EQ(5, this->vpn->client.upstream_config.main_protocol.http2.connections_num);
+
+    this->vpn->client.endpoint_upstream = std::make_unique<TestUpstream>();
+    raise_client_event(vpn_client::EVENT_CONNECTED);
     ASSERT_TRUE(wait_state(VPN_SS_CONNECTED));
     ASSERT_NO_FATAL_FAILURE(check_connect_result());
 }
@@ -438,6 +556,15 @@ TEST_F(ConnectedVpnManagerTest, NetworkLoss) {
     ASSERT_TRUE(wait_state(VPN_SS_WAITING_FOR_NETWORK));
 }
 
+// Check that a fatal client error in the connected state is reported in the state changed event
+TEST_F(ConnectedVpnManagerTest, FatalClientErrorIsReported) {
+    static VpnError error = {.code = VPN_EC_AUTH_REQUIRED, .text = "fatal"};
+    raise_client_event(vpn_client::EVENT_ERROR, &error);
+    ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
+    ASSERT_EQ(VPN_EC_AUTH_REQUIRED, vpn_error.code);
+    ASSERT_STREQ("fatal", vpn_error.text);
+}
+
 class AbandonEndpoint : public VpnManagerTest {
 protected:
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
@@ -540,4 +667,111 @@ TEST_F(AbandonEndpoint, AllOfFamily) {
 
     ASSERT_TRUE(wait_state(VPN_SS_DISCONNECTED));
     ASSERT_EQ(vpn_error.code, VPN_EC_LOCATION_UNAVAILABLE);
+}
+// Check that an event handler can call `vpn_get_event_loop()` while `vpn_listen()` is waiting for the loop
+TEST_F(ConnectedVpnManagerTest, HandlerCallsGetEventLoopWhileListen) {
+    std::mutex hook_guard;
+    std::condition_variable hook_cv;
+    bool handler_entered = false;
+    bool handler_proceed = false;
+    bool handler_finished = false;
+    std::atomic<bool> loop_seen{false};
+
+    {
+        std::scoped_lock l(this->guard);
+        this->handler_hook = [&](VpnEvent what) {
+            if (what != VPN_EVENT_ENDPOINT_CONNECTION_STATS) {
+                return;
+            }
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_entered = true;
+                hook_cv.notify_all();
+                hook_cv.wait(l, [&]() {
+                    return handler_proceed;
+                });
+            }
+
+            // `vpn_listen()` has released `stop_guard` while waiting; this call must not deadlock.
+            loop_seen.store(vpn_get_event_loop(this->vpn) != nullptr);
+
+            {
+                std::unique_lock l(hook_guard);
+                handler_finished = true;
+                hook_cv.notify_all();
+            }
+        };
+    }
+
+    vpn_request_endpoint_connection_stats(this->vpn);
+    {
+        std::unique_lock l(hook_guard);
+        bool entered = hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_entered;
+        });
+        if (!entered) {
+            // Release a handler that may enter later, then abort: CTest runs each test in its own process, and
+            // continuing with a handler that references the test frame would be unsafe.
+            handler_proceed = true;
+            hook_cv.notify_all();
+            l.unlock();
+            {
+                std::scoped_lock guard_lock(this->guard);
+                this->handler_hook = nullptr;
+            }
+            ADD_FAILURE() << "handler was not entered";
+            std::abort();
+        }
+    }
+
+    VpnSocksListenerConfig socks_config{};
+    VpnListener *listener = vpn_create_socks_listener(this->vpn, &socks_config);
+    ASSERT_NE(listener, nullptr);
+
+    VpnListenerConfig listener_config{};
+    VpnError listen_error{};
+    std::atomic<bool> listen_started{false};
+    std::thread listen_thread([&]() {
+        listen_started.store(true);
+        listen_error = vpn_listen(this->vpn, listener, &listener_config);
+    });
+
+    // Give the listen thread time to reach `dispatch_sync()` and release `stop_guard`.
+    while (!listen_started.load()) {
+        std::this_thread::sleep_for(milliseconds(1));
+    }
+    std::this_thread::sleep_for(milliseconds(50));
+
+    {
+        std::unique_lock l(hook_guard);
+        handler_proceed = true;
+        hook_cv.notify_all();
+    }
+
+    bool finished = false;
+    {
+        std::unique_lock l(hook_guard);
+        finished = hook_cv.wait_for(l, Secs(5), [&]() {
+            return handler_finished;
+        });
+    }
+    if (!finished) {
+        // The handler is deadlocked on `stop_guard` held by `vpn_listen()`. Abort instead of detaching a thread
+        // that captures the test frame by reference.
+        {
+            std::scoped_lock l(this->guard);
+            this->handler_hook = nullptr;
+        }
+        ADD_FAILURE() << "event handler deadlocked on the VPN lock held by vpn_listen()";
+        std::abort();
+    }
+
+    listen_thread.join();
+    {
+        std::scoped_lock l(this->guard);
+        this->handler_hook = nullptr;
+    }
+    EXPECT_TRUE(loop_seen.load());
+    EXPECT_EQ(listen_error.code, VPN_EC_NOERROR);
 }

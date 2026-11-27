@@ -62,6 +62,16 @@ struct VpnEndpoint {
     VpnUpstreamProtocol preferred_protocol;          // Protocol to use for the endpoint connection.
                                                      // @see `VpnUpstreamConfig.main_protocol` for full description.
     VpnTlsProfile tls_profile;                       // TLS ClientHello fingerprint profile for this endpoint.
+    /**
+     * Maximum number of parallel HTTP/2 sessions with this endpoint, also through a relay.
+     * The library opens a new session once every open session carries at least
+     * `VPN_HTTP2_SESSION_CONNECTIONS_THRESHOLD` connections. When the maximum number of sessions
+     * is reached, new connections go to the open session with the fewest connections.
+     * Not used for HTTP/3.
+     * If 0, `VPN_DEFAULT_HTTP2_SESSIONS_NUM` will be used.
+     * A value larger than `VPN_MAX_HTTP2_SESSIONS_NUM` is reduced to it.
+     */
+    uint32_t http2_sessions_num;
 };
 
 typedef AG_ARRAY_OF(VpnEndpoint) VpnEndpoints;
@@ -72,6 +82,8 @@ struct VpnRelay {
     AG_ARRAY_OF(uint8_t) tls_client_random;          // custom client random
     AG_ARRAY_OF(uint8_t) tls_client_random_mask;     // mask for custom client random
     AG_ARRAY_OF(uint8_t) tls_client_random_auth_key; // auth key for custom client random derivation
+    VpnTlsProfile tls_profile;                       // TLS ClientHello fingerprint profile for this relay.
+                                                     // Replaces the endpoint one when connecting through the relay.
 };
 
 typedef AG_ARRAY_OF(VpnRelay) VpnRelays;
@@ -266,6 +278,12 @@ void load_session_cache(const std::string &path);
  * Map the C-API `VpnTlsProfile` enum onto the shared `ag::tls::TlsClientProfile`.
  */
 ag::tls::TlsClientProfile to_tls_client_profile(VpnTlsProfile profile);
+
+/**
+ * Return the name of the TLS ClientHello profile that `make_ssl()` configured on the SSL object,
+ * e.g. "CHROME", or "unknown" if `make_ssl()` did not create the object.
+ */
+std::string_view ssl_get_tls_client_profile_name(const SSL *ssl);
 
 std::variant<SslPtr, std::string> make_ssl(int (*verification_callback)(X509_STORE_CTX *, void *), void *arg,
         ag::U8View alpn_protos, const char *sni, MakeSslProtocolType type, ag::U8View endpoint_data = ag::U8View{},

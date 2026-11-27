@@ -390,3 +390,51 @@ client_random_auth_key = "aabbccdd"
     ASSERT_NE(endpoint, nullptr);
     EXPECT_EQ((*endpoint)["client_random_auth_key"].value_or(std::string{}), "aabbccdd");
 }
+
+/// Build a configuration that `build_config` accepts: it needs a VPN mode, an endpoint and a listener.
+/// `endpoint_extra` is appended to the `[endpoint]` table.
+static std::optional<TrustTunnelConfig> build_full_config(std::string_view endpoint_extra) {
+    std::string config = std::string(R"(
+vpn_mode = "general"
+
+[endpoint]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
+username = "alice"
+password = "s3cr3t"
+upstream_protocol = "http2"
+)");
+    config.append(endpoint_extra).append(R"(
+[listener.socks]
+address = "127.0.0.1:1080"
+)");
+
+    toml::parse_result parsed = toml::parse(config);
+    EXPECT_TRUE(parsed) << "the test configuration must be valid TOML";
+    if (!parsed) {
+        return std::nullopt;
+    }
+    return TrustTunnelConfig::build_config(parsed.table());
+}
+
+TEST(TrustTunnelConfigParseTest, TlsProfileDefaultsToChrome) {
+    std::optional config = build_full_config("");
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(VPN_TLS_PROFILE_CHROME, config->location.tls_profile);
+}
+
+TEST(TrustTunnelConfigParseTest, BoringsslTlsProfileIsAccepted) {
+    std::optional config = build_full_config("tls_profile = \"boringssl\"\n");
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(VPN_TLS_PROFILE_BORINGSSL_DEFAULT, config->location.tls_profile);
+}
+
+TEST(TrustTunnelConfigParseTest, DeprecatedDefaultTlsProfileIsAcceptedAsBoringssl) {
+    std::optional config = build_full_config("tls_profile = \"default\"\n");
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(VPN_TLS_PROFILE_BORINGSSL_DEFAULT, config->location.tls_profile);
+}
+
+TEST(TrustTunnelConfigParseTest, UnknownTlsProfileIsRejected) {
+    EXPECT_FALSE(build_full_config("tls_profile = \"netscape\"\n").has_value());
+}

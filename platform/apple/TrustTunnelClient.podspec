@@ -21,8 +21,8 @@ Pod::Spec.new do |s|
   s.homepage     = "https://adguard.com"
   s.license      = { :type => "Apache", :file => "LICENSE" }
   s.authors      = { "AdGuard Dev Team" => "devteam@adguard.com" }
-  s.ios.deployment_target = '14.0'
-  s.osx.deployment_target = '10.15'
+  s.ios.deployment_target = '15.0'
+  s.osx.deployment_target = '12.0'
   s.source       = { :path => "." }
 
   s.vendored_frameworks = ["Framework/TrustTunnelClient.xcframework", "Framework/VpnClientFramework.xcframework"]

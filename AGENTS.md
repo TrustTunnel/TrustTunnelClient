@@ -11,7 +11,7 @@ See [README.md](README.md) for full product details and
 
 - **C++20** (primary), **C11** — core libraries
 - **Rust 1.95** — `trusttunnel/setup_wizard/`, `trusttunnel/settings/`,
-  `trusttunnel/deeplink-ffi/`
+  `trusttunnel/deeplink-ffi/`, `trusttunnel/client-ffi/`
 - **Kotlin** — Android platform adapter
 - **Swift / Objective-C** — Apple platform adapter
 - **Dart (Flutter)** — test app (`platform/testapp/`)
@@ -34,7 +34,7 @@ See [README.md](README.md) for full product details and
 | `core/` | Core VPN logic: tunnel, upstream connectors (HTTP/2, HTTP/3), DNS, SOCKS listener, TUN device |
 | `net/` | Network layer: HTTP sessions, TLS, QUIC, sockets, OS tunnel, DNS management, pinger |
 | `tcpip/` | TCP/IP stack: lwIP integration, TCP/UDP/ICMP raw handling, packet pool |
-| `trusttunnel/` | CLI client app, config parsing; contains Rust sub-crates: `deeplink-ffi/`, `settings/`, `setup_wizard/` |
+| `trusttunnel/` | CLI client app, config parsing; contains Rust sub-crates: `deeplink-ffi/`, `settings/`, `setup_wizard/` (wizard library), `client-ffi/` (C++ client FFI) |
 | `platform/android/` | Android adapter (Kotlin/Gradle) |
 | `platform/apple/` | Apple adapter (Swift/ObjC, CocoaPods, XCFramework) |
 | `platform/windows/` | Windows adapter (C++/CMake) |
@@ -79,10 +79,9 @@ CI run means the same configuration built locally.
 | `make reconfigure` | Force a fresh CMake configure, e.g. after changing `CMAKE_ARGS` |
 | `make build_libs` | Bootstrap Conan deps → CMake configure → build `vpnlibs_core` |
 | `make build_trusttunnel_client` | Build the CLI client binary (depends on `build_libs`) |
-| `make build_wizard` | Build the setup wizard binary |
 | `make build_macos_sysext_app` | macOS only: build the `--sysext` host app and stage it in `$(BUILD_DIR)/trusttunnel/` (requires Xcode, CocoaPods and `platform/apple/build_framework.sh`; not part of `make all`) |
-| `make build_and_export_bin` | Build binaries and copy to `$(EXPORT_DIR)` (default `bin/`) |
-| `make all` | Build all binaries (client + wizard); the default target |
+| `make build_and_export_bin` | Build the client binary and copy it to `$(EXPORT_DIR)` (default `bin/`) |
+| `make all` | Build the client binary; the default target |
 | `make test` | Run all tests (`test-cpp` + `test-rust`) |
 | `make test-cpp` | Build libs → build test targets → run `ctest` |
 | `make test-rust` | `cargo test` on the setup_wizard workspace |
@@ -118,7 +117,7 @@ make PRESET=musl-cross-mips-relwithdebinfo build_and_export_bin
 | `CMAKE_ARGS` | Extra `cmake` flags, e.g. `-DIPV6_UNAVAILABLE=ON` |
 | `CTEST_ARGS` | Extra `ctest` flags, e.g. `-R <regex>` |
 | `ARCH` | macOS architecture(s), e.g. `arm64` or `'arm64;x86_64'` |
-| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `10.15` |
+| `MACOS_DEPLOYMENT_TARGET` | Minimum macOS version, default `12.0` |
 | `SKIP_BOOTSTRAP` | `1` skips the Conan bootstrap (CI does its own) |
 | `SKIP_VENV` | `1` uses the tools on `PATH` instead of a local venv |
 
@@ -193,7 +192,10 @@ and `vpn-cli`):
       `WARN` for recoverable issues, and `ERROR` for critical (unrecoverable) errors
     - Very frequent events (e.g. every packet) should be logged at `DEBUG` level, while important state changes (e.g. connection established, error occurred) should be at `INFO` or higher
     - Include relevant context in log messages (e.g. connection ID, error code)
-    - Avoid logging sensitive information (e.g. IP addresses, payload data)
+    - Avoid logging sensitive information (e.g. IP addresses, payload data).
+      Exception: socket and connection debug logs can show the peer address in
+      the `id=N/<peer>` form, which the socket log prefix already uses, so that
+      the messages of one connection can be found by one search
 
 ### Integration tests
 
@@ -213,7 +215,7 @@ The `.devcontainer/` directory provides a Docker-based remote debugging setup
 - **Image**: Ubuntu 24.04 with clang, cmake, ninja, rust, conan, lldb
 - **Purpose**: Remote LLDB debugging, especially for Linux debugging from macOS
 - **Start**: `docker-compose -f .devcontainer/docker-compose.yml up -d --build`
-- **Build inside**: `docker-compose -f .devcontainer/docker-compose.yml exec trusttunnel-debug bash -c "cd /workspace && SKIP_VENV=1 BUILD_TYPE=debug make build_trusttunnel_client build_wizard"`
+- **Build inside**: `docker-compose -f .devcontainer/docker-compose.yml exec trusttunnel-debug bash -c "cd /workspace && SKIP_VENV=1 BUILD_TYPE=debug make build_trusttunnel_client"`
 - **Debug**: Connect to `lldb-server` on port 12345
 
 See [DEVELOPMENT.md](DEVELOPMENT.md#debugging-in-docker) for full instructions.

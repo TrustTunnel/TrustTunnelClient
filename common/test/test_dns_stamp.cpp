@@ -13,7 +13,9 @@ TEST(VpnDnsStampTest, DnsStampManipulationWorks) {
     vpn_string_free(error);
 
     error = nullptr;
-    const char *doh_str = "sdns://AgMAAAAAAAAADDk0LjE0MC4xNC4xNITK_rq-BN6tvu8PZG5zLmFkZ3VhcmQuY29tCi9kbnMtcXVlcnk";
+    // The certificate hashes must be SHA-256 digests (32 bytes): "cafebabe" and "deadbeef", 8 times each.
+    const char *doh_str = "sdns://AgMAAAAAAAAADDk0LjE0MC4xNC4xNKDK_rq-yv66vsr-ur7K_rq-yv66vsr-ur7K_rq-yv66viDerb7v3q2-"
+                          "796tvu_erb7v3q2-796tvu_erb7v3q2-7w9kbnMuYWRndWFyZC5jb20KL2Rucy1xdWVyeQ";
     stamp = vpn_dns_stamp_from_str(doh_str, &error);
     ASSERT_TRUE(stamp);
     ASSERT_FALSE(error);
